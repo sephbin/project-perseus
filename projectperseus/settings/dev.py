@@ -7,7 +7,7 @@ DEBUG = True
 
 # optionally override any of these settings with an env.py file
 try:
-    from .env import *
+    from .local import *
 except ModuleNotFoundError as e:
-    if e.name != 'projectperseus.settings.env':
+    if e.name != 'projectperseus.settings.local':
         raise
