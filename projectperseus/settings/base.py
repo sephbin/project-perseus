@@ -83,9 +83,13 @@ WSGI_APPLICATION = 'projectperseus.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('RDS_DB_NAME', 'projectperseus'),
+        'USER': os.getenv('RDS_USERNAME', 'projectperseus'),
+        'PASSWORD': os.getenv('RDS_PASSWORD', 'projectperseus'),
+        'HOST': os.getenv('RDS_HOSTNAME', '127.0.0.1'),
+        'PORT': os.getenv('RDS_PORT', '5432'),
+    },
 }
 
 
@@ -113,7 +117,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-au'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Australia/Sydney'
 
 USE_I18N = True
 
@@ -124,6 +128,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = 'static'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
