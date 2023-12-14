@@ -58,18 +58,7 @@ namespace ProjectPerseus
         private void SubmitElementListToApi(List<Element> eles)
         {
             var jsonString = Utl.SerializeToString(eles, null);
-            var result = Post(config.ElementsEndpoint, jsonString);
-        }
-
-        private void SubmitElementUpdateToApi(Element element)
-        {
-            var jsonString = Utl.SerializeToString(element, null);
-            var result = Put($"{config.ElementsEndpoint}{element.id}/", jsonString);
-        }
-
-        private string Put(string endpoint, string json)
-        {
-            return DeliverToApiEndpoint(endpoint, json, "PUT");
+            Post(config.ElementsEndpoint, jsonString);
         }
 
         private string Post(string endpoint, string json)
@@ -109,67 +98,6 @@ namespace ProjectPerseus
                 $"{workingDirectory}/elements.json",
                 null);
         }
-
-        private class Category
-        {
-            public int Id { get; } // todo: this can change apparently
-
-            public string Name { get; }
-
-            public ARDB.CategoryType CategoryType { get; }
-
-            public bool IsTagCategory { get; }
-
-            public bool IsSubcategory { get; }
-
-            public bool CanAddSubcategory { get; }
-
-            public bool AllowsBoundParameters { get; }
-
-            public bool HasMaterialQuantities { get; }
-
-            public bool IsCuttable { get; }
-
-            public List<Element> Elements { get; }
-
-            private Category(int id,
-                string name,
-                CategoryType categoryType,
-                bool isTagCategory,
-                bool isSubcategory,
-                bool canAddSubcategory,
-                bool allowsBoundParameters,
-                bool hasMaterialQuantities,
-                bool isCuttable,
-                List<Element> elements)
-            {
-                Id = id;
-                Name = name;
-                CategoryType = categoryType;
-                IsTagCategory = isTagCategory;
-                IsSubcategory = isSubcategory;
-                CanAddSubcategory = canAddSubcategory;
-                AllowsBoundParameters = allowsBoundParameters;
-                HasMaterialQuantities = hasMaterialQuantities;
-                IsCuttable = isCuttable;
-                Elements = elements;
-            }
-
-            public Category(ARDB.Category category, List<Element> elements) : this(
-                category.Id.IntegerValue,
-                category.Name,
-                category.CategoryType,
-                category.IsTagCategory,
-                category.Parent is object,
-                category.CanAddSubcategory,
-                category.AllowsBoundParameters,
-                category.HasMaterialQuantities,
-                category.IsCuttable,
-                elements)
-            {
-            }
-        }
-
 
         private class Element
         {

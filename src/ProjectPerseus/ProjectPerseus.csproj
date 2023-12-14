@@ -70,9 +70,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CategoryDataExtractor.cs" />
     <Compile Include="Config.cs" />
-    <Compile Include="ElementDataExtractor.cs" />
     <Compile Include="ProjectPerseusApp.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Utl.cs" />
