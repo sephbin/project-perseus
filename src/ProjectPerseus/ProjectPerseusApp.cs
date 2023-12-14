@@ -20,6 +20,9 @@ namespace ProjectPerseus
     {
         private const string ELEMENTS_ENDPOINT = "https://projectperseus.lladdy.com/rapi/elements/";
         private static readonly HttpClient client = new HttpClient();
+
+        private Config config = Config.Load("./config.json");
+
         public Result OnStartup(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
@@ -74,13 +77,13 @@ namespace ProjectPerseus
         private void SubmitElementListToApi(List<Element> eles)
         {
             var jsonString = Utl.SerializeToString(eles, null);
-            var result = Post(ELEMENTS_ENDPOINT, jsonString);
+            var result = Post(config.ElementsEndpoint, jsonString);
         }
 
         private void SubmitElementUpdateToApi(Element element)
         {
             var jsonString = Utl.SerializeToString(element, null);
-            var result = Put($"{ELEMENTS_ENDPOINT}{element.id}/", jsonString);
+            var result = Put($"{config.ElementsEndpoint}{element.id}/", jsonString);
         }
 
         private string Put(string endpoint, string json)
@@ -98,7 +101,7 @@ namespace ProjectPerseus
             var httpWebRequest = (HttpWebRequest)WebRequest.Create(endpoint);
             httpWebRequest.ContentType = "application/json";
             httpWebRequest.Method = method;
-            httpWebRequest.Headers["Authorization"] = "Token 981f2067084e45a73f95783db7ad9bcddd967326";
+            httpWebRequest.Headers["Authorization"] = $"Token {config.ApiToken}";
 
             using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
             {
