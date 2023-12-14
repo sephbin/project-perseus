@@ -23,40 +23,8 @@ namespace ProjectPerseus
         public Result OnStartup(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
-            application.ControlledApplication.DocumentChanged += ControlledApplication_DocumentChanged;
             return Result.Succeeded;
         }
-
-        private void ControlledApplication_DocumentChanged(object sender, ARDB.Events.DocumentChangedEventArgs e)
-        {
-
-            try
-            {
-                var modifiedElementIds = e.GetModifiedElementIds();
-                foreach (var elementId in modifiedElementIds)
-                {
-                    var ele = e.GetDocument().GetElement(elementId);
-                    var id = ele.Id;
-                    var name = ele.Name;
-                    var comment = "";
-                    try
-                    {
-                        comment = ele.ParametersMap.get_Item("Comments").AsString();
-                    }
-                    catch (Exception ex) { }
-
-                    var element = new Element(id.IntegerValue, name, comment);
-                    // todo: only post when something we care about changed
-                    SubmitElementUpdateToApi(element);
-                }
-            }
-            catch (Exception ex)
-            {
-                TaskDialog.Show("ERROR", e.ToString());
-            }
-
-            // todo: process added and deleted elements
-}
 
         private void OnDocumentSynchronizedWithCentral(object sender, Autodesk.Revit.DB.Events.DocumentSynchronizedWithCentralEventArgs e)
         {
