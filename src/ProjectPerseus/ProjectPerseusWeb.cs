@@ -22,7 +22,7 @@ namespace ProjectPerseus
             WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
         }
 
-        private class WebHelper
+        private static class WebHelper
         {
             public static string Post(string endpoint, string apiToken, string json)
             {
