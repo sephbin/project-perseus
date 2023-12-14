@@ -1,5 +1,4 @@
 ﻿using System;
-using System.IO;
 using System.Net.Http;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.UI;
