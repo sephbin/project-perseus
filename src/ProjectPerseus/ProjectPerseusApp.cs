@@ -21,10 +21,15 @@ namespace ProjectPerseus
         public Result OnStartup(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
+            application.ControlledApplication.DocumentOpened += OnDocumentOpened;
 
             web = new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken);
 
             return Result.Succeeded;
+        }
+
+        private void OnDocumentOpened(object sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs e)
+        {
         }
 
         private void OnDocumentSynchronizedWithCentral(object sender,
@@ -44,6 +49,7 @@ namespace ProjectPerseus
         public Result OnShutdown(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
+            application.ControlledApplication.DocumentOpened -= OnDocumentOpened;
             return Result.Succeeded;
         }
     }
