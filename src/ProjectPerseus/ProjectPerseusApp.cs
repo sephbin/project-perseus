@@ -32,8 +32,6 @@ namespace ProjectPerseus
                 var elements = new ElementExtractor(e.Document).ExtractElements();
                 
                 SubmitElementListToApi(elements);
-
-                // ToJsonFile(eles);
             }
             catch (Exception ex)
             {
@@ -75,14 +73,6 @@ namespace ProjectPerseus
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             return Result.Succeeded;
-        }
-
-        private static void ToJsonFile(object o)
-        {
-            var workingDirectory = Directory.GetCurrentDirectory();
-            Utl.PrettyWriteJson(o,
-                $"{workingDirectory}/elements.json",
-                null);
         }
     }
 }
