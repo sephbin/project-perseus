@@ -16,7 +16,7 @@ namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
     [Regeneration(RegenerationOption.Manual)]
-    public class OnSyncEvent : IExternalApplication
+    public class ProjectPerseusApp: IExternalApplication
     {
         private const string ELEMENTS_ENDPOINT = "https://projectperseus.lladdy.com/rapi/elements/";
         private static readonly HttpClient client = new HttpClient();
