@@ -14,8 +14,6 @@ namespace ProjectPerseus
     {
         private static readonly HttpClient client = new HttpClient();
 
-        private Config _config = Config.Load($"{Directory.GetCurrentDirectory()}/config.json");
-
         private ProjectPerseusWeb web;
 
         public Result OnStartup(UIControlledApplication application)
@@ -23,7 +21,7 @@ namespace ProjectPerseus
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.DocumentOpened += OnDocumentOpened;
 
-            web = new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken);
+            web = new ProjectPerseusWeb(Config.BaseUrl, Config.ApiToken);
 
             return Result.Succeeded;
         }

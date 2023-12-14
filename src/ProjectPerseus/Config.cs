@@ -1,25 +1,24 @@
-﻿using System.IO;
-using Newtonsoft.Json;
-
-namespace ProjectPerseus
+﻿namespace ProjectPerseus
 {
-    public class Config
+    public static class Config
     {
-        public string ApiToken { get; set; }
-        public string BaseUrl { get; set; }
-
-        public static Config Load(string configPath)
+        public static string ApiToken
         {
-            if (!File.Exists(configPath)) throw new FileNotFoundException("Config file not found");
-            var jsonString = File.ReadAllText(configPath);
-            var config = JsonConvert.DeserializeObject<Config>(jsonString);
-            return config;
+            get => Properties.Settings.Default.ApiToken;
+            set
+            {
+                Properties.Settings.Default.ApiToken = value;
+                Properties.Settings.Default.Save();
+            }
         }
-        
-        public void Save(string fileName)
-        {
-            var jsonString = JsonConvert.SerializeObject(this, Formatting.Indented);
-            File.WriteAllText(fileName, jsonString);
+
+        public static string BaseUrl { 
+            get => Properties.Settings.Default.BaseUrl;
+            set
+            {
+                Properties.Settings.Default.BaseUrl = value;
+                Properties.Settings.Default.Save();
+            }
         }
     }
 }
