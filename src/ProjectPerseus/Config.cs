@@ -8,8 +8,6 @@ namespace ProjectPerseus
         public string ApiToken { get; set; }
         public string BaseUrl { get; set; }
 
-        public string ElementsEndpoint => $"{BaseUrl}/rapi/elements/";
-
         public static Config Load(string configPath)
         {
             if (!File.Exists(configPath)) throw new FileNotFoundException("Config file not found");

@@ -1,7 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.UI;
@@ -16,11 +14,16 @@ namespace ProjectPerseus
     {
         private static readonly HttpClient client = new HttpClient();
 
-        private Config config = Config.Load($"{Directory.GetCurrentDirectory()}/config.json");
+        private Config _config = Config.Load($"{Directory.GetCurrentDirectory()}/config.json");
+
+        private ProjectPerseusWeb web;
 
         public Result OnStartup(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
+
+            web = new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken);
+
             return Result.Succeeded;
         }
 
@@ -30,42 +33,11 @@ namespace ProjectPerseus
             try
             {
                 var elements = new ElementExtractor(e.Document).ExtractElements();
-                
-                SubmitElementListToApi(elements);
+                web.UploadElements(elements);
             }
             catch (Exception ex)
             {
                 TaskDialog.Show("ERROR", ex.ToString());
-            }
-        }
-
-        private void SubmitElementListToApi(List<models.Element> eles)
-        {
-            var jsonString = Utl.SerializeToString(eles, null);
-            Post(config.ElementsEndpoint, jsonString);
-        }
-
-        private string Post(string endpoint, string json)
-        {
-            return DeliverToApiEndpoint(endpoint, json, "POST");
-        }
-
-        private string DeliverToApiEndpoint(string endpoint, string json, string method)
-        {
-            var httpWebRequest = (HttpWebRequest)WebRequest.Create(endpoint);
-            httpWebRequest.ContentType = "application/json";
-            httpWebRequest.Method = method;
-            httpWebRequest.Headers["Authorization"] = $"Token {config.ApiToken}";
-
-            using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
-            {
-                streamWriter.Write(json);
-            }
-
-            var httpResponse = (HttpWebResponse)httpWebRequest.GetResponse();
-            using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
-            {
-                return streamReader.ReadToEnd();
             }
         }
 

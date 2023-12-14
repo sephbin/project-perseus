@@ -76,6 +76,7 @@
     <Compile Include="ProjectPerseusApp.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Utl.cs" />
+    <Compile Include="ProjectPerseusWeb.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
