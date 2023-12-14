@@ -12,12 +12,13 @@ using Newtonsoft.Json;
 using ARDB = Autodesk.Revit.DB;
 
 
-namespace RevitSyncPlugin
+namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
     [Regeneration(RegenerationOption.Manual)]
     public class OnSyncTest : IExternalApplication
     {
+        private const string ELEMENTS_ENDPOINT = "https://projectperseus.lladdy.com/rapi/elements/";
         private static readonly HttpClient client = new HttpClient();
         public Result OnStartup(UIControlledApplication application)
         {
@@ -105,13 +106,13 @@ namespace RevitSyncPlugin
         private void SubmitElementListToApi(List<Element> eles)
         {
             var jsonString = Utl.SerializeToString(eles, null);
-            var result = Post("http://127.0.0.1:8000/elements/", jsonString);
+            var result = Post(ELEMENTS_ENDPOINT, jsonString);
         }
 
         private void SubmitElementUpdateToApi(Element element)
         {
             var jsonString = Utl.SerializeToString(element, null);
-            var result = Put($"http://127.0.0.1:8000/elements/{element.id}/", jsonString);
+            var result = Put($"{ELEMENTS_ENDPOINT}{element.id}/", jsonString);
         }
 
         private string Put(string endpoint, string json)
@@ -129,6 +130,7 @@ namespace RevitSyncPlugin
             var httpWebRequest = (HttpWebRequest)WebRequest.Create(endpoint);
             httpWebRequest.ContentType = "application/json";
             httpWebRequest.Method = method;
+            httpWebRequest.Headers["Authorization"] = "Token 981f2067084e45a73f95783db7ad9bcddd967326";
 
             using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
             {

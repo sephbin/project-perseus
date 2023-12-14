@@ -7,8 +7,8 @@
     <ProjectGuid>{CB7CAFCE-D0D2-4D04-ACE3-668AE5954AED}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>RevitSyncPlugin</RootNamespace>
-    <AssemblyName>RevitSyncPlugin</AssemblyName>
+    <RootNamespace>ProjectPerseus</RootNamespace>
+    <AssemblyName>ProjectPerseus</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>

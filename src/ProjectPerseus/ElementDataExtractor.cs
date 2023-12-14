@@ -2,7 +2,7 @@
 using System.Linq;
 using ARDB = Autodesk.Revit.DB;
 
-namespace RevitSyncPlugin
+namespace ProjectPerseus
 {
     public class ElementDataExtractor
     {
