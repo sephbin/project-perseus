@@ -4,7 +4,6 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using Autodesk.Revit.Attributes;
-using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using ARDB = Autodesk.Revit.DB;
 
@@ -30,20 +29,8 @@ namespace ProjectPerseus
         {
             try
             {
-                var doc = e.Document;
-                var elements = new List<models.Element>();
-
-                // Create a filtered element collector to get all elements in the document
-                FilteredElementCollector collector = new FilteredElementCollector(doc);
-
-                // Use the WhereElementIsNotElementType filter to exclude element types
-                var allElements = collector.WhereElementIsNotElementType().ToElements();
-
-                foreach (var element in allElements)
-                {
-                    elements.Add(models.Element.FromARDBElement(element));
-                }
-
+                var elements = new ElementExtractor(e.Document).ExtractElements();
+                
                 SubmitElementListToApi(elements);
 
                 // ToJsonFile(eles);
