@@ -37,7 +37,7 @@ namespace ProjectPerseus
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("ERROR", ex.ToString());
+                Log.Error(ex.ToString());
             }
         }
 

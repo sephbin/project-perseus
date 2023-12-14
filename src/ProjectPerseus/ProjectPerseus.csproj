@@ -72,6 +72,7 @@
   <ItemGroup>
     <Compile Include="Config.cs" />
     <Compile Include="ElementExtractor.cs" />
+    <Compile Include="Log.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="ProjectPerseusApp.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
