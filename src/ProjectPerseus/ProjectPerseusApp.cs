@@ -4,11 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Xml.Linq;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Newtonsoft.Json;
 using ARDB = Autodesk.Revit.DB;
 
 
@@ -16,11 +14,11 @@ namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
     [Regeneration(RegenerationOption.Manual)]
-    public class ProjectPerseusApp: IExternalApplication
+    public class ProjectPerseusApp : IExternalApplication
     {
         private static readonly HttpClient client = new HttpClient();
 
-        private Config config = Config.Load("./config.json");
+        private Config config = Config.Load($"{Directory.GetCurrentDirectory()}/config.json");
 
         public Result OnStartup(UIControlledApplication application)
         {
@@ -28,49 +26,33 @@ namespace ProjectPerseus
             return Result.Succeeded;
         }
 
-        private void OnDocumentSynchronizedWithCentral(object sender, Autodesk.Revit.DB.Events.DocumentSynchronizedWithCentralEventArgs e)
+        private void OnDocumentSynchronizedWithCentral(object sender,
+            Autodesk.Revit.DB.Events.DocumentSynchronizedWithCentralEventArgs e)
         {
             try
             {
-                ARDB.Document doc = e.Document;
-
-                var categoryDataExtractor = new CategoryDataExtractor(doc);
-                var categories = categoryDataExtractor.Extract();
-
-                var elementDataExtractor = new ElementDataExtractor(doc);
-                // var categorisedElements = new List<Category>();
+                var doc = e.Document;
                 var eles = new List<Element>();
-                foreach (var category in categories)
-                {
-                    eles.AddRange(elementDataExtractor.Extract(category).Select(
-                        ele =>
-                        {
-                            var id = ele.Id;
-                            var name = ele.Name;
-                            var comment = "";
-                            try
-                            {
-                                comment = ele.ParametersMap.get_Item("Comments").AsString();
-                            }
-                            catch (Exception ex)
-                            {
-                            }
 
-                            return new Element(id.IntegerValue, name, comment);
-                        }
-                    ).ToList());
-                    // categorisedElements.Add(new Category(category, eles));
+                // Create a filtered element collector to get all elements in the document
+                FilteredElementCollector collector = new FilteredElementCollector(doc);
+
+                // Use the WhereElementIsNotElementType filter to exclude element types
+                var allElements = collector.WhereElementIsNotElementType().ToElements();
+
+                foreach (var element in allElements)
+                {
+                    eles.Add(Element.FromARDBElement(element));
                 }
 
                 SubmitElementListToApi(eles);
 
-                // ToJsonFile(categorisedElements);
+                // ToJsonFile(eles);
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("ERROR", e.ToString());
+                TaskDialog.Show("ERROR", ex.ToString());
             }
-
         }
 
         private void SubmitElementListToApi(List<Element> eles)
@@ -104,7 +86,6 @@ namespace ProjectPerseus
 
             using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
             {
-
                 streamWriter.Write(json);
             }
 
@@ -123,7 +104,10 @@ namespace ProjectPerseus
 
         private static void ToJsonFile(object o)
         {
-            Utl.PrettyWriteJson(o, "C:\\Users\\lladdy\\Desktop\\A WEBSERVER\\elements.json", null);
+            var workingDirectory = Directory.GetCurrentDirectory();
+            Utl.PrettyWriteJson(o,
+                $"{workingDirectory}/elements.json",
+                null);
         }
 
         private class Category
@@ -145,12 +129,12 @@ namespace ProjectPerseus
             public bool HasMaterialQuantities { get; }
 
             public bool IsCuttable { get; }
-            
+
             public List<Element> Elements { get; }
 
             private Category(int id,
                 string name,
-                ARDB.CategoryType categoryType,
+                CategoryType categoryType,
                 bool isTagCategory,
                 bool isSubcategory,
                 bool canAddSubcategory,
@@ -194,7 +178,7 @@ namespace ProjectPerseus
             public string name { get; }
             public string comments { get; }
 
-            public Element(int id,
+            private Element(int id,
                 string name,
                 string comments)
             {
@@ -203,12 +187,30 @@ namespace ProjectPerseus
                 this.comments = comments;
             }
 
-            // public Element(ARDB.Element element) : this(
-            //     element.Id.IntegerValue,
-            //     element.Name,
-            //     element.ParametersMap.get_Item("Comments").AsString())
-            // {
-            // }
+            private const string CommentsParameterKey = "Comments";
+
+            public static Element FromARDBElement(ARDB.Element element)
+            {
+                if (element is null) throw new ArgumentNullException(nameof(element));
+                if (element.Id is null) throw new ArgumentNullException(nameof(element.Id));
+                if (element.Name is null) throw new ArgumentNullException(nameof(element.Name));
+                String comments = null;
+                try
+                {
+                    // if anything goes wrong here, swallow it and just don't set the comments
+                    // if (element.ParametersMap is null) throw new ArgumentNullException(nameof(element.ParametersMap));
+                    if (element.ParametersMap.Contains(CommentsParameterKey))
+                        comments = element.ParametersMap.get_Item(CommentsParameterKey).AsString();
+                }
+                catch (Exception ex)
+                {
+                }
+
+                return new Element(
+                    element.Id.IntegerValue, // todo: use unique ID
+                    element.Name,
+                    comments);
+            }
         }
     }
 }
