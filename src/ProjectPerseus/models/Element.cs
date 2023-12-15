@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using ARDB = Autodesk.Revit.DB;
 
 namespace ProjectPerseus.models
@@ -7,46 +8,67 @@ namespace ProjectPerseus.models
     {
         public int id { get; }
         public string uniqueId { get; }
-
         public string name { get; }
-        public string comments { get; }
+        public List<ParameterBase> parameters { get; }
 
-        private Element(int id,
-            string uniqueId,
-            string name,
-            string comments)
+        private Element(int id, string uniqueId, string name, List<ParameterBase> parameters)
         {
             this.id = id;
             this.uniqueId = uniqueId;
             this.name = name;
-            this.comments = comments;
+            this.parameters = parameters;
         }
-
-        private const string CommentsParameterKey = "Comments";
 
         public static Element FromARDBElement(ARDB.Element element)
         {
             if (element is null) throw new ArgumentNullException(nameof(element));
-            if (element.Id is null) throw new ArgumentNullException(nameof(element.Id));
-            if (element.UniqueId is null) throw new ArgumentNullException(nameof(element.UniqueId));
-            if (element.Name is null) throw new ArgumentNullException(nameof(element.Name));
-            String comments = null;
-            try
+            var parameters = new List<ParameterBase>();
+            foreach (ARDB.Parameter param in element.ParametersMap)
             {
-                // if anything goes wrong here, swallow it and just don't set the comments
-                // if (element.ParametersMap is null) throw new ArgumentNullException(nameof(element.ParametersMap));
-                if (element.ParametersMap.Contains(CommentsParameterKey))
-                    comments = element.ParametersMap.get_Item(CommentsParameterKey).AsString();
-            }
-            catch (Exception ex)
-            {
+                parameters.Add(ParameterBase.FromARDBParameter(param));
             }
 
-            return new Element(
-                element.Id.IntegerValue,
-                element.UniqueId,
-                element.Name,
-                comments);
+            return new Element(element.Id.IntegerValue, element.UniqueId, element.Name, parameters);
+        }
+    }
+
+    public class ParameterBase
+    {
+        public string name { get; protected set; }
+        public object value { get; protected set; }
+        public string valueType { get; protected set; }
+
+        public static ParameterBase FromARDBParameter(ARDB.Parameter parameter)
+        {
+            if (parameter is null) throw new ArgumentNullException(nameof(parameter));
+            var name = parameter.Definition.Name;
+            var valueType = parameter.StorageType.ToString();
+            switch (parameter.StorageType)
+            {
+                case ARDB.StorageType.Double:
+                    return new Parameter<double>(name, parameter.AsDouble(), valueType);
+                case ARDB.StorageType.ElementId:
+                    return new Parameter<int>(name, parameter.AsElementId().IntegerValue, valueType);
+                case ARDB.StorageType.Integer:
+                    return new Parameter<int>(name, parameter.AsInteger(), valueType);
+                case ARDB.StorageType.String:
+                    return new Parameter<string>(name, parameter.AsString(), valueType);
+                case ARDB.StorageType.None:
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
+    }
+
+    public class Parameter<T> : ParameterBase
+    {
+        public new T value { get; private set; }
+
+        public Parameter(string name, T value, string valueType)
+        {
+            this.name = name;
+            this.value = value;
+            this.valueType = valueType;
         }
     }
 }
