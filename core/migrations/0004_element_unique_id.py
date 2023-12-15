@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='element',
             name='unique_id',
-            field=models.UUIDField(default='fake-id', unique=True),
+            field=models.UUIDField(unique=True),
             preserve_default=False,
         ),
     ]
