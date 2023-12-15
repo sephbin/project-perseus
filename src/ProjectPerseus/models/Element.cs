@@ -5,16 +5,19 @@ namespace ProjectPerseus.models
 {
     public class Element
     {
-        public int id { get; } // todo: this can change apparently - use UniqueId  instead
+        public int id { get; }
+        public string uniqueId { get; }
 
         public string name { get; }
         public string comments { get; }
 
         private Element(int id,
+            string uniqueId,
             string name,
             string comments)
         {
             this.id = id;
+            this.uniqueId = uniqueId;
             this.name = name;
             this.comments = comments;
         }
@@ -25,6 +28,7 @@ namespace ProjectPerseus.models
         {
             if (element is null) throw new ArgumentNullException(nameof(element));
             if (element.Id is null) throw new ArgumentNullException(nameof(element.Id));
+            if (element.UniqueId is null) throw new ArgumentNullException(nameof(element.UniqueId));
             if (element.Name is null) throw new ArgumentNullException(nameof(element.Name));
             String comments = null;
             try
@@ -39,7 +43,8 @@ namespace ProjectPerseus.models
             }
 
             return new Element(
-                element.Id.IntegerValue, // todo: use unique ID
+                element.Id.IntegerValue,
+                element.UniqueId,
                 element.Name,
                 comments);
         }
