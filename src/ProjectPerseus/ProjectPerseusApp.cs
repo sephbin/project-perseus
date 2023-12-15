@@ -40,7 +40,7 @@ namespace ProjectPerseus
             ribbonPanel.AddItem(buttonData);
         }
 
-        private void OnDocumentOpened(object sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs e)
+        private void OnDocumentOpened(object sender, DocumentOpenedEventArgs e)
         {
         }
 
