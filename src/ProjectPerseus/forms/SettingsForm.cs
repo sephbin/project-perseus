@@ -19,7 +19,8 @@ namespace ProjectPerseus
 
         private void Settings_Load(object sender, EventArgs e)
         {
-
+            syncUrltextBox.Text = Config.Instance.BaseUrl;
+            apiTokenTextBox.Text = Config.Instance.ApiToken;
         }
 
         private void cancelButton_Click(object sender, EventArgs e)
@@ -29,7 +30,8 @@ namespace ProjectPerseus
 
         private void saveButton_Click(object sender, EventArgs e)
         {
-
+            Config.Instance.BaseUrl = syncUrltextBox.Text;
+            Config.Instance.ApiToken = apiTokenTextBox.Text;
         }
     }
 }
