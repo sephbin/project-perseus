@@ -2,8 +2,8 @@
 
 ## Project Structure
 
-`core` - Core app. Contains the core application logic/functionality of the project.  
-`projectperseus` - Base Django project/settings/etc. No functionality.  
+`core` - Core app. Contains the core application logic of the project.  
+`projectperseus` - Base Django project/settings/etc. No application logic.  
 `static` - Static files. Folder should remain empty in version control by way of the included .gitignore file.  
 `web_api` - Web API relvant code. Contains only the web API functionality. Views, serializers, etc - no application logic.
 
