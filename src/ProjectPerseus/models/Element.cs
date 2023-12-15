@@ -1,59 +1,65 @@
 ﻿using System;
 using System.Collections.Generic;
+using ProjectPerseus.models.interfaces;
 using ARDB = Autodesk.Revit.DB;
 
 namespace ProjectPerseus.models
 {
     public class Element
     {
-        public int id { get; }
-        public string uniqueId { get; }
-        public string name { get; }
-        public List<ParameterBase> parameters { get; }
+        private readonly IArdbElement _element;
 
-        private Element(int id, string uniqueId, string name, List<ParameterBase> parameters)
+        public Element(IArdbElement element)
         {
-            this.id = id;
-            this.uniqueId = uniqueId;
-            this.name = name;
-            this.parameters = parameters;
+            _element = element ?? throw new ArgumentNullException(nameof(element));
         }
 
-        public static Element FromARDBElement(ARDB.Element element)
+        public int Id => _element.Id.IntegerValue;
+        public string UniqueId => _element.UniqueId;
+        public string Name => _element.Name;
+        public List<IParameter> Parameters => GetParameters();
+
+        private List<IParameter> GetParameters()
         {
-            if (element is null) throw new ArgumentNullException(nameof(element));
-            var parameters = new List<ParameterBase>();
-            foreach (ARDB.Parameter param in element.ParametersMap)
+            var parameters = new List<IParameter>();
+            foreach (var param in _element.ParametersSet)
             {
-                parameters.Add(ParameterBase.FromARDBParameter(param));
+                parameters.Add(ParameterBase.FromArdbParameter(param));
             }
 
-            return new Element(element.Id.IntegerValue, element.UniqueId, element.Name, parameters);
+            return parameters;
         }
     }
 
-    public class ParameterBase
+    public interface IParameter
     {
-        public string name { get; protected set; }
-        public object value { get; protected set; }
-        public string valueType { get; protected set; }
+        string Name { get; }
+        object Value { get; }
+        string ValueType { get; }
+    }
 
-        public static ParameterBase FromARDBParameter(ARDB.Parameter parameter)
+    public class ParameterBase : IParameter
+    {
+        public string Name { get; protected set; }
+        public object Value { get; protected set; }
+        public string ValueType { get; protected set; }
+
+        public static ParameterBase FromArdbParameter(IArdbParameter parameter)
         {
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
             var name = parameter.Definition.Name;
             var valueType = parameter.StorageType.ToString();
             switch (parameter.StorageType)
             {
-                case ARDB.StorageType.Double:
+                case StorageType.Double:
                     return new Parameter<double>(name, parameter.AsDouble(), valueType);
-                case ARDB.StorageType.ElementId:
+                case StorageType.ElementId:
                     return new Parameter<int>(name, parameter.AsElementId().IntegerValue, valueType);
-                case ARDB.StorageType.Integer:
+                case StorageType.Integer:
                     return new Parameter<int>(name, parameter.AsInteger(), valueType);
-                case ARDB.StorageType.String:
+                case StorageType.String:
                     return new Parameter<string>(name, parameter.AsString(), valueType);
-                case ARDB.StorageType.None:
+                case StorageType.None:
                 default:
                     throw new ArgumentOutOfRangeException();
             }
@@ -62,13 +68,11 @@ namespace ProjectPerseus.models
 
     public class Parameter<T> : ParameterBase
     {
-        public new T value { get; private set; }
-
         public Parameter(string name, T value, string valueType)
         {
-            this.name = name;
-            this.value = value;
-            this.valueType = valueType;
+            Name = name;
+            Value = value;
+            ValueType = valueType;
         }
     }
 }

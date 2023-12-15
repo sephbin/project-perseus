@@ -1,0 +1,22 @@
+﻿using System.Collections.Generic;
+using Autodesk.Revit.DB;
+using Element = ProjectPerseus.models.Element;
+
+namespace ProjectPerseus.revit
+{
+    public class RevitFacade
+    {
+        private Document _doc;
+
+        public RevitFacade(Document doc)
+        {
+            _doc = doc;
+        }
+
+        public IList<Element> GetAllElements()
+        {
+            Log.Info("Extracting all elements from Revit...");
+            return new ElementExtractor(_doc).ExtractElements();
+        }
+    }
+}

@@ -73,9 +73,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Config.cs" />
-    <Compile Include="ElementExtractor.cs" />
     <Compile Include="Log.cs" />
     <Compile Include="models\Element.cs" />
+    <Compile Include="models\interfaces\IArdbDefinition.cs" />
+    <Compile Include="models\interfaces\IArdbElement.cs" />
+    <Compile Include="models\interfaces\IArdbElementId.cs" />
+    <Compile Include="models\interfaces\IArdbParameter.cs" />
+    <Compile Include="models\interfaces\IArdbParameterSet.cs" />
+    <Compile Include="models\StorageType.cs" />
     <Compile Include="ProjectPerseusApp.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Settings.Designer.cs">
@@ -90,6 +95,13 @@
       <DependentUpon>SettingsForm.cs</DependentUpon>
     </Compile>
     <Compile Include="EditSettingsCommand.cs" />
+    <Compile Include="revit\adapters\ArdbDefinitionAdapter.cs" />
+    <Compile Include="revit\adapters\ArdbElementAdapter.cs" />
+    <Compile Include="revit\adapters\ArdbElementIdAdapter.cs" />
+    <Compile Include="revit\adapters\ArdbParameterAdapter.cs" />
+    <Compile Include="revit\adapters\ArdbParametereSetAdapter.cs" />
+    <Compile Include="revit\ElementExtractor.cs" />
+    <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="Utl.cs" />
     <Compile Include="ProjectPerseusWeb.cs" />
   </ItemGroup>
@@ -106,6 +118,5 @@
       <DependentUpon>SettingsForm.cs</DependentUpon>
     </EmbeddedResource>
   </ItemGroup>
-  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

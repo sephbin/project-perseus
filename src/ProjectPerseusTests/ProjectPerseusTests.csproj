@@ -48,11 +48,20 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
+    <Reference Include="RevitAPI">
+      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\Revit 2023\RevitAPI.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ElementTest.cs" />
+    <Compile Include="mocks\MockArdbDefinition.cs" />
+    <Compile Include="mocks\MockArdbElement.cs" />
+    <Compile Include="mocks\MockArdbElementId.cs" />
+    <Compile Include="mocks\MockArdbParameter.cs" />
+    <Compile Include="mocks\MockArdbParameterSet.cs" />
     <Compile Include="UtlTest.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

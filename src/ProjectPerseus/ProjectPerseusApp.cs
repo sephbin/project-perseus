@@ -2,7 +2,7 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
-using ARDB = Autodesk.Revit.DB;
+using ProjectPerseus.revit;
 
 
 namespace ProjectPerseus
@@ -59,7 +59,7 @@ namespace ProjectPerseus
                     return;
                 }
                 
-                var elements = new ElementExtractor(e.Document).ExtractElements();
+                var elements = new RevitFacade(e.Document).GetAllElements();
                 new ProjectPerseusWeb(config.BaseUrl, config.ApiToken).UploadElements(elements);
             }
             catch (Exception ex)

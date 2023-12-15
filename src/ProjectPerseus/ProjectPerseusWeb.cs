@@ -16,7 +16,7 @@ namespace ProjectPerseus
             _apiToken = apiToken;
         }
 
-        public void UploadElements(List<models.Element> eles)
+        public void UploadElements(IList<models.Element> eles)
         {
             var jsonString = Utl.SerializeToString(eles, null);
             WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
