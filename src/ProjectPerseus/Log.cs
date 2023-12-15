@@ -9,7 +9,12 @@
         
         public static void Error(string message)
         {
-            Message($"ERROR: {message}");
+            Message($"[ERROR] {message}");
+        }
+        
+        public static void Warn(string message)
+        {
+            Message($"[WARNING] {message}");
         }
     }
 }

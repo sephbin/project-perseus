@@ -32,6 +32,12 @@ namespace ProjectPerseus
         {
             try
             {
+                if(uploadConfigIsValid() == false)
+                {
+                    Log.Warn("Upload config is not valid - skipping upload.");
+                    return;
+                }
+                
                 var elements = new ElementExtractor(e.Document).ExtractElements();
                 new ProjectPerseusWeb(Config.BaseUrl, Config.ApiToken).UploadElements(elements);
             }
@@ -39,6 +45,19 @@ namespace ProjectPerseus
             {
                 Log.Error(ex.ToString());
             }
+        }
+
+        private static bool uploadConfigIsValid()
+        {
+            return !string.IsNullOrEmpty(Config.ApiToken) 
+                   && Config.BaseUrl != null 
+                   && isValidUrl(Config.BaseUrl);
+        }
+        
+        private static bool isValidUrl(string url)
+        {
+            Uri uriResult;
+            return Uri.TryCreate(url, UriKind.Absolute, out uriResult) && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
         }
 
         public Result OnShutdown(UIControlledApplication application)
