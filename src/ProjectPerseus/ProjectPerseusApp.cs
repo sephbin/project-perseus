@@ -11,6 +11,8 @@ namespace ProjectPerseus
     [Regeneration(RegenerationOption.Manual)]
     public class ProjectPerseusApp : IExternalApplication
     {
+        private Config config = Config.Instance; 
+        
         public Result OnStartup(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
@@ -28,7 +30,7 @@ namespace ProjectPerseus
             doOnSync(e);
         }
 
-        private static void doOnSync(DocumentSynchronizedWithCentralEventArgs e)
+        private void doOnSync(DocumentSynchronizedWithCentralEventArgs e)
         {
             try
             {
@@ -39,7 +41,7 @@ namespace ProjectPerseus
                 }
                 
                 var elements = new ElementExtractor(e.Document).ExtractElements();
-                new ProjectPerseusWeb(Config.BaseUrl, Config.ApiToken).UploadElements(elements);
+                new ProjectPerseusWeb(config.BaseUrl, config.ApiToken).UploadElements(elements);
             }
             catch (Exception ex)
             {
@@ -47,11 +49,11 @@ namespace ProjectPerseus
             }
         }
 
-        private static bool uploadConfigIsValid()
+        private bool uploadConfigIsValid()
         {
-            return !string.IsNullOrEmpty(Config.ApiToken) 
-                   && Config.BaseUrl != null 
-                   && Utl.IsValidUrl(Config.BaseUrl);
+            return !string.IsNullOrEmpty(config.ApiToken) 
+                   && config.BaseUrl != null 
+                   && Utl.IsValidUrl(config.BaseUrl);
         }
 
         public Result OnShutdown(UIControlledApplication application)

@@ -1,8 +1,21 @@
 ﻿namespace ProjectPerseus
 {
-    public static class Config
+    public class Config
     {
-        public static string ApiToken
+        private static Config instance;
+        public static Config Instance
+        {
+            get
+            {
+                if (instance == null)
+                {
+                    instance = new Config();
+                }
+                return instance;
+            }
+        }
+        
+        public string ApiToken
         {
             get => Properties.Settings.Default.ApiToken;
             set
@@ -12,7 +25,7 @@
             }
         }
 
-        public static string BaseUrl { 
+        public string BaseUrl { 
             get => Properties.Settings.Default.BaseUrl;
             set
             {
