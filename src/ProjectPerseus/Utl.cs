@@ -32,5 +32,11 @@ namespace ProjectPerseus
             var jsonString = JsonConvert.SerializeObject(obj, Formatting.Indented, options);
             return jsonString;
         }
+        
+        public static bool IsValidUrl(string url)
+        {
+            Uri uriResult;
+            return Uri.TryCreate(url, UriKind.Absolute, out uriResult) && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
+        }
     }
 }

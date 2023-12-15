@@ -51,13 +51,7 @@ namespace ProjectPerseus
         {
             return !string.IsNullOrEmpty(Config.ApiToken) 
                    && Config.BaseUrl != null 
-                   && isValidUrl(Config.BaseUrl);
-        }
-        
-        private static bool isValidUrl(string url)
-        {
-            Uri uriResult;
-            return Uri.TryCreate(url, UriKind.Absolute, out uriResult) && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
+                   && Utl.IsValidUrl(Config.BaseUrl);
         }
 
         public Result OnShutdown(UIControlledApplication application)
