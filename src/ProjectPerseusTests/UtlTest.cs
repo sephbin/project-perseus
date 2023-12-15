@@ -18,5 +18,25 @@ namespace ProjectPerseusTests
             Assert.IsFalse(Utl.IsValidUrl(""));
             Assert.IsFalse(Utl.IsValidUrl(null));
         }
+        
+        private class TestSerializeToStringObject
+        {
+            public string Field1 { get; set; }
+            public int Field2 { get; set; }
+            
+            public TestSerializeToStringObject(string field1, int field2)
+            {
+                Field1 = field1;
+                Field2 = field2;
+            }
+        }
+        
+        [TestMethod]
+        public void TestSerializeToString()
+        {
+            var obj = new TestSerializeToStringObject("test", 1);
+            var jsonString = Utl.SerializeToString(obj, null);
+            Assert.AreEqual("{\r\n  \"Field1\": \"test\",\r\n  \"Field2\": 1\r\n}", jsonString);
+        }
     }
 }
