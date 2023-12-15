@@ -32,6 +32,7 @@ namespace ProjectPerseus
         {
             Config.Instance.BaseUrl = syncUrltextBox.Text;
             Config.Instance.ApiToken = apiTokenTextBox.Text;
+            Close();
         }
     }
 }
