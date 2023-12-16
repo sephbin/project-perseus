@@ -3,13 +3,14 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using ProjectPerseus.revit;
+using ProjectPerseus.revit.plugin;
 
 
 namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
     [Regeneration(RegenerationOption.Manual)]
-    public class ProjectPerseusApp : IExternalApplication
+    public class Plugin : IExternalApplication
     {
         private Config config = Config.Instance; 
         
