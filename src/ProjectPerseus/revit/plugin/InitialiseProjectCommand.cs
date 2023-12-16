@@ -1,9 +1,8 @@
-﻿
-using Autodesk.Revit.Attributes;
+﻿using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-namespace ProjectPerseus
+namespace ProjectPerseus.revit.plugin
 {
     [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
