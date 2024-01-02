@@ -2,7 +2,12 @@ from django.db import models
 
 
 class Element(models.Model):
-    id = models.BigIntegerField(primary_key=True)
-    unique_id = models.UUIDField(unique=True)
+    unique_id = models.TextField()
     name = models.TextField(blank=True)
-    comments = models.TextField(blank=True)
+
+
+class Parameter(models.Model):
+    name = models.TextField(blank=True)
+    value = models.TextField(blank=True, null=True)
+    value_type = models.TextField(blank=True, null=True)
+    element = models.ForeignKey('Element', on_delete=models.CASCADE, related_name='parameters')
