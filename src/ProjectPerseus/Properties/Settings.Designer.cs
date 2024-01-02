@@ -46,5 +46,17 @@ namespace ProjectPerseus.Properties {
                 this["ApiToken"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool FullSyncNextSync {
+            get {
+                return ((bool)(this["FullSyncNextSync"]));
+            }
+            set {
+                this["FullSyncNextSync"] = value;
+            }
+        }
     }
 }

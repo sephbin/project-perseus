@@ -33,5 +33,14 @@
                 Properties.Settings.Default.Save();
             }
         }
+
+        public bool FullSyncNextSync { 
+            get => Properties.Settings.Default.FullSyncNextSync;
+            set
+            {
+                Properties.Settings.Default.FullSyncNextSync = value;
+                Properties.Settings.Default.Save();
+            }
+        }
     }
 }

@@ -60,8 +60,22 @@ namespace ProjectPerseus
                     return;
                 }
                 
-                var elements = new RevitFacade(e.Document).GetAllElements();
-                new ProjectPerseusWeb(config.BaseUrl, config.ApiToken).UploadElements(elements);
+                if(Config.Instance.FullSyncNextSync)
+                {
+                    Log.Info("Full sync requested - uploading all elements.");
+                    Config.Instance.FullSyncNextSync = false;
+                
+                    var elements = new RevitFacade(e.Document).GetAllElements();
+                    new ProjectPerseusWeb(config.BaseUrl, config.ApiToken).UploadElements(elements);
+                }
+                else
+                {
+                    Log.Info("Incremental sync requested - uploading changed elements.");
+                    // todo: incremental sync
+                }
+                
+                // dump json
+                // Utl.JsonDump(elements, "ElementList");
             }
             catch (Exception ex)
             {
