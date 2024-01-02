@@ -6,6 +6,7 @@
         Integer,
         Double,
         String,
-        ElementId
+        ElementId,
+        Null // means we couldn't access the Revit parameter StorageType
     }
 }

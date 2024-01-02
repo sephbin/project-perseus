@@ -1,6 +1,7 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
+using ProjectPerseus;
 using ProjectPerseus.models;
 using ProjectPerseus.models.interfaces;
 using ProjectPerseusTests.mocks;
@@ -16,8 +17,10 @@ namespace ProjectPerseusTests
             // Arrange
             var mockParameters = new List<IArdbParameter>
             {
-                new MockArdbParameter("Parameter1", StorageType.Double, 1.23),
-                new MockArdbParameter("Parameter2", StorageType.String, "Test")
+                new MockArdbParameter(new MockArdbDefinition("Parameter1"), StorageType.Double, 1.23),
+                new MockArdbParameter(new MockArdbDefinition("Parameter2"), StorageType.String, "Test"),
+                new MockArdbParameter(null, StorageType.String, "Test"),
+                new MockArdbParameter(new MockArdbDefinition("Parameter4"), StorageType.None, null)
             };
 
             var mockElement = new MockArdbElement(new MockArdbElementId(1), "UniqueId", "Name", new MockArdbParameterSet(mockParameters));
@@ -32,9 +35,9 @@ namespace ProjectPerseusTests
             Assert.AreEqual(mockParameters.Count, element.Parameters.Count, "Parameter counts do not match");
             for (var i = 0; i < mockParameters.Count; i++)
             {
-                Assert.AreEqual(mockParameters[i].Definition.Name, element.Parameters[i].Name, "Parameter names do not match");
+                Assert.AreEqual(mockParameters[i].Definition?.Name, element.Parameters[i].Name, "Parameter names do not match");
                 
-                Assert.AreEqual(mockParameters[i].Definition.Name, element.Parameters[i].Name, "Parameter names do not match");
+                Assert.AreEqual(mockParameters[i].Definition?.Name, element.Parameters[i].Name, "Parameter names do not match");
                 switch (mockParameters[i].StorageType)
                 {
                     case StorageType.Double:
@@ -50,11 +53,16 @@ namespace ProjectPerseusTests
                         Assert.AreEqual(mockParameters[i].AsString(), ((ParameterBase)element.Parameters[i]).Value, "Parameter values do not match");
                         break;
                     case StorageType.None:
+                        Assert.AreEqual(null, ((ParameterBase)element.Parameters[i]).Value, "Parameter values do not match");
+                        break;
                     default:
                         throw new ArgumentOutOfRangeException();
                 }
                 Assert.AreEqual(mockParameters[i].StorageType.ToString(), element.Parameters[i].ValueType, "Parameter value types do not match");
             }
+            
+            // dump json
+            Utl.JsonDump(element, "ElementTest");
         }
     }
 }

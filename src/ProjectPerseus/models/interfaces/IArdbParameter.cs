@@ -4,6 +4,7 @@
     {
         IArdbDefinition Definition { get; }
         StorageType StorageType { get; }
+        bool HasValue { get; }
         double AsDouble();
         IArdbElementId AsElementId();
         int AsInteger();

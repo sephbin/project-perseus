@@ -1,8 +1,7 @@
-﻿
-using ProjectPerseus.models.interfaces;
+﻿using ProjectPerseus.models.interfaces;
 using ARDB = Autodesk.Revit.DB;
 
-namespace ProjectPerseus.models.adapters
+namespace ProjectPerseus.revit.adapters
 {
     public class ArdbElementAdapter: IArdbElement
     {

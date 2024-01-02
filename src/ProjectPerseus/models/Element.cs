@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 using ProjectPerseus.models.interfaces;
 using ARDB = Autodesk.Revit.DB;
 
@@ -13,10 +14,13 @@ namespace ProjectPerseus.models
         {
             _element = element ?? throw new ArgumentNullException(nameof(element));
         }
-
+        [JsonProperty("id")]
         public int Id => _element.Id.IntegerValue;
+        [JsonProperty("unique_id")]
         public string UniqueId => _element.UniqueId;
+        [JsonProperty("name")]
         public string Name => _element.Name;
+        [JsonProperty("parameters")]
         public List<IParameter> Parameters => GetParameters();
 
         private List<IParameter> GetParameters()
@@ -40,14 +44,17 @@ namespace ProjectPerseus.models
 
     public class ParameterBase : IParameter
     {
+        [JsonProperty("name")]
         public string Name { get; protected set; }
+        [JsonProperty("value")]
         public object Value { get; protected set; }
+        [JsonProperty("value_type")]
         public string ValueType { get; protected set; }
 
         public static ParameterBase FromArdbParameter(IArdbParameter parameter)
         {
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
-            var name = parameter.Definition.Name;
+            var name = parameter.Definition?.Name;
             var valueType = parameter.StorageType.ToString();
             switch (parameter.StorageType)
             {
@@ -60,6 +67,12 @@ namespace ProjectPerseus.models
                 case StorageType.String:
                     return new Parameter<string>(name, parameter.AsString(), valueType);
                 case StorageType.None:
+                    // assert that the parameter.HasValue is false
+                    if(parameter.HasValue && parameter.Definition != null)
+                        throw new ArgumentException("Parameter has a value and a definition, but the storage type is None.");
+                    return new Parameter<string>(name, null, valueType);
+                case StorageType.Null:
+                    return new Parameter<string>(name, null, null);
                 default:
                     throw new ArgumentOutOfRangeException();
             }

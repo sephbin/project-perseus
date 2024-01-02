@@ -8,12 +8,14 @@ namespace ProjectPerseusTests.mocks
     {
         public IArdbDefinition Definition { get; set; }
         public StorageType StorageType { get; set; }
+        public bool HasValue { get; }
         public object Value { get; set; }
         
-        public MockArdbParameter(string definitionName, StorageType storageType, object value)
+        public MockArdbParameter(MockArdbDefinition definition, StorageType storageType, object value)
         {
-            Definition = new MockArdbDefinition(definitionName);
+            Definition = definition;
             StorageType = storageType;
+            HasValue = value != null;
             Value = value;
         }
 

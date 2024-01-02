@@ -7,7 +7,7 @@ namespace ProjectPerseus
 {
     public class Utl
     {
-        private static void JsonDump(object o, String name)
+        public static void JsonDump(object o, String name)
         {
             var workingDirectory = Directory.GetCurrentDirectory();
             PrettyWriteJson(o,
