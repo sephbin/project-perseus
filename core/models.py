@@ -2,7 +2,7 @@ from django.db import models
 
 
 class Element(models.Model):
-    unique_id = models.TextField()
+    unique_id = models.TextField(unique=True)
     name = models.TextField(blank=True)
 
 
