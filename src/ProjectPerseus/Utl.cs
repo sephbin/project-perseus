@@ -42,15 +42,20 @@ namespace ProjectPerseus
 
         public class Sentry : IDisposable 
         {
-            public Sentry()
+            public Sentry(string pingId = null)
             {
-                InitAndPing();
+                InitAndPing(pingId);
             }
 
-            private static void InitAndPing()
+            private static void InitAndPing(string pingId = null)
             {
                 Init();
-                SentrySdk.CaptureMessage("Ping");
+                DoPing(pingId);
+            }
+
+            private static void DoPing(String pingId = null)
+            {
+                SentrySdk.CaptureMessage(pingId ?? "Ping");
             }
 
             private static void Init()
@@ -82,9 +87,9 @@ namespace ProjectPerseus
             /// <summary>
             /// For standalone pinging of Sentry
             /// </summary>
-            public static void Ping()
+            public static void Ping(String pingId = null)
             {
-                using (var sentry = new Utl.Sentry())
+                using (var sentry = new Sentry(pingId))
                 {
                 }
             }
