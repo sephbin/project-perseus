@@ -99,6 +99,8 @@
     <Compile Include="revit\adapters\ArdbElementIdAdapter.cs" />
     <Compile Include="revit\adapters\ArdbParameterAdapter.cs" />
     <Compile Include="revit\adapters\ArdbParametereSetAdapter.cs" />
+    <Compile Include="revit\ElementChangeSet.cs" />
+    <Compile Include="revit\ElementChangeSetGenerator.cs" />
     <Compile Include="revit\ElementExtractor.cs" />
     <Compile Include="revit\plugin\EditSettingsCommand.cs" />
     <Compile Include="revit\plugin\InitialiseProjectCommand.cs" />

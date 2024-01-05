@@ -3,7 +3,6 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using ProjectPerseus.revit;
-using ProjectPerseus.revit.plugin;
 
 
 namespace ProjectPerseus
@@ -12,7 +11,7 @@ namespace ProjectPerseus
     [Regeneration(RegenerationOption.Manual)]
     public class Plugin : IExternalApplication
     {
-        private Config config = Config.Instance; 
+        private readonly Config _config = Config.Instance; 
         
         public Result OnStartup(UIControlledApplication application)
         {
@@ -40,19 +39,20 @@ namespace ProjectPerseus
                     Log.Warn("Upload config is not valid - skipping upload.");
                     return;
                 }
+
+                var revit = new RevitFacade(e.Document);
                 
                 if(Config.Instance.FullSyncNextSync)
                 {
                     Log.Info("Full sync requested - uploading all elements.");
                     Config.Instance.FullSyncNextSync = false;
                 
-                    var elements = new RevitFacade(e.Document).GetAllElements();
-                    new ProjectPerseusWeb(config.BaseUrl, config.ApiToken).UploadElements(elements);
+                    PerformFullSync(revit);
                 }
                 else
                 {
                     Log.Info("Incremental sync requested - uploading changed elements.");
-                    // todo: incremental sync
+                    PerformIncrementalSync(revit);
                 }
                 
                 // dump json
@@ -62,6 +62,18 @@ namespace ProjectPerseus
             {
                 Log.Error(ex.ToString());
             }
+        }
+
+        private void PerformFullSync(RevitFacade revit)
+        {
+            var elements = revit.GetAllElements();
+            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).UploadElements(elements);
+        }
+
+        private void PerformIncrementalSync(RevitFacade revit)
+        {
+            var elementChangeSet = revit.GetElementChangeSet(_config.LastSyncVersionGuid);
+            // todo:
         }
 
         private bool uploadConfigIsValid()
