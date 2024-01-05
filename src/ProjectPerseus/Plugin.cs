@@ -18,27 +18,8 @@ namespace ProjectPerseus
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.DocumentOpened += OnDocumentOpened;
-            
-            addSettingsToolbarButton(application);
 
             return Result.Succeeded;
-        }
-
-        private static void addSettingsToolbarButton(UIControlledApplication application)
-        {
-            RibbonPanel ribbonPanel = application.CreateRibbonPanel("Project Perseus");
-
-            string thisAssemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-
-            // add a command to open the settings window
-            var buttonData = new PushButtonData("ProjectPerseusSettings", "Project Perseus Settings", thisAssemblyPath,
-                typeof(EditSettingsCommand).FullName);
-            buttonData.ToolTip = "Project Perseus";
-            // todo: add icons
-            //     buttonData.LargeImage = PngImageSource("ProjectPerseus.Resources.ProjectPerseus.png");
-            //     buttonData.ToolTipImage = PngImageSource("ProjectPerseus.Resources.ProjectPerseus.png");
-
-            ribbonPanel.AddItem(buttonData);
         }
 
         private void OnDocumentOpened(object sender, DocumentOpenedEventArgs e)
