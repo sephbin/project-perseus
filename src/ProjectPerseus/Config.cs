@@ -1,4 +1,6 @@
-﻿namespace ProjectPerseus
+﻿using System;
+
+namespace ProjectPerseus
 {
     public class Config
     {
@@ -39,6 +41,20 @@
             set
             {
                 Properties.Settings.Default.FullSyncNextSync = value;
+                Properties.Settings.Default.Save();
+            }
+        }
+        
+        // todo: this is a hack and should be removed.
+        // todo: this stores the last sync version with the logged in windows user which means 
+        // todo: that the user can't do multiple documents.
+        // todo: we should store this in the Revit document instead.
+        public Guid LastSyncVersionGuid
+        {
+            get => Properties.Settings.Default.LastSyncVersionGuid;
+            set
+            {
+                Properties.Settings.Default.LastSyncVersionGuid = value;
                 Properties.Settings.Default.Save();
             }
         }

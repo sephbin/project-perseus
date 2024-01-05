@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Element = ProjectPerseus.models.Element;
 
@@ -17,6 +18,12 @@ namespace ProjectPerseus.revit
         {
             Log.Info("Extracting all elements from Revit...");
             return new ElementExtractor(_doc).ExtractElements();
+        }
+
+        public ElementChangeSet GetElementChangeSet(Guid sinceVersionGuid)
+        {
+            Log.Info("Extracting changed elements from Revit...");
+            return new ElementChangeSetGenerator(_doc).ExtractChangedElements(sinceVersionGuid);
         }
     }
 }

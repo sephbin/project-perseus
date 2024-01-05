@@ -66,9 +66,9 @@ namespace ProjectPerseus
 
         private bool uploadConfigIsValid()
         {
-            return !string.IsNullOrEmpty(config.ApiToken) 
-                   && config.BaseUrl != null 
-                   && Utl.IsValidUrl(config.BaseUrl);
+            return !string.IsNullOrEmpty(_config.ApiToken) 
+                   && _config.BaseUrl != null 
+                   && Utl.IsValidUrl(_config.BaseUrl);
         }
 
         public Result OnShutdown(UIControlledApplication application)
