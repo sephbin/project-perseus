@@ -16,7 +16,7 @@ namespace ProjectPerseus.revit
 
         public List<Element> ExtractElements()
         {
-            var allElements = getElementsFromRevit();
+            var allElements = GetElementsFromRevit();
 
             var extractedElements = new List<Element>();
 
@@ -29,7 +29,7 @@ namespace ProjectPerseus.revit
             return extractedElements;
         }
 
-        private IList<ARDB.Element> getElementsFromRevit()
+        private IList<ARDB.Element> GetElementsFromRevit()
         {
             // Create a filtered element collector to get all elements in the document
             var collector = new FilteredElementCollector(_doc);
