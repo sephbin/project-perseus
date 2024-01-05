@@ -27,7 +27,7 @@ namespace ProjectPerseus.revit
             return new ElementChangeSet
             {
                 FromVersionGuid = sinceVersionGuid,
-                ToVersionGuid = Document.GetDocumentVersion(_doc).VersionGUID,
+                ToVersionGuid = RevitFacade.GetDocumentVersionGuid(_doc),
                 CreatedElements = RetrieveElements(docDiff.GetCreatedElementIds()),
                 ModifiedElements = RetrieveElements(docDiff.GetModifiedElementIds()),
                 DeletedElements = RetrieveElements(docDiff.GetDeletedElementIds())

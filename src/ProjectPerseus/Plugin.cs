@@ -49,27 +49,40 @@ namespace ProjectPerseus
         {
             try
             {
-                if(uploadConfigIsValid() == false)
+                if(UploadConfigIsValid() == false)
                 {
                     Log.Warn("Upload config is not valid - skipping upload.");
                     return;
                 }
+                    
+                // record elapsed time
+                var watch = System.Diagnostics.Stopwatch.StartNew();
 
-                var revit = new RevitFacade(e.Document);
-                
-                if(Config.Instance.FullSyncNextSync)
-                {
-                    Log.Info("Full sync requested - uploading all elements.");
-                    Config.Instance.FullSyncNextSync = false;
-                
-                    PerformFullSync(revit);
+                try {
+                    var revit = new RevitFacade(e.Document);
+                    
+                    if(Config.Instance.FullSyncNextSync)
+                    {
+                        Log.Info("Full sync requested - uploading all elements...");
+                        Config.Instance.FullSyncNextSync = false;
+                    
+                        PerformFullSync(revit);
+                    }
+                    else
+                    {
+                        Log.Info("Incremental sync requested - uploading changed elements...");
+                        PerformIncrementalSync(revit);
+                    }
+                    
+                    _config.LastSyncVersionGuid = RevitFacade.GetDocumentVersionGuid(revit.Document);
                 }
-                else
+                catch (Exception ex)
                 {
-                    Log.Info("Incremental sync requested - uploading changed elements.");
-                    PerformIncrementalSync(revit);
+                    Log.Error($"Error performing sync: {ex.Message}");
                 }
                 
+                watch.Stop();
+                Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                 // dump json
                 // Utl.JsonDump(elements, "ElementList");
             }
@@ -81,24 +94,32 @@ namespace ProjectPerseus
 
         private void PerformFullSync(RevitFacade revit)
         {
-            var elements = revit.GetAllElements();
-            var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements);
-            SubmitElementDeltas(elementDeltaList);
+                var elements = revit.GetAllElements();
+                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements);
+                SubmitElementDeltas(elementDeltaList);
         }
 
         private void PerformIncrementalSync(RevitFacade revit)
         {
             var elementChangeSet = revit.GetElementChangeSet(_config.LastSyncVersionGuid);
-            var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet);
-            SubmitElementDeltas(elementDeltaList);
+            if (elementChangeSet.ContainsChanges())
+            {
+                var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet);
+                SubmitElementDeltas(elementDeltaList);
+            }
+            else 
+            {
+                Log.Info("No changes detected - skipping upload.");
+            }
         }
 
         private void SubmitElementDeltas(IList<ElementDelta> elements)
         {
+            Log.Info("Submitting element deltas to webservice...");
             new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements);
         }
 
-        private bool uploadConfigIsValid()
+        private bool UploadConfigIsValid()
         {
             return !string.IsNullOrEmpty(_config.ApiToken) 
                    && _config.BaseUrl != null 

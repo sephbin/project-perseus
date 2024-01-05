@@ -14,7 +14,7 @@ namespace ProjectPerseus.revit.adapters
             _parameter = parameter ?? throw new ArgumentNullException(nameof(parameter));
         }
         
-        public String Guid => _parameter.GUID.ToString();
+        public String Guid => _parameter.GUID.ToString(); // FIXME: this breaks - not everything is a shared param
         public IArdbDefinition Definition => _parameter.Definition == null ? null : new ArdbDefinitionAdapter(_parameter.Definition);
         public StorageType StorageType
         {

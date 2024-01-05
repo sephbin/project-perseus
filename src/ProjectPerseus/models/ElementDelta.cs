@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using ProjectPerseus.models.interfaces;
 using ProjectPerseus.revit;
 
@@ -15,14 +16,15 @@ namespace ProjectPerseus.models
         }
 
         [JsonProperty("action")]
+        [JsonConverter(typeof(StringEnumConverter))]
         public DeltaAction Action { get; }
         
         public static List<ElementDelta> CreateListFromChangeSet(ElementChangeSet changeSet)
         {
             var deltas = new List<ElementDelta>();
             deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements));
-            deltas.AddRange(CreateList(DeltaAction.Modify, changeSet.ModifiedElements));
-            deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements));
+            deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements));
+            // deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements)); TODO: Implement
             return deltas;
         }
 
@@ -34,7 +36,7 @@ namespace ProjectPerseus.models
         public enum DeltaAction
         {
             Create,
-            Modify,
+            Update,
             Delete
         }
     }

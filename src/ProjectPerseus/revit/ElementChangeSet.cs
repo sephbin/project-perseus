@@ -11,5 +11,10 @@ namespace ProjectPerseus.revit
         public IList<IArdbElement> CreatedElements { get; set; }
         public IList<IArdbElement> ModifiedElements { get; set; }
         public IList<IArdbElement> DeletedElements { get; set; }
+
+        public bool ContainsChanges()
+        {
+            return CreatedElements.Count > 0 || ModifiedElements.Count > 0 || DeletedElements.Count > 0;
+        }
     }
 }

@@ -58,7 +58,7 @@ namespace ProjectPerseus.models
         {
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
             var name = parameter.Definition?.Name;
-            var guid = parameter.Guid;
+            var guid = "to be removed"; // parameter.Guid; // FIXME: this breaks - not everything is a shared param
             var valueType = parameter.StorageType.ToString();
             switch (parameter.StorageType)
             {

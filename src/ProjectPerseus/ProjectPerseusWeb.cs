@@ -31,20 +31,43 @@ namespace ProjectPerseus
 
             private static string PerformRequest(string endpoint, string apiToken, string json, string method)
             {
-                var httpWebRequest = (HttpWebRequest)WebRequest.Create(endpoint);
-                httpWebRequest.ContentType = "application/json";
-                httpWebRequest.Method = method;
-                httpWebRequest.Headers["Authorization"] = $"Token {apiToken}";
-
-                using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
+                try
                 {
-                    streamWriter.Write(json);
+                    var httpWebRequest = (HttpWebRequest)WebRequest.Create(endpoint);
+                    httpWebRequest.ContentType = "application/json";
+                    httpWebRequest.Method = method;
+                    httpWebRequest.Headers["Authorization"] = $"Token {apiToken}";
+                    // set timeout to 5 minutes
+                    httpWebRequest.Timeout = 300000;
+
+                    using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
+                    {
+                        streamWriter.Write(json);
+                    }
+
+                    var httpResponse = (HttpWebResponse)httpWebRequest.GetResponse();
+                    using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
+                    {
+                        return streamReader.ReadToEnd();
+                    }
                 }
-
-                var httpResponse = (HttpWebResponse)httpWebRequest.GetResponse();
-                using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
+                catch (WebException ex)
                 {
-                    return streamReader.ReadToEnd();
+                    var response = ex.Response as HttpWebResponse;
+                    if (response != null)
+                    {
+                        var responseStream = response.GetResponseStream();
+                        if (responseStream != null)
+                        {
+                            using (var reader = new StreamReader(responseStream))
+                            {
+                                var error = reader.ReadToEnd();
+                                Log.Error(error);
+                            }
+                        }
+                    }
+
+                    throw;
                 }
             }
         }
