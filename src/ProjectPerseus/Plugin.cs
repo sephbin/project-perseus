@@ -3,6 +3,7 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using ProjectPerseus.revit;
+using Sentry;
 
 
 namespace ProjectPerseus
@@ -27,7 +28,17 @@ namespace ProjectPerseus
 
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
         {
-            doOnSync(e);
+            using(var sentry = new Utl.Sentry())
+            {
+                try
+                {
+                    doOnSync(e);
+                }
+                catch (Exception ex)
+                {
+                    SentrySdk.CaptureException(ex);
+                }
+            }
         }
 
         private void doOnSync(DocumentSynchronizedWithCentralEventArgs e)
