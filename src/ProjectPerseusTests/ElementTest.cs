@@ -17,10 +17,10 @@ namespace ProjectPerseusTests
             // Arrange
             var mockParameters = new List<IArdbParameter>
             {
-                new MockArdbParameter(new MockArdbDefinition("Parameter1"), StorageType.Double, 1.23),
-                new MockArdbParameter(new MockArdbDefinition("Parameter2"), StorageType.String, "Test"),
-                new MockArdbParameter(null, StorageType.String, "Test"),
-                new MockArdbParameter(new MockArdbDefinition("Parameter4"), StorageType.None, null)
+                new MockArdbParameter("1", new MockArdbDefinition("Parameter1"), StorageType.Double, 1.23),
+                new MockArdbParameter("2", new MockArdbDefinition("Parameter2"), StorageType.String, "Test"),
+                new MockArdbParameter("3", null, StorageType.String, "Test"),
+                new MockArdbParameter("4", new MockArdbDefinition("Parameter4"), StorageType.None, null)
             };
 
             var mockElement = new MockArdbElement(new MockArdbElementId(1), "UniqueId", "Name", new MockArdbParameterSet(mockParameters));
@@ -35,6 +35,7 @@ namespace ProjectPerseusTests
             Assert.AreEqual(mockParameters.Count, element.Parameters.Count, "Parameter counts do not match");
             for (var i = 0; i < mockParameters.Count; i++)
             {
+                Assert.AreEqual(mockParameters[i].Guid, element.Parameters[i].Guid, "Parameter guids do not match");
                 Assert.AreEqual(mockParameters[i].Definition?.Name, element.Parameters[i].Name, "Parameter names do not match");
                 
                 Assert.AreEqual(mockParameters[i].Definition?.Name, element.Parameters[i].Name, "Parameter names do not match");

@@ -37,6 +37,7 @@ namespace ProjectPerseus.models
 
     public interface IParameter
     {
+        string Guid { get; }
         string Name { get; }
         object Value { get; }
         string ValueType { get; }
@@ -46,6 +47,8 @@ namespace ProjectPerseus.models
     {
         [JsonProperty("name")]
         public string Name { get; protected set; }
+        [JsonProperty("guid")]
+        public string Guid { get; protected set; }
         [JsonProperty("value")]
         public object Value { get; protected set; }
         [JsonProperty("value_type")]
@@ -55,24 +58,25 @@ namespace ProjectPerseus.models
         {
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
             var name = parameter.Definition?.Name;
+            var guid = parameter.Guid;
             var valueType = parameter.StorageType.ToString();
             switch (parameter.StorageType)
             {
                 case StorageType.Double:
-                    return new Parameter<double>(name, parameter.AsDouble(), valueType);
+                    return new Parameter<double>(name, guid, parameter.AsDouble(), valueType);
                 case StorageType.ElementId:
-                    return new Parameter<int>(name, parameter.AsElementId().IntegerValue, valueType);
+                    return new Parameter<int>(name, guid, parameter.AsElementId().IntegerValue, valueType);
                 case StorageType.Integer:
-                    return new Parameter<int>(name, parameter.AsInteger(), valueType);
+                    return new Parameter<int>(name, guid, parameter.AsInteger(), valueType);
                 case StorageType.String:
-                    return new Parameter<string>(name, parameter.AsString(), valueType);
+                    return new Parameter<string>(name, guid, parameter.AsString(), valueType);
                 case StorageType.None:
                     // assert that the parameter.HasValue is false
                     if(parameter.HasValue && parameter.Definition != null)
                         throw new ArgumentException("Parameter has a value and a definition, but the storage type is None.");
-                    return new Parameter<string>(name, null, valueType);
+                    return new Parameter<string>(name, guid, null, valueType);
                 case StorageType.Null:
-                    return new Parameter<string>(name, null, null);
+                    return new Parameter<string>(name, guid, null, null);
                 default:
                     throw new ArgumentOutOfRangeException();
             }
@@ -81,9 +85,10 @@ namespace ProjectPerseus.models
 
     public class Parameter<T> : ParameterBase
     {
-        public Parameter(string name, T value, string valueType)
+        public Parameter(string name, string guid, T value, string valueType)
         {
             Name = name;
+            Guid = guid;
             Value = value;
             ValueType = valueType;
         }

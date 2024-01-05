@@ -6,13 +6,15 @@ namespace ProjectPerseusTests.mocks
 {
     public class MockArdbParameter : IArdbParameter
     {
+        public String Guid { get; set;  }
         public IArdbDefinition Definition { get; set; }
         public StorageType StorageType { get; set; }
         public bool HasValue { get; }
         public object Value { get; set; }
         
-        public MockArdbParameter(MockArdbDefinition definition, StorageType storageType, object value)
+        public MockArdbParameter(string guid, MockArdbDefinition definition, StorageType storageType, object value)
         {
+            Guid = guid;
             Definition = definition;
             StorageType = storageType;
             HasValue = value != null;

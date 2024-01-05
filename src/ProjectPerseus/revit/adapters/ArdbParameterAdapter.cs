@@ -13,6 +13,8 @@ namespace ProjectPerseus.revit.adapters
         {
             _parameter = parameter ?? throw new ArgumentNullException(nameof(parameter));
         }
+        
+        public String Guid => _parameter.GUID.ToString();
         public IArdbDefinition Definition => _parameter.Definition == null ? null : new ArdbDefinitionAdapter(_parameter.Definition);
         public StorageType StorageType
         {
