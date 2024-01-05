@@ -24,6 +24,7 @@ namespace ProjectPerseus
 
         private void OnDocumentOpened(object sender, DocumentOpenedEventArgs e)
         {
+            Utl.Sentry.Ping();
         }
 
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)

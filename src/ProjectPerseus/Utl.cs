@@ -44,7 +44,13 @@ namespace ProjectPerseus
         {
             public Sentry()
             {
+                InitAndPing();
+            }
+
+            private static void InitAndPing()
+            {
                 Init();
+                SentrySdk.CaptureMessage("Ping");
             }
 
             private static void Init()
@@ -55,7 +61,7 @@ namespace ProjectPerseus
                     // See https://docs.sentry.io/product/sentry-basics/dsn-explainer/
                     // You can set it in the SENTRY_DSN environment variable, or you can set it in code here.
                     options.Dsn = "https://32e0a3644c9e180de912d15cae6df17c@o4506516579155968.ingest.sentry.io/4506516583546880";
-                
+
                     // This option is recommended. It enables Sentry's "Release Health" feature.
                     options.AutoSessionTracking = true;
 
@@ -66,12 +72,21 @@ namespace ProjectPerseus
                     // This option will enable Sentry's tracing features. You still need to start transactions and spans.
                     options.EnableTracing = true;
                 });
-                SentrySdk.CaptureMessage("Ping");
             }
 
             public void Dispose()
             {
                 SentrySdk.Close();
+            }
+            
+            /// <summary>
+            /// For standalone pinging of Sentry
+            /// </summary>
+            public static void Ping()
+            {
+                using (var sentry = new Utl.Sentry())
+                {
+                }
             }
         }
     }
