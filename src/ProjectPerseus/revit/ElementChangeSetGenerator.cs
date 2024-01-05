@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using ProjectPerseus.revit.adapters;
+using Element = ProjectPerseus.models.Element;
 
 namespace ProjectPerseus.revit
 {
@@ -26,15 +28,15 @@ namespace ProjectPerseus.revit
             {
                 FromVersionGuid = sinceVersionGuid,
                 ToVersionGuid = Document.GetDocumentVersion(_doc).VersionGUID,
-                CreatedElementIds = ElementIdsToIntegers(docDiff.GetCreatedElementIds()),
-                ModifiedElementIds = ElementIdsToIntegers(docDiff.GetModifiedElementIds()),
-                DeletedElementIds = ElementIdsToIntegers(docDiff.GetDeletedElementIds())
+                CreatedElements = RetrieveElements(docDiff.GetCreatedElementIds()),
+                ModifiedElements = RetrieveElements(docDiff.GetModifiedElementIds()),
+                DeletedElements = RetrieveElements(docDiff.GetDeletedElementIds())
             };
         }
 
-        private static List<int> ElementIdsToIntegers(IEnumerable<ElementId> elementIds)
+        private IList<Element> RetrieveElements(ISet<ElementId> elementIds)
         {
-            return elementIds.Select(id => id.IntegerValue).ToList();
+            return elementIds.Select(id => new Element(new ArdbElementAdapter(_doc.GetElement(id)))).ToList();
         }
     }
 }
