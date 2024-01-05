@@ -1,8 +1,8 @@
 ﻿using System.Collections.Generic;
 using Autodesk.Revit.DB;
+using ProjectPerseus.models.interfaces;
 using ProjectPerseus.revit.adapters;
 using ARDB = Autodesk.Revit.DB;
-using Element = ProjectPerseus.models.Element;
 
 namespace ProjectPerseus.revit
 {
@@ -14,16 +14,15 @@ namespace ProjectPerseus.revit
             _doc = doc;
         }
 
-        public List<Element> ExtractElements()
+        public List<IArdbElement> ExtractElements()
         {
             var allElements = GetElementsFromRevit();
 
-            var extractedElements = new List<Element>();
+            var extractedElements = new List<IArdbElement>();
 
             foreach (var element in allElements)
             {
-                var adapter = new ArdbElementAdapter(element);
-                extractedElements.Add(new Element(adapter));
+                extractedElements.Add(new ArdbElementAdapter(element));
             }
 
             return extractedElements;

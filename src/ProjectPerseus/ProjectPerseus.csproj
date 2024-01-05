@@ -116,6 +116,7 @@
     <Compile Include="Config.cs" />
     <Compile Include="Log.cs" />
     <Compile Include="models\Element.cs" />
+    <Compile Include="models\ElementDelta.cs" />
     <Compile Include="models\interfaces\IArdbDefinition.cs" />
     <Compile Include="models\interfaces\IArdbElement.cs" />
     <Compile Include="models\interfaces\IArdbElementId.cs" />

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using Element = ProjectPerseus.models.Element;
+using ProjectPerseus.models.interfaces;
 
 namespace ProjectPerseus.revit
 {
@@ -14,7 +14,7 @@ namespace ProjectPerseus.revit
             _doc = doc;
         }
 
-        public IList<Element> GetAllElements()
+        public IList<IArdbElement> GetAllElements()
         {
             Log.Info("Extracting all elements from Revit...");
             return new ElementExtractor(_doc).ExtractElements();

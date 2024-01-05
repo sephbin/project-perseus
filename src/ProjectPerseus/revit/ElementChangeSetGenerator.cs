@@ -2,8 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using ProjectPerseus.models.interfaces;
 using ProjectPerseus.revit.adapters;
-using Element = ProjectPerseus.models.Element;
 
 namespace ProjectPerseus.revit
 {
@@ -34,9 +34,9 @@ namespace ProjectPerseus.revit
             };
         }
 
-        private IList<Element> RetrieveElements(ISet<ElementId> elementIds)
+        private List<IArdbElement> RetrieveElements(ISet<ElementId> elementIds)
         {
-            return elementIds.Select(id => new Element(new ArdbElementAdapter(_doc.GetElement(id)))).ToList();
+            return elementIds.Select(id => (IArdbElement)new ArdbElementAdapter(_doc.GetElement(id))).ToList();
         }
     }
 }

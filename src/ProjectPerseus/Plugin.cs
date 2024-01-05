@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
+using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using Sentry;
 
@@ -80,13 +82,20 @@ namespace ProjectPerseus
         private void PerformFullSync(RevitFacade revit)
         {
             var elements = revit.GetAllElements();
-            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).UploadElements(elements);
+            var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements);
+            SubmitElementDeltas(elementDeltaList);
         }
 
         private void PerformIncrementalSync(RevitFacade revit)
         {
             var elementChangeSet = revit.GetElementChangeSet(_config.LastSyncVersionGuid);
-            // todo:
+            var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet);
+            SubmitElementDeltas(elementDeltaList);
+        }
+
+        private void SubmitElementDeltas(IList<ElementDelta> elements)
+        {
+            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements);
         }
 
         private bool uploadConfigIsValid()
