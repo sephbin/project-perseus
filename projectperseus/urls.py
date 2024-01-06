@@ -21,7 +21,7 @@ from rest_framework import routers
 from web_api import views
 
 router = routers.DefaultRouter()
-router.register(r'elements', views.ElementViewSet)
+router.register(r'elements', views.ElementDeltaSubmissionView)
 
 urlpatterns = [
     path('rapi/', include(router.urls)),

@@ -1,26 +1,25 @@
-
-from rest_framework import generics, viewsets
+from rest_framework import viewsets
 from rest_framework.response import Response
+from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from core.models import Element
-from web_api.serializers import ElementSerializer, ElementListSerializer
+from web_api.serializers import ElementListSerializer, ReadElementSerializer
 
 
-class ElementViewSet(viewsets.ModelViewSet):
+class ElementDeltaSubmissionView(ReadOnlyModelViewSet):
     queryset = Element.objects.all()
-    serializer_class = ElementSerializer
-    create_or_update_serializer_class = ElementListSerializer
+    serializer_class = ReadElementSerializer
+    create_serializer_class = ElementListSerializer
 
     def create(self, request, *args, **kwargs):
+        """
+        This method is called create to hook into the DRF viewset lifecycle.
+        """
         data = request.data if isinstance(request.data, list) else [request.data]
 
-        serializer = self.create_or_update_serializer_class()
-        # TODO: This was erroring on incremental syncs
-        # TODO: Because everything was assumed as a create
-        # serializer.is_valid(raise_exception=True)
-        # self.perform_create(serializer)
-
-        serializer.create(request.data)
+        serializer = self.create_serializer_class(request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(request.data)
 
         headers = self.get_success_headers(data)
         return Response(serializer.data, status=201, headers=headers)
