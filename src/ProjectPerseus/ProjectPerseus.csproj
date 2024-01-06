@@ -117,11 +117,6 @@
     <Compile Include="Log.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="models\ElementDelta.cs" />
-    <Compile Include="models\interfaces\IArdbDefinition.cs" />
-    <Compile Include="models\interfaces\IArdbElement.cs" />
-    <Compile Include="models\interfaces\IArdbElementId.cs" />
-    <Compile Include="models\interfaces\IArdbParameter.cs" />
-    <Compile Include="models\interfaces\IArdbParameterSet.cs" />
     <Compile Include="models\StorageType.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -144,6 +139,11 @@
     <Compile Include="revit\ElementChangeSet.cs" />
     <Compile Include="revit\ElementChangeSetGenerator.cs" />
     <Compile Include="revit\ElementExtractor.cs" />
+    <Compile Include="revit\interfaces\IArdbDefinition.cs" />
+    <Compile Include="revit\interfaces\IArdbElement.cs" />
+    <Compile Include="revit\interfaces\IArdbElementId.cs" />
+    <Compile Include="revit\interfaces\IArdbParameter.cs" />
+    <Compile Include="revit\interfaces\IArdbParameterSet.cs" />
     <Compile Include="revit\plugin\EditSettingsCommand.cs" />
     <Compile Include="revit\plugin\InitialiseProjectCommand.cs" />
     <Compile Include="revit\RevitFacade.cs" />
