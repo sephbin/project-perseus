@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
-using ProjectPerseus.models.interfaces;
+using ProjectPerseus.revit.interfaces;
 using ProjectPerseus.revit.adapters;
 
 namespace ProjectPerseus.revit

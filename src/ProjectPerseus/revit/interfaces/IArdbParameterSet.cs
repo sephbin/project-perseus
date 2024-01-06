@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace ProjectPerseus.models.interfaces
+namespace ProjectPerseus.revit.interfaces
 {
     public interface IArdbParameterSet
     {

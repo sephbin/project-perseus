@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using ProjectPerseus.models.interfaces;
+using ProjectPerseus.revit.interfaces;
 
 namespace ProjectPerseus.revit
 {

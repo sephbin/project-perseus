@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-using ProjectPerseus.models.interfaces;
+using ProjectPerseus.revit.interfaces;
 using ProjectPerseus.revit;
 
 namespace ProjectPerseus.models

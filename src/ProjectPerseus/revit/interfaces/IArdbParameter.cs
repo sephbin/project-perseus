@@ -1,4 +1,4 @@
-﻿namespace ProjectPerseus.models.interfaces
+﻿namespace ProjectPerseus.revit.interfaces
 {
     public interface IArdbParameter
     {

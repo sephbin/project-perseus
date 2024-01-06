@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using ProjectPerseus.models.interfaces;
 using ProjectPerseus.revit.adapters;
+using ProjectPerseus.revit.interfaces;
 using ARDB = Autodesk.Revit.DB;
 
 namespace ProjectPerseus.revit

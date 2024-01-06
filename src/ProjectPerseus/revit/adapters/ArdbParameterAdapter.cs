@@ -1,7 +1,6 @@
 ﻿using System;
-using ProjectPerseus.models.interfaces;
+using ProjectPerseus.revit.interfaces;
 using ARDB = Autodesk.Revit.DB;
-using StorageType = ProjectPerseus.models.StorageType;
 
 namespace ProjectPerseus.revit.adapters
 {
