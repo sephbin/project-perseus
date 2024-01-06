@@ -35,7 +35,7 @@ namespace ProjectPerseusTests
         public void TestSerializeToString()
         {
             var obj = new TestSerializeToStringObject("test", 1);
-            var jsonString = Utl.SerializeToString(obj, null);
+            var jsonString = Utl.SerializeToJson(obj, null);
             Assert.AreEqual("{\r\n  \"Field1\": \"test\",\r\n  \"Field2\": 1\r\n}", jsonString);
         }
     }

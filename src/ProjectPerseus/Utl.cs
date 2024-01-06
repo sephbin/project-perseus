@@ -18,12 +18,12 @@ namespace ProjectPerseus
         
         public static void PrettyWriteJson(object obj, string fileName, JsonSerializerSettings options)
         {
-            var jsonString = SerializeToString(obj, options);
+            var jsonString = SerializeToJson(obj, options);
 
             File.WriteAllText(fileName, jsonString);
         }
 
-        public static string SerializeToString(object obj, JsonSerializerSettings options)
+        public static string SerializeToJson(object obj, JsonSerializerSettings options = null)
         {
             if (options is null)
             {
