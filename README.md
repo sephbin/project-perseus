@@ -8,3 +8,5 @@
 
 - Utilise .NET Add-in Utility for manifest files https://help.autodesk.com/view/RVT/2024/ENU/?guid=Revit_API_Revit_API_Developers_Guide_Introduction_Add_In_Integration_Add_in_Registration_html
 - Protect against multiple syncs by submitting to the web service for a sync lock on the revit sync start event.
+
+- The element ID changes after shifting elements in Revit - https://www.autodesk.com/support/technical/article/caas/sfdcarticles/sfdcarticles/The-element-ID-changes-after-shifting-elements-in-Revit.html
