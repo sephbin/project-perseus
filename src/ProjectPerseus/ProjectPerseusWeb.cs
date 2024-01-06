@@ -18,7 +18,7 @@ namespace ProjectPerseus
 
         public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas)
         {
-            var jsonString = Utl.SerializeToString(elementDeltas, null);
+            var jsonString = Utl.SerializeToJson(elementDeltas, null);
             WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
         }
 
