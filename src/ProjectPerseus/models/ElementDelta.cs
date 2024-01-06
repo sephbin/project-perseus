@@ -8,16 +8,20 @@ using ProjectPerseus.revit;
 
 namespace ProjectPerseus.models
 {
-    public class ElementDelta : Element
+    public class ElementDelta
     {
-        public ElementDelta(DeltaAction action, IArdbElement element) : base(element)
+        public ElementDelta(DeltaAction action, IArdbElement element)
         {
             Action = action;
+            Element = new Element(element);
         }
 
         [JsonProperty("action")]
         [JsonConverter(typeof(StringEnumConverter))]
         public DeltaAction Action { get; }
+        
+        [JsonProperty("element")]
+        public Element Element { get; }
         
         public static List<ElementDelta> CreateListFromChangeSet(ElementChangeSet changeSet)
         {
