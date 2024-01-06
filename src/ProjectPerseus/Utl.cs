@@ -39,9 +39,9 @@ namespace ProjectPerseus
             return Uri.TryCreate(url, UriKind.Absolute, out var uriResult) && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
         }
 
-        public class Sentry : IDisposable 
+        public class SentryContext : IDisposable 
         {
-            public Sentry(string pingId = null)
+            public SentryContext(string pingId = null)
             {
                 InitAndPing(pingId);
             }
@@ -88,7 +88,7 @@ namespace ProjectPerseus
             /// </summary>
             public static void Ping(String pingId = null)
             {
-                using (var sentry = new Sentry(pingId))
+                using (var sentry = new SentryContext(pingId))
                 {
                 }
             }

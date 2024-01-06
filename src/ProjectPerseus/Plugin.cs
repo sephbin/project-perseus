@@ -5,7 +5,6 @@ using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
-using Sentry;
 
 
 namespace ProjectPerseus
@@ -27,68 +26,62 @@ namespace ProjectPerseus
         private void OnDocumentOpened(object sender, DocumentOpenedEventArgs e)
         {
             var documentName = e.Document.PathName;
-            Utl.Sentry.Ping(documentName);
+            Utl.SentryContext.Ping(documentName);
         }
 
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
         {
-            using(var sentry = new Utl.Sentry())
-            {
-                try
-                {
-                    doOnSync(e);
-                }
-                catch (Exception ex)
-                {
-                    SentrySdk.CaptureException(ex);
-                }
-            }
+            doOnSync(e);
         }
 
         private void doOnSync(DocumentSynchronizedWithCentralEventArgs e)
         {
-            try
+            using (var sentry = new Utl.SentryContext())
             {
-                if(UploadConfigIsValid() == false)
+                try
                 {
-                    Log.Warn("Upload config is not valid - skipping upload.");
-                    return;
-                }
-                    
-                // record elapsed time
-                var watch = System.Diagnostics.Stopwatch.StartNew();
+                    if (UploadConfigIsValid() == false)
+                    {
+                        Log.Warn("Upload config is not valid - skipping upload.");
+                        return;
+                    }
 
-                try {
-                    var revit = new RevitFacade(e.Document);
-                    
-                    if(Config.Instance.FullSyncNextSync)
+                    // record elapsed time
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+
+                    try
                     {
-                        Log.Info("Full sync requested - uploading all elements...");
-                        Config.Instance.FullSyncNextSync = false;
-                    
-                        PerformFullSync(revit);
+                        var revit = new RevitFacade(e.Document);
+
+                        if (Config.Instance.FullSyncNextSync)
+                        {
+                            Log.Info("Full sync requested - uploading all elements...");
+                            Config.Instance.FullSyncNextSync = false;
+
+                            PerformFullSync(revit);
+                        }
+                        else
+                        {
+                            Log.Info("Incremental sync requested - uploading changed elements...");
+                            PerformIncrementalSync(revit);
+                        }
+
+                        _config.LastSyncVersionGuid = RevitFacade.GetDocumentVersionGuid(revit.Document);
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        Log.Info("Incremental sync requested - uploading changed elements...");
-                        PerformIncrementalSync(revit);
+                        Log.Exception(new Exception($"Error performing sync: {ex.Message}", ex));
                     }
-                    
-                    _config.LastSyncVersionGuid = RevitFacade.GetDocumentVersionGuid(revit.Document);
+
+                    watch.Stop();
+                    Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    // dump json
+                    // Utl.JsonDump(elements, "ElementList");
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"Error performing sync: {ex.Message}");
+                    Log.Error(ex.ToString());
                 }
-                
-                watch.Stop();
-                Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
-                // dump json
-                // Utl.JsonDump(elements, "ElementList");
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex.ToString());
             }
         }
 
