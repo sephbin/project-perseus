@@ -3,10 +3,10 @@
   <Profiles />
   <Settings>
     <Setting Name="BaseUrl" Type="System.String" Scope="User">
-      <Value Profile="(Default)">projectperseus.lladdy.com</Value>
+      <Value Profile="(Default)">127.0.0.1:8000</Value>
     </Setting>
     <Setting Name="ApiToken" Type="System.String" Scope="User">
-      <Value Profile="(Default)">981f2067084e45a73f95783db7ad9bcddd967326</Value>
+      <Value Profile="(Default)">ApiTokenHere</Value>
     </Setting>
     <Setting Name="FullSyncNextSync" Type="System.Boolean" Scope="User">
       <Value Profile="(Default)">True</Value>

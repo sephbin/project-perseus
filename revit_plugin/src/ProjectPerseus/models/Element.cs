@@ -26,7 +26,7 @@ namespace ProjectPerseus.models
             var parameters = new List<IParameter>();
             foreach (var param in _element.ParametersSet)
             {
-                parameters.Add(ParameterBase.FromArdbParameter(param));
+                parameters.Add(ParameterBase.FromArdbParameter(_element.CategoryName, param));
             }
 
             return parameters;
@@ -46,10 +46,11 @@ namespace ProjectPerseus.models
         [JsonProperty("value")] public object Value { get; protected set; }
         [JsonProperty("value_type")] public string ValueType { get; protected set; }
 
-        public static ParameterBase FromArdbParameter(IArdbParameter parameter)
+        public static ParameterBase FromArdbParameter(ARDB.Category elementCategory, IArdbParameter parameter)
         {
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
-            var name = parameter.Definition?.Name;
+            var name = CreateParameterName(parameter.Definition?.Name, elementCategory,
+                parameter.Definition?.ParameterGroup);
             var valueType = parameter.StorageType.ToString();
             switch (parameter.StorageType)
             {
@@ -72,6 +73,12 @@ namespace ProjectPerseus.models
                 default:
                     throw new ArgumentOutOfRangeException();
             }
+        }
+
+        private static string CreateParameterName(string parameterName, ARDB.Category category, string parameterGroup)
+        {
+            if (category == null) throw new ArgumentNullException(nameof(category));
+            return $"{category.Name} - {parameterGroup} - {parameterName}";
         }
     }
 

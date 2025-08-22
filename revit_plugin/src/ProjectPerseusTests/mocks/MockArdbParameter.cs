@@ -1,6 +1,6 @@
 ﻿using System;
-using ProjectPerseus.models;
-using ProjectPerseus.models.interfaces;
+using ProjectPerseus.revit;
+using ProjectPerseus.revit.interfaces;
 
 namespace ProjectPerseusTests.mocks
 {

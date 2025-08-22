@@ -18,15 +18,8 @@ namespace ProjectPerseus
         public Result OnStartup(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
-            application.ControlledApplication.DocumentOpened += OnDocumentOpened;
 
             return Result.Succeeded;
-        }
-
-        private void OnDocumentOpened(object sender, DocumentOpenedEventArgs e)
-        {
-            var documentName = e.Document.PathName;
-            Utl.SentryContext.Ping(documentName);
         }
 
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
@@ -122,7 +115,6 @@ namespace ProjectPerseus
         public Result OnShutdown(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
-            application.ControlledApplication.DocumentOpened -= OnDocumentOpened;
             return Result.Succeeded;
         }
     }

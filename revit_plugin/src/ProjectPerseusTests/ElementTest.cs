@@ -1,11 +1,14 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
+using Autodesk.Revit.DB;
 using Newtonsoft.Json.Linq;
 using ProjectPerseus;
 using ProjectPerseus.models;
-using ProjectPerseus.models.interfaces;
+using ProjectPerseus.revit.interfaces;
 using ProjectPerseusTests.mocks;
+using Element = ProjectPerseus.models.Element;
+using StorageType = ProjectPerseus.revit.StorageType;
 
 namespace ProjectPerseusTests
 {
@@ -67,14 +70,15 @@ namespace ProjectPerseusTests
         {
             var mockParameters = new List<IArdbParameter>
             {
-                new MockArdbParameter("1", new MockArdbDefinition("Parameter1"), StorageType.Double, 1.23),
-                new MockArdbParameter("2", new MockArdbDefinition("Parameter2"), StorageType.String, "Test"),
+                new MockArdbParameter("1", new MockArdbDefinition("Parameter1", "ParameterGroup1"), StorageType.Double, 1.23),
+                new MockArdbParameter("2", new MockArdbDefinition("Parameter2", "ParameterGroup2"), StorageType.String, "Test"),
                 new MockArdbParameter("3", null, StorageType.String, "Test"),
-                new MockArdbParameter("4", new MockArdbDefinition("Parameter4"), StorageType.None, null)
+                new MockArdbParameter("4", new MockArdbDefinition("Parameter4", "ParameterGroup4"), StorageType.None, null)
             };
 
+            Category categoryName = null; // TODO: setting CategoryName to null so this builds. Needs to be fixed.
             mockElement = new MockArdbElement(new MockArdbElementId(1), "UniqueId", "Name",
-                new MockArdbParameterSet(mockParameters));
+                new MockArdbParameterSet(mockParameters), categoryName);
             return mockParameters;
         }
 

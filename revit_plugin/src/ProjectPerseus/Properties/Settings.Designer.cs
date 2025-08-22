@@ -25,7 +25,7 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("projectperseus.lladdy.com")]
+        [global::System.Configuration.DefaultSettingValueAttribute("127.0.0.1:8000")]
         public string BaseUrl {
             get {
                 return ((string)(this["BaseUrl"]));
@@ -37,7 +37,7 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("981f2067084e45a73f95783db7ad9bcddd967326")]
+        [global::System.Configuration.DefaultSettingValueAttribute("3bdbbfec706c8344964d3210db00fa9d28eb398f")]
         public string ApiToken {
             get {
                 return ((string)(this["ApiToken"]));

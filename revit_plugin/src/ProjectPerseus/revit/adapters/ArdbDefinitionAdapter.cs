@@ -13,5 +13,6 @@ namespace ProjectPerseus.revit.adapters
         }
 
         public string Name => _definition.Name;
+        public string ParameterGroup => _definition.ParameterGroup.ToString();
     }
 }
