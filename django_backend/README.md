@@ -1,4 +1,4 @@
-# Project Perseus
+# Project Perseus - Django Backend
 
 ## Project Structure
 
