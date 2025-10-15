@@ -120,7 +120,7 @@ def stateUpdate(request):
             
             sourceModel = element.pop("source_model")
             sourceModel, _created = Source.objects.get_or_create(unique_id=sourceModel)
-            element["source_model"] = sourceModel.id
+            element["source_model"] = sourceModel
 
             if index == 0: print(line)
             # modelElement, _updated = Element.objects.update_or_create(unique_id = unique_id, defaults=element)
@@ -133,7 +133,11 @@ def stateUpdate(request):
             # print(existingParamNames)
             
 
-        Element.objects.bulk_create(createElements, update_conflicts=True, unique_fields=['unique_id'], update_fields=['element_id', 'name', 'source_model', 'source_state'])
+        Element.objects.bulk_create(
+            createElements,
+            update_conflicts=True,
+            unique_fields=['unique_id'],
+            update_fields=['element_id', 'name', 'source_model_id', 'source_state'])
         
 
         # for index, line in enumerate(data):
