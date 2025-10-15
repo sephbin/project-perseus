@@ -130,22 +130,26 @@ def stateUpdate(request):
         # existingParamNames = list(set(map(lambda x: x.name, modelElement.parameters.all())))
         ## Preparing to remove deleted parameters
         # print(existingParamNames)
-        for param in parameters:
-            try:
-                print(param)
-                name = param.pop("name")
-                appendParam = Parameter(element=appendElement, name=name, **param)
-                createParams.append(appendParam)
-                #Parameter.objects.update_or_create(element=modelElement, name=name, defaults=param)
-            except Exception as e:
-                print(e)
-                pass
+        
 
     Element.objects.bulk_create(
             createElements,
             update_conflicts=True,
             unique_fields=['unique_id'],
             update_fields=['element_id', 'name', 'source_model_id', 'source_state'])
+    
+    for index, line in enumerate(data):
+        unique_id = element.pop("unique_id")
+        elementModel = Element.objects.get(unique_id=unique_id)
+        for param in parameters:
+            try:
+                print(param)
+                name = param.pop("name")
+                appendParam = Parameter(element=elementModel, name=name, **param)
+                createParams.append(appendParam)
+            except Exception as e:
+                print(e)
+                pass
     try:
         # print(createParams)
         Parameter.objects.bulk_create(
