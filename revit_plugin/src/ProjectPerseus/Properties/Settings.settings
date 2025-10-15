@@ -12,7 +12,7 @@
       <Value Profile="(Default)">https://sephbin.pythonanywhere.com</Value>
     </Setting>
     <Setting Name="ApiToken" Type="System.String" Scope="User">
-      <Value Profile="(Default)">1e1c778bcdfb6309e723cb7edb0cdd76ae3d595d</Value>
+      <Value Profile="(Default)">368e08d7b29bba87a7720715da26080ace8dca88</Value>
     </Setting>
   </Settings>
 </SettingsFile>

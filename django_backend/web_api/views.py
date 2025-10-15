@@ -120,7 +120,7 @@ def stateUpdate(request):
             
             sourceModel = element.pop("source_model")
             sourceModel, _created = Source.objects.get_or_create(unique_id=sourceModel)
-            element["source_model"] = sourceModel
+            element["source_model"] = sourceModel.id
 
             if index == 0: print(line)
             # modelElement, _updated = Element.objects.update_or_create(unique_id = unique_id, defaults=element)

@@ -46,6 +46,4 @@ class Parameter(models.Model):
     element = models.ForeignKey('Element', on_delete=models.CASCADE, related_name='parameters')
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=['element', 'name'], name='unique_element_parameter_name')
-        ]
+        unique_together = ('element', 'name')
