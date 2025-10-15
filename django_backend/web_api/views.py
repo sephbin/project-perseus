@@ -143,11 +143,16 @@ def stateUpdate(request):
             update_conflicts=True,
             unique_fields=['unique_id'],
             update_fields=['element_id', 'name', 'source_model_id', 'source_state'])
-    Parameter.objects.bulk_create(
+    try:
+        print(createParams)
+        Parameter.objects.bulk_create(
         createParams,
         update_conflicts=True,
         unique_fields=['element','name'],
         update_fields=['value','value_type'])
+    except Exception as e:
+        print(e)
+
     # Return the custom 202 Accepted response
     return HttpResponse()
 
