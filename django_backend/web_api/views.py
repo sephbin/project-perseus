@@ -102,6 +102,15 @@ class ParameterReadView(ReadOnlyModelViewSet):
     }
 
 
+class SourceReadView(ReadOnlyModelViewSet):
+    queryset = Source.objects.all()
+    serializer_class = ReadSourceSerializer
+    
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {
+        'name': ['exact'],
+    }
+
 @csrf_exempt
 def stateUpdate(request):
     import json

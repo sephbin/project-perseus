@@ -23,6 +23,7 @@ from web_api import views
 router = routers.DefaultRouter()
 router.register(r'elements', views.ElementDeltaSubmissionView)
 router.register(r'parameters', views.ParameterReadView)
+router.register(r'sources', views.SourceReadView)
 
 urlpatterns = [
     path('getstate/<str:source>', views.getLatestState),

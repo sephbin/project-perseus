@@ -9,6 +9,11 @@ class ReadParameterSerializer(serializers.ModelSerializer):
         model = Parameter
         fields = "__all__"
 
+class ReadSourceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Source
+        fields = "__all__"
+
 
 class ReadElementSerializer(serializers.ModelSerializer):
     parameters = serializers.JSONField(source="parameter_dict")
