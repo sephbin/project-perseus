@@ -133,10 +133,12 @@ def stateUpdate(request):
         for param in parameters:
             try:
                 name = param.pop("name")
-                appendParam = Parameter(element=modelElement, name=name, **param)
+                appendParam = Parameter(element=appendElement, name=name, **param)
                 createParams.append(appendParam)
                 #Parameter.objects.update_or_create(element=modelElement, name=name, defaults=param)
-            except: pass
+            except Exception as e:
+                print(e)
+                pass
 
     Element.objects.bulk_create(
             createElements,
