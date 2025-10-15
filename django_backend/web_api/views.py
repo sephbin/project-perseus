@@ -140,6 +140,7 @@ def stateUpdate(request):
             update_fields=['element_id', 'name', 'source_model_id', 'source_state'])
     
     for index, line in enumerate(data):
+        element = line["element"]
         unique_id = element.pop("unique_id")
         elementModel = Element.objects.get(unique_id=unique_id)
         for param in parameters:
