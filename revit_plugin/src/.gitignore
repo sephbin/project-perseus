@@ -1,7 +1,7 @@
 ﻿.idea/
 .vs/
 
-bin/
+
 obj/
 
 *.user
