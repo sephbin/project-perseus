@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'django_filters',
     'core.apps.CoreConfig',
     'web_api.apps.WebApiConfig',
     'rest_framework.authtoken'
@@ -123,7 +124,7 @@ USE_I18N = True
 
 USE_TZ = True
 
-
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
@@ -144,3 +145,5 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.TokenAuthentication',
     ],
 }
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = 500000000 # 500mb

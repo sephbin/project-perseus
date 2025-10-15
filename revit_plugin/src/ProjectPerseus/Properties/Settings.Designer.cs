@@ -12,7 +12,7 @@ namespace ProjectPerseus.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.4.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.7.0.0")]
     internal sealed partial class Settings : global::System.Configuration.ApplicationSettingsBase {
         
         private static Settings defaultInstance = ((Settings)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new Settings())));
@@ -25,7 +25,7 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("127.0.0.1:8000")]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://127.0.0.1:8000")]
         public string BaseUrl {
             get {
                 return ((string)(this["BaseUrl"]));
@@ -37,7 +37,7 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("3bdbbfec706c8344964d3210db00fa9d28eb398f")]
+        [global::System.Configuration.DefaultSettingValueAttribute("cb3f223138bbfd487e0a8e350d2464ec85213560")]
         public string ApiToken {
             get {
                 return ((string)(this["ApiToken"]));

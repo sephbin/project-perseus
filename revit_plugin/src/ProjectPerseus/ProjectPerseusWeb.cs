@@ -1,14 +1,34 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 
+
+
 namespace ProjectPerseus
 {
+    
     public class ProjectPerseusWeb
     {
+        private void WriteLog(string content)
+        {
+            string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string appSpecificFolderPath = Path.Combine(roamingFolderPath, "ProjectPerseus");
+            Directory.CreateDirectory(appSpecificFolderPath); // Creates the directory if it doesn't exist
+            string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
+            try
+            {
+                File.AppendAllText(filePath, content + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error saving file: {ex.Message}");
+            }
+        }
         private string _baseUrl;
         private string _apiToken;
         private string ElementsEndpoint => $"{_baseUrl}/rapi/elements/";
+        private string StateUpdateEndpoint => $"{_baseUrl}/stateupdate/";
 
         public ProjectPerseusWeb(string baseUrl, string apiToken)
         {
@@ -18,8 +38,20 @@ namespace ProjectPerseus
 
         public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas)
         {
+            WriteLog("SubmitElementDeltas");
             var jsonString = Utl.SerializeToJson(elementDeltas, null);
+            WriteLog(jsonString);
             WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
+            WriteLog("// SubmitElementDeltas");
+        }
+
+        public void SubmitElementState(IList<models.ElementDelta> elementDeltas)
+        {
+            WriteLog("SubmitElementDeltas");
+            var jsonString = Utl.SerializeToJson(elementDeltas, null);
+            WriteLog(jsonString);
+            WebHelper.Post(StateUpdateEndpoint, _apiToken, jsonString);
+            WriteLog("// SubmitElementDeltas");
         }
 
         private static class WebHelper
@@ -27,6 +59,10 @@ namespace ProjectPerseus
             public static string Post(string endpoint, string apiToken, string json)
             {
                 return PerformRequest(endpoint, apiToken, json, "POST");
+            }
+            public static string Get(string endpoint, string apiToken, string json)
+            {
+                return PerformRequest(endpoint, apiToken, null, "GET");
             }
 
             private static string PerformRequest(string endpoint, string apiToken, string json, string method)

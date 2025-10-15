@@ -7,6 +7,7 @@ using ProjectPerseus;
 using ProjectPerseus.models;
 using ProjectPerseus.revit.interfaces;
 using ProjectPerseusTests.mocks;
+using ARDB = Autodesk.Revit.DB;
 using Element = ProjectPerseus.models.Element;
 using StorageType = ProjectPerseus.revit.StorageType;
 
@@ -20,7 +21,7 @@ namespace ProjectPerseusTests
         {
             var mockParameters = GetMockElement(out var mockElement);
 
-            var element = new Element(mockElement);
+            var element = new Element(mockElement, null);
 
             // Assert
             Assert.AreEqual(mockElement.Id.IntegerValue, element.Id, "Element IDs do not match");
@@ -76,7 +77,7 @@ namespace ProjectPerseusTests
                 new MockArdbParameter("4", new MockArdbDefinition("Parameter4", "ParameterGroup4"), StorageType.None, null)
             };
 
-            Category categoryName = null; // TODO: setting CategoryName to null so this builds. Needs to be fixed.
+            ARDB.Category categoryName = null; // TODO: setting CategoryName to null so this builds. Needs to be fixed.
             mockElement = new MockArdbElement(new MockArdbElementId(1), "UniqueId", "Name",
                 new MockArdbParameterSet(mockParameters), categoryName);
             return mockParameters;
@@ -115,7 +116,7 @@ namespace ProjectPerseusTests
                 }
             }";
             GetMockElement(out var mockElement);
-            var elementDelta = new ElementDelta(ElementDelta.DeltaAction.Create, mockElement);
+            var elementDelta = new ElementDelta(ElementDelta.DeltaAction.Create, mockElement, null);
             var actualJson = Utl.SerializeToJson(elementDelta);
             
             var expectedToken = JToken.Parse(expectedJson);

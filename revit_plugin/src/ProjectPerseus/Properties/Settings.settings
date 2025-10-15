@@ -3,10 +3,10 @@
   <Profiles />
   <Settings>
     <Setting Name="BaseUrl" Type="System.String" Scope="User">
-      <Value Profile="(Default)">127.0.0.1:8000</Value>
+      <Value Profile="(Default)">http://127.0.0.1:8000</Value>
     </Setting>
     <Setting Name="ApiToken" Type="System.String" Scope="User">
-      <Value Profile="(Default)">ApiTokenHere</Value>
+      <Value Profile="(Default)">cb3f223138bbfd487e0a8e350d2464ec85213560</Value>
     </Setting>
     <Setting Name="FullSyncNextSync" Type="System.Boolean" Scope="User">
       <Value Profile="(Default)">True</Value>

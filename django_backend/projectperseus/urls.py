@@ -22,9 +22,12 @@ from web_api import views
 
 router = routers.DefaultRouter()
 router.register(r'elements', views.ElementDeltaSubmissionView)
+router.register(r'parameters', views.ParameterReadView)
 
 urlpatterns = [
+    path('getstate/<str:source>', views.getLatestState),
     path('rapi/', include(router.urls)),
+    path('stateupdate/', views.stateUpdate),
     path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     path('', admin.site.urls),
 ]

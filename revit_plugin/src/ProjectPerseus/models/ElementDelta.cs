@@ -5,15 +5,19 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using ProjectPerseus.revit.interfaces;
 using ProjectPerseus.revit;
+using Autodesk.Revit.DB;
 
 namespace ProjectPerseus.models
 {
     public class ElementDelta
     {
-        public ElementDelta(DeltaAction action, IArdbElement element)
+        private readonly Document _doc;
+
+        public ElementDelta(DeltaAction action, IArdbElement element, Document doc)
         {
+            _doc = doc ?? throw new ArgumentNullException(nameof(doc));
             Action = action;
-            Element = new Element(element);
+            Element = new Element(element, _doc);
         }
 
         [JsonProperty("action")]
@@ -23,18 +27,18 @@ namespace ProjectPerseus.models
         [JsonProperty("element")]
         public Element Element { get; }
         
-        public static List<ElementDelta> CreateListFromChangeSet(ElementChangeSet changeSet)
+        public static List<ElementDelta> CreateListFromChangeSet(ElementChangeSet changeSet, Document doc)
         {
             var deltas = new List<ElementDelta>();
-            deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements));
-            deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements));
+            deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements, doc));
+            deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements, doc));
             // deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements)); TODO: Implement
             return deltas;
         }
 
-        public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements)
+        public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements, Document doc)
         {
-            return elements.Select(element => new ElementDelta(action, element)).ToList();
+            return elements.Select(element => new ElementDelta(action, element, doc)).ToList();
         }
         
         public enum DeltaAction
