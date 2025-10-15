@@ -143,6 +143,8 @@ def stateUpdate(request):
         element = line["element"]
         unique_id = element.pop("unique_id")
         elementModel = Element.objects.get(unique_id=unique_id)
+        parameters = element.pop("parameters")
+        parameters = list(set(parameters))
         for param in parameters:
             try:
                 print(param)
