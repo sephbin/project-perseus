@@ -130,17 +130,19 @@ def stateUpdate(request):
         # existingParamNames = list(set(map(lambda x: x.name, modelElement.parameters.all())))
         ## Preparing to remove deleted parameters
         # print(existingParamNames)
+        
+
+    Element.objects.bulk_create(createElements, update_conflicts=True, unique_fields=['unique_id'], update_fields=['element_id', 'name', 'source_model', 'source_state'])
+    for index, line in enumerate(data):
         for param in parameters:
             try:
                 name = param.pop("name")
-                appendParam = Parameter(element=appendElement, name=name, **param)
-                createParams.append(appendParam)
+                unique_id = element.pop("unique_id")
+                modelElement = Element.objects.get(unique_id=unique_id)
                 #Parameter.objects.update_or_create(element=modelElement, name=name, defaults=param)
             except: pass
-
-    Element.objects.bulk_create(createElements, update_conflicts=True, unique_fields=['unique_id'], update_fields=['element_id', 'name', 'source_model', 'source_state'])
-    Parameter.objects.bulk_create(createParams, update_conflicts=True, unique_fields=['element','name'],
-        update_fields=['value','value_type'])
+    # Parameter.objects.bulk_create(createParams, update_conflicts=True, unique_fields=['element','name'],
+        # update_fields=['value','value_type'])
     # Return the custom 202 Accepted response
     return HttpResponse()
 
