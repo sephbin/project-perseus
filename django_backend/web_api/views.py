@@ -132,6 +132,7 @@ def stateUpdate(request):
         # print(existingParamNames)
         for param in parameters:
             try:
+                print(param)
                 name = param.pop("name")
                 appendParam = Parameter(element=appendElement, name=name, **param)
                 createParams.append(appendParam)
