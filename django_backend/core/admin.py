@@ -11,7 +11,7 @@ class SourceAdmin(admin.ModelAdmin):
 class ElementAdmin(admin.ModelAdmin):
     list_display = ('unique_id', 'name','created_at','updated_at','source_state')
     readonly_fields = ('parameter_dict',)
-    search_fields = ["unique_id","element_id"]
+    search_fields = ["unique_id"]
     ordering = ['-updated_at',]
     pass
 
