@@ -40,7 +40,7 @@ class Element(models.Model):
 
 
 class Parameter(models.Model):
-    name = models.TextField(max_length=255, blank=True, null=True)
+    name = models.CharField(max_length=255, blank=True, null=True)
     value = models.TextField(max_length=255, blank=True, null=True)
     value_type = models.TextField(max_length=255, blank=True, null=True)
     element = models.ForeignKey('Element', on_delete=models.CASCADE, related_name='parameters')
