@@ -38,11 +38,11 @@ namespace ProjectPerseus
 
         public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas)
         {
-            WriteLog("SubmitElementDeltas");
+            //WriteLog("SubmitElementDeltas");
             var jsonString = Utl.SerializeToJson(elementDeltas, null);
-            WriteLog(jsonString);
+            //WriteLog(jsonString);
             WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
-            WriteLog("// SubmitElementDeltas");
+            //WriteLog("// SubmitElementDeltas");
         }
 
         public void SubmitElementState(IList<models.ElementDelta> elementDeltas)

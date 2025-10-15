@@ -42,8 +42,8 @@ namespace ProjectPerseus.models
 
         private List<IParameter> GetParameters()
         {
-            Utl.WriteLog("Element.GetParameters");
-            Utl.WriteLog(UniqueId);
+            //Utl.WriteLog("Element.GetParameters");
+            //Utl.WriteLog(UniqueId);
             var parameters = new List<IParameter>();
 
             foreach (var param in _element.ParametersSet)
@@ -77,16 +77,16 @@ namespace ProjectPerseus.models
 
         public static ParameterBase FromArdbParameter(ARDB.Category elementCategory, IArdbParameter parameter)
         {
-            Utl.WriteLog("ParameterBase.FromArdbParameter");
+            //Utl.WriteLog("ParameterBase.FromArdbParameter");
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
-            Utl.WriteLog("ParameterBase.FromArdbParameter - before CreateParameterName");
+            //Utl.WriteLog("ParameterBase.FromArdbParameter - before CreateParameterName");
             var name = CreateParameterName(parameter.Definition?.Name, elementCategory, parameter.Definition?.ParameterGroup);
-            Utl.WriteLog("ParameterBase.FromArdbParameter - after CreateParameterName");
+            //Utl.WriteLog("ParameterBase.FromArdbParameter - after CreateParameterName");
             //var name = elementCategory;
             var valueType = parameter.StorageType.ToString();
 
-            Utl.WriteLog("FromArdbParameter: name; " + name);
-            Utl.WriteLog("FromArdbParameter: valueType; " + valueType);
+            //Utl.WriteLog("FromArdbParameter: name; " + name);
+            //Utl.WriteLog("FromArdbParameter: valueType; " + valueType);
 
             switch (parameter.StorageType)
             {
@@ -114,9 +114,9 @@ namespace ProjectPerseus.models
 
         private static string CreateParameterName(string parameterName, ARDB.Category category, string parameterGroup)
         {
-            Utl.WriteLog("ParameterBase.CreateParameterName");
+            //Utl.WriteLog("ParameterBase.CreateParameterName");
             //if (category == null) throw new ArgumentNullException(nameof(category));
-            Utl.WriteLog("ParameterBase.CreateParameterName - after if");
+            //Utl.WriteLog("ParameterBase.CreateParameterName - after if");
             return parameterName;
 
         }

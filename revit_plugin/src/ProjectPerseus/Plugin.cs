@@ -47,15 +47,15 @@ namespace ProjectPerseus
         //This appears to be a wrapper for the doOnSync function so it doesn't need as many arguments
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
         {
-            WriteLog("OnDocumentSynchronizedWithCentral");
+            //WriteLog("OnDocumentSynchronizedWithCentral");
             doOnSync(e);
-            WriteLog("// OnDocumentSynchronizedWithCentral");
+            //WriteLog("// OnDocumentSynchronizedWithCentral");
         }
 
         //Decides what type of sync to do
         private void doOnSync(DocumentSynchronizedWithCentralEventArgs e)
         {
-            WriteLog("  doOnSync");
+            //WriteLog("doOnSync");
             using (var sentry = new Utl.SentryContext())
             {
                 try
@@ -63,7 +63,7 @@ namespace ProjectPerseus
                     if (UploadConfigIsValid() == false)
                     {
                         Log.Warn("Upload config is not valid - skipping upload.");
-                        WriteLog("Upload config is not valid - skipping upload.");
+                        //WriteLog("Upload config is not valid - skipping upload.");
                         return;
                     }
 
@@ -74,7 +74,7 @@ namespace ProjectPerseus
                     {
                         var revit = new RevitFacade(e.Document);
 
-                        WriteLog("Before PerformIncrementalSync");
+                        //WriteLog("Before PerformIncrementalSync");
                         PerformIncrementalSync(revit);
 
                         //if (Config.Instance.FullSyncNextSync)
@@ -91,7 +91,7 @@ namespace ProjectPerseus
                         //    WriteLog("Incremental sync requested - uploading changed elements...");
                         //    PerformIncrementalSync(revit);
                         //}
-                        WriteLog("Before _config.LastSyncVersionGuid");
+                        //WriteLog("Before _config.LastSyncVersionGuid");
                         _config.LastSyncVersionGuid = RevitFacade.GetDocumentVersionGuid(revit.Document);
                     }
                     catch (Exception ex)
@@ -103,7 +103,7 @@ namespace ProjectPerseus
 
                     watch.Stop();
                     Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
-                    WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    //WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                     // dump json
                     // Utl.JsonDump(elements, "ElementList");
                 }
@@ -113,20 +113,23 @@ namespace ProjectPerseus
                     WriteLog(ex.ToString());
                 }
             }
-            WriteLog("  //doOnSync");
+            //WriteLog("  //doOnSync");
         }
 
         private void PerformFullSync(RevitFacade revit)
         {
                 var elements = revit.GetAllElements();
+            
+                WriteLog($"PerformFullSync: Found {elements.Count} elements");
                 var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document);
                 //SubmitElementDeltas(elementDeltaList);
+                
                 SubmitElementState(elementDeltaList);
         }
 
         private void PerformIncrementalSync(RevitFacade revit)
         {
-            WriteLog("PerformIncrementalSync - Before GetElementChangeSet");
+            //WriteLog("PerformIncrementalSync - Before GetElementChangeSet");
             //(_config.LastSyncVersionGuid.ToString());
             
             var _baseUrl = _config.BaseUrl;
@@ -146,7 +149,7 @@ namespace ProjectPerseus
 
             var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
             
-            WriteLog("PerformIncrementalSync - Before Change Set If Satement");
+            //WriteLog("PerformIncrementalSync - Before Change Set If Satement");
             if (elementChangeSet.ContainsChanges())
             {
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document);
