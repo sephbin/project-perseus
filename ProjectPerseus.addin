@@ -2,10 +2,10 @@
 <RevitAddIns>
   <AddIn Type="Application">
     <Name>ProjectPerseusPlugin</Name>
-	<Assembly>E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\Debug\ProjectPerseus.dll</Assembly>
+	<Assembly>K:\Computational Design Group\93_Development\project-perseus\revit_plugin\src\ProjectPerseus\bin\DebugProjectPerseus.dll</Assembly>
 	<AddInId>257f1a77-bc53-4b92-84db-4aa79a7f3050</AddInId>
 	<FullClassName>ProjectPerseus.Plugin</FullClassName>
-	<VendorId>com.randallboland</VendorId>
-	<VendorDescription>Randall Boland</VendorDescription>
+	<VendorId>com.randallboland/andrewbutler</VendorId>
+	<VendorDescription>Randall Boland/Andrew Butler</VendorDescription>
   </AddIn>
 </RevitAddIns>
