@@ -84,12 +84,12 @@ WSGI_APPLICATION = 'projectperseus.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'django.db.backends.mysql',
         'NAME': os.getenv('RDS_DB_NAME', 'projectperseus'),
         'USER': os.getenv('RDS_USERNAME', 'projectperseus'),
         'PASSWORD': os.getenv('RDS_PASSWORD', 'projectperseus'),
         'HOST': os.getenv('RDS_HOSTNAME', '127.0.0.1'),
-        'PORT': os.getenv('RDS_PORT', '5432'),
+        # 'PORT': os.getenv('RDS_PORT', '5432'),
     },
 }
 
