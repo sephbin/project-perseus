@@ -157,7 +157,7 @@ def stateUpdate(request):
         Parameter.objects.bulk_create(
         createParams,
         update_conflicts=True,
-        unique_fields=['element','name'],
+        unique_fields=['element_id','name'],
         update_fields=['value','value_type'])
     except Exception as e:
         print(e)
