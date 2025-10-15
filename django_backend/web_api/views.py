@@ -105,13 +105,14 @@ class ParameterReadView(ReadOnlyModelViewSet):
 @csrf_exempt
 def stateUpdate(request):
     import json
+    import copy
     data = []
     if request.method == "POST":
         data = json.loads(request.body)
 
     createElements = []
     createParams = []
-    for index, line in enumerate(data):
+    for index, line in enumerate(copy.deepcopy(data)):
         element = line["element"]
         unique_id = element.pop("unique_id")
         parameters = element.pop("parameters")
