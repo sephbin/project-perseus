@@ -2,14 +2,14 @@ from django.db import models
 
 
 class Source(models.Model):
-    unique_id = models.TextField(max_length=255, unique=True)
+    unique_id = models.CharField(max_length=128, unique=True)
     name = models.TextField(max_length=255, blank=True)
     medium = models.TextField(max_length=255, blank=True)
 
 
 class Element(models.Model):
     element_id = models.TextField(max_length=255)
-    unique_id = models.TextField(max_length=64, unique=True)
+    unique_id = models.CharField(max_length=128, unique=True)
     name = models.TextField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
