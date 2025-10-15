@@ -144,11 +144,13 @@ def stateUpdate(request):
         unique_id = element.pop("unique_id")
         elementModel = Element.objects.get(unique_id=unique_id)
         parameters = element.pop("parameters")
-        parameters = list(set(parameters))
+        nameIndex = []
         for param in parameters:
             try:
-                print(param)
                 name = param.pop("name")
+                if name in nameIndex:
+                    continue
+                nameIndex.append(name)
                 appendParam = Parameter(element=elementModel, name=name, **param)
                 createParams.append(appendParam)
             except Exception as e:
