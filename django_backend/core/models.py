@@ -2,20 +2,20 @@ from django.db import models
 
 
 class Source(models.Model):
-    unique_id = models.TextField(unique=True)
-    name = models.TextField(blank=True)
-    medium = models.TextField(blank=True)
+    unique_id = models.TextField(max_length=255, unique=True)
+    name = models.TextField(max_length=255, blank=True)
+    medium = models.TextField(max_length=255, blank=True)
 
 
 class Element(models.Model):
-    element_id = models.TextField()
-    unique_id = models.TextField(unique=True)
-    name = models.TextField(blank=True)
+    element_id = models.TextField(max_length=255)
+    unique_id = models.TextField(max_length=255, unique=True)
+    name = models.TextField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    last_edited_by = models.TextField(blank=True)
+    last_edited_by = models.TextField(max_length=255, blank=True)
     source_model = models.ForeignKey('Source', on_delete=models.CASCADE, related_name='elements', blank=True, null=True)
-    source_state = models.TextField(blank=True, null=True)
+    source_state = models.TextField(max_length=255, blank=True, null=True)
 
     @property
     def parameterList(self):
@@ -40,9 +40,9 @@ class Element(models.Model):
 
 
 class Parameter(models.Model):
-    name = models.TextField(blank=True, null=True)
-    value = models.TextField(blank=True, null=True)
-    value_type = models.TextField(blank=True, null=True)
+    name = models.TextField(max_length=255, blank=True, null=True)
+    value = models.TextField(max_length=255, blank=True, null=True)
+    value_type = models.TextField(max_length=255, blank=True, null=True)
     element = models.ForeignKey('Element', on_delete=models.CASCADE, related_name='parameters')
 
     # class Meta:
