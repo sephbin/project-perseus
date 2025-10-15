@@ -109,6 +109,8 @@ def stateUpdate(request):
     if request.method == "POST":
         data = json.loads(request.body)
 
+    createElements = []
+    createParams = []
     for index, line in enumerate(data):
         element = line["element"]
         unique_id = element.pop("unique_id")
@@ -120,19 +122,25 @@ def stateUpdate(request):
         element["source_model"] = sourceModel
 
         if index == 0: print(line)
-        modelElement, _updated = Element.objects.update_or_create(unique_id = unique_id, defaults=element)
-        
-        
-        existingParamNames = list(set(map(lambda x: x.name, modelElement.parameters.all())))
+        # modelElement, _updated = Element.objects.update_or_create(unique_id = unique_id, defaults=element)
+        appendElement = Element(unique_id=unique_id ,**element)
+        createElements.append(appendElement)
+
+
+        # existingParamNames = list(set(map(lambda x: x.name, modelElement.parameters.all())))
         ## Preparing to remove deleted parameters
         # print(existingParamNames)
         for param in parameters:
             try:
                 name = param.pop("name")
-                Parameter.objects.update_or_create(element=modelElement, name=name, defaults=param)
+                appendParam = Parameter(element=appendElement, name=name, **param)
+                createParams.append(appendParam)
+                #Parameter.objects.update_or_create(element=modelElement, name=name, defaults=param)
             except: pass
 
-
+    Element.objects.bulk_create(createElements, update_conflicts=True, unique_fields=['unique_id'], update_fields=['element_id', 'name', 'source_model', 'source_state'])
+    Parameter.objects.bulk_create(createParams, update_conflicts=True, unique_fields=['element','name'],
+        update_fields=['value','value_type'])
     # Return the custom 202 Accepted response
     return HttpResponse()
 

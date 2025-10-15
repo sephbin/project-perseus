@@ -45,5 +45,5 @@ class Parameter(models.Model):
     value_type = models.TextField(max_length=255, blank=True, null=True)
     element = models.ForeignKey('Element', on_delete=models.CASCADE, related_name='parameters')
 
-    # class Meta:
-        # unique_together = ('element', 'name')
+    class Meta:
+        unique_together = ('element', 'name')

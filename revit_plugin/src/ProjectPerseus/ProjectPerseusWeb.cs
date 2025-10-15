@@ -47,11 +47,11 @@ namespace ProjectPerseus
 
         public void SubmitElementState(IList<models.ElementDelta> elementDeltas)
         {
-            WriteLog("SubmitElementDeltas");
+            WriteLog("SubmitElementState");
             var jsonString = Utl.SerializeToJson(elementDeltas, null);
             WriteLog(jsonString);
             WebHelper.Post(StateUpdateEndpoint, _apiToken, jsonString);
-            WriteLog("// SubmitElementDeltas");
+            WriteLog("// SubmitElementState");
         }
 
         private static class WebHelper

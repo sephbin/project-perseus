@@ -25,30 +25,6 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("http://127.0.0.1:8000")]
-        public string BaseUrl {
-            get {
-                return ((string)(this["BaseUrl"]));
-            }
-            set {
-                this["BaseUrl"] = value;
-            }
-        }
-        
-        [global::System.Configuration.UserScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("cb3f223138bbfd487e0a8e350d2464ec85213560")]
-        public string ApiToken {
-            get {
-                return ((string)(this["ApiToken"]));
-            }
-            set {
-                this["ApiToken"] = value;
-            }
-        }
-        
-        [global::System.Configuration.UserScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("True")]
         public bool FullSyncNextSync {
             get {
@@ -68,6 +44,30 @@ namespace ProjectPerseus.Properties {
             }
             set {
                 this["LastSyncVersionGuid"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("https://sephbin.pythonanywhere.com")]
+        public string BaseUrl {
+            get {
+                return ((string)(this["BaseUrl"]));
+            }
+            set {
+                this["BaseUrl"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("1e1c778bcdfb6309e723cb7edb0cdd76ae3d595d")]
+        public string ApiToken {
+            get {
+                return ((string)(this["ApiToken"]));
+            }
+            set {
+                this["ApiToken"] = value;
             }
         }
     }

@@ -2,17 +2,17 @@
 <SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="ProjectPerseus.Properties" GeneratedClassName="Settings">
   <Profiles />
   <Settings>
-    <Setting Name="BaseUrl" Type="System.String" Scope="User">
-      <Value Profile="(Default)">http://127.0.0.1:8000</Value>
-    </Setting>
-    <Setting Name="ApiToken" Type="System.String" Scope="User">
-      <Value Profile="(Default)">cb3f223138bbfd487e0a8e350d2464ec85213560</Value>
-    </Setting>
     <Setting Name="FullSyncNextSync" Type="System.Boolean" Scope="User">
       <Value Profile="(Default)">True</Value>
     </Setting>
     <Setting Name="LastSyncVersionGuid" Type="System.Guid" Scope="User">
       <Value Profile="(Default)">00000000-0000-0000-0000-000000000000</Value>
+    </Setting>
+    <Setting Name="BaseUrl" Type="System.String" Scope="User">
+      <Value Profile="(Default)">https://sephbin.pythonanywhere.com</Value>
+    </Setting>
+    <Setting Name="ApiToken" Type="System.String" Scope="User">
+      <Value Profile="(Default)">1e1c778bcdfb6309e723cb7edb0cdd76ae3d595d</Value>
     </Setting>
   </Settings>
 </SettingsFile>
