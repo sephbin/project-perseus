@@ -147,7 +147,7 @@ def stateUpdate(request):
             unique_fields=['unique_id'],
             update_fields=['element_id', 'name', 'source_model_id', 'source_state'])
     try:
-        print(createParams)
+        # print(createParams)
         Parameter.objects.bulk_create(
         createParams,
         update_conflicts=True,
