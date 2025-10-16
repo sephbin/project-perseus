@@ -113,6 +113,7 @@ class SourceReadView(ReadOnlyModelViewSet):
 
 @csrf_exempt
 def stateUpdate(request):
+    print(stateUpdate)
     import json
     import copy
     data = []
