@@ -29,7 +29,7 @@ class ElementDeltaSubmissionView(ReadOnlyModelViewSet):
     }
 
     def create(self, request, *args, **kwargs):
-        # print("ElementDeltaSubmissionView.Create")
+        print("ElementDeltaSubmissionView.Create")
         
 
         """
@@ -183,10 +183,11 @@ def stateUpdate(request):
     return HttpResponse()
 
 def getLatestState(request, source):
-        sourceModel, _created = Source.objects.get_or_create(unique_id=source)
-        element = Element.objects.filter(source_model=sourceModel).order_by('-updated_at').first()
-        if element == None:
-            source_state = "00000000-0000-0000-0000-000000000000"
-        else:
-            source_state = element.source_state
-        return  JsonResponse({"value":source_state})
+    print("getLatestState")
+    sourceModel, _created = Source.objects.get_or_create(unique_id=source)
+    element = Element.objects.filter(source_model=sourceModel).order_by('-updated_at').first()
+    if element == None:
+        source_state = "00000000-0000-0000-0000-000000000000"
+    else:
+        source_state = element.source_state
+    return  JsonResponse({"value":source_state})
