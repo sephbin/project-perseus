@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 from core.models import *
-from web_api.serializers import ElementListSerializer, ReadElementSerializer, ReadParameterSerializer
+from web_api.serializers import *
 from web_api.filters import *
 import json
 from django.views.decorators.csrf import csrf_exempt
