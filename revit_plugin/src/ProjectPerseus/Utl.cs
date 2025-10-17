@@ -101,18 +101,18 @@ namespace ProjectPerseus
         
         public static string SerializeToJson(object obj, JsonSerializerSettings options = null)
         {
-            //WriteLog("SerializeToJson");
+            WriteLog("SerializeToJson");
             if (options is null)
             {
                 options = new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore };
             }
-            //WriteLog("- SerializeToJson");
+            WriteLog("- SerializeToJson");
             var jsonString = "{}";
             try
-            {jsonString = JsonConvert.SerializeObject(obj, Formatting.Indented, options);}
+            {jsonString = JsonConvert.SerializeObject(obj, Formatting.None, options);}
             catch (Exception ex){ WriteLog($"Error creating jsonString: {ex.Message}"); }
-            
-            //WriteLog("// SerializeToJson");
+
+            WriteLog("// SerializeToJson");
             return jsonString;
         }
         

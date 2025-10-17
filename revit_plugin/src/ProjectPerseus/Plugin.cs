@@ -9,7 +9,7 @@ using ProjectPerseus.revit;
 using System.IO;
 using static System.Net.Mime.MediaTypeNames;
 using System.Reflection;
-
+using System.Windows.Media.Imaging;
 
 namespace ProjectPerseus
 {
@@ -118,13 +118,20 @@ namespace ProjectPerseus
 
         private void PerformFullSync(RevitFacade revit)
         {
-                var elements = revit.GetAllElements();
-            
-                WriteLog($"PerformFullSync: Found {elements.Count} elements");
-                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document);
-                //SubmitElementDeltas(elementDeltaList);
+            var elements = revit.GetAllElements();
                 
-                SubmitElementState(elementDeltaList);
+
+            WriteLog($"PerformFullSync: Found {elements.Count} elements");
+            var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+            WriteLog(docGuid);
+            var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid);
+            //SubmitElementDeltas(elementDeltaList);
+            WriteLog("PerformFullSync: Created elementDeltaList");
+            var filteredElementDeltaList = elementDeltaList;
+            try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName("Rooms"); }
+            catch (Exception ex) { WriteLog(ex.ToString()); }
+            WriteLog("PerformFullSync: Filtered Element Delta List");
+            SubmitElementState(filteredElementDeltaList);
         }
 
         private void PerformIncrementalSync(RevitFacade revit)
@@ -133,7 +140,8 @@ namespace ProjectPerseus
             //(_config.LastSyncVersionGuid.ToString());
             
             var _baseUrl = _config.BaseUrl;
-            var docId = revit.Document.ProjectInformation.UniqueId;
+            var docId = ModelGuidStorage.GetOrCreate(revit.Document);
+            WriteLog(docId);
             var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
             string stateJson = Utl.WebHelper.Get(StateEndpoint,null,null);
@@ -147,12 +155,16 @@ namespace ProjectPerseus
             
             WriteLog(lastSyncVersionGuid.ToString());
 
-            var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
+            //var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid)
+            var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid) ;
             
             //WriteLog("PerformIncrementalSync - Before Change Set If Satement");
             if (elementChangeSet.ContainsChanges())
             {
-                var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document);
+                var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                WriteLog(docGuid);
+                var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
+                elementDeltaList = elementDeltaList.FilterByCategoryName("Rooms");
                 SubmitElementDeltas(elementDeltaList);
             }
             else 
@@ -205,8 +217,21 @@ namespace ProjectPerseus
 
             PushButton pb1 = ribbonPanel.AddItem(b1Data) as PushButton;
             pb1.ToolTip = "Upload all elements to external database";
-            //BitmapImage pb1Image = new BitmapImage(new Uri("pack://application:,,,/PerseusRibbon;component/Resources/totalLength.png"));
-            //pb1.LargeImage = pb1Image;
+            BitmapImage pb1Image = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/perseus.png"));
+            pb1.LargeImage = pb1Image;
+
+            
+            PushButtonData settingsBtnData = new PushButtonData(
+            "Button_Settings",
+            "Settings",
+            thisAssemblyPath,
+            "ProjectPerseus.Commands.OpenSettingsCommand");
+
+            PushButton settingsBtn = ribbonPanel.AddItem(settingsBtnData) as PushButton;
+            settingsBtn.ToolTip = "Change Perseus Settings like: API Token and Upload URL";
+            BitmapImage settingsBtnImage = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/settings.png"));
+            settingsBtn.LargeImage = settingsBtnImage;
+
         }
     }
 }

@@ -21,7 +21,7 @@ namespace ProjectPerseusTests
         {
             var mockParameters = GetMockElement(out var mockElement);
 
-            var element = new Element(mockElement, null);
+            var element = new Element(mockElement, null, null);
 
             // Assert
             Assert.AreEqual(mockElement.Id.IntegerValue, element.Id, "Element IDs do not match");
@@ -116,7 +116,7 @@ namespace ProjectPerseusTests
                 }
             }";
             GetMockElement(out var mockElement);
-            var elementDelta = new ElementDelta(ElementDelta.DeltaAction.Create, mockElement, null);
+            var elementDelta = new ElementDelta(ElementDelta.DeltaAction.Create, mockElement, null, null);
             var actualJson = Utl.SerializeToJson(elementDelta);
             
             var expectedToken = JToken.Parse(expectedJson);

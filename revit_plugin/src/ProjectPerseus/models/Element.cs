@@ -15,12 +15,17 @@ namespace ProjectPerseus.models
     {
         private readonly IArdbElement _element;
         private readonly Autodesk.Revit.DB.Document _doc;
+        private readonly string _docGuid;
 
-        public Element(IArdbElement element, Autodesk.Revit.DB.Document doc)
+        public Element(IArdbElement element, Autodesk.Revit.DB.Document doc, string docGuid)
         {
             _element = element ?? throw new ArgumentNullException(nameof(element));
             _doc = doc ?? throw new ArgumentNullException(nameof(doc));
+            _docGuid = docGuid ?? throw new ArgumentNullException(nameof(docGuid));
         }
+        
+        [JsonIgnore]
+        public IArdbElement originalElement => _element;
 
         [JsonProperty("element_id")] public int Id => _element.Id.IntegerValue;
 
@@ -31,8 +36,13 @@ namespace ProjectPerseus.models
 
         [JsonProperty("last_edited_by")] public string Username => Environment.UserName;
 
-        [JsonProperty("source_model")] public string SourceModel => _doc.ProjectInformation.UniqueId;
-        
+
+        //WTF is this for? Revit returns the same id for different files.
+        //[JsonProperty("source_model")] public string SourceModel => _doc.ProjectInformation.UniqueId;
+        //[JsonProperty("source_model")] public string SourceModel => _doc.GetCloudModelPath()?.GetModelGUID().ToString() ?? RevitFacade.GetDocumentVersionGuid(_doc).ToString();
+        [JsonProperty("source_model")]
+        public string SourceModel => _docGuid; //ModelGuidStorage.GetOrCreate(_doc);
+
         [JsonProperty("source_state")] public string SourceState => RevitFacade.GetDocumentVersionGuid(_doc).ToString();
 
 

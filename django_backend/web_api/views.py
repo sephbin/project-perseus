@@ -64,7 +64,7 @@ class ElementDeltaSubmissionView(ReadOnlyModelViewSet):
             # if index == 0: print(i)
             #print(str(i["element"]["element_id"])+ json.dumps(i["element"]["parameters"]))
             # print(i["element"])
-        print(list(map(lambda x: x["action"]+": "+str(x["element"]["element_id"])+" | "+x["element"]["unique_id"], data)))
+        # print(list(map(lambda x: x["action"]+": "+str(x["element"]["element_id"])+" | "+x["element"]["unique_id"], data)))
         # data = [data[0]]
         # print(json.dumps(data, indent=4))
         # data = data[4090:]

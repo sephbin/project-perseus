@@ -34,20 +34,19 @@
             this.apiTokenTextBox = new System.Windows.Forms.TextBox();
             this.saveButton = new System.Windows.Forms.Button();
             this.cancelButton = new System.Windows.Forms.Button();
-            this.fullSyncNextSyncCheckBox = new System.Windows.Forms.CheckBox();
             this.SuspendLayout();
             // 
             // syncUrltextBox
             // 
-            this.syncUrltextBox.Location = new System.Drawing.Point(119, 6);
+            this.syncUrltextBox.Location = new System.Drawing.Point(75, 15);
             this.syncUrltextBox.Name = "syncUrltextBox";
-            this.syncUrltextBox.Size = new System.Drawing.Size(203, 20);
+            this.syncUrltextBox.Size = new System.Drawing.Size(466, 20);
             this.syncUrltextBox.TabIndex = 0;
             // 
             // syncUrlLabel
             // 
             this.syncUrlLabel.AutoSize = true;
-            this.syncUrlLabel.Location = new System.Drawing.Point(12, 9);
+            this.syncUrlLabel.Location = new System.Drawing.Point(10, 18);
             this.syncUrlLabel.Name = "syncUrlLabel";
             this.syncUrlLabel.Size = new System.Drawing.Size(59, 13);
             this.syncUrlLabel.TabIndex = 1;
@@ -56,7 +55,7 @@
             // apiTokenLabel
             // 
             this.apiTokenLabel.AutoSize = true;
-            this.apiTokenLabel.Location = new System.Drawing.Point(12, 35);
+            this.apiTokenLabel.Location = new System.Drawing.Point(10, 44);
             this.apiTokenLabel.Name = "apiTokenLabel";
             this.apiTokenLabel.Size = new System.Drawing.Size(61, 13);
             this.apiTokenLabel.TabIndex = 3;
@@ -64,14 +63,14 @@
             // 
             // apiTokenTextBox
             // 
-            this.apiTokenTextBox.Location = new System.Drawing.Point(119, 32);
+            this.apiTokenTextBox.Location = new System.Drawing.Point(77, 41);
             this.apiTokenTextBox.Name = "apiTokenTextBox";
-            this.apiTokenTextBox.Size = new System.Drawing.Size(203, 20);
+            this.apiTokenTextBox.Size = new System.Drawing.Size(464, 20);
             this.apiTokenTextBox.TabIndex = 2;
             // 
             // saveButton
             // 
-            this.saveButton.Location = new System.Drawing.Point(87, 80);
+            this.saveButton.Location = new System.Drawing.Point(383, 83);
             this.saveButton.Name = "saveButton";
             this.saveButton.Size = new System.Drawing.Size(75, 23);
             this.saveButton.TabIndex = 4;
@@ -82,7 +81,7 @@
             // cancelButton
             // 
             this.cancelButton.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.cancelButton.Location = new System.Drawing.Point(168, 80);
+            this.cancelButton.Location = new System.Drawing.Point(464, 83);
             this.cancelButton.Name = "cancelButton";
             this.cancelButton.Size = new System.Drawing.Size(75, 23);
             this.cancelButton.TabIndex = 5;
@@ -90,26 +89,14 @@
             this.cancelButton.UseVisualStyleBackColor = true;
             this.cancelButton.Click += new System.EventHandler(this.cancelButton_Click);
             // 
-            // fullSyncNextSyncCheckBox
-            // 
-            this.fullSyncNextSyncCheckBox.AutoSize = true;
-            this.fullSyncNextSyncCheckBox.CheckAlign = System.Drawing.ContentAlignment.MiddleRight;
-            this.fullSyncNextSyncCheckBox.Location = new System.Drawing.Point(12, 58);
-            this.fullSyncNextSyncCheckBox.Name = "fullSyncNextSyncCheckBox";
-            this.fullSyncNextSyncCheckBox.Size = new System.Drawing.Size(121, 17);
-            this.fullSyncNextSyncCheckBox.TabIndex = 6;
-            this.fullSyncNextSyncCheckBox.Text = "Full Sync Next Sync";
-            this.fullSyncNextSyncCheckBox.UseVisualStyleBackColor = true;
-            // 
             // SettingsForm
             // 
             this.AcceptButton = this.saveButton;
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.cancelButton;
-            this.ClientSize = new System.Drawing.Size(332, 110);
+            this.ClientSize = new System.Drawing.Size(553, 118);
             this.ControlBox = false;
-            this.Controls.Add(this.fullSyncNextSyncCheckBox);
             this.Controls.Add(this.cancelButton);
             this.Controls.Add(this.saveButton);
             this.Controls.Add(this.apiTokenLabel);
@@ -135,6 +122,5 @@
         private System.Windows.Forms.TextBox apiTokenTextBox;
         private System.Windows.Forms.Button saveButton;
         private System.Windows.Forms.Button cancelButton;
-        private System.Windows.Forms.CheckBox fullSyncNextSyncCheckBox;
     }
 }

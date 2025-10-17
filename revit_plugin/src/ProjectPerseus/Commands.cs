@@ -9,6 +9,7 @@ using ProjectPerseus.revit;
 using System.IO;
 using static System.Net.Mime.MediaTypeNames;
 using System.Reflection;
+using Autodesk.Revit.Attributes;
 
 namespace ProjectPerseus.Commands
 {
@@ -40,6 +41,17 @@ namespace ProjectPerseus.Commands
                 message = ex.Message;
                 return Result.Failed;
             }
+        }
+    }
+    
+    [Transaction(TransactionMode.Manual)]
+    public class OpenSettingsCommand : IExternalCommand
+    {
+        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+        {
+            var window = new ProjectPerseus.SettingsForm();
+            window.ShowDialog();
+            return Result.Succeeded;
         }
     }
 }

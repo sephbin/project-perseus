@@ -21,7 +21,6 @@ namespace ProjectPerseus
         {
             syncUrltextBox.Text = Config.Instance.BaseUrl;
             apiTokenTextBox.Text = Config.Instance.ApiToken;
-            fullSyncNextSyncCheckBox.Checked = Config.Instance.FullSyncNextSync;
         }
 
         private void cancelButton_Click(object sender, EventArgs e)
@@ -33,7 +32,6 @@ namespace ProjectPerseus
         {
             Config.Instance.BaseUrl = syncUrltextBox.Text;
             Config.Instance.ApiToken = apiTokenTextBox.Text;
-            Config.Instance.FullSyncNextSync = fullSyncNextSyncCheckBox.Checked;
             Close();
         }
     }

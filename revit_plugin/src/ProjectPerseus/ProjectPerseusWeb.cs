@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 
 
@@ -48,9 +49,53 @@ namespace ProjectPerseus
         public void SubmitElementState(IList<models.ElementDelta> elementDeltas)
         {
             WriteLog("SubmitElementState");
-            var jsonString = Utl.SerializeToJson(elementDeltas, null);
-            WriteLog(jsonString);
-            WebHelper.Post(StateUpdateEndpoint, _apiToken, jsonString);
+            int chunkSize = Math.Min(elementDeltas.Count, 10000);
+            WriteLog("chunkSize");
+            int total = elementDeltas.Count;
+            WriteLog("total");
+            int totalChunks = (int)Math.Ceiling((double)total / chunkSize);
+            WriteLog("totalChunks");
+            WriteLog($"SubmitElementState: {total} elements to upload in {totalChunks} chunks (chunk size {chunkSize})");
+            for (int i = 0; i < total; i += chunkSize)
+            {
+                WriteLog("for");
+                var chunk = elementDeltas.Skip(i).Take(chunkSize).ToList();
+                WriteLog("chunk");
+                WriteLog(chunk.ToString());
+                string jsonString = Utl.SerializeToJson(chunk, null);
+
+                WriteLog("jsonString");
+
+                WriteLog($"Uploading chunk {i / chunkSize + 1} of {totalChunks}, containing {chunk.Count} elements");
+
+                try
+                {
+                    var preview = jsonString.Length > 5000 ? jsonString.Substring(0, 5000) + "..." : jsonString;
+                    WriteLog(preview);
+                    WebHelper.Post(StateUpdateEndpoint, _apiToken, jsonString);
+                    
+                    WriteLog($"Chunk {i / chunkSize + 1} uploaded successfully");
+                }
+                catch (Exception ex)
+                {
+                    WriteLog($"Error posting chunk {i / chunkSize + 1}: {ex.Message}");
+                }
+            }
+
+
+
+
+            //var jsonString = Utl.SerializeToJson(elementDeltas, null);
+            //WriteLog(jsonString);
+            //try
+            //{
+            //    WebHelper.Post(StateUpdateEndpoint, _apiToken, jsonString);
+            //}
+            //catch (Exception ex)
+            //{
+            //    WriteLog($"Error posting data: {ex.Message}");
+            //}
+
             WriteLog("// SubmitElementState");
         }
 

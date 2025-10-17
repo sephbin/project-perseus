@@ -13,12 +13,14 @@ namespace ProjectPerseus.models
     public class ElementDelta
     {
         private readonly Document _doc;
+        private readonly string _docGuid;
 
-        public ElementDelta(DeltaAction action, IArdbElement element, Document doc)
+        public ElementDelta(DeltaAction action, IArdbElement element, Document doc, string docGuid)
         {
             _doc = doc ?? throw new ArgumentNullException(nameof(doc));
+            _docGuid = docGuid ?? throw new ArgumentNullException(nameof(docGuid));
             Action = action;
-            Element = new Element(element, _doc);
+            Element = new Element(element, _doc, _docGuid);
         }
 
         [JsonProperty("action")]
@@ -28,27 +30,27 @@ namespace ProjectPerseus.models
         [JsonProperty("element")]
         public Element Element { get; }
         
-        public static List<ElementDelta> CreateListFromChangeSet(ElementChangeSet changeSet, Document doc)
+        public static List<ElementDelta> CreateListFromChangeSet(ElementChangeSet changeSet, Document doc, string docGuid)
         {
             var deltas = new List<ElementDelta>();
-            deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements, doc));
-            deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements, doc));
+            deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements, doc, docGuid));
+            deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements, doc, docGuid));
             // deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements)); TODO: Implement
             return deltas;
         }
 
-        public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements, Document doc)
+        public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements, Document doc,  string docGuid)
         {
             //return elements.Select(element => new ElementDelta(action, element, doc)).ToList();
             var deltas = new List<ElementDelta>();
             int count = 0;
             int total = elements.Count();
-            int logInterval = Math.Max(1, total / 100); // log ~100 times total
+            int logInterval = Math.Max(1, total / 10); // log ~100 times total
 
             
             foreach (var element in elements)
             {
-                deltas.Add(new ElementDelta(action, element, doc));
+                deltas.Add(new ElementDelta(action, element, doc, docGuid));
                 count++;
 
                 if (count % logInterval == 0 || count == total)
