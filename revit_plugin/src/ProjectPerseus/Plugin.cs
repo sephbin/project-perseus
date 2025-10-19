@@ -74,7 +74,7 @@ namespace ProjectPerseus
                     {
                         var revit = new RevitFacade(e.Document);
 
-                        //WriteLog("Before PerformIncrementalSync");
+                        WriteLog("Before PerformIncrementalSync");
                         PerformIncrementalSync(revit);
 
                         //if (Config.Instance.FullSyncNextSync)
@@ -128,7 +128,7 @@ namespace ProjectPerseus
             //SubmitElementDeltas(elementDeltaList);
             WriteLog("PerformFullSync: Created elementDeltaList");
             var filteredElementDeltaList = elementDeltaList;
-            try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName("Rooms"); }
+            try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" }); }
             catch (Exception ex) { WriteLog(ex.ToString()); }
             WriteLog("PerformFullSync: Filtered Element Delta List");
             SubmitElementState(filteredElementDeltaList);
@@ -164,7 +164,7 @@ namespace ProjectPerseus
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
                 WriteLog(docGuid);
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
-                elementDeltaList = elementDeltaList.FilterByCategoryName("Rooms");
+                elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
                 SubmitElementDeltas(elementDeltaList);
             }
             else 
@@ -211,7 +211,7 @@ namespace ProjectPerseus
             // create push button for CurveTotalLength
             PushButtonData b1Data = new PushButtonData(
                 "Button_RunFullSync",
-                "Full" + System.Environment.NewLine + "  Upload  ",
+                "Upload",
                 thisAssemblyPath,
                 "ProjectPerseus.Commands.PerformFullUploadCommand");
 

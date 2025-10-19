@@ -35,7 +35,7 @@ namespace ProjectPerseus.models
             var deltas = new List<ElementDelta>();
             deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements, doc, docGuid));
             deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements, doc, docGuid));
-            // deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements)); TODO: Implement
+            //deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements, doc, docGuid)); //TODO: Implement
             return deltas;
         }
 
@@ -50,6 +50,7 @@ namespace ProjectPerseus.models
             
             foreach (var element in elements)
             {
+                Utl.WriteLog("Add ElementDelta to list");
                 deltas.Add(new ElementDelta(action, element, doc, docGuid));
                 count++;
 
