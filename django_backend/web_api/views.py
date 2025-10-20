@@ -36,7 +36,7 @@ class ElementDeltaSubmissionView(ReadOnlyModelViewSet):
         This method is called create to hook into the DRF viewset lifecycle.
         """
         data = request.data if isinstance(request.data, list) else [request.data]
-        print(data)
+        print(data[0])
         for index, i in enumerate(data):
             # i["action"] = "Create"
             # if i['action'] == "Create":
