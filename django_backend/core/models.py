@@ -1,5 +1,6 @@
 from django.db import models
-
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
 
 class Source(models.Model):
     unique_id = models.CharField(max_length=128, unique=True)
@@ -47,3 +48,35 @@ class Parameter(models.Model):
 
     class Meta:
         unique_together = ('element', 'name')
+
+
+class Event(models.Model):
+    name = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    description = models.TextField(blank=True, null=True)
+
+
+
+
+@receiver(pre_save, sender=Parameter)
+def parameter_changed_handler(sender, instance, **kwargs):
+    print('parameter_changed_handler')
+    print(instance.pk)
+    if instance.pk:  # Only for existing instances, not new ones
+        try:
+            old_instance = sender.objects.get(pk=instance.pk)
+            print(old_instance)
+            if old_instance.name == "Area":
+                try:
+                    old_Area = float(old_instance.value)
+                    new_Area = float(instance.value)
+                    print(old_Area, new_Area)
+                    if old_Area > 0.0:
+                        if new_Area == 0.0:
+                            Event(name="Room Drop", description="Room Area set to 0").save()
+                except Exception as e: print(e)
+
+                    
+        except Exception as e:
+            print(e)
+            pass  # Handle cases where the instance might not exist (e.g., race conditions)
