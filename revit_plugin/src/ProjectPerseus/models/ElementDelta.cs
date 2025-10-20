@@ -50,7 +50,7 @@ namespace ProjectPerseus.models
             
             foreach (var element in elements)
             {
-                Utl.WriteLog("Add ElementDelta to list");
+                //Utl.WriteLog("Add ElementDelta to list");
                 deltas.Add(new ElementDelta(action, element, doc, docGuid));
                 count++;
 

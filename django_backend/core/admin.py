@@ -21,7 +21,10 @@ class ParameterAdmin(admin.ModelAdmin):
     search_fields = ["name","value"]
     pass
 
+class EventAdming(admin.ModelAdmin):
+    list_display = ('id', 'name','description')
 
 admin.site.register(Source, SourceAdmin)
 admin.site.register(Element, ElementAdmin)
 admin.site.register(Parameter, ParameterAdmin)
+admin.site.register(Event, EventAdming)
