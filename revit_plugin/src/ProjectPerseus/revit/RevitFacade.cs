@@ -41,20 +41,24 @@ namespace ProjectPerseus.revit
         /// Filters an ElementDelta list to only those whose Element.CategoryName matches the given value.
         /// </summary>
         public static List<ElementDelta> FilterByCategoryName(
-            this IEnumerable<ElementDelta> deltas, string categoryName)
+            this IEnumerable<ElementDelta> deltas, IEnumerable<string> categoryNames)
         {
             //foreach (var d in deltas)
             //{
             //    try { Utl.WriteLog(d.Element.originalElement.CategoryName.Name); } catch { }
             //}
-            
-            if (string.IsNullOrEmpty(categoryName))
-                throw new ArgumentException("Category name must not be null or empty.", nameof(categoryName));
+
+            if (categoryNames == null || !categoryNames.Any())
+                throw new ArgumentException("Category names list must not be null or empty.", nameof(categoryNames));
+
+            var categorySet = new HashSet<string>(
+                categoryNames.Select(n => n.ToLowerInvariant())
+            );
 
             return deltas
-                .Where(d => d.Element?.originalElement.CategoryName != null &&
-                            d.Element.originalElement.CategoryName.Name.Equals(categoryName, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+                .Where(d => d.Element?.originalElement?.CategoryName?.Name != null &&
+                    categorySet.Contains(d.Element.originalElement.CategoryName.Name.ToLowerInvariant()))
+                    .ToList();
         }
 
         /// <summary>
