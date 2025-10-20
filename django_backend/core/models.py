@@ -71,9 +71,12 @@ def parameter_changed_handler(sender, instance, **kwargs):
                     old_Area = float(old_instance.value)
                     new_Area = float(instance.value)
                     print(old_Area, new_Area)
+                    print(instance.element.__dict__)
                     if old_Area > 0.0:
                         if new_Area == 0.0:
-                            Event(name="Room Drop", description="Room Area set to 0").save()
+                            instanceDict = instance.element.__dict__
+                            description = "{element_id} {name}: Room Area Set to 0 by {last_edited_by}".format(**instanceDict)
+                            Event(name="Room Drop", description=description).save()
                 except Exception as e: print(e)
 
                     
