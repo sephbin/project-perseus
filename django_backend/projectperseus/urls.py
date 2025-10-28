@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework import routers
+from django.contrib.auth import views as auth_views
 
 from web_api import views
 
@@ -32,5 +33,21 @@ urlpatterns = [
     path('stateupdate/', views.stateUpdate),
     path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     path('users/', include('users.urls')),
+    # path('accounts/', include('django.contrib.auth.urls')),
+    
+]+[
+path('password_reset/',
+         auth_views.PasswordResetView.as_view(template_name='users/password_reset.html'),
+         name='password_reset'),
+    path('password_reset_done/',
+         auth_views.PasswordResetDoneView.as_view(template_name='users/password_reset_done.html'),
+         name='password_reset_done'),
+    path('reset/<uidb64>/<token>/',
+         auth_views.PasswordResetConfirmView.as_view(template_name='users/password_reset_confirm.html'),
+         name='password_reset_confirm'),
+    path('reset/done/',
+         auth_views.PasswordResetCompleteView.as_view(template_name='users/password_reset_complete.html'),
+         name='password_reset_complete'),
+    ]+[
     path('', admin.site.urls),
-]
+    ]

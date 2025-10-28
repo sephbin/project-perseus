@@ -151,3 +151,8 @@ REST_FRAMEWORK = {
 }
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2000000000 # 2GB
+
+
+LOGIN_REDIRECT_URL = 'home'      # Change to your homepage or dashboard
+LOGOUT_REDIRECT_URL = 'login'
+LOGIN_URL = 'login'

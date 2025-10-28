@@ -1,0 +1,56 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login | My Site</title>
+    <link rel="stylesheet" href="{% static 'admin/css/base.css' %}">
+    <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+    <link rel="stylesheet" href="{% static 'admin/css/login.css' %}">
+</head>
+<body class="login">
+
+<div id="container">
+    <h1 id="site-name"><a href="/">My Site</a></h1>
+
+    <div id="content">
+        <div id="content-main">
+            <form method="post" id="login-form">
+                {% csrf_token %}
+                <div class="form-row">
+                    {{ form.username.errors }}
+                    <label for="id_username">Username:</label>
+                    {{ form.username }}
+                </div>
+                <div class="form-row">
+                    {{ form.password.errors }}
+                    <label for="id_password">Password:</label>
+                    {{ form.password }}
+                </div>
+
+                <div class="submit-row">
+                    <input type="submit" value="Log in" class="default">
+                </div>
+            </form>
+
+            {% if form.errors %}
+                <p class="errornote">Your username and password didn’t match. Please try again.</p>
+            {% endif %}
+
+            <p><a href="{% url 'password_reset' %}">Forgot your password?</a></p>
+            {% if next %}
+  <p>Don’t have an account? 
+    <a href="{% url 'register' %}?next={{ next|urlencode }}">Register here</a>.
+  </p>
+{% else %}
+  <p>Don’t have an account? 
+    <a href="{% url 'register' %}">Register here</a>.
+  </p>
+{% endif %}
+
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
