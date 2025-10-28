@@ -1,0 +1,51 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Register</title>
+    <link rel="stylesheet" href="{% static 'admin/css/base.css' %}">
+    <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+    <link rel="stylesheet" href="{% static 'admin/css/login.css' %}">
+    <style>
+        ul{margin-left:0px !important;}
+        #container{
+            min-width:999px !important;
+        }
+    </style>
+</head>
+<body class="login">
+<body class="login">
+  <div id="container">
+    <h1 id="site-name"> Administration</h1>
+    <div id="content">
+        <div id="content-main">
+
+
+
+    <h1>Register a new account</h1>
+
+    <div id="content" class="colM">
+        <form method="POST" id="register-form">
+            {% csrf_token %}
+            <fieldset class="module aligned">
+                {{ form.as_p }}
+            </fieldset>
+            <div class="submit-row">
+                <input type="submit" value="Register" class="default">
+            </div>
+        </form>
+        {% if messages %}
+            <ul class="messagelist">
+                {% for message in messages %}
+                    <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+        </div>
+    </div>
+  </div>
+</body>
+</body>
+</html>

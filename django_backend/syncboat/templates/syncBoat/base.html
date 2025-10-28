@@ -1,0 +1,112 @@
+{% load static %}
+{% load listutil %}
+<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+<script src="https://code.jquery.com/jquery-3.4.1.min.js" integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo=" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-contextmenu/2.7.1/jquery.contextMenu.min.css">
+<script src="https://kit.fontawesome.com/56ede24306.js" crossorigin="anonymous"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-contextmenu/2.7.1/jquery.contextMenu.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-contextmenu/2.7.1/jquery.ui.position.js"></script>
+
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+<!-- <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script> -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+<style>
+	a, a:hover {
+		color: inherit; /* blue colors for links too */
+		text-decoration: none; /* no underline */
+		}
+	
+	body{
+		margin-bottom: 5em;
+		margin-top: 1em;
+
+	}
+	*{
+		font-family: "Mark Offc Pro","Mark Pro","Arial";
+	}
+		table{
+			display: inline-block;
+		}
+		select{
+			width:5em;
+			background: none;
+			text-align: right;
+			border: none;
+		}
+		
+		.container{
+			text-align: -webkit-center;
+			text-align: -moz-center;
+		}
+
+		.container.survey{
+			display: flex;
+			flex-flow: row wrap;
+			justify-content: space-around;
+			align-content: stretch;
+		}
+		.card{
+			margin:2px;
+	}
+
+		.card.survey{
+			text-align: -webkit-left;
+			text-align: -moz-left;
+			display: inline-block;
+			vertical-align: top;
+			flex: 1;
+		  	flex-basis: 20rem;
+			min-width: 20rem;
+			max-width: 50rem;
+		}
+		
+		tr.stripe:nth-child(even) {
+		background-color: rgba(0,0,0,0.05);
+		border-top: 1px solid rgba(0,0,0,0.1);
+		border-bottom: 1px solid rgba(0,0,0,0.1);
+		}
+		
+		td{
+			vertical-align: top;
+		}
+		
+		[pad-l]{
+			padding-left: 1em;
+		}
+		[right]{
+			text-align: right;
+			white-space: nowrap;
+		}
+		[left]{
+			text-align: left;
+			white-space: nowrap;
+		}
+		[wide]{
+			width: 100%
+		}
+		[block]{
+			display: block;
+		}
+		[bspace]{
+			margin-bottom: 2em;
+		}
+		[mono]{
+			letter-spacing: 1px;
+		}
+	</style>
+</head>
+<body>
+	
+{% block content %}
+{% endblock content %}
+
+
+</body>
+{% block script %}
+{% endblock script %}
+</html>

@@ -14,7 +14,16 @@ class ReadSourceSerializer(serializers.ModelSerializer):
         model = Source
         fields = "__all__"
 
-
+class ReadEventSerializer(serializers.ModelSerializer):
+    isoformat = serializers.SerializerMethodField('getIso')
+    class Meta:
+        model = Event
+        fields = "__all__"
+    def getIso(self, obj):
+        try:
+            return obj.updated_at.isoformat()
+        except:
+            return None
 class ReadElementSerializer(serializers.ModelSerializer):
     parameters = serializers.JSONField(source="parameter_dict")
     # parameter_dict = 

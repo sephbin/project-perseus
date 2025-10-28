@@ -1,14 +1,28 @@
 from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
+from django.contrib.auth.models import User
 
-class Source(models.Model):
+
+class ParentModel(models.Model):
+    name = models.CharField(max_length=255, blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+    
+    class Meta:
+        abstract = True
+
+class Project(ParentModel):
+    pass
+
+class Source(ParentModel):
     unique_id = models.CharField(max_length=128, unique=True)
     name = models.TextField(max_length=255, blank=True)
     medium = models.TextField(max_length=255, blank=True)
+    project = models.ForeignKey('Project', on_delete=models.CASCADE, related_name='sources', blank=True, null=True)
 
-
-class Element(models.Model):
+class Element(ParentModel):
     element_id = models.TextField(max_length=255)
     unique_id = models.CharField(max_length=128, unique=True)
     name = models.TextField(max_length=255, blank=True)
@@ -17,6 +31,7 @@ class Element(models.Model):
     last_edited_by = models.TextField(max_length=255, blank=True)
     source_model = models.ForeignKey('Source', on_delete=models.CASCADE, related_name='elements', blank=True, null=True)
     source_state = models.TextField(max_length=255, blank=True, null=True)
+
 
     @property
     def parameterList(self):
@@ -37,10 +52,7 @@ class Element(models.Model):
             outDict[param.name] = value
         return outDict
 
-    
-
-
-class Parameter(models.Model):
+class Parameter(ParentModel):
     name = models.CharField(max_length=255, blank=True, null=True)
     value = models.TextField(max_length=255, blank=True, null=True)
     value_type = models.TextField(max_length=255, blank=True, null=True)
@@ -49,29 +61,20 @@ class Parameter(models.Model):
     class Meta:
         unique_together = ('element', 'name')
 
-
-class Event(models.Model):
-    name = models.CharField(max_length=255, blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    description = models.TextField(blank=True, null=True)
-
-
-
-
 @receiver(pre_save, sender=Parameter)
 def parameter_changed_handler(sender, instance, **kwargs):
-    print('parameter_changed_handler')
-    print(instance.pk)
+    # print('parameter_changed_handler')
+    # print(instance.pk)
     if instance.pk:  # Only for existing instances, not new ones
         try:
             old_instance = sender.objects.get(pk=instance.pk)
-            print(old_instance)
+            # print(old_instance)
             if old_instance.name == "Area":
                 try:
                     old_Area = float(old_instance.value)
                     new_Area = float(instance.value)
-                    print(old_Area, new_Area)
-                    print(instance.element.__dict__)
+                    # print(old_Area, new_Area)
+                    # print(instance.element.__dict__)
                     if old_Area > 0.0:
                         if new_Area == 0.0:
                             instanceDict = instance.element.__dict__
@@ -83,3 +86,37 @@ def parameter_changed_handler(sender, instance, **kwargs):
         except Exception as e:
             print(e)
             pass  # Handle cases where the instance might not exist (e.g., race conditions)
+
+class Event(ParentModel):
+    name = models.CharField(max_length=255, blank=True, null=True)
+    event_type = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    description = models.TextField(blank=True, null=True)
+    source_model = models.ForeignKey('Source', on_delete=models.CASCADE, related_name='events', blank=True, null=True)
+    def __str__(self):
+        return self.event_type
+
+class Through_SourceToUser(ParentModel):
+    source_model = models.ForeignKey('Source', on_delete=models.CASCADE, related_name = "accesingProjFile")
+    user_model = models.ForeignKey(User, on_delete=models.CASCADE, related_name = "accesingProjFile")
+    access = models.CharField(max_length = 120)
+    created =       models.DateTimeField(auto_now_add=True)
+    updated =       models.DateTimeField(auto_now=True)
+    class Meta:
+        ordering = ['updated',]
+    def __str__(self):
+        return str(self.source_model)+" - "+str(self.user_model)
+    def save( self, *args, **kw ):
+        # newUS = Event.objects.update_or_create(name = "rel_accesingProjFile-%s"%(self.projectFileFK.id) )
+        newUS = Event(event_type = "syncBoat_queueing", source_model=self.source_model)
+        newUS.save()
+
+        super( Through_SourceToUser, self ).save( *args, **kw )
+
+    def delete( self, *args, **kw ):
+        # newUS = Event.objects.update_or_create(name = "rel_accesingProjFile-%s"%(self.projectFileFK.id) )
+        newUS = Event(event_type = "syncBoat_queueing", source_model=self.source_model)
+        newUS.save()
+
+        super( Through_SourceToUser, self ).delete( *args, **kw )

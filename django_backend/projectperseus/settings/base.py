@@ -41,11 +41,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_admin_search',
     'rest_framework',
     'django_filters',
+    'users',
     'core.apps.CoreConfig',
     'web_api.apps.WebApiConfig',
-    'rest_framework.authtoken'
+    'rest_framework.authtoken',
+    'syncboat'
 ]
 
 MIDDLEWARE = [
