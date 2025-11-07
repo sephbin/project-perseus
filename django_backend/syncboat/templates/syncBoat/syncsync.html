@@ -200,7 +200,11 @@ CLICK TO QUEUE
 
 	function logContext(){
 		context = "{{context| safe}}";
-		console.log(context);
+		console.log(context).position({
+       my: 'left',
+       at: 'right',
+       of: target
+    });
 	}
 
 
@@ -313,6 +317,7 @@ doPoll();
 		// document.body.style.cursor = 'wait';
 		$('*').addClass('wait');
 		console.log("click", this);
+		this.id("changB");
 		// id = $(this).attr("id");
 		// console.log(this);
 		// val = $(this).val();

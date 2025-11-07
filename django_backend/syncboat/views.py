@@ -56,7 +56,11 @@ def syncBoat(request, souce_model_id):
 			except: pass
 
 			try:
-				someoneElseSyncing = get_object_or_404(Through_SourceToUser, ~Q(user_model=user), source_model=projFile, access="Syncing", )
+				# someoneElseSyncing = get_object_or_404(Through_SourceToUser, ~Q(user_model=user), source_model=projFile, access="Syncing", )
+				queueEvents = projFile.accesingProjFile.filter(access="Syncing")
+				for qE in queueEvents:
+					if qE.user != user:
+						someoneElseSyncing = qE
 				isSyncing = True
 			except: pass
 			loc = 999
