@@ -40,6 +40,14 @@ class Source_Admin(Parent_Admin):
     list_display = ["id"]+Parent_Admin.list_display+["unique_id"]
     list_display_links = ['id']
 
+
+class Through_SourceToUser_Admin(Parent_Admin):
+    list_display = ['id']+['source_model', 'user_model', 'access', 'updated']
+    list_display_links = ['id']
+    list_filter = ('source_model',)
+    ordering = ['-updated_at',]
+    pass
+
 for subclass in ParentModel.__subclasses__():
     try:
         try:
