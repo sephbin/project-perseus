@@ -98,12 +98,57 @@ namespace ProjectPerseus
                 WriteLog($"Error during preliminary sync: {ex.Message}");
             }
         }
+        private void doOnPostSync(DocumentSynchronizedWithCentralEventArgs e)
+        {
+            try
+            {
+                WriteLog("Sync finished – contacting web server...");
 
+                if (UploadConfigIsValid() == false)
+                {
+                    WriteLog("Upload config invalid – skipping preliminary check.");
+                    return;
+                }
+
+                var revit = new RevitFacade(e.Document);
+                var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                var baseUrl = _config.BaseUrl;
+
+                var app = e.Document.Application;
+                string revitUsername = app.Username;        // Name from Revit Options
+                string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
+                string windowsUsername = Environment.UserName;
+                string machineName = Environment.MachineName;
+
+                var payload = new
+                {
+                    documentGuid = docGuid,
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    revitUser = revitUsername,
+                    revitAccountId = revitAccountId,
+                    windowsUser = windowsUsername,
+                    machine = machineName
+                };
+
+                string jsonPayload = JsonConvert.SerializeObject(payload);
+
+                // Preliminary call to the web API to verify or register sync start
+                var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
+                string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
+
+                WriteLog($"Post sync request sent. Response: {response}");
+            }
+            catch (Exception ex)
+            {
+                WriteLog($"Error during post sync: {ex.Message}");
+            }
+        }
         //This appears to be a wrapper for the doOnSync function so it doesn't need as many arguments
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
         {
             //WriteLog("OnDocumentSynchronizedWithCentral");
             doOnSync(e);
+            doOnPostSync(e);
             //WriteLog("// OnDocumentSynchronizedWithCentral");
         }
 

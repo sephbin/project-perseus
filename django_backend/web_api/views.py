@@ -227,3 +227,19 @@ def preSync(request, source):
 	except: pass
 	Event(user=user, event_type="Revit Start Sync", source_model=source_model).save()
 	return JsonResponse({})
+
+
+@csrf_exempt
+def postSync(request, source):
+	print("postSync")
+	source_model, _created = Source.objects.get_or_create(unique_id=source)
+	if request.method == "POST":
+
+		data = json.loads(request.body)
+
+	user = None
+	try:
+		user = get_object_or_404(User, email=data["windowsUser"].lower()+"@cox.com.au")
+	except: pass
+	Event(user=user, event_type="Revit End Sync", source_model=source_model).save()
+	return JsonResponse({})
