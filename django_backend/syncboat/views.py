@@ -87,7 +87,7 @@ def syncBoat(request, souce_model_id):
 			"inQueue": inQueue,
 			"topOfTheQueue": topOfTheQueue,
 			"someoneElseSyncing": someoneElseSyncing,
-			"syncing": isSyncing,
+			"isSyncing": isSyncing,
 			"profile": user,
 			"syncing": syncob,
 			"updateModel": ReadEventSerializer(updateModel).data,
