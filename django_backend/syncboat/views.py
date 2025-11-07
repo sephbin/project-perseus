@@ -63,7 +63,6 @@ def syncBoat(request, souce_model_id):
 					log.append(str(qE.user_model))
 					if qE.user_model != user:
 						someoneElseSyncing = qE
-				isSyncing = True
 			except Exception as e:
 				log.append(str(e))
 				pass
