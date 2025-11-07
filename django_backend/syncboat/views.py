@@ -58,8 +58,10 @@ def syncBoat(request, souce_model_id):
 			try:
 				# someoneElseSyncing = get_object_or_404(Through_SourceToUser, ~Q(user_model=user), source_model=projFile, access="Syncing", )
 				queueEvents = projFile.accesingProjFile.filter(access="Syncing")
+				log.append("someoneElseSyncing queue")
 				for qE in queueEvents:
-					if qE.user != user:
+					log.append(str(qE.user))
+					if qE.user_model != user:
 						someoneElseSyncing = qE
 				isSyncing = True
 			except: pass
@@ -72,6 +74,7 @@ def syncBoat(request, souce_model_id):
 				if inQueue:
 					queued = True
 				if not someoneElseSyncing:
+
 					if queue[0] == inQueue:
 						topOfTheQueue = True
 				loc  = list(queue).index(inQueue)
