@@ -115,10 +115,10 @@ i.syncing{
 {% endif %}
 
 <div class="floatingright-sidebar">
-	<h4>Sync Events</h4>
+	<h4>Revit Sync Events</h4>
 	<ul>
 	{% for event in syncEvents %}
-	<li>{{event.updated_at|date:"M d H:i"}} - {{event.description}}</li>
+	<li>{{event.updated_at|date:"M d H:i"}} - {{event.user.username}}</li>
 	{% endfor %}
 	</ul>
 </div>
