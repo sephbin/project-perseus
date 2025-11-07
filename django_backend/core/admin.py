@@ -30,7 +30,7 @@ class Element_Admin(Parent_Admin):
 
 
 class Event_Admin(Parent_Admin):
-    list_display = ['id']+Parent_Admin.list_display+['event_type',]
+    list_display = ['id']+Parent_Admin.list_display+['event_type','description']
     list_display_links = ['id']
     list_filter = ('source_model',)
     ordering = ['-updated_at',]

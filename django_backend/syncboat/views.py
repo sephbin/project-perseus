@@ -9,6 +9,7 @@ from django.contrib.auth.decorators import login_required
 import sys, os
 from core.models import *
 from web_api.serializers import *
+from django.db.models import Q
 
 
 def errorLog(e, log=[]):
@@ -39,7 +40,7 @@ def syncBoat(request, souce_model_id):
 		projFile = get_object_or_404(Source, id=int(souce_model_id))
 		siblings = projFile.project.sources.all().order_by("name")
 
-		updateModel = Event.objects.filter(event_type = "syncBoat_queueing", source_model=projFile).order_by("-updated_at").first()
+		updateModel = Event.objects.filter(Q(event_type="syncBoat_queueing") | Q(event_type="Revit Sync"), source_model=projFile).order_by("-updated_at").first()
 		if updateModel == None:
 			updateModel = Event(event_type = "syncBoat_queueing", source_model=projFile)
 			updateModel.save()
@@ -149,7 +150,7 @@ def changeAccess(request, projectFileID, accessType, staffID=None):
 def getAccessList(request, souce_model_id):
 	try:
 		projFile = get_object_or_404(Source, id=int(souce_model_id))
-		updateModel = Event.objects.filter(event_type = "syncBoat_queueing", source_model=projFile).order_by("-updated_at").first()
+		updateModel = Event.objects.filter(Q(event_type="syncBoat_queueing") | Q(event_type="Revit Sync"), source_model=projFile).order_by("-updated_at").first()
 		data = ReadEventSerializer(updateModel).data
 		return JsonResponse(data)
 	except:

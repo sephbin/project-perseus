@@ -43,7 +43,11 @@ class ElementDeltaSubmissionView(ReadOnlyModelViewSet):
                 # i['action'] = "Update"
             
             
-
+            if index == 0:
+                element = i["element"]
+                sourceModel = element["source_model"]
+                sourceModel, _created = Source.objects.get_or_create(unique_id=sourceModel)
+                Event(event_type="Revit Sync", source_model=sourceModel, description=element["last_edited_by"]).save()
             if i["element"]["name"] == "": i["element"]["name"] = "<none>"
             cleanParams = []
             for param in i["element"]["parameters"]:
