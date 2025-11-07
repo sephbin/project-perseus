@@ -64,7 +64,9 @@ def syncBoat(request, souce_model_id):
 					if qE.user_model != user:
 						someoneElseSyncing = qE
 				isSyncing = True
-			except: pass
+			except Exception as e:
+				log.append(str(e))
+				pass
 			loc = 999
 			queue = list(Through_SourceToUser.objects.filter(source_model=projFile, access="Reload Latest"))+list(Through_SourceToUser.objects.filter(source_model=projFile, access="Queue Syncing"))
 			inQueue = None
