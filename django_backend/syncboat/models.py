@@ -7,7 +7,8 @@ from core.models import *
 
 
 @receiver(post_save, sender=Event)
-def parameter_changed_handler (sender, instance, **kwargs):
+def Event_Post_Save_Handler (sender, instance, **kwargs):
+	print("Event_Post_Save_Handler")
 	if instance.event_type == "Revit Start Sync":
 		source_model = instance.source_model
 		user = instance.user
@@ -16,11 +17,8 @@ def parameter_changed_handler (sender, instance, **kwargs):
 		for accessObject in accessObjects:
 			accessObject.access = "Syncing"
 			accessObject.save()
-
-@receiver(post_save, sender=Event)
-def parameter_changed_handler (sender, instance, **kwargs):
+	
 	if instance.event_type == "Revit End Sync":
 		source_model = instance.source_model
 		user = instance.user
 		Through_SourceToUser.objects.filter(source_model=source_model, user_model=user, access="Syncing").delete()
-
