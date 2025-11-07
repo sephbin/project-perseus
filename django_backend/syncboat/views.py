@@ -60,7 +60,7 @@ def syncBoat(request, souce_model_id):
 				queueEvents = projFile.accesingProjFile.filter(access="Syncing")
 				log.append("someoneElseSyncing queue")
 				for qE in queueEvents:
-					log.append(str(qE.user))
+					log.append(str(qE.user_model))
 					if qE.user_model != user:
 						someoneElseSyncing = qE
 				isSyncing = True
