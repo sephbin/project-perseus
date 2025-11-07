@@ -127,10 +127,18 @@ i.syncing{
 	<h2>{{file.project.projectName}}</h2>
 {{file.name}}<br>
 {% if location %}{{location}} - {% endif %}{{profile.username}}<br>
-{% if "andrew.butler" in user.username %}
+
+{% if user.is_authenticated %}
+    {% for group in user.groups.all %}
+        {% if group.name == 'SyncBoatDebug' %}
+<div id="dialog" title="Basic dialog">
 {{profile.username}}<br>
 {{location}}
 <br>{{updateModel}}
+<button id="printButton" onclick="logContext()">Log Context</button>
+</div>
+{% endif %}
+{% endfor %}
 {% endif %}
 <!-- {{updateModel.updated|date:"c"}}<br> -->
 
@@ -185,6 +193,17 @@ CLICK TO QUEUE
 {% endblock content %}
 {% block script %}
 <script type="text/javascript">
+	$( function() {
+	$( "#dialog" ).dialog();
+	} );
+
+
+	function logContext(){
+		context = "{{context| safe}}";
+		console.log(context);
+	}
+
+
 	typeof Notification !== "undefined"
 	Notification.permission
 	Notification.requestPermission().then(function (permission) {
@@ -273,6 +292,7 @@ doNotificationPoll()
 
 
 
+
 function doPoll(){
     $.get('../getAccessList/{{file.id}}/', function(data) {
         // console.log(updated,data["isoformat"])
@@ -302,7 +322,6 @@ doPoll();
 		// location.reload();
 		});
 	});
-
 
 
 

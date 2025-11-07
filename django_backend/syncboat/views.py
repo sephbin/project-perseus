@@ -92,6 +92,7 @@ def syncBoat(request, souce_model_id):
 			"siblings": siblings,
 			"syncEvents": syncEvents,
 			}
+			context["context"] = context.copy()
 			# return JsonResponse(context)
 			return render(request, "syncBoat/syncsync.html", context)
 	except Exception as e:
