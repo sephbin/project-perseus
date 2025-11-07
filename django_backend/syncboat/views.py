@@ -94,6 +94,7 @@ def syncBoat(request, souce_model_id):
 
 
 			context = {
+			"log":log,
 			# "projectStaff": projectStaff,
 			"location": loc,
 			"file": projFile,
