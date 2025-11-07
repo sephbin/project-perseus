@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using Autodesk.Revit.Attributes;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using ProjectPerseus.models;
@@ -18,16 +19,17 @@ namespace ProjectPerseus
     public class Plugin : IExternalApplication
     {
         private readonly Config _config = Config.Instance;
-        
+
         //This adds the "OnDocumentSynchronizedWithCentral" function to the "DocumentSynchronizedWithCentral" event stack
         public Result OnStartup(UIControlledApplication application)
         {
+            application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             AddRibbonPanel(application);
             return Result.Succeeded;
         }
 
-        
+
         private void WriteLog(string content)
         {
             string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -36,14 +38,67 @@ namespace ProjectPerseus
             string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
             try
             {
-                File.AppendAllText(filePath, content+Environment.NewLine);
+                File.AppendAllText(filePath, content + Environment.NewLine);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error saving file: {ex.Message}");
-            }   
+            }
         }
-        
+
+        //This is a wrapper for doOnPriorToSync, as it doesn't require as many arguments
+        private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
+        {
+            doOnPriorToSync(e);
+
+        }
+
+        private void doOnPriorToSync(DocumentSynchronizingWithCentralEventArgs e)
+        {
+            try
+            {
+                WriteLog("Sync initiated – contacting web server...");
+
+                if (UploadConfigIsValid() == false)
+                {
+                    WriteLog("Upload config invalid – skipping preliminary check.");
+                    return;
+                }
+
+                var revit = new RevitFacade(e.Document);
+                var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                var baseUrl = _config.BaseUrl;
+
+                var app = e.Document.Application;
+                string revitUsername = app.Username;        // Name from Revit Options
+                string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
+                string windowsUsername = Environment.UserName;
+                string machineName = Environment.MachineName;
+
+                var payload = new
+                {
+                    documentGuid = docGuid,
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    revitUser = revitUsername,
+                    revitAccountId = revitAccountId,
+                    windowsUser = windowsUsername,
+                    machine = machineName
+                };
+
+                string jsonPayload = JsonConvert.SerializeObject(payload);
+
+                // Preliminary call to the web API to verify or register sync start
+                var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
+                string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
+
+                WriteLog($"Preliminary sync request sent. Response: {response}");
+            }
+            catch (Exception ex)
+            {
+                WriteLog($"Error during preliminary sync: {ex.Message}");
+            }
+        }
+
         //This appears to be a wrapper for the doOnSync function so it doesn't need as many arguments
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
         {
@@ -165,7 +220,7 @@ namespace ProjectPerseus
                 WriteLog(docGuid);
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
                 elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
-                SubmitElementDeltas(elementDeltaList);
+                SubmitElementDeltas(elementDeltaList, revit.Document);
             }
             else 
             {
@@ -174,9 +229,9 @@ namespace ProjectPerseus
             }
         }
 
-        private void SubmitElementDeltas(IList<ElementDelta> elements)
+        private void SubmitElementDeltas(IList<ElementDelta> elements, Document doc)
         {
-            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements);
+            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements, doc);
         }
         private void SubmitElementState(IList<ElementDelta> elements)
         {

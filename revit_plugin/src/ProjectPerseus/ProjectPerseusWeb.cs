@@ -1,8 +1,10 @@
-﻿using System;
+﻿using ProjectPerseus.revit;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using Autodesk.Revit.DB;
 
 
 
@@ -35,12 +37,34 @@ namespace ProjectPerseus
         {
             _baseUrl = baseUrl;
             _apiToken = apiToken;
+
         }
 
-        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas)
+        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, Document doc)
         {
             //WriteLog("SubmitElementDeltas");
-            var jsonString = Utl.SerializeToJson(elementDeltas, null);
+
+            var revit = new RevitFacade(doc);
+            var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+
+            var app = doc.Application;
+            string revitUsername = app.Username;        // Name from Revit Options
+            string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
+            string windowsUsername = Environment.UserName;
+            string machineName = Environment.MachineName;
+
+            var payload = new
+            {
+                documentGuid = docGuid,
+                timestamp = DateTime.UtcNow.ToString("o"),
+                revitUser = revitUsername,
+                revitAccountId = revitAccountId,
+                windowsUser = windowsUsername,
+                machine = machineName,
+                elements = elementDeltas
+            };
+
+            var jsonString = Utl.SerializeToJson(payload, null);
             //WriteLog(jsonString);
             WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
             //WriteLog("// SubmitElementDeltas");

@@ -94,6 +94,7 @@ class Event(ParentModel):
     updated_at = models.DateTimeField(auto_now=True)
     description = models.TextField(blank=True, null=True)
     source_model = models.ForeignKey('Source', on_delete=models.CASCADE, related_name='events', blank=True, null=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='perseus_events', blank=True, null=True)
     def __str__(self):
         return self.event_type
 

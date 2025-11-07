@@ -29,6 +29,7 @@ router.register(r'sources', views.SourceReadView)
 urlpatterns = [
     path(r'syncboat/', include('syncboat.urls')),
     path('getstate/<str:source>', views.getLatestState),
+    path('presync/<str:source>', views.preSync),
     path('rapi/', include(router.urls)),
     path('stateupdate/', views.stateUpdate),
     path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
