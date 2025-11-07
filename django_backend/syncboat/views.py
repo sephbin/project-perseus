@@ -76,6 +76,14 @@ def syncBoat(request, souce_model_id):
 			syncEvents = list(Event.objects.filter(event_type="Revit Sync", source_model=projFile).order_by("-updated_at")[:10])
 			syncEvents.reverse()
 
+			#clean up sync throughs
+			if isSyncing:
+				throughs = projFile.accesingProjFile.filter(access="Syncing")
+				print(throughs)
+				for t in throughs:
+					if t.user_model != user:
+						t.delete()
+
 
 
 			context = {
