@@ -194,17 +194,17 @@ CLICK TO QUEUE
 {% block script %}
 <script type="text/javascript">
 	$( function() {
-	$( "#dialog" ).dialog();
+	$( "#dialog" ).dialog().position({
+       my: 'left',
+       at: 'right',
+       of: target
+    });
 	} );
 
 
 	function logContext(){
 		context = "{{context| safe}}";
-		console.log(context).position({
-       my: 'left',
-       at: 'right',
-       of: target
-    });
+		console.log(context)
 	}
 
 
@@ -317,7 +317,7 @@ doPoll();
 		// document.body.style.cursor = 'wait';
 		$('*').addClass('wait');
 		console.log("click", this);
-		this.id("changB");
+		this.attr("id", "changeB");
 		// id = $(this).attr("id");
 		// console.log(this);
 		// val = $(this).val();
