@@ -48,16 +48,16 @@ def syncBoat(request, souce_model_id):
 			syncob = None
 			queued = False
 			topOfTheQueue = False
-			syncing = False
+			isSyncing = False
 			someoneElseSyncing = None
 			try:
 				syncob = get_object_or_404(Through_SourceToUser, source_model=projFile, user_model=user, access="Syncing")
-				syncing = True
+				isSyncing = True
 			except: pass
 
 			try:
 				someoneElseSyncing = get_object_or_404(Through_SourceToUser, ~Q(user_model=user), source_model=projFile, access="Syncing", )
-				syncing = True
+				isSyncing = True
 			except: pass
 			loc = 999
 			queue = list(Through_SourceToUser.objects.filter(source_model=projFile, access="Reload Latest"))+list(Through_SourceToUser.objects.filter(source_model=projFile, access="Queue Syncing"))
@@ -76,6 +76,8 @@ def syncBoat(request, souce_model_id):
 			syncEvents = list(Event.objects.filter(event_type="Revit Sync", source_model=projFile).order_by("-updated_at")[:10])
 			syncEvents.reverse()
 
+
+
 			context = {
 			# "projectStaff": projectStaff,
 			"location": loc,
@@ -85,7 +87,7 @@ def syncBoat(request, souce_model_id):
 			"inQueue": inQueue,
 			"topOfTheQueue": topOfTheQueue,
 			"someoneElseSyncing": someoneElseSyncing,
-			"syncing": syncing,
+			"syncing": isSyncing,
 			"profile": user,
 			"syncing": syncob,
 			"updateModel": ReadEventSerializer(updateModel).data,
