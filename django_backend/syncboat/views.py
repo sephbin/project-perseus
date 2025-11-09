@@ -20,7 +20,7 @@ def errorLog(e, log=[]):
 	errob = {"isError": True, "error":str(e), "errorType":errorType, "function":fname, "line":exc_tb.tb_lineno, "log":log}
 	return errob
 
-@login_required()
+@login_required(login_url="/auth/samllogin/")
 def syncBoat(request, souce_model_id):
 	log = []
 	try:
