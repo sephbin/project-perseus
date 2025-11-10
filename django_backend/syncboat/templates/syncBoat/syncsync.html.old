@@ -1,0 +1,334 @@
+{% extends "syncBoat/base.html" %}
+{% load static %}
+{% load listutil %}
+{% block content %}
+<style>
+
+{% if topOfTheQueue %}
+	
+	body {
+	background-image: url("{% static 'perseus/images/ready.svg'%}");
+	background-size: 200px;
+	background-repeat: repeat;
+	animation: colorchange 1s infinite; /* animation-name followed by duration in seconds*/
+	/* you could also use milliseconds (ms) or something like 2.5s */
+	-webkit-animation: colorchange 1s infinite; /* Chrome and Safari */
+    }
+
+    @keyframes colorchange
+    {
+      0%   {background-color: rgba(255,0,0,0);}
+      50%  {background-color: rgba(255,0,0,0.2);}
+      100% {background-color: rgba(255,0,0,0);}
+    }
+
+    @-webkit-keyframes colorchange
+    {
+      0%   {background-color: rgba(255,0,0,0);}
+      50%  {background-color: rgba(255,0,0,0.2);}
+      100% {background-color: rgba(255,0,0,0);}
+    }
+{% endif %}
+
+{% if syncing %}
+	
+	body {
+	/*background-image: url("{% static 'perseus/images/ready.svg'%}");*/
+	background-size: 200px;
+	background-repeat: repeat;
+	animation: colorchange 1s infinite; /* animation-name followed by duration in seconds*/
+	/* you could also use milliseconds (ms) or something like 2.5s */
+	-webkit-animation: colorchange 1s infinite; /* Chrome and Safari */
+    }
+
+    @keyframes colorchange
+    {
+      0%   {background-color: rgba(0,0,255,0);}
+      50%  {background-color: rgba(0,0,255,0.2);}
+      100% {background-color: rgba(0,0,255,0);}
+    }
+
+    @-webkit-keyframes colorchange
+    {
+      0%   {background-color: rgba(0,0,255,0);}
+      50%  {background-color: rgba(0,0,255,0.2);}
+      100% {background-color: rgba(0,0,255,0);}
+    }
+{% endif %}
+
+
+/*topOfTheQueue*/
+#changeA, #changeB{
+	margin-top: 2em;
+	cursor: pointer;
+	font-size: 3em;
+	color: White;
+	font-weight: bold;
+	text-shadow: 0px 0px 10px rgba(0,0,0,0.5);
+	height: 500px;
+	background-repeat: no-repeat;
+	background-position: center;
+}
+.floating-sidebar{
+	background-color: white;
+	position: fixed;
+	bottom: 0em;
+	left: 0em;
+	padding: 1em;
+	
+}
+.floatingright-sidebar{
+	background-color: white;
+	position: fixed;
+	bottom: 0em;
+	right: 0em;
+	padding: 1em;
+	
+}
+.selected{
+	opacity: 0.5;
+}
+i.syncing{
+	color: Red;
+}
+
+.wait:hover {
+  cursor: wait !important; /* Changes cursor to a "wheel" icon on hover */
+}
+</style>
+{% if siblings %}
+<div class="floating-sidebar">
+	<h4>Project Boats</h4>
+	{% for sib in siblings %}
+	<a 
+	class="{% if file.id == sib.id %} selected{% endif %}"
+	href="../{{sib.id}}/"><i class="fas fa-ship"></i> {{sib.name}}</a> {% for q in sib.accesingProjFile.all %}
+	{%if q.access == "Syncing"%}
+	<!-- <img height="32px" src="https://www.flaticon.com/svg/static/icons/svg/601/601356.svg" alt="S" title="{{q.name}}"> -->
+	<i class="fas fa-user {{q.access|slugify}}" title="{{q.name}}"></i>
+	{% else %}
+	<i class="fas fa-user {{q.access|slugify}}" title="{{q.name}}"></i>
+	{% endif %}
+	{% endfor %}<br>
+	{% endfor %}
+</div>
+{% endif %}
+
+<div class="floatingright-sidebar">
+	<h4>Revit Sync Events</h4>
+	<ul>
+	{% for event in syncEvents %}
+	<li>{{event.updated_at|date:"M d H:i"}} - {{event.user.username}}</li>
+	{% endfor %}
+	</ul>
+</div>
+
+<div class="container {% if topOfTheQueue %}readytogo{% endif %}">
+	<h2>{{file.project.projectName}}</h2>
+{{file.name}}<br>
+{% if location %}{{location}} - {% endif %}{{profile.username}}<br>
+
+{% if user.is_authenticated %}
+    {% for group in user.groups.all %}
+        {% if group.name == 'SyncBoatDebug' %}
+<div id="dialog" title="Basic dialog">
+{{profile.username}}<br>
+{{location}}
+<br>{{updateModel}}
+<button id="printButton" onclick="logContext()">Log Context</button>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+<!-- {{updateModel.updated|date:"c"}}<br> -->
+
+
+<div
+id="changeA"
+title="{% if topOfTheQueue and not someoneElseSyncing %}Start Syncing{% elif inQueue.access == 'Reload Latest' %}Leave Queue{% elif queued %}Leave Queue{% elif syncing %}Stop Syncing{% else %}Queue Syncing{% endif %}"
+ctype="{% if topOfTheQueue and not someoneElseSyncing %}Syncing{% elif inQueue.access == 'Reload Latest' %}Cancel{% elif queued %}Cancel{% elif syncing %}Cancel{% else %}Queue Syncing{% endif %}"
+style="
+background-image:
+{% if topOfTheQueue and not someoneElseSyncing %}
+url('{% static 'perseus/images/3_ReadyToSync.svg'%}');
+{% elif queued and not syncing %}
+url('{% static 'perseus/images/2_QueuSyncing.svg'%}');
+{% elif syncing %}
+url('{% static 'perseus/images/4_Syncing.svg'%}');
+{% else %}
+url('{% static 'perseus/images/1_NotSyncing.svg'%}');
+{% endif %}
+"
+>
+{% if topOfTheQueue and not someoneElseSyncing %}
+READY TO SYNC, CLICK TO START SYNCING
+{% elif location < 2 and not syncing %}
+PLEASE START RELOADING LATEST
+{% elif queued and not syncing %}
+QUEUEING TO SYNC, CLICK TO LEAVE THE QUEUE
+{% elif syncing %}
+!!SYNCING!!<br>
+CLICK TO FINISH
+{% else %}
+CLICK TO QUEUE
+{% endif %}
+	
+</div>
+{% if queue or someoneElseSyncing or syncing%}
+<h4>QUEUE</h4>
+{% if someoneElseSyncing %}
+<span style="color:Red;" class="staffqueue" id="{{someoneElseSyncing.staffFK.id}}">SYNCING > !!! {{someoneElseSyncing.user_model.email}} {{someoneElseSyncing.user_model.last_name}} !!! < SYNCING</span><br>
+{% endif %}
+{% if syncing %}
+<span style="color:Red;" class="staffqueue" id="{{profile.id}}">SYNCING > !!!  {{profile.email}} {{profile.last_name}}  !!! < SYNCING</span><br>
+{% endif %}
+{% for q in queue%}
+<span class="staffqueue" id="{{q.user_model.id}}">{{q.user_model.email}} {{q.user_model.last_name}}</span><br>
+{% endfor %}
+<br>
+<div><i>Click names to edit queue</i></div>
+</div>
+{% endif %}
+
+{% endblock content %}
+{% block script %}
+<script type="text/javascript">
+	$( function() {
+	$( "#dialog" ).dialog().position({
+       my: 'left',
+       at: 'right',
+       of: target
+    });
+	} );
+
+
+	function logContext(){
+		context = "{{context| safe}}";
+		console.log(context)
+	}
+
+
+	typeof Notification !== "undefined"
+	Notification.permission
+	Notification.requestPermission().then(function (permission) {
+    console.log(permission);
+});
+	
+function doNotificationPoll(){
+{% if location == 0 and not someoneElseSyncing %}
+	console.log("SENDING NOTIFICATION");
+	var title = "!! SYNC BOAT !!";
+	// icon = 'https://homepages.cae.wisc.edu/~ece533/images/airplane.png';
+	var body = "!! YOU ARE AT THE TOP OF THE QUEUE, TIME TO SYNC !!";
+	var notification = new Notification(title, { body });
+	setTimeout(doNotificationPoll,10000);
+{% endif %}
+
+{% if syncing %}
+var title = "SYNC BOAT";
+	// icon = 'https://homepages.cae.wisc.edu/~ece533/images/airplane.png';
+	var body = "If finished synching, please indicate this on the sync boat";
+	var notification = new Notification(title, { body });
+	setTimeout(doNotificationPoll,60000);
+{% endif %}
+
+}
+doNotificationPoll()
+
+{% if location > 0 and location != 999 %}
+	var title = "SYNC BOAT";
+	// icon = 'https://homepages.cae.wisc.edu/~ece533/images/airplane.png';
+	var body = "Your Location in the Queue is {{location}}";
+	var notification = new Notification(title, { body });
+{% endif %}
+
+
+	var updated = '{{updateModel.isoformat}}';
+	var projectFileID = {{file.id}};
+	
+
+
+	$(function() {
+		$.contextMenu({
+			selector: '.staffqueue', 
+			trigger: 'left',
+
+			items: {
+				"promote": {name: "Promote", icon: "fa-arrow-up",
+							callback: function(itemKey, opt, rootMenu, originalEvent){
+								stid = opt["$trigger"].attr("id");
+								// console.log(itemKey, opt, rootMenu, originalEvent);	
+								url = `../changeAccess/user/${stid}/${projectFileID}/Promote/`;
+								$.ajax({url: url}).done(function(){
+								location.reload();
+								});
+							}},
+				"demote": {name: "Demote", icon: "fa-arrow-down",
+							callback: function(itemKey, opt, rootMenu, originalEvent){
+								stid = opt["$trigger"].attr("id");
+								// console.log(itemKey, opt, rootMenu, originalEvent);	
+								url = `../changeAccess/user/${stid}/${projectFileID}/Demote/`;
+								$.ajax({url: url}).done(function(){
+								location.reload();
+								});
+							}},
+				"remove": {name: "Remove", icon: "fa-skull",
+							callback: function(itemKey, opt, rootMenu, originalEvent){
+								console.log(opt["$trigger"]);
+								stid = opt["$trigger"].attr("id");
+								// console.log(itemKey, opt, rootMenu, originalEvent);	
+								url = `../changeAccess/user/${stid}/${projectFileID}/Cancel/`;
+								$.ajax({url: url}).done(function(){
+								location.reload();
+								});
+							}},
+				// "quit": {name: "Quit", icon: function(){return 'context-menu-icon context-menu-icon-quit'; }}
+			}
+			
+
+
+	
+		});
+	
+	});
+
+
+
+
+
+
+function doPoll(){
+    $.get('../getAccessList/{{file.id}}/', function(data) {
+        // console.log(updated,data["isoformat"])
+        // console.log(updated == data["isoformat"])
+        // console.log(updated == data["updated"])
+        if (data["updated"] == updated || data["isoformat"] == updated){
+
+        }else{
+	        location.reload();
+
+        }
+        setTimeout(doPoll,5000);
+    });
+}
+doPoll();
+
+	$('#changeA').on("click",function(){
+		// document.body.style.cursor = 'wait';
+		$('*').addClass('wait');
+		console.log("click", this);
+		$(this).attr("id", "changeB");
+		// id = $(this).attr("id");
+		// console.log(this);
+		// val = $(this).val();
+		var accessType = $(this).attr("ctype");
+		url = `../changeAccess/${projectFileID}/${accessType}/`;
+		$.ajax({url: url}).done(function(){
+		// location.reload();
+		});
+	});
+
+
+
+</script>
+{% endblock script %}
