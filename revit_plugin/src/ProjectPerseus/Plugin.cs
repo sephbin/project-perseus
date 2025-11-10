@@ -26,6 +26,16 @@ namespace ProjectPerseus
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             AddRibbonPanel(application);
+            try
+            {
+                string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string appSpecificFolderPath = Path.Combine(roamingFolderPath, "ProjectPerseus");
+                string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
+                File.WriteAllText(filePath, String.Empty);
+            }
+            catch {
+                Console.WriteLine($"Error clearing log file");
+            }
             return Result.Succeeded;
         }
 
@@ -202,8 +212,8 @@ namespace ProjectPerseus
                     }
 
                     watch.Stop();
-                    Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
-                    //WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    //Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                     // dump json
                     // Utl.JsonDump(elements, "ElementList");
                 }
