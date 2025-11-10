@@ -49,7 +49,7 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("https://sephbin.pythonanywhere.com")]
+        [global::System.Configuration.DefaultSettingValueAttribute("https://labs.cox.com.au/perseus")]
         public string BaseUrl {
             get {
                 return ((string)(this["BaseUrl"]));
@@ -61,7 +61,7 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("368e08d7b29bba87a7720715da26080ace8dca88")]
+        [global::System.Configuration.DefaultSettingValueAttribute("61b5c760f1573b6e26f257ba8a670cc95ca71658")]
         public string ApiToken {
             get {
                 return ((string)(this["ApiToken"]));
