@@ -30,7 +30,9 @@ namespace ProjectPerseus
         }
         private string _baseUrl;
         private string _apiToken;
-        private string ElementsEndpoint => $"{_baseUrl}/rapi/elements/";
+        //private string ElementsEndpoint => $"{_baseUrl}/rapi/elements/";
+        private string ElementsEndpoint => $"{_baseUrl}/add_to_crud_queue/";
+        
         private string StateUpdateEndpoint => $"{_baseUrl}/stateupdate/";
 
         public ProjectPerseusWeb(string baseUrl, string apiToken)
