@@ -63,10 +63,11 @@ namespace ProjectPerseus
                 machine = machineName,
                 elements = elementDeltas
             };
-
+            
             var jsonString = Utl.SerializeToJson(payload, null);
             //WriteLog(jsonString);
-            WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
+            string response = WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
+            WriteLog($"SubmitElementDeltas response: {response}");
             //WriteLog("// SubmitElementDeltas");
         }
 
@@ -154,7 +155,6 @@ namespace ProjectPerseus
                     using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
 
                     {
-                        WriteLog($"Request Data: {streamReader.ReadToEnd()}");
                         return streamReader.ReadToEnd();
                     }
                 }
