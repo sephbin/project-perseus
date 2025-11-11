@@ -13,7 +13,7 @@ namespace ProjectPerseus
     
     public class ProjectPerseusWeb
     {
-        private void WriteLog(string content)
+        private static void WriteLog(string content)
         {
             string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string appSpecificFolderPath = Path.Combine(roamingFolderPath, "ProjectPerseus");
@@ -152,7 +152,9 @@ namespace ProjectPerseus
 
                     var httpResponse = (HttpWebResponse)httpWebRequest.GetResponse();
                     using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
+
                     {
+                        WriteLog($"Request Data: {streamReader.ReadToEnd()}");
                         return streamReader.ReadToEnd();
                     }
                 }
