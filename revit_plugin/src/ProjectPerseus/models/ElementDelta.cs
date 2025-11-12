@@ -7,6 +7,7 @@ using ProjectPerseus.revit.interfaces;
 using ProjectPerseus.revit;
 using Autodesk.Revit.DB;
 using ProjectPerseus;
+using ProjectPerseus.revit.adapters;
 
 namespace ProjectPerseus.models
 {
@@ -36,12 +37,35 @@ namespace ProjectPerseus.models
             deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements, doc, docGuid));
             deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements, doc, docGuid));
             //deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements, doc, docGuid)); //TODO: Implement
+            Utl.WriteLog($"CreateListFromChangeSet, before return");
             return deltas;
+        }
+
+        public static List<int> CreateDeletedListFromChangeSet(ElementChangeSet changeSet)
+        {
+            try
+            {
+                if (changeSet?.DeletedElementIds == null)
+                {
+                    Utl.WriteLog("CreateDeletedListFromChangeSet: no deleted IDs found.");
+                    return new List<int>();
+                }
+
+                var deletedIds = changeSet.DeletedElementIds.ToList(); // clone in case it's reused
+                Utl.WriteLog($"CreateDeletedListFromChangeSet: Found {deletedIds.Count} deleted element IDs.");
+                return deletedIds;
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"CreateDeletedListFromChangeSet failed: {ex.Message}");
+                return new List<int>();
+            }
         }
 
         public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements, Document doc,  string docGuid)
         {
             //return elements.Select(element => new ElementDelta(action, element, doc)).ToList();
+            Utl.WriteLog($"CreateList {action}");
             var deltas = new List<ElementDelta>();
             int count = 0;
             int total = elements.Count();
@@ -67,7 +91,7 @@ namespace ProjectPerseus.models
                     }
                 }
             }
-
+            Utl.WriteLog($"CreateList {action}, before return");
             return deltas;
         }
         

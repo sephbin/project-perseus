@@ -344,7 +344,12 @@ namespace ProjectPerseus
                 WriteLog(docGuid);
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
                 elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
-                SubmitElementDeltas(elementDeltaList, revit.Document);
+                
+                var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+                //elementDeltaList.AddRange(elementDeltaDeletedList);
+                WriteLog("About to run SubmitElementDeltas");
+
+                SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
             }
             else 
             {
@@ -353,9 +358,9 @@ namespace ProjectPerseus
             }
         }
 
-        private void SubmitElementDeltas(IList<ElementDelta> elements, Document doc)
+        private void SubmitElementDeltas(IList<ElementDelta> elements, IList<int> deleted, Document doc)
         {
-            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements, doc);
+            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements, deleted, doc);
         }
         private void SubmitElementState(IList<ElementDelta> elements)
         {

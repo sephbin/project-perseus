@@ -42,7 +42,7 @@ namespace ProjectPerseus
 
         }
 
-        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, Document doc)
+        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<int> deleted, Document doc)
         {
             //WriteLog("SubmitElementDeltas");
 
@@ -63,11 +63,12 @@ namespace ProjectPerseus
                 revitAccountId = revitAccountId,
                 windowsUser = windowsUsername,
                 machine = machineName,
-                elements = elementDeltas
+                elements = elementDeltas,
+                deletedElements = deleted
             };
             
             var jsonString = Utl.SerializeToJson(payload, null);
-            //WriteLog(jsonString);
+            WriteLog(jsonString);
             string response = WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
             WriteLog($"SubmitElementDeltas response: {response}");
             //WriteLog("// SubmitElementDeltas");
