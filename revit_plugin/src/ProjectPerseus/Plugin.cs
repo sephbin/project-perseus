@@ -11,6 +11,8 @@ using System.IO;
 using static System.Net.Mime.MediaTypeNames;
 using System.Reflection;
 using System.Windows.Media.Imaging;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
+using System.Reflection.PortableExecutable;
 
 namespace ProjectPerseus
 {
@@ -228,9 +230,76 @@ namespace ProjectPerseus
 
         private void PerformFullSync(RevitFacade revit)
         {
-            var elements = revit.GetAllElements();
-                
 
+            //Create a Perseus Source and Project Set
+            try
+            {
+                // Create a Perseus Source and Project Set
+                var doc = revit.Document;
+                var app = doc.Application;
+                var thisdocGuid = ModelGuidStorage.GetOrCreate(doc);
+                var baseUrl = _config.BaseUrl;
+
+                // --- Collect metadata about Revit model ---
+                string fileName = doc.Title;
+                string filePath = doc.PathName;
+                string revitVersion = app.VersionNumber;
+                //string revitBuild = app.Build;
+                //string username = app.Username;
+                //string accountId = app.LoginUserId ?? "N/A";
+                //string windowsUser = Environment.UserName;
+                //string machine = Environment.MachineName;
+
+                string projectNumber = "";
+                string projectName = "";
+                string clientName = "";
+
+                try
+                {
+                    var projInfo = doc.ProjectInformation;
+                    if (projInfo != null)
+                    {
+                        projectNumber = projInfo.LookupParameter("Project Number")?.AsString() ?? "";
+                        projectName = projInfo.LookupParameter("Project Name")?.AsString() ?? "";
+                        clientName = projInfo.LookupParameter("Client Name")?.AsString() ?? "";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    WriteLog($"Failed to read project info: {ex.Message}");
+                }
+
+                // --- Package everything into a metadata payload ---
+                var metadata = new
+                {
+                    documentGuid = thisdocGuid,
+                    fileName = fileName,
+                    filePath = filePath,
+                    revitVersion = revitVersion,
+                    //revitBuild = revitBuild,
+                    //revitUser = username,
+                    //revitAccountId = accountId,
+                    //windowsUser = windowsUser,
+                    //machine = machine,
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    projectInfo = new
+                    {
+                        number = projectNumber,
+                        name = projectName,
+                        client = clientName
+                    }
+                };
+
+                // --- Send to server ---
+                var metadataEndpoint = $"{baseUrl}/registersource/";
+                string jsonMetadata = JsonConvert.SerializeObject(metadata);
+                string response = Utl.WebHelper.Post(metadataEndpoint, _config.ApiToken, jsonMetadata);
+                WriteLog($"Metadata upload response: {response}");
+            }
+            catch (Exception ex) { WriteLog(ex.ToString()); }
+
+
+            var elements = revit.GetAllElements();    
             WriteLog($"PerformFullSync: Found {elements.Count} elements");
             var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
             WriteLog(docGuid);
