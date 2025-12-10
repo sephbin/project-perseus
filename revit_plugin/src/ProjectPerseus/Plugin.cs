@@ -345,7 +345,8 @@ namespace ProjectPerseus
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
                 elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
                 
-                var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+                //var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+                var elementDeltaDeletedList = new List<int>();
                 //elementDeltaList.AddRange(elementDeltaDeletedList);
                 WriteLog("About to run SubmitElementDeltas");
 
