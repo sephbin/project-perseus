@@ -81,6 +81,62 @@ namespace ProjectPerseus
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
                 var baseUrl = _config.BaseUrl;
 
+                // --- 1. Check Sync Queue Status ---
+                var queueEndpoint = $"{baseUrl}/syncboat/getCurrentQueue/{docGuid}";
+
+                string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, _config.ApiToken, null);
+
+                // Deserialize the response into the new model structure
+                var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(queueResponseJson);
+
+                // Get the list of users and the count
+                List<string> usersInQueue = queueStatus?.Queue ?? new List<string>();
+                int queueCount = usersInQueue.Count;
+
+                // --- 2. Prompt User if Queue Exists ---
+                if (queueCount > 0)
+                {
+                    // Format the list of users for display in the TaskDialog.
+                    // Using Environment.NewLine for clear, multi-line formatting.
+                    string queueList = string.Join(Environment.NewLine, usersInQueue);
+
+                    string message = $"**{queueCount} user(s) are currently in the sync queue:**{Environment.NewLine}{Environment.NewLine}{queueList}{Environment.NewLine}{Environment.NewLine}Do you want to **Sync Anyway** or **Cancel** and try later?";
+
+                    TaskDialog mainDialog = new TaskDialog("Sync Queue Alert")
+                    {
+                        MainIcon = TaskDialogIcon.TaskDialogIconWarning,
+                        MainInstruction = "Sync Queue Alert",
+                        CommonButtons = TaskDialogCommonButtons.None, // Hide default buttons
+                        AllowCancellation = true,
+                        TitleAutoPrefix = false
+                    };
+
+                    // Set the detailed message content
+                    mainDialog.FooterText = message; // Use FooterText for detailed, multi-line content
+
+                    // Add custom command links (buttons)
+                    mainDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Sync Anyway");
+                    mainDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Cancel Sync");
+
+                    TaskDialogResult result = mainDialog.Show();
+
+                    // --- 3. Cancel Revit Sync if requested ---
+                    if (result == TaskDialogResult.CommandLink2 || result == TaskDialogResult.Cancel)
+                    {
+                        e.Cancel();
+                        WriteLog("User cancelled sync due to queue alert.");
+                        return;
+                    }
+
+                    WriteLog("User chose to Sync Anyway despite queue alert. Proceeding to preliminary check.");
+                }
+                else
+                {
+                    WriteLog("No one in the sync queue. Proceeding with preliminary check.");
+                }
+                // --- End Queue Check ---
+
+
                 var app = e.Document.Application;
                 string revitUsername = app.Username;        // Name from Revit Options
                 string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
