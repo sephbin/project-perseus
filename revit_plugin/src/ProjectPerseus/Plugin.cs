@@ -64,7 +64,25 @@ namespace ProjectPerseus
             doOnPriorToSync(e);
 
         }
+        private void OpenWebQueueLink(string docGuid)
+        {
+            try
+            {
+                // Use the base URL from your config, ensuring no trailing slash issues
+                var baseUrl = _config.BaseUrl.TrimEnd('/');
 
+                // Construct the full URL for the web queue view
+                var webQueueUrl = $"{baseUrl}/../syncboat/guid/{docGuid}";
+
+                // Launch the URL in the user's default web browser
+                System.Diagnostics.Process.Start(webQueueUrl);
+                WriteLog($"Opened web queue URL: {webQueueUrl}");
+            }
+            catch (Exception ex)
+            {
+                WriteLog($"Failed to open web queue URL: {ex.Message}");
+            }
+        }
         private void doOnPriorToSync(DocumentSynchronizingWithCentralEventArgs e)
         {
             try
@@ -80,6 +98,12 @@ namespace ProjectPerseus
                 var revit = new RevitFacade(e.Document);
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
                 var baseUrl = _config.BaseUrl;
+                var app = e.Document.Application;
+                string revitUsername = app.Username;        // Name from Revit Options
+                string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
+                string windowsUsername = Environment.UserName;
+                string machineName = Environment.MachineName;
+
 
                 // --- 1. Check Sync Queue Status ---
                 var queueEndpoint = $"{baseUrl}/../syncboat/getCurrentQueue/{docGuid}/";
@@ -94,7 +118,35 @@ namespace ProjectPerseus
                 int queueCount = usersInQueue.Count;
 
                 // --- 2. Prompt User if Queue Exists ---
+                // --- 2. Conditional Dialog Logic ---
+
+                bool shouldShowDialog = true;
+
                 if (queueCount > 0)
+                {
+                    // Check if the current user is the first person in the queue
+                    if (usersInQueue[0].Equals(windowsUsername, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // The current user is first in line. We allow them to proceed without the dialog.
+                        WriteLog($"Current user ({windowsUsername}) is first in the queue. Proceeding without alert.");
+                        shouldShowDialog = false;
+                    }
+                    else
+                    {
+                        // The queue exists, but the current user is not first. Show the alert.
+                        WriteLog($"Queue exists, current user ({windowsUsername}) is not first. Showing alert.");
+                    }
+                }
+                else
+                {
+                    // No one is in the queue. No dialog needed.
+                    WriteLog("No one in the sync queue. Proceeding with preliminary check.");
+                    shouldShowDialog = false;
+                }
+
+
+                // --- 3. Prompt User if necessary ---
+                if (shouldShowDialog)
                 {
                     // Format the list of users for display in the TaskDialog.
                     // Using Environment.NewLine for clear, multi-line formatting.
@@ -124,6 +176,7 @@ namespace ProjectPerseus
                     if (result == TaskDialogResult.CommandLink2 || result == TaskDialogResult.Cancel)
                     {
                         e.Cancel();
+                        OpenWebQueueLink(docGuid);
                         WriteLog("User cancelled sync due to queue alert.");
                         return;
                     }
@@ -137,11 +190,7 @@ namespace ProjectPerseus
                 // --- End Queue Check ---
 
 
-                var app = e.Document.Application;
-                string revitUsername = app.Username;        // Name from Revit Options
-                string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
-                string windowsUsername = Environment.UserName;
-                string machineName = Environment.MachineName;
+                
 
                 var payload = new
                 {
