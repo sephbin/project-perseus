@@ -82,7 +82,7 @@ namespace ProjectPerseus
                 var baseUrl = _config.BaseUrl;
 
                 // --- 1. Check Sync Queue Status ---
-                var queueEndpoint = $"{baseUrl}/syncboat/getCurrentQueue/{docGuid}";
+                var queueEndpoint = $"{baseUrl}/../syncboat/getCurrentQueue/{docGuid}/";
 
                 string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, _config.ApiToken, null);
 
