@@ -400,23 +400,28 @@ namespace ProjectPerseus
                 var metadataEndpoint = $"{baseUrl}/registersource/";
                 string jsonMetadata = JsonConvert.SerializeObject(metadata);
                 string response = Utl.WebHelper.Post(metadataEndpoint, _config.ApiToken, jsonMetadata);
+                JObject json = JObject.Parse(response);
                 WriteLog($"Metadata upload response: {response}");
+            
+
+
+                var elements = revit.GetAllElements();    
+                WriteLog($"PerformFullSync: Found {elements.Count} elements");
+                var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                WriteLog(docGuid);
+                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid);
+                //SubmitElementDeltas(elementDeltaList);
+                WriteLog("PerformFullSync: Created elementDeltaList");
+                var filteredElementDeltaList = elementDeltaList;
+
+                var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
+
+                try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories); }
+                catch (Exception ex) { WriteLog(ex.ToString()); }
+                WriteLog("PerformFullSync: Filtered Element Delta List");
+                SubmitElementState(filteredElementDeltaList);
             }
             catch (Exception ex) { WriteLog(ex.ToString()); }
-
-
-            var elements = revit.GetAllElements();    
-            WriteLog($"PerformFullSync: Found {elements.Count} elements");
-            var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-            WriteLog(docGuid);
-            var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid);
-            //SubmitElementDeltas(elementDeltaList);
-            WriteLog("PerformFullSync: Created elementDeltaList");
-            var filteredElementDeltaList = elementDeltaList;
-            try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" }); }
-            catch (Exception ex) { WriteLog(ex.ToString()); }
-            WriteLog("PerformFullSync: Filtered Element Delta List");
-            SubmitElementState(filteredElementDeltaList);
         }
 
         private void PerformIncrementalSync(RevitFacade revit)
