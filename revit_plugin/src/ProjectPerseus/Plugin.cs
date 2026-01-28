@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
@@ -62,7 +63,7 @@ namespace ProjectPerseus
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
         {
             doOnPriorToSync(e);
-
+             
         }
         private void OpenWebQueueLink(string docGuid)
         {
@@ -429,14 +430,15 @@ namespace ProjectPerseus
             var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
             string stateJson = Utl.WebHelper.Get(StateEndpoint,null,null);
-            
+
             // 🔹 Step 2: Parse JSON { "value": "f178df1e-b572-401c-af59-af6f34336834" }
-            var json = JsonConvert.DeserializeObject<Dictionary<string, string>>(stateJson);
+            // var json = JsonConvert.DeserializeObject<Dictionary<string, string>>(stateJson);
+            JObject json = JObject.Parse(stateJson);
 
 
             // lastSyncVersionGuid = _config.LastSyncVersionGuid;
-            var lastSyncVersionGuid = Guid.Parse(json["value"]);
-            
+            var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
+
             WriteLog(lastSyncVersionGuid.ToString());
 
             //var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid)
@@ -448,7 +450,12 @@ namespace ProjectPerseus
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
                 WriteLog(docGuid);
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
-                elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
+
+                var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
+
+                elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
+                
+                //elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
                 
                 //var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
                 var elementDeltaDeletedList = new List<int>();
