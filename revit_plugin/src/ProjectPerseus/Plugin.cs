@@ -149,40 +149,27 @@ namespace ProjectPerseus
                 // --- 3. Prompt User if necessary ---
                 if (shouldShowDialog)
                 {
-                    // Format the list of users for display in the TaskDialog.
-                    // Using Environment.NewLine for clear, multi-line formatting.
+                    // Format the list of users
                     string queueList = string.Join(Environment.NewLine, usersInQueue);
 
-                    string message = $"**{queueCount} user(s) are currently in the sync queue:**{Environment.NewLine}{Environment.NewLine}{queueList}{Environment.NewLine}{Environment.NewLine}Do you want to **Sync Anyway** or **Cancel** and try later?";
-
-                    TaskDialog mainDialog = new TaskDialog("Sync Queue Alert")
+                    // 🔹 REPLACEMENT: Use the custom Windows Form instead of TaskDialog
+                    using (var form = new SyncWarningForm(queueCount, queueList))
                     {
-                        MainIcon = TaskDialogIcon.TaskDialogIconWarning,
-                        MainInstruction = "Sync Queue Alert",
-                        CommonButtons = TaskDialogCommonButtons.None, // Hide default buttons
-                        AllowCancellation = true,
-                        TitleAutoPrefix = false
-                    };
+                        form.ShowDialog(); // This blocks the thread until user clicks a button
 
-                    // Set the detailed message content
-                    mainDialog.FooterText = message; // Use FooterText for detailed, multi-line content
-
-                    // Add custom command links (buttons)
-                    mainDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Sync Anyway");
-                    mainDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Cancel Sync");
-
-                    TaskDialogResult result = mainDialog.Show();
-
-                    // --- 3. Cancel Revit Sync if requested ---
-                    if (result == TaskDialogResult.CommandLink2 || result == TaskDialogResult.Cancel)
-                    {
-                        e.Cancel();
-                        OpenWebQueueLink(docGuid);
-                        WriteLog("User cancelled sync due to queue alert.");
-                        return;
+                        if (form.ShouldSync)
+                        {
+                            WriteLog("User chose to Sync Anyway despite queue alert. Proceeding to preliminary check.");
+                        }
+                        else
+                        {
+                            // User clicked Cancel or closed the window
+                            e.Cancel();
+                            OpenWebQueueLink(docGuid);
+                            WriteLog("User cancelled sync due to queue alert.");
+                            return;
+                        }
                     }
-
-                    WriteLog("User chose to Sync Anyway despite queue alert. Proceeding to preliminary check.");
                 }
                 else
                 {
