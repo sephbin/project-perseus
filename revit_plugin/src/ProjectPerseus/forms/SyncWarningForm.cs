@@ -25,7 +25,7 @@ public class SyncWarningForm : Form
 
         // 1. Form Settings
         this.Text = "Sync Queue Alert";
-        this.Size = new Size(400, 350);
+        this.Size = new Size(width, height);
         this.StartPosition = FormStartPosition.CenterScreen; // Fixes position
         this.TopMost = true; // Fixes "appearing under windows"
         this.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -35,7 +35,7 @@ public class SyncWarningForm : Form
         // 2. Main Label
         Label lblMessage = new Label();
         lblMessage.Text = $"{count} user(s) are currently in the sync queue:\n\n{userList}\n\nDo you want to Sync Anyway or Cancel?";
-        lblMessage.Location = new Point(20, 20);
+        lblMessage.Location = new Point(padding, padding);
         lblMessage.Size = new Size(340, 180);
         lblMessage.Font = new Font("Segoe UI", 10);
         this.Controls.Add(lblMessage);
