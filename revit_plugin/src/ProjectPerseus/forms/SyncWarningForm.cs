@@ -45,7 +45,7 @@ public class SyncWarningForm : Form
         btnSync.Text = "Sync Anyway";
         btnSync.DialogResult = DialogResult.Yes;
         btnSync.Location = new Point(padding, height - (4 * (buttonHeight + padding)));
-        btnSync.Size = new Size(width - (padding * 2), buttonHeight);
+        btnSync.Size = new Size(width - (padding * 4), buttonHeight);
         btnSync.Click += (s, e) => { SelectedAction = SyncAction.SyncAnyway; this.Close(); };
         this.Controls.Add(btnSync);
 
@@ -54,7 +54,7 @@ public class SyncWarningForm : Form
         btnJoin.Text = "Join Queue";
         btnJoin.DialogResult = DialogResult.Cancel;
         btnJoin.Location = new Point(padding, height - (3 * (buttonHeight + padding)));
-        btnJoin.Size = new Size(width - (padding * 2), buttonHeight);
+        btnJoin.Size = new Size(width - (padding * 4), buttonHeight);
         btnJoin.Click += (s, e) => { SelectedAction = SyncAction.JoinQueue; this.Close(); };
         this.Controls.Add(btnJoin);
 
@@ -63,7 +63,7 @@ public class SyncWarningForm : Form
         btnCancel.Text = "Cancel Sync";
         btnCancel.DialogResult = DialogResult.Cancel;
         btnCancel.Location = new Point(padding, height - (2 * (buttonHeight + padding)));
-        btnCancel.Size = new Size(width - (padding * 2), buttonHeight);
+        btnCancel.Size = new Size(width - (padding * 4), buttonHeight);
         btnCancel.Click += (s, e) => { SelectedAction = SyncAction.Cancel; this.Close(); };
         this.Controls.Add(btnCancel);
 
