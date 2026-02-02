@@ -36,7 +36,7 @@ public class SyncWarningForm : Form
         Label lblMessage = new Label();
         lblMessage.Text = $"{count} user(s) are currently in the sync queue:\n\n{userList}\n\nDo you want to Sync Anyway or Cancel?";
         lblMessage.Location = new Point(padding, padding);
-        lblMessage.Size = new Size(250-padding, 180);
+        lblMessage.Size = new Size(this.ClientSize.Width - padding, 180);
         lblMessage.Font = new Font("Segoe UI", 10);
         this.Controls.Add(lblMessage);
 
@@ -44,8 +44,8 @@ public class SyncWarningForm : Form
         Button btnSync = new Button();
         btnSync.Text = "Sync Anyway";
         btnSync.DialogResult = DialogResult.Yes;
-        btnSync.Location = new Point(padding, height - (4 * (buttonHeight + padding)));
-        btnSync.Size = new Size(width - (padding * 4), buttonHeight);
+        btnSync.Location = new Point(padding, this.ClientSize.Height - (3 * (buttonHeight + padding)));
+        btnSync.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);
         btnSync.Click += (s, e) => { SelectedAction = SyncAction.SyncAnyway; this.Close(); };
         this.Controls.Add(btnSync);
 
@@ -53,8 +53,8 @@ public class SyncWarningForm : Form
         Button btnJoin = new Button();
         btnJoin.Text = "Join Queue";
         btnJoin.DialogResult = DialogResult.Cancel;
-        btnJoin.Location = new Point(padding, height - (3 * (buttonHeight + padding)));
-        btnJoin.Size = new Size(width - (padding * 4), buttonHeight);
+        btnJoin.Location = new Point(padding, this.ClientSize.Height - (2* (buttonHeight + padding)));
+        btnJoin.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);
         btnJoin.Click += (s, e) => { SelectedAction = SyncAction.JoinQueue; this.Close(); };
         this.Controls.Add(btnJoin);
 
@@ -62,8 +62,8 @@ public class SyncWarningForm : Form
         Button btnCancel = new Button();
         btnCancel.Text = "Cancel Sync";
         btnCancel.DialogResult = DialogResult.Cancel;
-        btnCancel.Location = new Point(padding, height - (2 * (buttonHeight + padding)));
-        btnCancel.Size = new Size(width - (padding * 4), buttonHeight);
+        btnCancel.Location = new Point(padding, this.ClientSize.Height - (1 * (buttonHeight + padding)));
+        btnCancel.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);
         btnCancel.Click += (s, e) => { SelectedAction = SyncAction.Cancel; this.Close(); };
         this.Controls.Add(btnCancel);
 
