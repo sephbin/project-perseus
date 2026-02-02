@@ -5,13 +5,24 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Drawing;
+using System.Windows.Media.Media3D;
 
 public class SyncWarningForm : Form
 {
-    public bool ShouldSync { get; private set; } = false;
+    // Define the options clearly
+    public enum SyncAction { SyncAnyway, JoinQueue, Cancel }
+
+    // This property holds the user's decision
+    public SyncAction SelectedAction { get; private set; } = SyncAction.Cancel;
 
     public SyncWarningForm(int count, string userList)
     {
+
+        int width = 250;
+        int height = 450;
+        int padding = 10;
+        int buttonHeight = 30;
+
         // 1. Form Settings
         this.Text = "Sync Queue Alert";
         this.Size = new Size(400, 350);
@@ -33,18 +44,27 @@ public class SyncWarningForm : Form
         Button btnSync = new Button();
         btnSync.Text = "Sync Anyway";
         btnSync.DialogResult = DialogResult.Yes;
-        btnSync.Location = new Point(20, 220);
-        btnSync.Size = new Size(160, 40);
-        btnSync.Click += (s, e) => { ShouldSync = true; this.Close(); };
+        btnSync.Location = new Point(padding, height - (3 * (buttonHeight + padding)));
+        btnSync.Size = new Size(width - (padding * 2), buttonHeight);
+        btnSync.Click += (s, e) => { SelectedAction = SyncAction.SyncAnyway; this.Close(); };
         this.Controls.Add(btnSync);
 
-        // 4. Cancel Button
+        // 4. Join Button
+        Button btnJoin = new Button();
+        btnJoin.Text = "Join Queue";
+        btnJoin.DialogResult = DialogResult.Cancel;
+        btnJoin.Location = new Point(padding, height - (2 * (buttonHeight + padding)));
+        btnJoin.Size = new Size(width - (padding * 2), buttonHeight);
+        btnJoin.Click += (s, e) => { SelectedAction = SyncAction.JoinQueue; this.Close(); };
+        this.Controls.Add(btnJoin);
+
+        // 5. Cancel Button
         Button btnCancel = new Button();
         btnCancel.Text = "Cancel Sync";
         btnCancel.DialogResult = DialogResult.Cancel;
-        btnCancel.Location = new Point(200, 220);
-        btnCancel.Size = new Size(160, 40);
-        btnCancel.Click += (s, e) => { ShouldSync = false; this.Close(); };
+        btnCancel.Location = new Point(padding, height - (1 * (buttonHeight + padding)));
+        btnCancel.Size = new Size(width - (padding * 2), buttonHeight);
+        btnCancel.Click += (s, e) => { SelectedAction = SyncAction.Cancel; this.Close(); };
         this.Controls.Add(btnCancel);
 
         // Default accept button (Enter key triggers Sync)

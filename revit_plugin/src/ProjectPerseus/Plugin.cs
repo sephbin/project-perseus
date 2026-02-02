@@ -146,39 +146,39 @@ namespace ProjectPerseus
                 }
 
 
-                // --- 3. Prompt User if necessary ---
+                // --- 3. Prompt User ---
                 if (shouldShowDialog)
                 {
-                    // Format the list of users
                     string queueList = string.Join(Environment.NewLine, usersInQueue);
 
-                    // 🔹 REPLACEMENT: Use the custom Windows Form instead of TaskDialog
                     using (var form = new SyncWarningForm(queueCount, queueList))
                     {
-                        form.ShowDialog(); // This blocks the thread until user clicks a button
+                        form.ShowDialog();
 
-                        if (form.ShouldSync)
+                        // SWITCH ON USER CHOICE
+                        switch (form.SelectedAction)
                         {
-                            WriteLog("User chose to Sync Anyway despite queue alert. Proceeding to preliminary check.");
-                        }
-                        else
-                        {
-                            // User clicked Cancel or closed the window
-                            e.Cancel();
-                            OpenWebQueueLink(docGuid);
-                            WriteLog("User cancelled sync due to queue alert.");
-                            return;
+                            case SyncWarningForm.SyncAction.SyncAnyway:
+                                WriteLog("User chose: Sync Anyway.");
+                                // Do nothing here, let the code flow proceed below.
+                                break;
+
+                            case SyncWarningForm.SyncAction.JoinQueue:
+                                WriteLog("User chose: Join Queue.");
+                                e.Cancel(); // Stop Revit Sync
+                                OpenWebQueueLink(docGuid); // Open Browser
+                                return; // Exit function
+
+                            case SyncWarningForm.SyncAction.Cancel:
+                                WriteLog("User chose: Cancel Sync.");
+                                e.Cancel(); // Stop Revit Sync
+                                return; // Exit function
                         }
                     }
                 }
-                else
-                {
-                    WriteLog("No one in the sync queue. Proceeding with preliminary check.");
-                }
-                // --- End Queue Check ---
 
 
-                
+                // --- 4. Continue with Pre-Sync Payload (Only if SyncAnyway or No Dialog) ---
 
                 var payload = new
                 {
