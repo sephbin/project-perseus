@@ -205,47 +205,55 @@ namespace ProjectPerseus
         }
         private void doOnPostSync(DocumentSynchronizedWithCentralEventArgs e)
         {
-            try
+            if (e.Status == RevitAPIEventStatus.Succeeded)
             {
-                WriteLog("Sync finished – contacting web server...");
-
-                if (UploadConfigIsValid() == false)
+                try
                 {
-                    WriteLog("Upload config invalid – skipping preliminary check.");
-                    return;
+                    WriteLog("Sync finished – contacting web server...");
+
+                    if (UploadConfigIsValid() == false)
+                    {
+                        WriteLog("Upload config invalid – skipping preliminary check.");
+                        return;
+                    }
+
+                    var revit = new RevitFacade(e.Document);
+                    var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                    var baseUrl = _config.BaseUrl;
+
+                    var app = e.Document.Application;
+                    string revitUsername = app.Username;        // Name from Revit Options
+                    string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
+                    string windowsUsername = Environment.UserName;
+                    string machineName = Environment.MachineName;
+
+                    var payload = new
+                    {
+                        documentGuid = docGuid,
+                        timestamp = DateTime.UtcNow.ToString("o"),
+                        revitUser = revitUsername,
+                        revitAccountId = revitAccountId,
+                        windowsUser = windowsUsername,
+                        machine = machineName
+                    };
+
+                    string jsonPayload = JsonConvert.SerializeObject(payload);
+
+                    // Preliminary call to the web API to verify or register sync start
+                    var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
+                    string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
+
+                    WriteLog($"Post sync request sent. Response: {response}");
                 }
-
-                var revit = new RevitFacade(e.Document);
-                var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-                var baseUrl = _config.BaseUrl;
-
-                var app = e.Document.Application;
-                string revitUsername = app.Username;        // Name from Revit Options
-                string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
-                string windowsUsername = Environment.UserName;
-                string machineName = Environment.MachineName;
-
-                var payload = new
+                catch (Exception ex)
                 {
-                    documentGuid = docGuid,
-                    timestamp = DateTime.UtcNow.ToString("o"),
-                    revitUser = revitUsername,
-                    revitAccountId = revitAccountId,
-                    windowsUser = windowsUsername,
-                    machine = machineName
-                };
-
-                string jsonPayload = JsonConvert.SerializeObject(payload);
-
-                // Preliminary call to the web API to verify or register sync start
-                var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
-                string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
-
-                WriteLog($"Post sync request sent. Response: {response}");
+                    WriteLog($"Error during post sync: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+            else
             {
-                WriteLog($"Error during post sync: {ex.Message}");
+                // If it failed or was cancelled, we log it but DO NOT send data to Django
+                WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
             }
         }
         //This appears to be a wrapper for the doOnSync function so it doesn't need as many arguments
