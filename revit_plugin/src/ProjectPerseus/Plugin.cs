@@ -205,8 +205,7 @@ namespace ProjectPerseus
         }
         private void doOnPostSync(DocumentSynchronizedWithCentralEventArgs e)
         {
-            if (e.Status == RevitAPIEventStatus.Succeeded)
-            {
+            
                 try
                 {
                     WriteLog("Sync finished – contacting web server...");
@@ -249,20 +248,23 @@ namespace ProjectPerseus
                 {
                     WriteLog($"Error during post sync: {ex.Message}");
                 }
-            }
-            else
-            {
-                // If it failed or was cancelled, we log it but DO NOT send data to Django
-                WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
-            }
+            
         }
         //This appears to be a wrapper for the doOnSync function so it doesn't need as many arguments
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
-        {
-            //WriteLog("OnDocumentSynchronizedWithCentral");
-            doOnSync(e);
-            doOnPostSync(e);
-            //WriteLog("// OnDocumentSynchronizedWithCentral");
+{
+    if (e.Status == RevitAPIEventStatus.Succeeded)
+    {
+        //WriteLog("OnDocumentSynchronizedWithCentral");
+        doOnSync(e);
+        doOnPostSync(e);
+                //WriteLog("// OnDocumentSynchronizedWithCentral");
+    }
+    else
+    {
+                // If it failed or was cancelled, we log it but DO NOT send data to Django
+                WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
+            }
         }
 
         //Decides what type of sync to do
