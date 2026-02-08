@@ -440,7 +440,6 @@ namespace ProjectPerseus
 
             // lastSyncVersionGuid = _config.LastSyncVersionGuid;
             var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
-
             WriteLog(lastSyncVersionGuid.ToString());
 
             //var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid)

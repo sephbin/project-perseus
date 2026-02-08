@@ -48,6 +48,7 @@ namespace ProjectPerseus
 
             var revit = new RevitFacade(doc);
             var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+            var currentModelVersion = RevitFacade.GetDocumentVersionGuid(revit.Document);
 
             var app = doc.Application;
             string revitUsername = app.Username;        // Name from Revit Options
@@ -58,6 +59,7 @@ namespace ProjectPerseus
             var payload = new
             {
                 documentGuid = docGuid,
+                source_state = currentModelVersion.ToString(),
                 timestamp = DateTime.UtcNow.ToString("o"),
                 revitUser = revitUsername,
                 revitAccountId = revitAccountId,
