@@ -52,23 +52,44 @@ namespace ProjectPerseus.models
 
         private List<IParameter> GetParameters()
         {
-            //Utl.WriteLog("Element.GetParameters");
-            //Utl.WriteLog(UniqueId);
-            var parameters = new List<IParameter>();
+            // Use a Dictionary to enforce Unique Names
+            // Key = Parameter Name, Value = The Parameter Object
+            var paramDict = new Dictionary<string, IParameter>();
 
             foreach (var param in _element.ParametersSet)
             {
                 try
                 {
-                    parameters.Add(ParameterBase.FromArdbParameter(_element.CategoryName, param));
+                    var newParam = ParameterBase.FromArdbParameter(_element.CategoryName, param);
+                    string pName = newParam.Name;
+
+                    // If this is a NEW parameter name, just add it.
+                    if (!paramDict.ContainsKey(pName))
+                    {
+                        paramDict.Add(pName, newParam);
+                    }
+                    // If we have a COLLISION (Duplicate Name), decide which one to keep.
+                    else
+                    {
+                        var existingParam = paramDict[pName];
+
+                        // LOGIC: Prefer ElementId (The Link) over String (The Text)
+                        // If the NEW one is an Int/ElementId and the OLD one is a String, overwrite it.
+                        if (newParam.ValueType.Contains("ElementId") && existingParam.ValueType.Contains("String"))
+                        {
+                            paramDict[pName] = newParam;
+                        }
+                        // (Otherwise, keep the existing one)
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Element.GetParameters: {ex.Message}"); 
+                    Utl.WriteLog($"Element.GetParameters: {ex.Message}");
                 }
             }
 
-            return parameters;
+            // Convert the Dictionary values back to a List
+            return new List<IParameter>(paramDict.Values);
         }
     }
 

@@ -33,5 +33,6 @@ namespace ProjectPerseus.revit.adapters
         public IArdbElementId AsElementId() => new ArdbElementIdAdapter(_parameter.AsElementId());
         public int AsInteger() => _parameter.AsInteger();
         public string AsString() => _parameter.AsString();
+        public string AsValueString() => _parameter.AsValueString();
     }
 }
