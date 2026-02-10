@@ -407,15 +407,58 @@ namespace ProjectPerseus
                 WriteLog($"PerformFullSync: Found {elements.Count} elements");
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
                 WriteLog(docGuid);
-                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid);
-                //SubmitElementDeltas(elementDeltaList);
+                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid).ToList();
                 WriteLog("PerformFullSync: Created elementDeltaList");
-                var filteredElementDeltaList = elementDeltaList;
+               
+                var filteredElementDeltaList = new List<ElementDelta>();
 
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
 
-                try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories); }
+                try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList(); }
                 catch (Exception ex) { WriteLog(ex.ToString()); }
+
+                // Collect Connected Elements
+                try
+                {
+                    // Check the boolean flag from the JSON response 
+                    bool collectConnected = false;
+                    if (json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null)
+                    {
+                        collectConnected = (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
+                    }
+
+                    if (collectConnected)
+                    {
+                        WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+
+                        // 1. Harvest IDs from the Primary List
+                        HashSet<int> referencedIds = ElementDelta.GetReferencedIds(filteredElementDeltaList);
+
+                        // Remove IDs that are ALREADY in the Primary List (prevent duplicates/overwriting)
+                        // Map the current delta list to IDs to check against
+                        var existingIds = filteredElementDeltaList.Select(x => x.Element.Id).ToHashSet();
+
+                        // Only keep IDs that we aren't already uploading
+                        referencedIds.ExceptWith(existingIds);
+
+                        WriteLog($"Found {referencedIds.Count} additional connected elements.");
+
+                        if (referencedIds.Count > 0)
+                        {
+                            // Fetch the actual Element objects for these IDs
+                            var connectedDeltas = ElementDelta.CreateListFromIds(referencedIds, revit.Document, docGuid);
+
+                            // Add them to the main list
+                            filteredElementDeltaList.AddRange(connectedDeltas);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                }
+
+
                 WriteLog("PerformFullSync: Filtered Element Delta List");
                 SubmitElementState(filteredElementDeltaList);
             }
