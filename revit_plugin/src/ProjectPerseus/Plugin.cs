@@ -14,6 +14,7 @@ using System.Reflection;
 using System.Windows.Media.Imaging;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 using System.Reflection.PortableExecutable;
+using System.Linq;
 
 namespace ProjectPerseus
 {
@@ -423,8 +424,6 @@ namespace ProjectPerseus
 
         private void PerformIncrementalSync(RevitFacade revit)
         {
-            //WriteLog("PerformIncrementalSync - Before GetElementChangeSet");
-            //(_config.LastSyncVersionGuid.ToString());
             
             var _baseUrl = _config.BaseUrl;
             var docId = ModelGuidStorage.GetOrCreate(revit.Document);
@@ -432,37 +431,69 @@ namespace ProjectPerseus
             var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
             string stateJson = Utl.WebHelper.Get(StateEndpoint,null,null);
-
-            // 🔹 Step 2: Parse JSON { "value": "f178df1e-b572-401c-af59-af6f34336834" }
-            // var json = JsonConvert.DeserializeObject<Dictionary<string, string>>(stateJson);
             JObject json = JObject.Parse(stateJson);
 
-
-            // lastSyncVersionGuid = _config.LastSyncVersionGuid;
             var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
             WriteLog(lastSyncVersionGuid.ToString());
-
-            //var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid)
+            
+            
+            // Get Primary Changes (The actual diff from the last sync)
             var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid) ;
             
-            //WriteLog("PerformIncrementalSync - Before Change Set If Satement");
             if (elementChangeSet.ContainsChanges())
             {
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-                WriteLog(docGuid);
+
+                // Create the Primary List
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
-
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
-
                 elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
-                
-                //elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
-                
-                var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
-                //var elementDeltaDeletedList = new List<int>();
-                //elementDeltaList.AddRange(elementDeltaDeletedList);
-                WriteLog("About to run SubmitElementDeltas");
 
+                // Collect Connected Elements
+                try
+                {
+                    // Check the boolean flag from the JSON response 
+                    bool collectConnected = false;
+                    if (json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null)
+                    {
+                        collectConnected = (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
+                    }
+
+                    if (collectConnected)
+                    {
+                        WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+
+                        // 1. Harvest IDs from the Primary List
+                        HashSet<int> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
+
+                        // Remove IDs that are ALREADY in the Primary List (prevent duplicates/overwriting)
+                        // Map the current delta list to IDs to check against
+                        var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
+
+                        // Only keep IDs that we aren't already uploading
+                        referencedIds.ExceptWith(existingIds);
+
+                        WriteLog($"Found {referencedIds.Count} additional connected elements.");
+
+                        if (referencedIds.Count > 0)
+                        {
+                            // Fetch the actual Element objects for these IDs
+                            var connectedDeltas = ElementDelta.CreateListFromIds(referencedIds, revit.Document, docGuid);
+
+                            // Add them to the main list
+                            elementDeltaList.AddRange(connectedDeltas);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                }
+
+                var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+                
+                
+                WriteLog("About to run SubmitElementDeltas");
                 SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
             }
             else 
