@@ -114,14 +114,17 @@ namespace ProjectPerseus.models
             var name = CreateParameterName(parameter.Definition?.Name, elementCategory, parameter.Definition?.ParameterGroup);
 
             var valueType = parameter.StorageType.ToString();
-            
-            // If it is a Double, we want to know if it is Length, Area, Volume, etc.
+
+            // If it is a number, try to find out WHAT KIND of number (Length, Area, etc.)
             if (parameter.StorageType == StorageType.Double)
             {
-                string specType = parameter.GetSpecType();
-                if (!string.IsNullOrEmpty(specType))
+                string spec = parameter.GetSpecType();
+
+                // If we found a valid spec (e.g., "autodesk.spec.aec:length-2.0.0" or "Length")
+                // Use that as the value_type instead of the generic "Double"
+                if (!string.IsNullOrEmpty(spec))
                 {
-                    valueType = specType; // Now valueType is "autodesk.spec.aec:length-2.0.0"
+                    valueType = spec;
                 }
             }
 
