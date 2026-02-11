@@ -34,5 +34,19 @@ namespace ProjectPerseus.revit.adapters
         public int AsInteger() => _parameter.AsInteger();
         public string AsString() => _parameter.AsString();
         public string AsValueString() => _parameter.AsValueString();
+        public string GetSpecType()
+        {
+            if (_parameter.Definition == null) return "Null";
+            try
+            {
+                // For Revit 2021+
+                return _parameter.Definition.GetDataType().TypeId;
+            }
+            catch
+            {
+                // Fallback
+                return "General";
+            }
+        }
     }
 }

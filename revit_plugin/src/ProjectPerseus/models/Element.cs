@@ -108,16 +108,24 @@ namespace ProjectPerseus.models
 
         public static ParameterBase FromArdbParameter(ARDB.Category elementCategory, IArdbParameter parameter)
         {
-            //Utl.WriteLog("ParameterBase.FromArdbParameter");
-            if (parameter is null) throw new ArgumentNullException(nameof(parameter));
-            //Utl.WriteLog("ParameterBase.FromArdbParameter - before CreateParameterName");
-            var name = CreateParameterName(parameter.Definition?.Name, elementCategory, parameter.Definition?.ParameterGroup);
-            //Utl.WriteLog("ParameterBase.FromArdbParameter - after CreateParameterName");
-            //var name = elementCategory;
-            var valueType = parameter.StorageType.ToString();
 
-            //Utl.WriteLog("FromArdbParameter: name; " + name);
-            //Utl.WriteLog("FromArdbParameter: valueType; " + valueType);
+            if (parameter is null) throw new ArgumentNullException(nameof(parameter));
+
+            var name = CreateParameterName(parameter.Definition?.Name, elementCategory, parameter.Definition?.ParameterGroup);
+
+            var valueType = parameter.StorageType.ToString();
+            
+            // If it is a Double, we want to know if it is Length, Area, Volume, etc.
+            if (parameter.StorageType == StorageType.Double)
+            {
+                string specType = parameter.GetSpecType();
+                if (!string.IsNullOrEmpty(specType))
+                {
+                    valueType = specType; // Now valueType is "autodesk.spec.aec:length-2.0.0"
+                }
+            }
+
+
 
             switch (parameter.StorageType)
             {

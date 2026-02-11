@@ -9,5 +9,6 @@
         IArdbElementId AsElementId();
         int AsInteger();
         string AsString();
+        string GetSpecType();
     }
 }
