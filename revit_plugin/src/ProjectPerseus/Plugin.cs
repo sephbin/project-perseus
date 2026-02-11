@@ -405,8 +405,10 @@ namespace ProjectPerseus
 
                 var elements = revit.GetAllElements();    
                 WriteLog($"PerformFullSync: Found {elements.Count} elements");
+
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
                 WriteLog(docGuid);
+
                 var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid).ToList();
                 WriteLog("PerformFullSync: Created elementDeltaList");
                
@@ -416,6 +418,35 @@ namespace ProjectPerseus
 
                 try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList(); }
                 catch (Exception ex) { WriteLog(ex.ToString()); }
+
+                try
+                {
+                    WriteLog("Harvesting Categories...");
+                    var categoryDeltas = new List<ElementDelta>();
+
+                    foreach (Category cat in revit.Document.Settings.Categories)
+                    {
+                        // Optional: Filter out weird categories if you want
+                        // if (cat.CategoryType == CategoryType.Invalid) continue;
+
+                        // Wrap the Category in our new Adapter
+                        var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
+
+                        // Create a Delta for it (Treat it as an Update/Create)
+                        var delta = new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, revit.Document, docGuid);
+
+                        categoryDeltas.Add(delta);
+                    }
+
+                    WriteLog($"Added {categoryDeltas.Count} Categories to the payload.");
+
+                    // Add them to the final list
+                    filteredElementDeltaList.AddRange(categoryDeltas);
+                }
+                catch (Exception ex)
+                {
+                    WriteLog($"Error harvesting categories: {ex.Message}");
+                }
 
                 // Collect Connected Elements
                 try

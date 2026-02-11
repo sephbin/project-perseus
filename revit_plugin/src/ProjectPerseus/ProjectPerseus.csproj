@@ -138,6 +138,7 @@
     <Compile Include="forms\SettingsForm.Designer.cs">
       <DependentUpon>SettingsForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="revit\adapters\ArdbCategoryAdapter.cs" />
     <Compile Include="revit\adapters\ArdbDefinitionAdapter.cs" />
     <Compile Include="revit\adapters\ArdbElementAdapter.cs" />
     <Compile Include="revit\adapters\ArdbElementIdAdapter.cs" />
