@@ -32,9 +32,9 @@ namespace ProjectPerseus.models
         [JsonProperty("unique_id")] public string UniqueId => _element.UniqueId;
         [JsonProperty("name")] public string Name => _element.Name;
         [JsonProperty("parameters")] public List<IParameter> Parameters => GetParameters();
-        
 
-        [JsonProperty("last_edited_by")] public string Username => Environment.UserName;
+
+        [JsonProperty("last_edited_by")] public string Username => GetLastEditedBy();
 
 
         //WTF is this for? Revit returns the same id for different files.
@@ -49,7 +49,38 @@ namespace ProjectPerseus.models
 
         //[JsonProperty("category")] public string Category => _element.Category.Name;
 
+        private string GetLastEditedBy()
+        {
+            // 1. If not workshared, we cannot get history. Return current user.
+            if (!_doc.IsWorkshared) return Environment.UserName;
 
+            try
+            {
+                // 2. Convert the Adapter ID back to a native Revit ElementId
+                var eid = new ARDB.ElementId(_element.Id.IntegerValue);
+
+                // 3. Get Tooltip info (this contains LastChangedBy)
+                var info = ARDB.WorksharingUtils.GetWorksharingTooltipInfo(_doc, eid);
+
+                if (!string.IsNullOrEmpty(info.LastChangedBy))
+                {
+                    return info.LastChangedBy;
+                }
+
+                // Fallback to creator if LastChangedBy is somehow empty
+                if (!string.IsNullOrEmpty(info.Creator))
+                {
+                    return info.Creator;
+                }
+            }
+            catch
+            {
+                // Fails silently (e.g., if element is a Category or View that doesn't support worksharing info)
+                // Returns default below
+            }
+
+            return Environment.UserName;
+        }
         private List<IParameter> GetParameters()
         {
             // Use a Dictionary to enforce Unique Names
