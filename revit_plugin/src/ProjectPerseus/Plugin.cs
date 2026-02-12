@@ -16,6 +16,7 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 using System.Reflection.PortableExecutable;
 using System.Linq;
 
+
 namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
@@ -43,23 +44,6 @@ namespace ProjectPerseus
             return Result.Succeeded;
         }
 
-
-        private void WriteLog(string content)
-        {
-            string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string appSpecificFolderPath = Path.Combine(roamingFolderPath, "ProjectPerseus");
-            Directory.CreateDirectory(appSpecificFolderPath); // Creates the directory if it doesn't exist
-            string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
-            try
-            {
-                File.AppendAllText(filePath, content + Environment.NewLine);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error saving file: {ex.Message}");
-            }
-        }
-
         //This is a wrapper for doOnPriorToSync, as it doesn't require as many arguments
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
         {
@@ -78,22 +62,22 @@ namespace ProjectPerseus
 
                 // Launch the URL in the user's default web browser
                 System.Diagnostics.Process.Start(webQueueUrl);
-                WriteLog($"Opened web queue URL: {webQueueUrl}");
+                Utl.WriteLog($"Opened web queue URL: {webQueueUrl}");
             }
             catch (Exception ex)
             {
-                WriteLog($"Failed to open web queue URL: {ex.Message}");
+                Utl.WriteLog($"Failed to open web queue URL: {ex.Message}");
             }
         }
         private void doOnPriorToSync(DocumentSynchronizingWithCentralEventArgs e)
         {
             try
             {
-                WriteLog("Sync initiated – contacting web server...");
+                Utl.WriteLog("Sync initiated – contacting web server...");
 
                 if (UploadConfigIsValid() == false)
                 {
-                    WriteLog("Upload config invalid – skipping preliminary check.");
+                    Utl.WriteLog("Upload config invalid – skipping preliminary check.");
                     return;
                 }
 
@@ -130,19 +114,19 @@ namespace ProjectPerseus
                     if (usersInQueue[0].Equals(windowsUsername, StringComparison.OrdinalIgnoreCase))
                     {
                         // The current user is first in line. We allow them to proceed without the dialog.
-                        WriteLog($"Current user ({windowsUsername}) is first in the queue. Proceeding without alert.");
+                        Utl.WriteLog($"Current user ({windowsUsername}) is first in the queue. Proceeding without alert.");
                         shouldShowDialog = false;
                     }
                     else
                     {
                         // The queue exists, but the current user is not first. Show the alert.
-                        WriteLog($"Queue exists, current user ({windowsUsername}) is not first. Showing alert.");
+                        Utl.WriteLog($"Queue exists, current user ({windowsUsername}) is not first. Showing alert.");
                     }
                 }
                 else
                 {
                     // No one is in the queue. No dialog needed.
-                    WriteLog("No one in the sync queue. Proceeding with preliminary check.");
+                    Utl.WriteLog("No one in the sync queue. Proceeding with preliminary check.");
                     shouldShowDialog = false;
                 }
 
@@ -160,18 +144,18 @@ namespace ProjectPerseus
                         switch (form.SelectedAction)
                         {
                             case SyncWarningForm.SyncAction.SyncAnyway:
-                                WriteLog("User chose: Sync Anyway.");
+                                Utl.WriteLog("User chose: Sync Anyway.");
                                 // Do nothing here, let the code flow proceed below.
                                 break;
 
                             case SyncWarningForm.SyncAction.JoinQueue:
-                                WriteLog("User chose: Join Queue.");
+                                Utl.WriteLog("User chose: Join Queue.");
                                 e.Cancel(); // Stop Revit Sync
                                 OpenWebQueueLink(docGuid); // Open Browser
                                 return; // Exit function
 
                             case SyncWarningForm.SyncAction.Cancel:
-                                WriteLog("User chose: Cancel Sync.");
+                                Utl.WriteLog("User chose: Cancel Sync.");
                                 e.Cancel(); // Stop Revit Sync
                                 return; // Exit function
                         }
@@ -197,11 +181,11 @@ namespace ProjectPerseus
                 var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
                 string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
 
-                WriteLog($"Preliminary sync request sent. Response: {response}");
+                Utl.WriteLog($"Preliminary sync request sent. Response: {response}");
             }
             catch (Exception ex)
             {
-                WriteLog($"Error during preliminary sync: {ex.Message}");
+                Utl.WriteLog($"Error during preliminary sync: {ex.Message}");
             }
         }
         private void doOnPostSync(DocumentSynchronizedWithCentralEventArgs e)
@@ -209,11 +193,11 @@ namespace ProjectPerseus
             
                 try
                 {
-                    WriteLog("Sync finished – contacting web server...");
+                    Utl.WriteLog("Sync finished – contacting web server...");
 
                     if (UploadConfigIsValid() == false)
                     {
-                        WriteLog("Upload config invalid – skipping preliminary check.");
+                        Utl.WriteLog("Upload config invalid – skipping preliminary check.");
                         return;
                     }
 
@@ -243,11 +227,11 @@ namespace ProjectPerseus
                     var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
                     string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
 
-                    WriteLog($"Post sync request sent. Response: {response}");
+                    Utl.WriteLog($"Post sync request sent. Response: {response}");
                 }
                 catch (Exception ex)
                 {
-                    WriteLog($"Error during post sync: {ex.Message}");
+                    Utl.WriteLog($"Error during post sync: {ex.Message}");
                 }
             
         }
@@ -256,15 +240,16 @@ namespace ProjectPerseus
 {
     if (e.Status == RevitAPIEventStatus.Succeeded)
     {
-        //WriteLog("OnDocumentSynchronizedWithCentral");
-        doOnSync(e);
-        doOnPostSync(e);
-                //WriteLog("// OnDocumentSynchronizedWithCentral");
-    }
-    else
+                //Utl.WriteLog("OnDocumentSynchronizedWithCentral");
+                doOnPostSync(e);
+                doOnSync(e);
+                
+                //Utl.WriteLog("// OnDocumentSynchronizedWithCentral");
+            }
+            else
     {
                 // If it failed or was cancelled, we log it but DO NOT send data to Django
-                WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
+                Utl.WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
             }
         }
 
@@ -279,19 +264,19 @@ namespace ProjectPerseus
                     if (UploadConfigIsValid() == false)
                     {
                         Log.Warn("Upload config is not valid - skipping upload.");
-                        //WriteLog("Upload config is not valid - skipping upload.");
+                        //Utl.WriteLog("Upload config is not valid - skipping upload.");
                         return;
                     }
 
                     // record elapsed time
-                    WriteLog("Start Watch");
+                    Utl.WriteLog("Start Watch");
                     var watch = System.Diagnostics.Stopwatch.StartNew();
 
                     try
                     {
                         var revit = new RevitFacade(e.Document);
 
-                        WriteLog("Before PerformIncrementalSync");
+                        Utl.WriteLog("Before PerformIncrementalSync");
                         PerformIncrementalSync(revit);
 
                         //if (Config.Instance.FullSyncNextSync)
@@ -314,21 +299,21 @@ namespace ProjectPerseus
                     catch (Exception ex)
                     {
                         Log.Exception(new Exception($"Error performing sync: {ex.Message}", ex));
-                        WriteLog($"Error performing sync: {ex.Message}");
+                        Utl.WriteLog($"Error performing sync: {ex.Message}");
 
                     }
 
                     watch.Stop();
-                    WriteLog("End Watch");
+                    Utl.WriteLog("End Watch");
                     //Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
-                    WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    Utl.WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                     // dump json
                     // Utl.JsonDump(elements, "ElementList");
                 }
                 catch (Exception ex)
                 {
                     Log.Error(ex.ToString());
-                    WriteLog(ex.ToString());
+                    Utl.WriteLog(ex.ToString());
                 }
             }
             //WriteLog("  //doOnSync");
@@ -340,7 +325,7 @@ namespace ProjectPerseus
             //Create a Perseus Source and Project Set
             try
             {
-                WriteLog("Start Watch");
+                Utl.WriteLog("Start Watch");
                 var watch = System.Diagnostics.Stopwatch.StartNew();
 
                 // Create a Perseus Source and Project Set
@@ -375,7 +360,7 @@ namespace ProjectPerseus
                 }
                 catch (Exception ex)
                 {
-                    WriteLog($"Failed to read project info: {ex.Message}");
+                    Utl.WriteLog($"Failed to read project info: {ex.Message}");
                 }
 
                 // --- Package everything into a metadata payload ---
@@ -404,29 +389,29 @@ namespace ProjectPerseus
                 string jsonMetadata = JsonConvert.SerializeObject(metadata);
                 string response = Utl.WebHelper.Post(metadataEndpoint, _config.ApiToken, jsonMetadata);
                 JObject json = JObject.Parse(response);
-                WriteLog($"Metadata upload response: {response}");
+                Utl.WriteLog($"Metadata upload response: {response}");
             
 
 
-                var elements = revit.GetAllElements();    
-                WriteLog($"PerformFullSync: Found {elements.Count} elements");
+                var elements = revit.GetAllElements();
+                Utl.WriteLog($"PerformFullSync: Found {elements.Count} elements");
 
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-                WriteLog(docGuid);
+                Utl.WriteLog(docGuid);
 
                 var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid).ToList();
-                WriteLog("PerformFullSync: Created elementDeltaList");
+                Utl.WriteLog("PerformFullSync: Created elementDeltaList");
                
                 var filteredElementDeltaList = new List<ElementDelta>();
 
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
 
                 try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList(); }
-                catch (Exception ex) { WriteLog(ex.ToString()); }
+                catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
 
                 try
                 {
-                    WriteLog("Harvesting Categories...");
+                    Utl.WriteLog("Harvesting Categories...");
                     var categoryDeltas = new List<ElementDelta>();
 
                     foreach (Category cat in revit.Document.Settings.Categories)
@@ -443,14 +428,14 @@ namespace ProjectPerseus
                         categoryDeltas.Add(delta);
                     }
 
-                    WriteLog($"Added {categoryDeltas.Count} Categories to the payload.");
+                    Utl.WriteLog($"Added {categoryDeltas.Count} Categories to the payload.");
 
                     // Add them to the final list
                     filteredElementDeltaList.AddRange(categoryDeltas);
                 }
                 catch (Exception ex)
                 {
-                    WriteLog($"Error harvesting categories: {ex.Message}");
+                    Utl.WriteLog($"Error harvesting categories: {ex.Message}");
                 }
 
                 // Collect Connected Elements
@@ -465,7 +450,7 @@ namespace ProjectPerseus
 
                     if (collectConnected)
                     {
-                        WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+                        Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
 
                         // 1. Harvest IDs from the Primary List
                         HashSet<int> referencedIds = ElementDelta.GetReferencedIds(filteredElementDeltaList);
@@ -477,7 +462,7 @@ namespace ProjectPerseus
                         // Only keep IDs that we aren't already uploading
                         referencedIds.ExceptWith(existingIds);
 
-                        WriteLog($"Found {referencedIds.Count} additional connected elements.");
+                        Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
 
                         if (referencedIds.Count > 0)
                         {
@@ -491,19 +476,19 @@ namespace ProjectPerseus
                 }
                 catch (Exception ex)
                 {
-                    WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                    Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
                 }
 
 
-                WriteLog("PerformFullSync: Filtered Element Delta List");
+                Utl.WriteLog("PerformFullSync: Filtered Element Delta List");
                 SubmitElementState(filteredElementDeltaList);
                 
                 watch.Stop();
-                WriteLog("End Watch");
+                Utl.WriteLog("End Watch");
                 //Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
-                WriteLog($"Full Upload completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                Utl.WriteLog($"Full Upload completed in {watch.Elapsed:hh\\:mm\\:ss}");
             }
-            catch (Exception ex) { WriteLog(ex.ToString()); }
+            catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
         }
 
         private void PerformIncrementalSync(RevitFacade revit)
@@ -511,14 +496,14 @@ namespace ProjectPerseus
             
             var _baseUrl = _config.BaseUrl;
             var docId = ModelGuidStorage.GetOrCreate(revit.Document);
-            WriteLog(docId);
+            Utl.WriteLog(docId);
             var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
             string stateJson = Utl.WebHelper.Get(StateEndpoint,null,null);
             JObject json = JObject.Parse(stateJson);
 
             var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
-            WriteLog(lastSyncVersionGuid.ToString());
+            Utl.WriteLog(lastSyncVersionGuid.ToString());
             
             
             // Get Primary Changes (The actual diff from the last sync)
@@ -545,7 +530,7 @@ namespace ProjectPerseus
 
                     if (collectConnected)
                     {
-                        WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+                        Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
 
                         // 1. Harvest IDs from the Primary List
                         HashSet<int> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
@@ -557,7 +542,7 @@ namespace ProjectPerseus
                         // Only keep IDs that we aren't already uploading
                         referencedIds.ExceptWith(existingIds);
 
-                        WriteLog($"Found {referencedIds.Count} additional connected elements.");
+                        Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
 
                         if (referencedIds.Count > 0)
                         {
@@ -571,19 +556,19 @@ namespace ProjectPerseus
                 }
                 catch (Exception ex)
                 {
-                    WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                    Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
                 }
 
                 var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
-                
-                
-                WriteLog("About to run SubmitElementDeltas");
+
+
+                Utl.WriteLog("About to run SubmitElementDeltas");
                 SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
             }
             else 
             {
                 Log.Info("No changes detected - skipping upload.");
-                WriteLog("No changes detected - skipping upload.");
+                Utl.WriteLog("No changes detected - skipping upload.");
             }
         }
 
