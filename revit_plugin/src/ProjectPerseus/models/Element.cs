@@ -118,6 +118,42 @@ namespace ProjectPerseus.models
                     Utl.WriteLog($"Element.GetParameters: {ex.Message}");
                 }
             }
+            try
+            {
+                // We need the raw native element to access .ToRoom / .FromRoom properties
+                var rawId = new ARDB.ElementId(_element.Id.IntegerValue);
+                var rawElem = _doc.GetElement(rawId);
+
+                if (rawElem is ARDB.FamilyInstance fi)
+                {
+                    // --- Inject "From Room" ---
+                    if (fi.FromRoom != null)
+                    {
+                        var p = new Parameter<int>("From Room", fi.FromRoom.Id.IntegerValue, "ElementId");
+                        // We use indexer [] to overwrite if a parameter named "From Room" already exists (Revit properties > Params)
+                        paramDict["From Room"] = p;
+                    }
+
+                    // --- Inject "To Room" ---
+                    if (fi.ToRoom != null)
+                    {
+                        var p = new Parameter<int>("To Room", fi.ToRoom.Id.IntegerValue, "ElementId");
+                        paramDict["To Room"] = p;
+                    }
+
+                    // --- Inject "Room" (General placement for Furniture etc) ---
+                    // Note: fi.Room is phase-dependent. If null, we skip.
+                    if (fi.Room != null)
+                    {
+                        var p = new Parameter<int>("Room", fi.Room.Id.IntegerValue, "ElementId");
+                        if (!paramDict.ContainsKey("Room")) paramDict["Room"] = p;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"Element.GetParameters (Virtual Injection): {ex.Message}");
+            }
 
             // Convert the Dictionary values back to a List
             return new List<IParameter>(paramDict.Values);
