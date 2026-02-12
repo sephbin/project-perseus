@@ -284,6 +284,7 @@ namespace ProjectPerseus
                     }
 
                     // record elapsed time
+                    WriteLog("Start Watch");
                     var watch = System.Diagnostics.Stopwatch.StartNew();
 
                     try
@@ -318,6 +319,7 @@ namespace ProjectPerseus
                     }
 
                     watch.Stop();
+                    WriteLog("End Watch");
                     //Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                     WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                     // dump json
@@ -338,6 +340,9 @@ namespace ProjectPerseus
             //Create a Perseus Source and Project Set
             try
             {
+                WriteLog("Start Watch");
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+
                 // Create a Perseus Source and Project Set
                 var doc = revit.Document;
                 var app = doc.Application;
@@ -492,6 +497,11 @@ namespace ProjectPerseus
 
                 WriteLog("PerformFullSync: Filtered Element Delta List");
                 SubmitElementState(filteredElementDeltaList);
+                
+                watch.Stop();
+                WriteLog("End Watch");
+                //Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                WriteLog($"Full Upload completed in {watch.Elapsed:hh\\:mm\\:ss}");
             }
             catch (Exception ex) { WriteLog(ex.ToString()); }
         }

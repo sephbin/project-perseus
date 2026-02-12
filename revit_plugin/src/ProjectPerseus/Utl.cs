@@ -19,7 +19,13 @@ namespace ProjectPerseus
             string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
             try
             {
-                File.AppendAllText(filePath, content + Environment.NewLine);
+                // Create timestamp string (e.g., "2023-10-27 14:30:05")
+                string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+                // Format: Timestamp [TAB] Content [NewLine]
+                string logEntry = $"{timestamp}\t{content}{Environment.NewLine}";
+
+                File.AppendAllText(filePath, logEntry);
             }
             catch (Exception ex)
             {
