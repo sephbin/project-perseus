@@ -26,6 +26,8 @@ namespace ProjectPerseus
     public class Plugin : IExternalApplication
     {   
         private readonly Config _config = Config.Instance;
+        public static Autodesk.Revit.UI.ExternalEvent AutoSyncExternalEvent { get; private set; }
+        private queue.QueuePoller _autoSyncPoller;
         private bool _isSyncing = false;
         private bool _queueReleasedEarly = false;
         private Document _currentSyncDoc = null;
@@ -48,6 +50,8 @@ namespace ProjectPerseus
             catch {
                 Console.WriteLine($"Error clearing log file");
             }
+            var syncHandler = new Commands.AutoSyncEvent();
+            AutoSyncExternalEvent = Autodesk.Revit.UI.ExternalEvent.Create(syncHandler);
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
             return Result.Succeeded;
         }
@@ -170,6 +174,20 @@ namespace ProjectPerseus
                                 Utl.WriteLog("User chose: Cancel Sync.");
                                 e.Cancel(); // Stop Revit Sync
                                 return; // Exit function
+                            case SyncWarningForm.SyncAction.JoinQueueAndAutoSync: // Assuming you add this to your form enum
+                                Utl.WriteLog("User chose: Join Queue & Auto-Sync.");
+                                e.Cancel(); // Stop the CURRENT sync
+
+                                // Join the queue on the web server (you might need to call your add-to-queue endpoint here)
+                                // e.g., Utl.WebHelper.Post($"{baseUrl}/syncboat/join/{docGuid}/{windowsUsername}", token, "{}");
+
+                                // Start listening for our turn
+                                if (_autoSyncPoller == null)
+                                {
+                                    _autoSyncPoller = new queue.QueuePoller(AutoSyncExternalEvent, docGuid);
+                                }
+                                _autoSyncPoller.StartPolling();
+                                return;
                         }
                     }
                 }

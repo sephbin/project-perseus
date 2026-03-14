@@ -10,7 +10,7 @@ using System.Windows.Media.Media3D;
 public class SyncWarningForm : Form
 {
     // Define the options clearly
-    public enum SyncAction { SyncAnyway, JoinQueue, Cancel }
+    public enum SyncAction { SyncAnyway, JoinQueueAndAutoSync, JoinQueue, Cancel }
 
     // This property holds the user's decision
     public SyncAction SelectedAction { get; private set; } = SyncAction.Cancel;
@@ -44,14 +44,23 @@ public class SyncWarningForm : Form
         Button btnSync = new Button();
         btnSync.Text = "Sync Anyway";
         btnSync.DialogResult = DialogResult.Yes;
-        btnSync.Location = new Point(padding, this.ClientSize.Height - (3 * (buttonHeight + padding)));
+        btnSync.Location = new Point(padding, this.ClientSize.Height - (4 * (buttonHeight + padding)));
         btnSync.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);
         btnSync.Click += (s, e) => { SelectedAction = SyncAction.SyncAnyway; this.Close(); };
         this.Controls.Add(btnSync);
 
+        // 4.1 Join and Auto Sync Button
+        Button btnJoinandAuto = new Button();
+        btnJoinandAuto.Text = "Join Queue & Auto Sync";
+        btnJoinandAuto.DialogResult = DialogResult.Cancel;
+        btnJoinandAuto.Location = new Point(padding, this.ClientSize.Height - (3 * (buttonHeight + padding)));
+        btnJoinandAuto.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);
+        btnJoinandAuto.Click += (s, e) => { SelectedAction = SyncAction.JoinQueueAndAutoSync; this.Close(); };
+        this.Controls.Add(btnJoinandAuto);
+
         // 4. Join Button
         Button btnJoin = new Button();
-        btnJoin.Text = "Join Queue";
+        btnJoin.Text = "Join Queue & Manually Sync";
         btnJoin.DialogResult = DialogResult.Cancel;
         btnJoin.Location = new Point(padding, this.ClientSize.Height - (2* (buttonHeight + padding)));
         btnJoin.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);

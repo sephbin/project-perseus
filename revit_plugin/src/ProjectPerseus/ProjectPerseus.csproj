@@ -115,6 +115,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="commands\AutoSyncEvent.cs" />
+    <Compile Include="commands\QueuePoller.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="forms\SyncWarningForm.cs">
       <SubType>Form</SubType>
