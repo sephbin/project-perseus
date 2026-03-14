@@ -21,9 +21,16 @@ namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
     [Regeneration(RegenerationOption.Manual)]
+    
+
     public class Plugin : IExternalApplication
-    {
+    {   
         private readonly Config _config = Config.Instance;
+        private bool _isSyncing = false;
+        private bool _queueReleasedEarly = false;
+        private Document _currentSyncDoc = null;
+        private string _currentSynCaption = "";
+
 
         //This adds the "OnDocumentSynchronizedWithCentral" function to the "DocumentSynchronizedWithCentral" event stack
         public Result OnStartup(UIControlledApplication application)
@@ -41,6 +48,7 @@ namespace ProjectPerseus
             catch {
                 Console.WriteLine($"Error clearing log file");
             }
+            application.ControlledApplication.ProgressChanged += OnProgressChanged;
             return Result.Succeeded;
         }
 
@@ -73,6 +81,10 @@ namespace ProjectPerseus
         {
             try
             {
+                _isSyncing = true;
+                _queueReleasedEarly = false;
+                _currentSyncDoc = e.Document;
+
                 Utl.WriteLog("Sync initiated – contacting web server...");
 
                 if (UploadConfigIsValid() == false)
@@ -188,11 +200,12 @@ namespace ProjectPerseus
                 Utl.WriteLog($"Error during preliminary sync: {ex.Message}");
             }
         }
-        private void doOnPostSync(DocumentSynchronizedWithCentralEventArgs e)
+        private void doOnPostSync(Document doc)
         {
             
                 try
                 {
+                    
                     Utl.WriteLog("Sync finished – contacting web server...");
 
                     if (UploadConfigIsValid() == false)
@@ -201,11 +214,11 @@ namespace ProjectPerseus
                         return;
                     }
 
-                    var revit = new RevitFacade(e.Document);
-                    var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                    var revit = new RevitFacade(doc);
+                    var docGuid = ModelGuidStorage.GetOrCreate(doc);
                     var baseUrl = _config.BaseUrl;
 
-                    var app = e.Document.Application;
+                    var app = doc.Application;
                     string revitUsername = app.Username;        // Name from Revit Options
                     string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
                     string windowsUsername = Environment.UserName;
@@ -237,20 +250,24 @@ namespace ProjectPerseus
         }
         //This appears to be a wrapper for the doOnSync function so it doesn't need as many arguments
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
-{
-    if (e.Status == RevitAPIEventStatus.Succeeded)
-    {
-                //Utl.WriteLog("OnDocumentSynchronizedWithCentral");
-                doOnPostSync(e);
+        {
+            if (e.Status == RevitAPIEventStatus.Succeeded)
+            {
+                // 🔹 NEW: If the progress hack failed to fire (e.g. language difference), 
+                // fire it now as a fallback to ensure the queue is released.
+                if (!_queueReleasedEarly)
+                {
+                    doOnPostSync(e.Document);
+                }
+
                 doOnSync(e);
-                
-                //Utl.WriteLog("// OnDocumentSynchronizedWithCentral");
             }
             else
-    {
+            {
                 // If it failed or was cancelled, we log it but DO NOT send data to Django
                 Utl.WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
             }
+            _currentSyncDoc = null;
         }
 
         //Decides what type of sync to do
@@ -261,6 +278,7 @@ namespace ProjectPerseus
             {
                 try
                 {
+                    _isSyncing = false;
                     if (UploadConfigIsValid() == false)
                     {
                         Log.Warn("Upload config is not valid - skipping upload.");
@@ -630,6 +648,43 @@ namespace ProjectPerseus
             BitmapImage settingsBtnImage = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/settings.png"));
             settingsBtn.LargeImage = settingsBtnImage;
 
+        }
+
+        private void OnProgressChanged(object sender, Autodesk.Revit.DB.Events.ProgressChangedEventArgs e)
+        {
+            // Only care if we are currently in a Sync operation and haven't released the queue yet
+            if (!_isSyncing || _queueReleasedEarly) return;
+
+            // e.Caption contains the text shown next to the progress bar
+            string caption = e.Caption ?? "";
+
+            Utl.WriteLog($"Sync Caption Changed: {caption}");
+
+            // When the caption changes to "Save to Local" (or whatever the exact string is in your Revit version)
+            // it means the Save to Central part has finished.
+            if (caption.Contains("Open an existing project") && _currentSynCaption.Contains("Save the active project back to the Central Model"))
+            {
+                _queueReleasedEarly = true;
+
+                Utl.WriteLog("Detected 'Save to Local'. Releasing queue early via ProgressChanged event!");
+
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        // 🔹 CHANGED: Pass the cached document
+                        if (_currentSyncDoc != null)
+                        {
+                            doOnPostSync(_currentSyncDoc);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Utl.WriteLog($"Early release failed: {ex.Message}");
+                    }
+                });
+            }
+            _currentSynCaption = caption;
         }
     }
 }
