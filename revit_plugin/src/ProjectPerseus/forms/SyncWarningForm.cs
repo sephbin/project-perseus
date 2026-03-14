@@ -51,7 +51,7 @@ public class SyncWarningForm : Form
 
         // 4.1 Join and Auto Sync Button
         Button btnJoinandAuto = new Button();
-        btnJoinandAuto.Text = "Join Queue & Auto Sync";
+        btnJoinandAuto.Text = "Join Queue | Auto Sync";
         btnJoinandAuto.DialogResult = DialogResult.Cancel;
         btnJoinandAuto.Location = new Point(padding, this.ClientSize.Height - (3 * (buttonHeight + padding)));
         btnJoinandAuto.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);
@@ -60,7 +60,7 @@ public class SyncWarningForm : Form
 
         // 4. Join Button
         Button btnJoin = new Button();
-        btnJoin.Text = "Join Queue & Manually Sync";
+        btnJoin.Text = "Join Queue | Manually Sync";
         btnJoin.DialogResult = DialogResult.Cancel;
         btnJoin.Location = new Point(padding, this.ClientSize.Height - (2* (buttonHeight + padding)));
         btnJoin.Size = new Size(this.ClientSize.Width - (padding * 2), buttonHeight);

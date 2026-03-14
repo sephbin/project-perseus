@@ -177,7 +177,7 @@ namespace ProjectPerseus
                             case SyncWarningForm.SyncAction.JoinQueueAndAutoSync: // Assuming you add this to your form enum
                                 Utl.WriteLog("User chose: Join Queue & Auto-Sync.");
                                 e.Cancel(); // Stop the CURRENT sync
-
+                                OpenWebQueueLink(docGuid);
                                 // Join the queue on the web server (you might need to call your add-to-queue endpoint here)
                                 // e.g., Utl.WebHelper.Post($"{baseUrl}/syncboat/join/{docGuid}/{windowsUsername}", token, "{}");
 
