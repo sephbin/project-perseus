@@ -14,14 +14,25 @@ using System.Reflection;
 using System.Windows.Media.Imaging;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 using System.Reflection.PortableExecutable;
+using System.Linq;
+
 
 namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
     [Regeneration(RegenerationOption.Manual)]
+    
+
     public class Plugin : IExternalApplication
-    {
+    {   
         private readonly Config _config = Config.Instance;
+        public static Autodesk.Revit.UI.ExternalEvent AutoSyncExternalEvent { get; private set; }
+        private queue.QueuePoller _autoSyncPoller;
+        private bool _isSyncing = false;
+        private bool _queueReleasedEarly = false;
+        private Document _currentSyncDoc = null;
+        private string _currentSynCaption = "";
+
 
         //This adds the "OnDocumentSynchronizedWithCentral" function to the "DocumentSynchronizedWithCentral" event stack
         public Result OnStartup(UIControlledApplication application)
@@ -39,24 +50,10 @@ namespace ProjectPerseus
             catch {
                 Console.WriteLine($"Error clearing log file");
             }
+            var syncHandler = new Commands.AutoSyncEvent();
+            AutoSyncExternalEvent = Autodesk.Revit.UI.ExternalEvent.Create(syncHandler);
+            application.ControlledApplication.ProgressChanged += OnProgressChanged;
             return Result.Succeeded;
-        }
-
-
-        private void WriteLog(string content)
-        {
-            string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string appSpecificFolderPath = Path.Combine(roamingFolderPath, "ProjectPerseus");
-            Directory.CreateDirectory(appSpecificFolderPath); // Creates the directory if it doesn't exist
-            string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
-            try
-            {
-                File.AppendAllText(filePath, content + Environment.NewLine);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error saving file: {ex.Message}");
-            }
         }
 
         //This is a wrapper for doOnPriorToSync, as it doesn't require as many arguments
@@ -77,22 +74,26 @@ namespace ProjectPerseus
 
                 // Launch the URL in the user's default web browser
                 System.Diagnostics.Process.Start(webQueueUrl);
-                WriteLog($"Opened web queue URL: {webQueueUrl}");
+                Utl.WriteLog($"Opened web queue URL: {webQueueUrl}");
             }
             catch (Exception ex)
             {
-                WriteLog($"Failed to open web queue URL: {ex.Message}");
+                Utl.WriteLog($"Failed to open web queue URL: {ex.Message}");
             }
         }
         private void doOnPriorToSync(DocumentSynchronizingWithCentralEventArgs e)
         {
             try
             {
-                WriteLog("Sync initiated – contacting web server...");
+                _isSyncing = true;
+                _queueReleasedEarly = false;
+                _currentSyncDoc = e.Document;
+
+                Utl.WriteLog("Sync initiated – contacting web server...");
 
                 if (UploadConfigIsValid() == false)
                 {
-                    WriteLog("Upload config invalid – skipping preliminary check.");
+                    Utl.WriteLog("Upload config invalid – skipping preliminary check.");
                     return;
                 }
 
@@ -129,19 +130,19 @@ namespace ProjectPerseus
                     if (usersInQueue[0].Equals(windowsUsername, StringComparison.OrdinalIgnoreCase))
                     {
                         // The current user is first in line. We allow them to proceed without the dialog.
-                        WriteLog($"Current user ({windowsUsername}) is first in the queue. Proceeding without alert.");
+                        Utl.WriteLog($"Current user ({windowsUsername}) is first in the queue. Proceeding without alert.");
                         shouldShowDialog = false;
                     }
                     else
                     {
                         // The queue exists, but the current user is not first. Show the alert.
-                        WriteLog($"Queue exists, current user ({windowsUsername}) is not first. Showing alert.");
+                        Utl.WriteLog($"Queue exists, current user ({windowsUsername}) is not first. Showing alert.");
                     }
                 }
                 else
                 {
                     // No one is in the queue. No dialog needed.
-                    WriteLog("No one in the sync queue. Proceeding with preliminary check.");
+                    Utl.WriteLog("No one in the sync queue. Proceeding with preliminary check.");
                     shouldShowDialog = false;
                 }
 
@@ -159,20 +160,34 @@ namespace ProjectPerseus
                         switch (form.SelectedAction)
                         {
                             case SyncWarningForm.SyncAction.SyncAnyway:
-                                WriteLog("User chose: Sync Anyway.");
+                                Utl.WriteLog("User chose: Sync Anyway.");
                                 // Do nothing here, let the code flow proceed below.
                                 break;
 
                             case SyncWarningForm.SyncAction.JoinQueue:
-                                WriteLog("User chose: Join Queue.");
+                                Utl.WriteLog("User chose: Join Queue.");
                                 e.Cancel(); // Stop Revit Sync
                                 OpenWebQueueLink(docGuid); // Open Browser
                                 return; // Exit function
 
                             case SyncWarningForm.SyncAction.Cancel:
-                                WriteLog("User chose: Cancel Sync.");
+                                Utl.WriteLog("User chose: Cancel Sync.");
                                 e.Cancel(); // Stop Revit Sync
                                 return; // Exit function
+                            case SyncWarningForm.SyncAction.JoinQueueAndAutoSync: // Assuming you add this to your form enum
+                                Utl.WriteLog("User chose: Join Queue & Auto-Sync.");
+                                e.Cancel(); // Stop the CURRENT sync
+                                OpenWebQueueLink(docGuid);
+                                // Join the queue on the web server (you might need to call your add-to-queue endpoint here)
+                                // e.g., Utl.WebHelper.Post($"{baseUrl}/syncboat/join/{docGuid}/{windowsUsername}", token, "{}");
+
+                                // Start listening for our turn
+                                if (_autoSyncPoller == null)
+                                {
+                                    _autoSyncPoller = new queue.QueuePoller(AutoSyncExternalEvent, docGuid);
+                                }
+                                _autoSyncPoller.StartPolling();
+                                return;
                         }
                     }
                 }
@@ -196,31 +211,32 @@ namespace ProjectPerseus
                 var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
                 string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
 
-                WriteLog($"Preliminary sync request sent. Response: {response}");
+                Utl.WriteLog($"Preliminary sync request sent. Response: {response}");
             }
             catch (Exception ex)
             {
-                WriteLog($"Error during preliminary sync: {ex.Message}");
+                Utl.WriteLog($"Error during preliminary sync: {ex.Message}");
             }
         }
-        private void doOnPostSync(DocumentSynchronizedWithCentralEventArgs e)
+        private void doOnPostSync(Document doc)
         {
             
                 try
                 {
-                    WriteLog("Sync finished – contacting web server...");
+                    
+                    Utl.WriteLog("Sync finished – contacting web server...");
 
                     if (UploadConfigIsValid() == false)
                     {
-                        WriteLog("Upload config invalid – skipping preliminary check.");
+                        Utl.WriteLog("Upload config invalid – skipping preliminary check.");
                         return;
                     }
 
-                    var revit = new RevitFacade(e.Document);
-                    var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                    var revit = new RevitFacade(doc);
+                    var docGuid = ModelGuidStorage.GetOrCreate(doc);
                     var baseUrl = _config.BaseUrl;
 
-                    var app = e.Document.Application;
+                    var app = doc.Application;
                     string revitUsername = app.Username;        // Name from Revit Options
                     string revitAccountId = app.LoginUserId;    // Autodesk account GUID (if logged in)
                     string windowsUsername = Environment.UserName;
@@ -242,29 +258,34 @@ namespace ProjectPerseus
                     var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
                     string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
 
-                    WriteLog($"Post sync request sent. Response: {response}");
+                    Utl.WriteLog($"Post sync request sent. Response: {response}");
                 }
                 catch (Exception ex)
                 {
-                    WriteLog($"Error during post sync: {ex.Message}");
+                    Utl.WriteLog($"Error during post sync: {ex.Message}");
                 }
             
         }
         //This appears to be a wrapper for the doOnSync function so it doesn't need as many arguments
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
-{
-    if (e.Status == RevitAPIEventStatus.Succeeded)
-    {
-        //WriteLog("OnDocumentSynchronizedWithCentral");
-        doOnSync(e);
-        doOnPostSync(e);
-                //WriteLog("// OnDocumentSynchronizedWithCentral");
-    }
-    else
-    {
-                // If it failed or was cancelled, we log it but DO NOT send data to Django
-                WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
+        {
+            if (e.Status == RevitAPIEventStatus.Succeeded)
+            {
+                // 🔹 NEW: If the progress hack failed to fire (e.g. language difference), 
+                // fire it now as a fallback to ensure the queue is released.
+                if (!_queueReleasedEarly)
+                {
+                    doOnPostSync(e.Document);
+                }
+
+                doOnSync(e);
             }
+            else
+            {
+                // If it failed or was cancelled, we log it but DO NOT send data to Django
+                Utl.WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
+            }
+            _currentSyncDoc = null;
         }
 
         //Decides what type of sync to do
@@ -275,21 +296,23 @@ namespace ProjectPerseus
             {
                 try
                 {
+                    _isSyncing = false;
                     if (UploadConfigIsValid() == false)
                     {
                         Log.Warn("Upload config is not valid - skipping upload.");
-                        //WriteLog("Upload config is not valid - skipping upload.");
+                        //Utl.WriteLog("Upload config is not valid - skipping upload.");
                         return;
                     }
 
                     // record elapsed time
+                    Utl.WriteLog("Start Watch");
                     var watch = System.Diagnostics.Stopwatch.StartNew();
 
                     try
                     {
                         var revit = new RevitFacade(e.Document);
 
-                        WriteLog("Before PerformIncrementalSync");
+                        Utl.WriteLog("Before PerformIncrementalSync");
                         PerformIncrementalSync(revit);
 
                         //if (Config.Instance.FullSyncNextSync)
@@ -312,20 +335,21 @@ namespace ProjectPerseus
                     catch (Exception ex)
                     {
                         Log.Exception(new Exception($"Error performing sync: {ex.Message}", ex));
-                        WriteLog($"Error performing sync: {ex.Message}");
+                        Utl.WriteLog($"Error performing sync: {ex.Message}");
 
                     }
 
                     watch.Stop();
+                    Utl.WriteLog("End Watch");
                     //Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
-                    WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    Utl.WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                     // dump json
                     // Utl.JsonDump(elements, "ElementList");
                 }
                 catch (Exception ex)
                 {
                     Log.Error(ex.ToString());
-                    WriteLog(ex.ToString());
+                    Utl.WriteLog(ex.ToString());
                 }
             }
             //WriteLog("  //doOnSync");
@@ -337,6 +361,9 @@ namespace ProjectPerseus
             //Create a Perseus Source and Project Set
             try
             {
+                Utl.WriteLog("Start Watch");
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+
                 // Create a Perseus Source and Project Set
                 var doc = revit.Document;
                 var app = doc.Application;
@@ -369,7 +396,7 @@ namespace ProjectPerseus
                 }
                 catch (Exception ex)
                 {
-                    WriteLog($"Failed to read project info: {ex.Message}");
+                    Utl.WriteLog($"Failed to read project info: {ex.Message}");
                 }
 
                 // --- Package everything into a metadata payload ---
@@ -398,78 +425,186 @@ namespace ProjectPerseus
                 string jsonMetadata = JsonConvert.SerializeObject(metadata);
                 string response = Utl.WebHelper.Post(metadataEndpoint, _config.ApiToken, jsonMetadata);
                 JObject json = JObject.Parse(response);
-                WriteLog($"Metadata upload response: {response}");
+                Utl.WriteLog($"Metadata upload response: {response}");
             
 
 
-                var elements = revit.GetAllElements();    
-                WriteLog($"PerformFullSync: Found {elements.Count} elements");
+                var elements = revit.GetAllElements();
+                Utl.WriteLog($"PerformFullSync: Found {elements.Count} elements");
+
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-                WriteLog(docGuid);
-                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid);
-                //SubmitElementDeltas(elementDeltaList);
-                WriteLog("PerformFullSync: Created elementDeltaList");
-                var filteredElementDeltaList = elementDeltaList;
+                Utl.WriteLog(docGuid);
+
+                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid).ToList();
+                Utl.WriteLog("PerformFullSync: Created elementDeltaList");
+               
+                var filteredElementDeltaList = new List<ElementDelta>();
 
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
 
-                try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories); }
-                catch (Exception ex) { WriteLog(ex.ToString()); }
-                WriteLog("PerformFullSync: Filtered Element Delta List");
+                try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList(); }
+                catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
+
+                try
+                {
+                    Utl.WriteLog("Harvesting Categories...");
+                    var categoryDeltas = new List<ElementDelta>();
+
+                    foreach (Category cat in revit.Document.Settings.Categories)
+                    {
+                        // Optional: Filter out weird categories if you want
+                        // if (cat.CategoryType == CategoryType.Invalid) continue;
+
+                        // Wrap the Category in our new Adapter
+                        var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
+
+                        // Create a Delta for it (Treat it as an Update/Create)
+                        var delta = new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, revit.Document, docGuid);
+
+                        categoryDeltas.Add(delta);
+                    }
+
+                    Utl.WriteLog($"Added {categoryDeltas.Count} Categories to the payload.");
+
+                    // Add them to the final list
+                    filteredElementDeltaList.AddRange(categoryDeltas);
+                }
+                catch (Exception ex)
+                {
+                    Utl.WriteLog($"Error harvesting categories: {ex.Message}");
+                }
+
+                // Collect Connected Elements
+                try
+                {
+                    // Check the boolean flag from the JSON response 
+                    bool collectConnected = false;
+                    if (json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null)
+                    {
+                        collectConnected = (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
+                    }
+
+                    if (collectConnected)
+                    {
+                        Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+
+                        // 1. Harvest IDs from the Primary List
+                        HashSet<int> referencedIds = ElementDelta.GetReferencedIds(filteredElementDeltaList);
+
+                        // Remove IDs that are ALREADY in the Primary List (prevent duplicates/overwriting)
+                        // Map the current delta list to IDs to check against
+                        var existingIds = filteredElementDeltaList.Select(x => x.Element.Id).ToHashSet();
+
+                        // Only keep IDs that we aren't already uploading
+                        referencedIds.ExceptWith(existingIds);
+
+                        Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
+
+                        if (referencedIds.Count > 0)
+                        {
+                            // Fetch the actual Element objects for these IDs
+                            var connectedDeltas = ElementDelta.CreateListFromIds(referencedIds, revit.Document, docGuid);
+
+                            // Add them to the main list
+                            filteredElementDeltaList.AddRange(connectedDeltas);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                }
+
+
+                Utl.WriteLog("PerformFullSync: Filtered Element Delta List");
                 SubmitElementState(filteredElementDeltaList);
+                
+                watch.Stop();
+                Utl.WriteLog("End Watch");
+                //Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                Utl.WriteLog($"Full Upload completed in {watch.Elapsed:hh\\:mm\\:ss}");
             }
-            catch (Exception ex) { WriteLog(ex.ToString()); }
+            catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
         }
 
         private void PerformIncrementalSync(RevitFacade revit)
         {
-            //WriteLog("PerformIncrementalSync - Before GetElementChangeSet");
-            //(_config.LastSyncVersionGuid.ToString());
             
             var _baseUrl = _config.BaseUrl;
             var docId = ModelGuidStorage.GetOrCreate(revit.Document);
-            WriteLog(docId);
+            Utl.WriteLog(docId);
             var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
             string stateJson = Utl.WebHelper.Get(StateEndpoint,null,null);
-
-            // 🔹 Step 2: Parse JSON { "value": "f178df1e-b572-401c-af59-af6f34336834" }
-            // var json = JsonConvert.DeserializeObject<Dictionary<string, string>>(stateJson);
             JObject json = JObject.Parse(stateJson);
 
-
-            // lastSyncVersionGuid = _config.LastSyncVersionGuid;
             var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
-
-            WriteLog(lastSyncVersionGuid.ToString());
-
-            //var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid)
+            Utl.WriteLog(lastSyncVersionGuid.ToString());
+            
+            
+            // Get Primary Changes (The actual diff from the last sync)
             var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid) ;
             
-            //WriteLog("PerformIncrementalSync - Before Change Set If Satement");
             if (elementChangeSet.ContainsChanges())
             {
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-                WriteLog(docGuid);
+
+                // Create the Primary List
                 var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
-
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
-
                 elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
-                
-                //elementDeltaList = elementDeltaList.FilterByCategoryName(new[] { "Rooms", "Doors" });
-                
-                //var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
-                var elementDeltaDeletedList = new List<int>();
-                //elementDeltaList.AddRange(elementDeltaDeletedList);
-                WriteLog("About to run SubmitElementDeltas");
 
+                // Collect Connected Elements
+                try
+                {
+                    // Check the boolean flag from the JSON response 
+                    bool collectConnected = false;
+                    if (json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null)
+                    {
+                        collectConnected = (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
+                    }
+
+                    if (collectConnected)
+                    {
+                        Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+
+                        // 1. Harvest IDs from the Primary List
+                        HashSet<int> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
+
+                        // Remove IDs that are ALREADY in the Primary List (prevent duplicates/overwriting)
+                        // Map the current delta list to IDs to check against
+                        var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
+
+                        // Only keep IDs that we aren't already uploading
+                        referencedIds.ExceptWith(existingIds);
+
+                        Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
+
+                        if (referencedIds.Count > 0)
+                        {
+                            // Fetch the actual Element objects for these IDs
+                            var connectedDeltas = ElementDelta.CreateListFromIds(referencedIds, revit.Document, docGuid);
+
+                            // Add them to the main list
+                            elementDeltaList.AddRange(connectedDeltas);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                }
+
+                var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+
+
+                Utl.WriteLog("About to run SubmitElementDeltas");
                 SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
             }
             else 
             {
                 Log.Info("No changes detected - skipping upload.");
-                WriteLog("No changes detected - skipping upload.");
+                Utl.WriteLog("No changes detected - skipping upload.");
             }
         }
 
@@ -531,6 +666,43 @@ namespace ProjectPerseus
             BitmapImage settingsBtnImage = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/settings.png"));
             settingsBtn.LargeImage = settingsBtnImage;
 
+        }
+
+        private void OnProgressChanged(object sender, Autodesk.Revit.DB.Events.ProgressChangedEventArgs e)
+        {
+            // Only care if we are currently in a Sync operation and haven't released the queue yet
+            if (!_isSyncing || _queueReleasedEarly) return;
+
+            // e.Caption contains the text shown next to the progress bar
+            string caption = e.Caption ?? "";
+
+            Utl.WriteLog($"Sync Caption Changed: {caption}");
+
+            // When the caption changes to "Save to Local" (or whatever the exact string is in your Revit version)
+            // it means the Save to Central part has finished.
+            if (caption.Contains("Open an existing project") && _currentSynCaption.Contains("Save the active project back to the Central Model"))
+            {
+                _queueReleasedEarly = true;
+
+                Utl.WriteLog("Detected 'Save to Local'. Releasing queue early via ProgressChanged event!");
+
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        // 🔹 CHANGED: Pass the cached document
+                        if (_currentSyncDoc != null)
+                        {
+                            doOnPostSync(_currentSyncDoc);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Utl.WriteLog($"Early release failed: {ex.Message}");
+                    }
+                });
+            }
+            _currentSynCaption = caption;
         }
     }
 }

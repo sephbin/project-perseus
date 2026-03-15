@@ -57,5 +57,10 @@ namespace ProjectPerseusTests.mocks
             }
             throw new InvalidCastException("Value is not a string");
         }
+        public string GetSpecType()
+        {
+            // Return a default value for tests (e.g., "General" or "Text")
+            return "General";
+        }
     }
 }

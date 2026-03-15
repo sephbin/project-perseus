@@ -101,5 +101,68 @@ namespace ProjectPerseus.models
             Update,
             Delete
         }
+        
+
+        /// <summary>
+        /// Scans a list of ElementDeltas and extracts any Parameter value that is an ElementId.
+        /// </summary>
+        public static HashSet<int> GetReferencedIds(List<ElementDelta> sourceDeltas)
+        {
+            var foundIds = new HashSet<int>();
+
+            foreach (var delta in sourceDeltas)
+            {
+                // Skip deletions, they have no parameters
+                if (delta.Action == DeltaAction.Delete) continue;
+
+                foreach (var param in delta.Element.Parameters)
+                {
+                    // Check if this parameter stores an ElementId
+                    // Note: ValueType is a string like "ElementId" based on your ParameterBase class
+                    if (param.ValueType == "ElementId" && param.Value is int idValue)
+                    {
+                        // Filter out -1 (Invalid) and 0, and maybe small internal numbers
+                        if (idValue > 0)
+                        {
+                            foundIds.Add(idValue);
+                        }
+                    }
+                }
+            }
+            return foundIds;
+        }
+
+        /// <summary>
+        /// Manually creates a list of ElementDeltas from a list of Integer IDs.
+        /// </summary>
+        public static List<ElementDelta> CreateListFromIds(IEnumerable<int> ids, Document doc, string docGuid)
+        {
+            var deltas = new List<ElementDelta>();
+
+            foreach (int id in ids)
+            {
+                try
+                {
+                    ElementId eid = new ElementId(id);
+                    Autodesk.Revit.DB.Element revitElem = doc.GetElement(eid);
+
+                    if (revitElem != null)
+                    {
+                        // We need to wrap the raw Revit Element in your Adapter
+                        // Assuming you have ArdbElementAdapter in ProjectPerseus.revit.adapters
+                        var elementAdapter = new ArdbElementAdapter(revitElem);
+
+                        // We treat connected elements as "Update" actions (or Create). 
+                        // "Update" is safer as it usually implies "Upsert" in databases.
+                        deltas.Add(new ElementDelta(DeltaAction.Update, elementAdapter, doc, docGuid));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Utl.WriteLog($"Error processing referenced ID {id}: {ex.Message}");
+                }
+            }
+            return deltas;
+        }
     }
 }

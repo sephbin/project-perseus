@@ -115,7 +115,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="commands\AutoSyncEvent.cs" />
+    <Compile Include="commands\QueuePoller.cs" />
     <Compile Include="Config.cs" />
+    <Compile Include="forms\AutoSyncCountdownForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="forms\SyncWarningForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -138,6 +143,7 @@
     <Compile Include="forms\SettingsForm.Designer.cs">
       <DependentUpon>SettingsForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="revit\adapters\ArdbCategoryAdapter.cs" />
     <Compile Include="revit\adapters\ArdbDefinitionAdapter.cs" />
     <Compile Include="revit\adapters\ArdbElementAdapter.cs" />
     <Compile Include="revit\adapters\ArdbElementIdAdapter.cs" />
