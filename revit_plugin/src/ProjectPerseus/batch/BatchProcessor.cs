@@ -98,7 +98,7 @@ namespace ProjectPerseus.queue
 
                 // Using your existing Plugin logic (you may need to expose PerformFullSync as public in Plugin.cs)
                 // Or extract PerformFullSync into a shared utility/service class.
-                Plugin.PerformFullSync(revitFacade);
+                Plugin.PerformIncrementalSync(revitFacade);
 
                 Utl.WriteLog($"Successfully processed: {doc.Title}");
             }

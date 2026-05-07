@@ -543,10 +543,10 @@ namespace ProjectPerseus
             catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
         }
 
-        private void PerformIncrementalSync(RevitFacade revit)
+        public static void PerformIncrementalSync(RevitFacade revit)
         {
             
-            var _baseUrl = _config.BaseUrl;
+            var _baseUrl = Config.Instance.BaseUrl;
             var docId = ModelGuidStorage.GetOrCreate(revit.Document);
             Utl.WriteLog(docId);
             var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
@@ -624,9 +624,9 @@ namespace ProjectPerseus
             }
         }
 
-        private void SubmitElementDeltas(IList<ElementDelta> elements, IList<long> deleted, Document doc)
+        private static void SubmitElementDeltas(IList<ElementDelta> elements, IList<long> deleted, Document doc)
         {
-            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements, deleted, doc);
+            new ProjectPerseusWeb(Config.Instance.BaseUrl, Config.Instance.ApiToken).SubmitElementDeltas(elements, deleted, doc);
         }
         public static void SubmitElementState(IList<ElementDelta> elements)
         {
