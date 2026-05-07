@@ -2,6 +2,6 @@
 {
     public interface IArdbElementId
     {
-        int IntegerValue { get; }
+        long Value { get; }
     }
 }

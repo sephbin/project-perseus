@@ -505,7 +505,7 @@ namespace ProjectPerseus
                         Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
 
                         // 1. Harvest IDs from the Primary List
-                        HashSet<int> referencedIds = ElementDelta.GetReferencedIds(filteredElementDeltaList);
+                        HashSet<long> referencedIds = ElementDelta.GetReferencedIds(filteredElementDeltaList);
 
                         // Remove IDs that are ALREADY in the Primary List (prevent duplicates/overwriting)
                         // Map the current delta list to IDs to check against
@@ -585,7 +585,7 @@ namespace ProjectPerseus
                         Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
 
                         // 1. Harvest IDs from the Primary List
-                        HashSet<int> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
+                        HashSet<long> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
 
                         // Remove IDs that are ALREADY in the Primary List (prevent duplicates/overwriting)
                         // Map the current delta list to IDs to check against
@@ -624,7 +624,7 @@ namespace ProjectPerseus
             }
         }
 
-        private void SubmitElementDeltas(IList<ElementDelta> elements, IList<int> deleted, Document doc)
+        private void SubmitElementDeltas(IList<ElementDelta> elements, IList<long> deleted, Document doc)
         {
             new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements, deleted, doc);
         }

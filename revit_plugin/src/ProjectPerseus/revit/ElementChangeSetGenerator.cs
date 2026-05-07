@@ -30,7 +30,7 @@ namespace ProjectPerseus.revit
                 ToVersionGuid = RevitFacade.GetDocumentVersionGuid(_doc),
                 CreatedElements = RetrieveElements(docDiff.GetCreatedElementIds()),
                 ModifiedElements = RetrieveElements(docDiff.GetModifiedElementIds()),
-                DeletedElementIds = docDiff.GetDeletedElementIds().Select(id => id.IntegerValue).ToList()
+                DeletedElementIds = docDiff.GetDeletedElementIds().Select(id => id.GetIdValue()).ToList()
             };
         }
 

@@ -27,10 +27,10 @@ namespace ProjectPerseus.models
         [JsonProperty("action")]
         [JsonConverter(typeof(StringEnumConverter))]
         public DeltaAction Action { get; }
-        
+
         [JsonProperty("element")]
         public Element Element { get; }
-        
+
         public static List<ElementDelta> CreateListFromChangeSet(ElementChangeSet changeSet, Document doc, string docGuid)
         {
             var deltas = new List<ElementDelta>();
@@ -41,14 +41,15 @@ namespace ProjectPerseus.models
             return deltas;
         }
 
-        public static List<int> CreateDeletedListFromChangeSet(ElementChangeSet changeSet)
+        // 🔹 CHANGED: List<int> to List<long>
+        public static List<long> CreateDeletedListFromChangeSet(ElementChangeSet changeSet)
         {
             try
             {
                 if (changeSet?.DeletedElementIds == null)
                 {
                     Utl.WriteLog("CreateDeletedListFromChangeSet: no deleted IDs found.");
-                    return new List<int>();
+                    return new List<long>(); // 🔹 CHANGED
                 }
 
                 var deletedIds = changeSet.DeletedElementIds.ToList(); // clone in case it's reused
@@ -58,29 +59,25 @@ namespace ProjectPerseus.models
             catch (Exception ex)
             {
                 Utl.WriteLog($"CreateDeletedListFromChangeSet failed: {ex.Message}");
-                return new List<int>();
+                return new List<long>(); // 🔹 CHANGED
             }
         }
 
-        public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements, Document doc,  string docGuid)
+        public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements, Document doc, string docGuid)
         {
-            //return elements.Select(element => new ElementDelta(action, element, doc)).ToList();
             Utl.WriteLog($"CreateList {action}");
             var deltas = new List<ElementDelta>();
             int count = 0;
             int total = elements.Count();
             int logInterval = Math.Max(1, total / 10); // log ~100 times total
 
-            
             foreach (var element in elements)
             {
-                //Utl.WriteLog("Add ElementDelta to list");
                 deltas.Add(new ElementDelta(action, element, doc, docGuid));
                 count++;
 
                 if (count % logInterval == 0 || count == total)
                 {
-                    // Write progress to the plugin log file
                     try
                     {
                         Utl.WriteLog($"CreateList: Processed {count} of {total} ({(count * 100 / total)}%) elements");
@@ -94,37 +91,42 @@ namespace ProjectPerseus.models
             Utl.WriteLog($"CreateList {action}, before return");
             return deltas;
         }
-        
+
         public enum DeltaAction
         {
             Create,
             Update,
             Delete
         }
-        
 
         /// <summary>
         /// Scans a list of ElementDeltas and extracts any Parameter value that is an ElementId.
         /// </summary>
-        public static HashSet<int> GetReferencedIds(List<ElementDelta> sourceDeltas)
+        // 🔹 CHANGED: HashSet<int> to HashSet<long>
+        public static HashSet<long> GetReferencedIds(List<ElementDelta> sourceDeltas)
         {
-            var foundIds = new HashSet<int>();
+            var foundIds = new HashSet<long>(); // 🔹 CHANGED
 
             foreach (var delta in sourceDeltas)
             {
-                // Skip deletions, they have no parameters
                 if (delta.Action == DeltaAction.Delete) continue;
 
                 foreach (var param in delta.Element.Parameters)
                 {
-                    // Check if this parameter stores an ElementId
-                    // Note: ValueType is a string like "ElementId" based on your ParameterBase class
-                    if (param.ValueType == "ElementId" && param.Value is int idValue)
+                    // 🔹 CHANGED: Check if Value is long instead of int
+                    if (param.ValueType == "ElementId" && param.Value is long idValue)
                     {
-                        // Filter out -1 (Invalid) and 0, and maybe small internal numbers
                         if (idValue > 0)
                         {
                             foundIds.Add(idValue);
+                        }
+                    }
+                    // Fallback just in case an older serialization structure fed it an int
+                    else if (param.ValueType == "ElementId" && param.Value is int oldIdValue)
+                    {
+                        if (oldIdValue > 0)
+                        {
+                            foundIds.Add((long)oldIdValue);
                         }
                     }
                 }
@@ -133,27 +135,24 @@ namespace ProjectPerseus.models
         }
 
         /// <summary>
-        /// Manually creates a list of ElementDeltas from a list of Integer IDs.
+        /// Manually creates a list of ElementDeltas from a list of Integer/Long IDs.
         /// </summary>
-        public static List<ElementDelta> CreateListFromIds(IEnumerable<int> ids, Document doc, string docGuid)
+        // 🔹 CHANGED: IEnumerable<int> to IEnumerable<long>
+        public static List<ElementDelta> CreateListFromIds(IEnumerable<long> ids, Document doc, string docGuid)
         {
             var deltas = new List<ElementDelta>();
 
-            foreach (int id in ids)
+            foreach (long id in ids) // 🔹 CHANGED
             {
                 try
                 {
-                    ElementId eid = new ElementId(id);
+                    // 🔹 CHANGED: Use the cross-version extension method instead of new ElementId()
+                    ElementId eid = RevitExtensions.CreateId(id);
                     Autodesk.Revit.DB.Element revitElem = doc.GetElement(eid);
 
                     if (revitElem != null)
                     {
-                        // We need to wrap the raw Revit Element in your Adapter
-                        // Assuming you have ArdbElementAdapter in ProjectPerseus.revit.adapters
                         var elementAdapter = new ArdbElementAdapter(revitElem);
-
-                        // We treat connected elements as "Update" actions (or Create). 
-                        // "Update" is safer as it usually implies "Upsert" in databases.
                         deltas.Add(new ElementDelta(DeltaAction.Update, elementAdapter, doc, docGuid));
                     }
                 }

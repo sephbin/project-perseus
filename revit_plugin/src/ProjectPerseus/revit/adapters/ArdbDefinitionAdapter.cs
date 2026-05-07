@@ -13,6 +13,18 @@ namespace ProjectPerseus.revit.adapters
         }
 
         public string Name => _definition.Name;
-        public string ParameterGroup => _definition.ParameterGroup.ToString();
+        public string ParameterGroup
+        {
+            get
+            {
+#if REVIT2024_OR_GREATER
+                // 2024+ uses the new ForgeTypeId system
+                return _definition.GetGroupTypeId().TypeId;
+#else
+            // 2023 and older use the classic enum
+            return _definition.ParameterGroup.ToString();
+#endif
+            }
+        }
     }
 }

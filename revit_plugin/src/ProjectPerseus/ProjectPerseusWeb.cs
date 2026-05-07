@@ -42,7 +42,7 @@ namespace ProjectPerseus
 
         }
 
-        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<int> deleted, Document doc)
+        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<long> deleted, Document doc)
         {
             //WriteLog("SubmitElementDeltas");
 

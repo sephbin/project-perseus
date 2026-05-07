@@ -27,7 +27,7 @@ namespace ProjectPerseus.models
         [JsonIgnore]
         public IArdbElement originalElement => _element;
 
-        [JsonProperty("element_id")] public int Id => _element.Id.IntegerValue;
+        [JsonProperty("element_id")] public long Id => _element.Id.Value;
 
         [JsonProperty("unique_id")] public string UniqueId => _element.UniqueId;
         [JsonProperty("name")] public string Name => _element.Name;
@@ -57,7 +57,7 @@ namespace ProjectPerseus.models
             try
             {
                 // 2. Convert the Adapter ID back to a native Revit ElementId
-                var eid = new ARDB.ElementId(_element.Id.IntegerValue);
+                var eid = new ARDB.ElementId(_element.Id.Value);
 
                 // 3. Get Tooltip info (this contains LastChangedBy)
                 var info = ARDB.WorksharingUtils.GetWorksharingTooltipInfo(_doc, eid);
@@ -121,7 +121,7 @@ namespace ProjectPerseus.models
             try
             {
                 // We need the raw native element to access .ToRoom / .FromRoom properties
-                var rawId = new ARDB.ElementId(_element.Id.IntegerValue);
+                var rawId = new ARDB.ElementId(_element.Id.Value);
                 var rawElem = _doc.GetElement(rawId);
 
                 if (rawElem is ARDB.FamilyInstance fi)
@@ -129,15 +129,14 @@ namespace ProjectPerseus.models
                     // --- Inject "From Room" ---
                     if (fi.FromRoom != null)
                     {
-                        var p = new Parameter<int>("From Room", fi.FromRoom.Id.IntegerValue, "ElementId");
-                        // We use indexer [] to overwrite if a parameter named "From Room" already exists (Revit properties > Params)
+                        var p = new Parameter<long>("From Room", fi.FromRoom.Id.Value, "ElementId");
                         paramDict["From Room"] = p;
                     }
 
                     // --- Inject "To Room" ---
                     if (fi.ToRoom != null)
                     {
-                        var p = new Parameter<int>("To Room", fi.ToRoom.Id.IntegerValue, "ElementId");
+                        var p = new Parameter<long>("To Room", fi.ToRoom.Id.Value, "ElementId");
                         paramDict["To Room"] = p;
                     }
 
@@ -145,7 +144,7 @@ namespace ProjectPerseus.models
                     // Note: fi.Room is phase-dependent. If null, we skip.
                     if (fi.Room != null)
                     {
-                        var p = new Parameter<int>("Room", fi.Room.Id.IntegerValue, "ElementId");
+                        var p = new Parameter<long>("Room", fi.Room.Id.Value, "ElementId");
                         if (!paramDict.ContainsKey("Room")) paramDict["Room"] = p;
                     }
                 }
@@ -202,7 +201,7 @@ namespace ProjectPerseus.models
                 case StorageType.Double:
                     return new Parameter<double>(name, parameter.AsDouble(), valueType);
                 case StorageType.ElementId:
-                    return new Parameter<int>(name, parameter.AsElementId().IntegerValue, valueType);
+                    return new Parameter<long>(name, parameter.AsElementId().Value, valueType);
                 case StorageType.Integer:
                     return new Parameter<int>(name, parameter.AsInteger(), valueType);
                 case StorageType.String:

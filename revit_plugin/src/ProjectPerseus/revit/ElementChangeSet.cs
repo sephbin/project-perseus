@@ -10,7 +10,7 @@ namespace ProjectPerseus.revit
         public Guid ToVersionGuid { get; set; }
         public IList<IArdbElement> CreatedElements { get; set; }
         public IList<IArdbElement> ModifiedElements { get; set; }
-        public IList<int> DeletedElementIds { get; set; }
+        public IList<long> DeletedElementIds { get; set; }
 
         public bool ContainsChanges()
         {

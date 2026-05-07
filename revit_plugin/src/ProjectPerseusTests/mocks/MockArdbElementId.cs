@@ -4,11 +4,13 @@ namespace ProjectPerseusTests.mocks
 {
     public class MockArdbElementId : IArdbElementId
     {
-        public int IntegerValue { get; }
-        
-        public MockArdbElementId(int integerValue)
+
+        public long Value { get; }
+
+
+        public MockArdbElementId(long id)
         {
-            IntegerValue = integerValue;
+            Value = id;
         }
     }
 }

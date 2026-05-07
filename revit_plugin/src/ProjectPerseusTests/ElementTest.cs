@@ -24,7 +24,7 @@ namespace ProjectPerseusTests
             var element = new Element(mockElement, null, null);
 
             // Assert
-            Assert.AreEqual(mockElement.Id.IntegerValue, element.Id, "Element IDs do not match");
+            Assert.AreEqual(mockElement.Id.Value, element.Id, "Element IDs do not match");
             Assert.AreEqual(mockElement.UniqueId, element.UniqueId, "Element UniqueIds do not match");
             Assert.AreEqual(mockElement.Name, element.Name, "Element Names do not match");
             Assert.AreEqual(mockParameters.Count, element.Parameters.Count, "Parameter counts do not match");
@@ -43,7 +43,7 @@ namespace ProjectPerseusTests
                             "Parameter values do not match");
                         break;
                     case StorageType.ElementId:
-                        Assert.AreEqual(mockParameters[i].AsElementId().IntegerValue,
+                        Assert.AreEqual(mockParameters[i].AsElementId().Value,
                             ((ParameterBase)element.Parameters[i]).Value, "Parameter values do not match");
                         break;
                     case StorageType.Integer:

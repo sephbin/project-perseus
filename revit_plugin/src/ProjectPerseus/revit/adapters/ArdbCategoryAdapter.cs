@@ -16,7 +16,7 @@ namespace ProjectPerseus.revit.adapters
         public IArdbElementId Id => new ArdbElementIdAdapter(_category.Id);
 
         // Categories don't have a GUID, so we make a stable one using the Integer ID
-        public string UniqueId => $"CATEGORY-{_category.Id.IntegerValue}";
+        public string UniqueId => $"CATEGORY-{_category.Id.GetIdValue()}";
 
         public string Name => _category.Name;
 

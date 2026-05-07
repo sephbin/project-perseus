@@ -5,13 +5,13 @@ namespace ProjectPerseus.revit.adapters
 {
     public class ArdbElementIdAdapter : IArdbElementId
     {
-        private readonly ARDB.ElementId _elementId;
+        private readonly Autodesk.Revit.DB.ElementId _id;
 
-        public ArdbElementIdAdapter(ARDB.ElementId elementId)
+        public ArdbElementIdAdapter(Autodesk.Revit.DB.ElementId id)
         {
-            _elementId = elementId;
+            _id = id;
         }
 
-        public int IntegerValue => _elementId.IntegerValue;
+        public long Value => _id.GetIdValue();
     }
 }
