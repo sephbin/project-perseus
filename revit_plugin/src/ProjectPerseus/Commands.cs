@@ -23,27 +23,32 @@ namespace ProjectPerseus.Commands
         {
             try
             {
-                // Create a RevitFacade from the active document
+                // 1. Create a RevitFacade from the active document
                 var doc = commandData.Application.ActiveUIDocument.Document;
+
+                if (doc == null)
+                {
+                    Utl.WriteLog("PerformFullUploadCommand failed: No active document.");
+                    return Result.Failed;
+                }
+
                 var revit = new RevitFacade(doc);
 
-                // Run your full sync logic (static or instance method)
-                var plugin = new Plugin();
-                var method = typeof(Plugin).GetMethod("PerformFullSync",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                method.Invoke(plugin, new object[] { revit });
+                // 2. Call the STATIC method directly. No more Reflection needed!
+                Plugin.PerformFullSync(revit);
 
                 TaskDialog.Show("Perseus", "Full upload complete.");
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
+                Utl.WriteLog($"Manual Full Sync failed: {ex.Message}");
                 message = ex.Message;
                 return Result.Failed;
             }
         }
     }
-    
+
     [Transaction(TransactionMode.Manual)]
     public class OpenSettingsCommand : IExternalCommand
     {
