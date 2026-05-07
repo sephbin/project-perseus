@@ -32,7 +32,8 @@ namespace ProjectPerseus
         private bool _queueReleasedEarly = false;
         private Document _currentSyncDoc = null;
         private string _currentSynCaption = "";
-
+        private System.Diagnostics.Stopwatch _startupStopwatch;
+        private string _batchFilePath;
 
         //This adds the "OnDocumentSynchronizedWithCentral" function to the "DocumentSynchronizedWithCentral" event stack
         public Result OnStartup(UIControlledApplication application)
@@ -53,6 +54,21 @@ namespace ProjectPerseus
             var syncHandler = new Commands.AutoSyncEvent();
             AutoSyncExternalEvent = Autodesk.Revit.UI.ExternalEvent.Create(syncHandler);
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
+
+            /// BATCH TRIGGER LOGIC ///
+            string roamingFolder = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            _batchFilePath = Path.Combine(roamingFolder, "ProjectPerseus", "batch_task.json");
+
+            if (File.Exists(_batchFilePath))
+            {
+                Utl.WriteLog("Batch task file detected. Hooking into Idling event with Stopwatch...");
+
+                // 2. Start the stopwatch and hook into Idling
+                _startupStopwatch = System.Diagnostics.Stopwatch.StartNew();
+                application.Idling += OnRevitIdlingDelay;
+            }
+            /// END BATCH TRIGGER LOGIC ///
+
             return Result.Succeeded;
         }
 
@@ -355,7 +371,7 @@ namespace ProjectPerseus
             //WriteLog("  //doOnSync");
         }
 
-        private void PerformFullSync(RevitFacade revit)
+        public static void PerformFullSync(RevitFacade revit)
         {
 
             //Create a Perseus Source and Project Set
@@ -368,7 +384,7 @@ namespace ProjectPerseus
                 var doc = revit.Document;
                 var app = doc.Application;
                 var thisdocGuid = ModelGuidStorage.GetOrCreate(doc);
-                var baseUrl = _config.BaseUrl;
+                var baseUrl = Config.Instance.BaseUrl;
 
                 // --- Collect metadata about Revit model ---
                 string fileName = doc.Title;
@@ -423,7 +439,7 @@ namespace ProjectPerseus
                 // --- Send to server ---
                 var metadataEndpoint = $"{baseUrl}/registersource/";
                 string jsonMetadata = JsonConvert.SerializeObject(metadata);
-                string response = Utl.WebHelper.Post(metadataEndpoint, _config.ApiToken, jsonMetadata);
+                string response = Utl.WebHelper.Post(metadataEndpoint, Config.Instance.ApiToken, jsonMetadata);
                 JObject json = JObject.Parse(response);
                 Utl.WriteLog($"Metadata upload response: {response}");
             
@@ -612,9 +628,9 @@ namespace ProjectPerseus
         {
             new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementDeltas(elements, deleted, doc);
         }
-        private void SubmitElementState(IList<ElementDelta> elements)
+        public static void SubmitElementState(IList<ElementDelta> elements)
         {
-            new ProjectPerseusWeb(_config.BaseUrl, _config.ApiToken).SubmitElementState(elements);
+            new ProjectPerseusWeb(Config.Instance.BaseUrl, Config.Instance.ApiToken).SubmitElementState(elements);
         }
         private bool UploadConfigIsValid()
         {
@@ -703,6 +719,46 @@ namespace ProjectPerseus
                 });
             }
             _currentSynCaption = caption;
+        }
+        private void OnRevitIdlingDelay(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        {
+            // Let Idling fire repeatedly until 3 real seconds have passed to let the UI settle
+            if (_startupStopwatch.ElapsedMilliseconds < 3000) return;
+
+            // Time is up. Unsubscribe immediately so this never runs again!
+            var uiApp = sender as UIApplication;
+            if (uiApp != null)
+            {
+                uiApp.Idling -= OnRevitIdlingDelay;
+            }
+            _startupStopwatch.Stop();
+
+            Utl.WriteLog($"[Plugin] Idling delay finished. Actual elapsed: {_startupStopwatch.ElapsedMilliseconds}ms. Evaluating Batch Task...");
+
+            try
+            {
+                string json = File.ReadAllText(_batchFilePath);
+                var instruction = JsonConvert.DeserializeObject<models.BatchInstruction>(json);
+
+                if (instruction != null && instruction.IsValid())
+                {
+                    Utl.WriteLog("[Plugin] Batch task is valid. Launching Batch Processor...");
+
+                    // 🔹 We are now safely inside a valid Revit API context! 🔹
+                    var processor = new queue.BatchProcessor(uiApp, instruction, _batchFilePath);
+                    processor.Start();
+                }
+                else
+                {
+                    Utl.WriteLog("[Plugin] Batch task is expired or invalid. Deleting file and ignoring.");
+                    File.Delete(_batchFilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"[Plugin] Critical failure in boot trigger: {ex.Message}");
+                if (File.Exists(_batchFilePath)) File.Delete(_batchFilePath);
+            }
         }
     }
 }

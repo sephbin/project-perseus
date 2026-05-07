@@ -115,6 +115,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="batch\BatchProcessor.cs" />
     <Compile Include="commands\AutoSyncEvent.cs" />
     <Compile Include="commands\QueuePoller.cs" />
     <Compile Include="Config.cs" />
@@ -126,6 +127,7 @@
     </Compile>
     <Compile Include="Log.cs" />
     <Compile Include="ModelGuidStorage.cs" />
+    <Compile Include="models\BatchInstruction.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="models\ElementDelta.cs" />
     <Compile Include="Commands.cs" />
@@ -149,6 +151,7 @@
     <Compile Include="revit\adapters\ArdbElementIdAdapter.cs" />
     <Compile Include="revit\adapters\ArdbParameterAdapter.cs" />
     <Compile Include="revit\adapters\ArdbParametereSetAdapter.cs" />
+    <Compile Include="revit\BatchFailureHandler.cs" />
     <Compile Include="revit\ElementChangeSet.cs" />
     <Compile Include="revit\ElementChangeSetGenerator.cs" />
     <Compile Include="revit\ElementExtractor.cs" />
@@ -161,6 +164,9 @@
     <Compile Include="revit\plugin\InitialiseProjectCommand.cs" />
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />
+    <Compile Include="ui\BatchProgressForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Utl.cs" />
     <Compile Include="ProjectPerseusWeb.cs" />
   </ItemGroup>
