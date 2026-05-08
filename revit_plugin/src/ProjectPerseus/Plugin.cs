@@ -545,82 +545,88 @@ namespace ProjectPerseus
 
         public static void PerformIncrementalSync(RevitFacade revit)
         {
-            
-            var _baseUrl = Config.Instance.BaseUrl;
-            var docId = ModelGuidStorage.GetOrCreate(revit.Document);
-            Utl.WriteLog(docId);
-            var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
-
-            string stateJson = Utl.WebHelper.Get(StateEndpoint,null,null);
-            JObject json = JObject.Parse(stateJson);
-
-            var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
-            Utl.WriteLog(lastSyncVersionGuid.ToString());
-            
-            
-            // Get Primary Changes (The actual diff from the last sync)
-            var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid) ;
-            
-            if (elementChangeSet.ContainsChanges())
+            try
             {
-                var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+                var _baseUrl = Config.Instance.BaseUrl;
+                var docId = ModelGuidStorage.GetOrCreate(revit.Document);
+                Utl.WriteLog(docId);
+                var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
-                // Create the Primary List
-                var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
-                var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
-                elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
+                string stateJson = Utl.WebHelper.Get(StateEndpoint, null, null);
+                JObject json = JObject.Parse(stateJson);
 
-                // Collect Connected Elements
-                try
+                var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
+                Utl.WriteLog(lastSyncVersionGuid.ToString());
+
+                // 🔹 1. Get Primary Changes. THIS is what throws the "baseVersionGUID" exception!
+                var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
+
+                if (elementChangeSet.ContainsChanges())
                 {
-                    // Check the boolean flag from the JSON response 
-                    bool collectConnected = false;
-                    if (json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null)
+                    var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
+
+                    // Create the Primary List
+                    var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
+                    var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
+                    elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
+
+                    // Collect Connected Elements
+                    try
                     {
-                        collectConnected = (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
-                    }
-
-                    if (collectConnected)
-                    {
-                        Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
-
-                        // 1. Harvest IDs from the Primary List
-                        HashSet<long> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
-
-                        // Remove IDs that are ALREADY in the Primary List (prevent duplicates/overwriting)
-                        // Map the current delta list to IDs to check against
-                        var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
-
-                        // Only keep IDs that we aren't already uploading
-                        referencedIds.ExceptWith(existingIds);
-
-                        Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
-
-                        if (referencedIds.Count > 0)
+                        // Check the boolean flag from the JSON response 
+                        bool collectConnected = false;
+                        if (json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null)
                         {
-                            // Fetch the actual Element objects for these IDs
-                            var connectedDeltas = ElementDelta.CreateListFromIds(referencedIds, revit.Document, docGuid);
+                            collectConnected = (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
+                        }
 
-                            // Add them to the main list
-                            elementDeltaList.AddRange(connectedDeltas);
+                        if (collectConnected)
+                        {
+                            Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+
+                            HashSet<long> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
+                            var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
+                            referencedIds.ExceptWith(existingIds);
+
+                            Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
+
+                            if (referencedIds.Count > 0)
+                            {
+                                var connectedDeltas = ElementDelta.CreateListFromIds(referencedIds, revit.Document, docGuid);
+                                elementDeltaList.AddRange(connectedDeltas);
+                            }
                         }
                     }
+                    catch (Exception ex)
+                    {
+                        Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                    }
+
+                    var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+
+                    Utl.WriteLog("About to run SubmitElementDeltas");
+                    SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
                 }
-                catch (Exception ex)
+                else
                 {
-                    Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                    Log.Info("No changes detected - skipping upload.");
+                    Utl.WriteLog("No changes detected - skipping upload.");
                 }
-
-                var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
-
-
-                Utl.WriteLog("About to run SubmitElementDeltas");
-                SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
             }
-            else 
+            // 🔹 2. The Fallback sits securely on the OUTER catch block
+            catch (Autodesk.Revit.Exceptions.ArgumentException ex) when (ex.Message.Contains("baseVersionGUID"))
             {
-                Log.Info("No changes detected - skipping upload.");
-                Utl.WriteLog("No changes detected - skipping upload.");
+                Utl.WriteLog("WARNING: Local incremental history is missing or broken (PacCache likely cleared).");
+                Utl.WriteLog("Automatically falling back to PerformFullSync...");
+
+                // 🔹 3. Fixed the variable name to 'revit'
+                PerformFullSync(revit);
+            }
+            catch (Exception ex)
+            {
+                // Catch any other actual errors for the entire incremental process
+                Utl.WriteLog($"PerformIncrementalSync critically failed: {ex.Message}\n{ex.StackTrace}");
+                throw;
             }
         }
 
