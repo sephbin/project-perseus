@@ -558,7 +558,6 @@ namespace ProjectPerseus
                 var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
                 Utl.WriteLog(lastSyncVersionGuid.ToString());
 
-                // 🔹 1. Get Primary Changes. THIS is what throws the "baseVersionGUID" exception!
                 var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
 
                 if (elementChangeSet.ContainsChanges())
