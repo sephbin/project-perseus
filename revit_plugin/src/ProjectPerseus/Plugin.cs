@@ -687,6 +687,24 @@ namespace ProjectPerseus
             BitmapImage settingsBtnImage = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/settings.png"));
             settingsBtn.LargeImage = settingsBtnImage;
 
+            // --- Reset GUID Button ---
+            PushButtonData resetBtnData = new PushButtonData(
+                "Button_ResetGuid",
+                "Reset Identity",
+                thisAssemblyPath,
+                "ProjectPerseus.Commands.ResetModelGuidCommand");
+
+            PushButton resetBtn = ribbonPanel.AddItem(resetBtnData) as PushButton;
+            resetBtn.ToolTip = "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.";
+
+            // Note: Add a "reset.png" to your resources folder if you want an icon for this!
+            try
+            {
+                BitmapImage resetBtnImage = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/settings.png"));
+                resetBtn.LargeImage = resetBtnImage;
+            }
+            catch { /* Fails silently if icon is missing */ }
+
         }
 
         private void OnProgressChanged(object sender, Autodesk.Revit.DB.Events.ProgressChangedEventArgs e)

@@ -51,7 +51,7 @@ namespace ProjectPerseus.models
 
         private string GetLastEditedBy()
         {
-
+            // 1. If the model isn't workshared, there is no history to get.
             if (!_doc.IsWorkshared) return null;
 
             try
@@ -59,19 +59,20 @@ namespace ProjectPerseus.models
                 var eid = new ARDB.ElementId(_element.Id.Value);
                 var rawElem = _doc.GetElement(eid);
 
-
-                if (rawElem == null || rawElem.WorksetId == ARDB.WorksetId.InvalidElementId)
+                // 2. Skip System Elements: If it doesn't have a valid Workset, it has no history.
+                if (rawElem == null || rawElem.WorksetId == ARDB.WorksetId.InvalidWorksetId)
                 {
                     return null;
                 }
 
-
-                if (!ARDB.WorksharingUtils.IsWorksetOpen(_doc, rawElem.WorksetId))
+                // 3. The Workset Trap: If the workset is closed, Revit cannot read the tooltip.
+                var workset = _doc.GetWorksetTable().GetWorkset(rawElem.WorksetId);
+                if (workset != null && !workset.IsOpen)
                 {
                     return null;
                 }
 
-
+                // 4. Fetch the true historical tooltip
                 var info = ARDB.WorksharingUtils.GetWorksharingTooltipInfo(_doc, eid);
 
                 if (!string.IsNullOrEmpty(info.LastChangedBy))
@@ -89,6 +90,7 @@ namespace ProjectPerseus.models
                 // Catch edge-case API exceptions without crashing the serialization
             }
 
+            // 5. If Revit genuinely has no history for this element, return null 
             return null;
         }
         private List<IParameter> GetParameters()

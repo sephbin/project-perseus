@@ -25,9 +25,8 @@ namespace ProjectPerseus.revit
 
                 // Retrieve current GUID (if present)
                 string storedGuid = entity.IsValid() ? entity.Get<string>(schema.GetField(FieldName)) : null;
-                
-                Utl.WriteLog($"[ModelGuidStorage] Stored GUID: {storedGuid}");
 
+                Utl.WriteLog($"[ModelGuidStorage] Stored GUID: {storedGuid}");
 
                 // If detached or invalid, regenerate
                 if (IsDetachedFromCentral(doc) || string.IsNullOrEmpty(storedGuid))
@@ -51,6 +50,44 @@ namespace ProjectPerseus.revit
             {
                 Utl.WriteLog($"Error in ModelGuidStorage.GetOrCreate: {ex.Message}");
                 return "ErrorModelGuid";
+            }
+        }
+
+        /// <summary>
+        /// Aggressively overwrites the existing Extensible Storage GUID with a brand new one.
+        /// Used specifically when a user manually clicks the "Reset Identity" button.
+        /// </summary>
+        public static string ForceNewInternalGuid(Document doc)
+        {
+            try
+            {
+                Schema schema = Schema.Lookup(SchemaGuid) ?? CreateSchema();
+                DataStorage storage = GetOrCreateStorage(doc, schema);
+                Entity entity = storage.GetEntity(schema);
+
+                // If the entity somehow isn't valid, instantiate a fresh one
+                if (!entity.IsValid())
+                {
+                    entity = new Entity(schema);
+                }
+
+                string newGuid = Guid.NewGuid().ToString();
+
+                using (Transaction tx = new Transaction(doc, "Perseus: Reset Model Identity"))
+                {
+                    tx.Start();
+                    entity.Set(schema.GetField(FieldName), newGuid);
+                    storage.SetEntity(entity);
+                    tx.Commit();
+                }
+
+                Utl.WriteLog($"[ModelGuidStorage] Forced new GUID assigned: {newGuid}");
+                return newGuid;
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"Error in ModelGuidStorage.ForceNewInternalGuid: {ex.Message}");
+                throw; // Throw this so the external command can catch it and show an error dialog
             }
         }
 
