@@ -44,7 +44,13 @@ namespace ProjectPerseus
 
         public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<long> deleted, Document doc)
         {
-            //WriteLog("SubmitElementDeltas");
+            // WriteLog("SubmitElementDeltas");
+            string token = ProjectPerseus.auth.AuthService.GetAuthTokenSafely();
+            if (string.IsNullOrEmpty(token))
+            {
+                Utl.WriteLog("Sync aborted: User failed authentication.");
+                return;
+            }
 
             var revit = new RevitFacade(doc);
             var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
@@ -68,12 +74,41 @@ namespace ProjectPerseus
                 elements = elementDeltas,
                 deletedElements = deleted
             };
-            
+
             var jsonString = Utl.SerializeToJson(payload, null);
-            WriteLog(jsonString);
-            string response = WebHelper.Post(ElementsEndpoint, _apiToken, jsonString);
-            WriteLog($"SubmitElementDeltas response: {response}");
-            //WriteLog("// SubmitElementDeltas");
+            Utl.WriteLog(jsonString);
+
+            // Execute the request using the HttpClient
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                // 1. Attach the Bearer Token
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+                // 2. Package the JSON string for HTTP
+                var content = new System.Net.Http.StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
+
+                try
+                {
+                    // 3. Send the POST request safely blocking the thread
+                    var responseMessage = client.PostAsync(ElementsEndpoint, content).GetAwaiter().GetResult();
+
+                    // 4. Read the response
+                    string response = responseMessage.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+                    if (responseMessage.IsSuccessStatusCode)
+                    {
+                        Utl.WriteLog($"SubmitElementDeltas success: {response}");
+                    }
+                    else
+                    {
+                        Utl.WriteLog($"SubmitElementDeltas failed ({responseMessage.StatusCode}): {response}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Utl.WriteLog($"SubmitElementDeltas HTTP error: {ex.Message}");
+                }
+            }
         }
 
         public void SubmitElementState(IList<models.ElementDelta> elementDeltas)

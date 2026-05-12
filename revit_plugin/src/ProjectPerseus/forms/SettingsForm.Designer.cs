@@ -30,8 +30,6 @@
         {
             this.syncUrltextBox = new System.Windows.Forms.TextBox();
             this.syncUrlLabel = new System.Windows.Forms.Label();
-            this.apiTokenLabel = new System.Windows.Forms.Label();
-            this.apiTokenTextBox = new System.Windows.Forms.TextBox();
             this.saveButton = new System.Windows.Forms.Button();
             this.cancelButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
@@ -51,22 +49,6 @@
             this.syncUrlLabel.Size = new System.Drawing.Size(59, 13);
             this.syncUrlLabel.TabIndex = 1;
             this.syncUrlLabel.Text = "Sync URL:";
-            // 
-            // apiTokenLabel
-            // 
-            this.apiTokenLabel.AutoSize = true;
-            this.apiTokenLabel.Location = new System.Drawing.Point(10, 44);
-            this.apiTokenLabel.Name = "apiTokenLabel";
-            this.apiTokenLabel.Size = new System.Drawing.Size(61, 13);
-            this.apiTokenLabel.TabIndex = 3;
-            this.apiTokenLabel.Text = "API Token:";
-            // 
-            // apiTokenTextBox
-            // 
-            this.apiTokenTextBox.Location = new System.Drawing.Point(77, 41);
-            this.apiTokenTextBox.Name = "apiTokenTextBox";
-            this.apiTokenTextBox.Size = new System.Drawing.Size(464, 20);
-            this.apiTokenTextBox.TabIndex = 2;
             // 
             // saveButton
             // 
@@ -99,8 +81,6 @@
             this.ControlBox = false;
             this.Controls.Add(this.cancelButton);
             this.Controls.Add(this.saveButton);
-            this.Controls.Add(this.apiTokenLabel);
-            this.Controls.Add(this.apiTokenTextBox);
             this.Controls.Add(this.syncUrlLabel);
             this.Controls.Add(this.syncUrltextBox);
             this.Name = "SettingsForm";
@@ -118,8 +98,6 @@
 
         private System.Windows.Forms.TextBox syncUrltextBox;
         private System.Windows.Forms.Label syncUrlLabel;
-        private System.Windows.Forms.Label apiTokenLabel;
-        private System.Windows.Forms.TextBox apiTokenTextBox;
         private System.Windows.Forms.Button saveButton;
         private System.Windows.Forms.Button cancelButton;
     }
