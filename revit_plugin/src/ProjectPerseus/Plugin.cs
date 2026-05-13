@@ -200,9 +200,9 @@ namespace ProjectPerseus
                                 // Start listening for our turn
                                 if (_autoSyncPoller == null)
                                 {
-                                    _autoSyncPoller = new queue.QueuePoller(AutoSyncExternalEvent, docGuid);
+                                    _autoSyncPoller = new queue.QueuePoller(AutoSyncExternalEvent);
                                 }
-                                _autoSyncPoller.StartPolling();
+                                _autoSyncPoller.StartPolling(ModelGuidStorage.GetOrCreate(_currentSyncDoc));
                                 return;
                         }
                     }
