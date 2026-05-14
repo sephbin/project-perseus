@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Project Perseus</Name>
+    
+    <Assembly>C:\Program Files\Cox Architecture\Project Perseus\2026\ProjectPerseus.dll</Assembly>
+    
+    <AddInId>YOUR-PLUGIN-GUID-HERE</AddInId>
+    
+    <FullClassName>ProjectPerseus.Plugin</FullClassName>
+    
+    <VendorId>COX</VendorId>
+    <VendorDescription>Cox Architecture</VendorDescription>
+  </AddIn>
+</RevitAddIns>
