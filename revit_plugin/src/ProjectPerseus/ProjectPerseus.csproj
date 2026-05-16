@@ -314,6 +314,12 @@
   <ItemGroup>
     <Resource Include="resources\settings.png" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="resources\reset.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="resources\reset_dark.png" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="..\packages\Sentry.3.41.3\build\Sentry.targets" Condition="Exists('..\packages\Sentry.3.41.3\build\Sentry.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

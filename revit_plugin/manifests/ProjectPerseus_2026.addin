@@ -3,9 +3,9 @@
   <AddIn Type="Application">
     <Name>Project Perseus</Name>
     
-    <Assembly>C:\Program Files\Cox Architecture\Project Perseus\2026\ProjectPerseus.dll</Assembly>
+    <Assembly>C:\Program Files\Project Perseus\2026\ProjectPerseus.dll</Assembly>
     
-    <AddInId>YOUR-PLUGIN-GUID-HERE</AddInId>
+    <AddInId>59BAAEBB-EB50-4DB5-B8A0-A70537B5ACB6</AddInId>
     
     <FullClassName>ProjectPerseus.Plugin</FullClassName>
     

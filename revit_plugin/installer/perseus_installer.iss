@@ -2,14 +2,15 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 [Setup]
+ArchitecturesInstallIn64BitMode=x64
 ; --- 1. App Information ---
 AppName=Project Perseus
-AppVersion=1.1.0
+AppVersion=1.1.4
 AppId={{10908502-7BB8-473D-B858-B31591187295}}
 DefaultGroupName=Andrew Butler
 
 ; --- 2. Installation Paths ---
-DefaultDirName={autopf}\Cox Architecture\Project Perseus
+DefaultDirName={autopf}\Project Perseus
 
 ; --- 3. Installer Output ---
 OutputBaseFilename=Install_ProjectPerseus
