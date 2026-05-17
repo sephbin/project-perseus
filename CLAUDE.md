@@ -67,3 +67,5 @@ Since modifying elements directly causes Revit worksharing conflicts, Perseus ta
     Ribbon buttons adaptively switch between Light and Dark mode using WPF pack:// URIs pointing to Resource build-action .png files.
 
     User settings (Server URL) are saved locally to config.json in the user's AppData folder.
+
+    Icon files in ui/icons/ use .png extensions but are actually ICO format containers with multiple embedded resolutions (16x16, 32x32). Do not replace them with true PNG files.

@@ -8,6 +8,7 @@ using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
+using ProjectPerseus.ui;
 using System.IO;
 using static System.Net.Mime.MediaTypeNames;
 using System.Reflection;
@@ -41,6 +42,7 @@ namespace ProjectPerseus
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             AddRibbonPanel(application);
+            ThemeIconManager.Initialize(application);
             try
             {
                 string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -647,6 +649,7 @@ namespace ProjectPerseus
         public Result OnShutdown(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
+            ThemeIconManager.Shutdown(application);
             return Result.Succeeded;
         }
         
@@ -672,10 +675,8 @@ namespace ProjectPerseus
 
             PushButton pb1 = ribbonPanel.AddItem(b1Data) as PushButton;
             pb1.ToolTip = "Upload all elements to external database";
-            BitmapImage pb1Image = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/perseus.png"));
-            pb1.LargeImage = pb1Image;
+            ThemeIconManager.Register(pb1, "perseus");
 
-            
             PushButtonData settingsBtnData = new PushButtonData(
             "Button_Settings",
             "Settings",
@@ -684,10 +685,8 @@ namespace ProjectPerseus
 
             PushButton settingsBtn = ribbonPanel.AddItem(settingsBtnData) as PushButton;
             settingsBtn.ToolTip = "Change Perseus Settings like: API Token and Upload URL";
-            BitmapImage settingsBtnImage = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/settings.png"));
-            settingsBtn.LargeImage = settingsBtnImage;
+            ThemeIconManager.Register(settingsBtn, "settings");
 
-            // --- Reset GUID Button ---
             PushButtonData resetBtnData = new PushButtonData(
                 "Button_ResetGuid",
                 "Reset Identity",
@@ -696,15 +695,7 @@ namespace ProjectPerseus
 
             PushButton resetBtn = ribbonPanel.AddItem(resetBtnData) as PushButton;
             resetBtn.ToolTip = "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.";
-
-            // Note: Add a "reset.png" to your resources folder if you want an icon for this!
-            try
-            {
-                BitmapImage resetBtnImage = new BitmapImage(new Uri("pack://application:,,,/ProjectPerseus;component/resources/settings.png"));
-                resetBtn.LargeImage = resetBtnImage;
-            }
-            catch { /* Fails silently if icon is missing */ }
-
+            ThemeIconManager.Register(resetBtn, "reset");
         }
 
         private void OnProgressChanged(object sender, Autodesk.Revit.DB.Events.ProgressChangedEventArgs e)

@@ -9,7 +9,7 @@
     
     <FullClassName>ProjectPerseus.Plugin</FullClassName>
     
-    <VendorId>COX</VendorId>
-    <VendorDescription>Cox Architecture</VendorDescription>
+    <VendorId>Andrew Butler</VendorId>
+    <VendorDescription>Andrew Butler</VendorDescription>
   </AddIn>
 </RevitAddIns>
