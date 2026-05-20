@@ -15,7 +15,7 @@ for %%D in (%targetDirs%) do (
 )
 
 
-set "sourceDir=\\sydsrv01\projects\Computational Design Group\93_Development\testing\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug"
+set "sourceDir=\\sydsrv01\projects\Computational Design Group\93_Development\testing\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026"
 set "installDir=%appdata%\ProjectPerseus"
 
 :: Create target directory if it doesn't exist
