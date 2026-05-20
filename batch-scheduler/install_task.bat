@@ -94,3 +94,4 @@ if %ERRORLEVEL% EQU 0 (
 
 :end
 endlocal
+pause
