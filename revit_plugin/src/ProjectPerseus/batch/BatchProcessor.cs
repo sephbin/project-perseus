@@ -182,8 +182,18 @@ namespace ProjectPerseus.queue
 
             if (killRevit)
             {
-                Utl.WriteLog("Batch complete. Terminating Revit process.");
-                System.Diagnostics.Process.GetCurrentProcess().Kill();
+                Utl.WriteLog("Batch complete. Closing Revit.");
+
+                // Safety net: if Environment.Exit hangs on a finalizer, hard-kill after 10 s.
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    System.Threading.Thread.Sleep(10000);
+                    System.Diagnostics.Process.GetCurrentProcess().Kill();
+                });
+
+                // Clean CLR shutdown — exits with code 0 so Task Scheduler marks the
+                // run as succeeded rather than treating it as a crash.
+                Environment.Exit(0);
             }
         }
     }
