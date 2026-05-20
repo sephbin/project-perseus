@@ -28,6 +28,7 @@ namespace ProjectPerseus
     {   
         private readonly Config _config = Config.Instance;
         public static Autodesk.Revit.UI.ExternalEvent AutoSyncExternalEvent { get; private set; }
+        public static bool IsAutoSyncing { get; set; } = false;
         private queue.QueuePoller _autoSyncPoller;
         private bool _isSyncing = false;
         private bool _queueReleasedEarly = false;
@@ -43,16 +44,10 @@ namespace ProjectPerseus
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             AddRibbonPanel(application);
             ThemeIconManager.Initialize(application);
-            try
-            {
-                string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string appSpecificFolderPath = Path.Combine(roamingFolderPath, "ProjectPerseus");
-                string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
-                File.WriteAllText(filePath, String.Empty);
-            }
-            catch {
-                Console.WriteLine($"Error clearing log file");
-            }
+            string revitVersion = application.ControlledApplication.VersionNumber;
+            string pluginVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
+            Utl.InitSession(revitVersion, pluginVersion);
+
             var syncHandler = new Commands.AutoSyncEvent();
             AutoSyncExternalEvent = Autodesk.Revit.UI.ExternalEvent.Create(syncHandler);
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
@@ -91,7 +86,11 @@ namespace ProjectPerseus
                 var webQueueUrl = $"{baseUrl}/../syncboat/guid/{docGuid}";
 
                 // Launch the URL in the user's default web browser
-                System.Diagnostics.Process.Start(webQueueUrl);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = webQueueUrl,
+                    UseShellExecute = true
+                });
                 Utl.WriteLog($"Opened web queue URL: {webQueueUrl}");
             }
             catch (Exception ex)
@@ -107,7 +106,14 @@ namespace ProjectPerseus
                 _queueReleasedEarly = false;
                 _currentSyncDoc = e.Document;
 
-                Utl.WriteLog("Sync initiated – contacting web server...");
+                // Skip queue check when Perseus itself triggered the sync via AutoSyncEvent
+                if (IsAutoSyncing)
+                {
+                    Utl.WriteLog("Auto-Sync in progress – skipping queue check.");
+                    return;
+                }
+
+                Utl.WriteLog($"Sync initiated for: {e.Document?.Title ?? "unknown document"}");
 
                 if (UploadConfigIsValid() == false)
                 {
@@ -147,14 +153,14 @@ namespace ProjectPerseus
                     // Check if the current user is the first person in the queue
                     if (usersInQueue[0].Equals(windowsUsername, StringComparison.OrdinalIgnoreCase))
                     {
-                        // The current user is first in line. We allow them to proceed without the dialog.
-                        Utl.WriteLog($"Current user ({windowsUsername}) is first in the queue. Proceeding without alert.");
+                        Utl.WriteLog($"Queue position: 1 of {queueCount}. Proceeding without alert.");
                         shouldShowDialog = false;
                     }
                     else
                     {
-                        // The queue exists, but the current user is not first. Show the alert.
-                        Utl.WriteLog($"Queue exists, current user ({windowsUsername}) is not first. Showing alert.");
+                        int position = usersInQueue.FindIndex(u => u.Equals(windowsUsername, StringComparison.OrdinalIgnoreCase)) + 1;
+                        string posStr = position > 0 ? $"{position} of {queueCount}" : $"not in queue (total: {queueCount})";
+                        Utl.WriteLog($"Queue position: {posStr}. Showing alert.", LogLevel.Warn);
                     }
                 }
                 else
@@ -233,7 +239,7 @@ namespace ProjectPerseus
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Error during preliminary sync: {ex.Message}");
+                Utl.WriteLog($"Error during preliminary sync: {ex}", LogLevel.Error);
             }
         }
         private void doOnPostSync(Document doc)
@@ -280,7 +286,7 @@ namespace ProjectPerseus
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Error during post sync: {ex.Message}");
+                    Utl.WriteLog($"Error during post sync: {ex}", LogLevel.Error);
                 }
             
         }
@@ -302,6 +308,7 @@ namespace ProjectPerseus
             {
                 // If it failed or was cancelled, we log it but DO NOT send data to Django
                 Utl.WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
+                _isSyncing = false;
             }
             _currentSyncDoc = null;
         }

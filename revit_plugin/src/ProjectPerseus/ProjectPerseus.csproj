@@ -333,4 +333,17 @@
     </PropertyGroup>
     <Error Condition="!Exists('..\packages\Sentry.3.41.3\build\Sentry.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Sentry.3.41.3\build\Sentry.targets'))" />
   </Target>
+
+  <PropertyGroup>
+    <InnoSetupCompiler Condition="'$(InnoSetupCompiler)' == ''">C:\Program Files (x86)\Inno Setup 6\ISCC.exe</InnoSetupCompiler>
+  </PropertyGroup>
+
+  <Target Name="BumpVersion" AfterTargets="Build">
+    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot;" />
+  </Target>
+
+  <Target Name="BuildInstaller" AfterTargets="BumpVersion">
+    <Exec Command="&quot;$(InnoSetupCompiler)&quot; &quot;$(ProjectDir)..\..\installer\perseus_installer.iss&quot;"
+          ContinueOnError="WarnAndContinue" />
+  </Target>
 </Project>

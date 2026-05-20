@@ -8,28 +8,81 @@ using Sentry;
 
 namespace ProjectPerseus
 {
-    
+    public enum LogLevel { Info, Warn, Error }
+
     public class Utl
     {
-        public static void WriteLog(string content)
+        private static string _sessionLogPath;
+        private static readonly object _logLock = new object();
+
+        public static void InitSession(string revitVersion, string pluginVersion)
         {
-            string roamingFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string appSpecificFolderPath = Path.Combine(roamingFolderPath, "ProjectPerseus");
-            Directory.CreateDirectory(appSpecificFolderPath); // Creates the directory if it doesn't exist
-            string filePath = Path.Combine(appSpecificFolderPath, "medusa.log");
+            string logsFolder = GetLogsFolder();
+            PurgeLogs(logsFolder, daysToKeep: 30);
+
+            string username = Environment.UserName;
+            _sessionLogPath = Path.Combine(logsFolder, $"{DateTime.Now:yyyyMMdd-HHmmss}-{username}-medusa.log");
+
+            string header =
+                "=== Perseus Session Log ===" + Environment.NewLine +
+                $"Start   : {DateTime.Now:yyyy-MM-dd HH:mm:ss}" + Environment.NewLine +
+                $"User    : {username}" + Environment.NewLine +
+                $"Machine : {Environment.MachineName}" + Environment.NewLine +
+                $"Revit   : {revitVersion}" + Environment.NewLine +
+                $"Plugin  : {pluginVersion}" + Environment.NewLine +
+                "===========================" + Environment.NewLine +
+                Environment.NewLine;
+
+            lock (_logLock)
+            {
+                File.WriteAllText(_sessionLogPath, header);
+            }
+        }
+
+        private static string GetLogsFolder()
+        {
+            string folder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "ProjectPerseus", "logs");
+            Directory.CreateDirectory(folder);
+            return folder;
+        }
+
+        private static void PurgeLogs(string folder, int daysToKeep)
+        {
             try
             {
-                // Create timestamp string (e.g., "2023-10-27 14:30:05")
-                string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-
-                // Format: Timestamp [TAB] Content [NewLine]
-                string logEntry = $"{timestamp}\t{content}{Environment.NewLine}";
-
-                File.AppendAllText(filePath, logEntry);
+                DateTime cutoff = DateTime.Now.AddDays(-daysToKeep);
+                foreach (string file in Directory.GetFiles(folder, "*-medusa.log"))
+                {
+                    if (File.GetLastWriteTime(file) < cutoff)
+                        File.Delete(file);
+                }
             }
-            catch (Exception ex)
+            catch { }
+        }
+
+        public static void WriteLog(string content, LogLevel level = LogLevel.Info)
+        {
+            string levelTag = level == LogLevel.Error ? "[ERROR]" :
+                              level == LogLevel.Warn  ? "[WARN] " : "[INFO] ";
+            string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            string logEntry = $"{timestamp}\t{levelTag}\t{content}{Environment.NewLine}";
+
+            string path = _sessionLogPath ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "ProjectPerseus", "medusa.log");
+
+            lock (_logLock)
             {
-                Console.WriteLine($"Error saving file: {ex.Message}");
+                try
+                {
+                    File.AppendAllText(path, logEntry);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error saving log: {ex.Message}");
+                }
             }
         }
 

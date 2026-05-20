@@ -13,12 +13,17 @@ namespace ProjectPerseus
         {
             SentrySdk.CaptureMessage(message, ToSentryLevel(type));
             LogConsoleMessage($"[{type.ToString()}] {message}");
+
+            LogLevel level = type == MessageType.Error   ? LogLevel.Error :
+                             type == MessageType.Warning ? LogLevel.Warn  : LogLevel.Info;
+            Utl.WriteLog(message, level);
         }
-        
+
         private static void LogException(System.Exception e)
         {
             SentrySdk.CaptureException(e);
             LogConsoleMessage($"[Exception] {e.Message}");
+            Utl.WriteLog(e.ToString(), LogLevel.Error);
         }
 
         private static SentryLevel ToSentryLevel(MessageType type)

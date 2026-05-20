@@ -49,8 +49,16 @@ namespace ProjectPerseus.Commands
                 var relinquishOpts = new RelinquishOptions(true);
                 syncOpts.SetRelinquishOptions(relinquishOpts);
 
-                // FIRE THE SYNC
-                doc.SynchronizeWithCentral(transOpts, syncOpts);
+                // FIRE THE SYNC — flag tells doOnPriorToSync to skip the queue check re-entry
+                ProjectPerseus.Plugin.IsAutoSyncing = true;
+                try
+                {
+                    doc.SynchronizeWithCentral(transOpts, syncOpts);
+                }
+                finally
+                {
+                    ProjectPerseus.Plugin.IsAutoSyncing = false;
+                }
 
                 Utl.WriteLog("Auto-Sync command dispatched successfully.");
             }
