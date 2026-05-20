@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Autodesk.Revit.DB;
@@ -172,6 +173,12 @@ namespace ProjectPerseus.queue
             e.OverrideResult((int)DialogResult.Cancel);
         }
 
+        // Terminates the current process with a specific exit code, bypassing CLR shutdown
+        // hooks entirely. This avoids plugin unload dialogs (e.g. Rhino.Inside) that would
+        // block Environment.Exit() or a normal Revit close.
+        [DllImport("kernel32.dll")] private static extern bool TerminateProcess(IntPtr hProcess, uint exitCode);
+        [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+
         private void CleanupAndExit(bool killRevit)
         {
             try
@@ -182,18 +189,12 @@ namespace ProjectPerseus.queue
 
             if (killRevit)
             {
-                Utl.WriteLog("Batch complete. Closing Revit.");
+                Utl.WriteLog("Batch complete. Terminating Revit process.");
 
-                // Safety net: if Environment.Exit hangs on a finalizer, hard-kill after 10 s.
-                System.Threading.Tasks.Task.Run(() =>
-                {
-                    System.Threading.Thread.Sleep(10000);
-                    System.Diagnostics.Process.GetCurrentProcess().Kill();
-                });
-
-                // Clean CLR shutdown — exits with code 0 so Task Scheduler marks the
-                // run as succeeded rather than treating it as a crash.
-                Environment.Exit(0);
+                // TerminateProcess with exit code 0: identical to Process.Kill() but the
+                // process exits with code 0, so Task Scheduler marks the run as succeeded
+                // rather than crashed. No CLR shutdown or plugin unload hooks fire.
+                TerminateProcess(GetCurrentProcess(), 0u);
             }
         }
     }
