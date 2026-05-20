@@ -3,69 +3,99 @@ setlocal EnableDelayedExpansion
 
 :: ==============================================================
 :: install_task.bat  -  Perseus Task Scheduler Installer
-:: Registers a daily Windows Scheduled Task using schtasks.exe.
-:: Run this ONCE on the target machine as the user who runs Revit.
-:: Do NOT run as Administrator — Revit requires an interactive session.
+:: Uses schtasks /xml to avoid quoting and line-continuation bugs.
+:: Run this ONCE as the user who will run Revit (NOT as Administrator).
 ::
 :: Usage:
-::   install_task.bat            (installs/updates the task)
-::   install_task.bat remove     (removes the task)
+::   install_task.bat            (install/update)
+::   install_task.bat remove     (remove the task)
 :: ==============================================================
 
 :: --------------------------------------------------------------
-:: CONFIGURATION  -  edit these three lines
+:: CONFIGURATION  -  edit these lines
 :: --------------------------------------------------------------
 
-:: Choose your launcher: "bat" or "python"
+:: Choose launcher: "bat" or "python"
 set LAUNCHER_TYPE=bat
 
-:: Time the task fires each day (24-hour HH:MM)
+:: Time to run each day (24-hour HH:MM)
 set TASK_TIME=22:00
 
-:: Full path to your launcher script (defaults to same folder as this file)
-set SCRIPT_DIR=%~dp0
-
-:: ==============================================================
+:: --------------------------------------------------------------
 
 set TASK_NAME=Perseus Batch Sync
+set SCRIPT_DIR=%~dp0
 
-:: --- Remove mode ---
 if /i "%~1"=="remove" goto :remove
 
-:: --- Derive launcher command ---
+:: --- Pick the launcher script and command ---
 if /i "%LAUNCHER_TYPE%"=="python" (
     set LAUNCHER_SCRIPT=%SCRIPT_DIR%launch_batch.py
-    set TASK_CMD=python.exe "%LAUNCHER_SCRIPT%"
+    set EXEC_CMD=python.exe
+    set EXEC_ARGS="%SCRIPT_DIR%launch_batch.py"
 ) else (
     set LAUNCHER_SCRIPT=%SCRIPT_DIR%launch_batch.bat
-    set TASK_CMD=cmd.exe /c "%LAUNCHER_SCRIPT%"
+    set EXEC_CMD=cmd.exe
+    set EXEC_ARGS=/c "%SCRIPT_DIR%launch_batch.bat"
 )
 
-:: --- Validate script exists ---
 if not exist "%LAUNCHER_SCRIPT%" (
-    echo ERROR: Launcher not found at:
+    echo ERROR: Launcher not found:
     echo   %LAUNCHER_SCRIPT%
-    echo Check LAUNCHER_TYPE and SCRIPT_DIR at the top of this file.
-    exit /b 1
+    echo Check LAUNCHER_TYPE at the top of this file.
+    goto :end
 )
 
-:: --- Remove any existing task silently ---
+:: --- Write a Task Scheduler XML to a temp file ---
+:: This avoids all schtasks command-line quoting issues.
+:: LogonType=InteractiveToken means the task only runs when this
+:: user is logged on, which is required for Revit to show its UI.
+set XML=%TEMP%\perseus_task.xml
+
+(
+echo ^<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"^>
+echo   ^<RegistrationInfo^>
+echo     ^<Description^>Perseus automated batch sync^</Description^>
+echo   ^</RegistrationInfo^>
+echo   ^<Triggers^>
+echo     ^<CalendarTrigger^>
+echo       ^<StartBoundary^>2000-01-01T%TASK_TIME%:00^</StartBoundary^>
+echo       ^<Enabled^>true^</Enabled^>
+echo       ^<ScheduleByDay^>
+echo         ^<DaysInterval^>1^</DaysInterval^>
+echo       ^</ScheduleByDay^>
+echo     ^</CalendarTrigger^>
+echo   ^</Triggers^>
+echo   ^<Principals^>
+echo     ^<Principal id="Author"^>
+echo       ^<LogonType^>InteractiveToken^</LogonType^>
+echo       ^<RunLevel^>LeastPrivilege^</RunLevel^>
+echo     ^</Principal^>
+echo   ^</Principals^>
+echo   ^<Settings^>
+echo     ^<MultipleInstancesPolicy^>IgnoreNew^</MultipleInstancesPolicy^>
+echo     ^<ExecutionTimeLimit^>PT8H^</ExecutionTimeLimit^>
+echo     ^<StartWhenAvailable^>true^</StartWhenAvailable^>
+echo     ^<AllowStartIfOnBatteries^>true^</AllowStartIfOnBatteries^>
+echo     ^<DontStopIfGoingOnBatteries^>true^</DontStopIfGoingOnBatteries^>
+echo   ^</Settings^>
+echo   ^<Actions Context="Author"^>
+echo     ^<Exec^>
+echo       ^<Command^>%EXEC_CMD%^</Command^>
+echo       ^<Arguments^>%EXEC_ARGS%^</Arguments^>
+echo       ^<WorkingDirectory^>%SCRIPT_DIR%^</WorkingDirectory^>
+echo     ^</Exec^>
+echo   ^</Actions^>
+echo ^</Task^>
+) > "%XML%"
+
+:: --- Remove old task then import ---
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
+schtasks /create /tn "%TASK_NAME%" /xml "%XML%" /f
+set RESULT=%ERRORLEVEL%
+del "%XML%" >nul 2>&1
 
-:: --- Register the task ---
-:: /it  = interactive only (runs only when this user is logged on — required for Revit)
-:: /rl  = run level LIMITED (non-elevated, required for Revit UI)
-:: /f   = force overwrite without confirmation
-schtasks /create ^
-    /tn "%TASK_NAME%" ^
-    /tr "%TASK_CMD%" ^
-    /sc DAILY ^
-    /st %TASK_TIME% ^
-    /it ^
-    /rl LIMITED ^
-    /f
-
-if %ERRORLEVEL% EQU 0 (
+if %RESULT% EQU 0 (
     echo.
     echo Task "%TASK_NAME%" registered successfully.
     echo   Launcher : %LAUNCHER_TYPE%
@@ -79,8 +109,8 @@ if %ERRORLEVEL% EQU 0 (
     echo   install_task.bat remove
 ) else (
     echo.
-    echo ERROR: schtasks failed with code %ERRORLEVEL%.
-    echo Make sure you are NOT running this as Administrator.
+    echo ERROR: schtasks failed with code %RESULT%.
+    echo Make sure you are NOT running as Administrator.
 )
 goto :end
 
@@ -89,7 +119,7 @@ schtasks /delete /tn "%TASK_NAME%" /f
 if %ERRORLEVEL% EQU 0 (
     echo Task "%TASK_NAME%" removed.
 ) else (
-    echo Task "%TASK_NAME%" was not found or could not be removed.
+    echo Task "%TASK_NAME%" was not found.
 )
 
 :end
