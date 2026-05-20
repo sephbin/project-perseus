@@ -74,10 +74,8 @@ echo     ^</Principal^>
 echo   ^</Principals^>
 echo   ^<Settings^>
 echo     ^<MultipleInstancesPolicy^>IgnoreNew^</MultipleInstancesPolicy^>
-echo     ^<ExecutionTimeLimit^>PT8H^</ExecutionTimeLimit^>
 echo     ^<StartWhenAvailable^>true^</StartWhenAvailable^>
-echo     ^<AllowStartIfOnBatteries^>true^</AllowStartIfOnBatteries^>
-echo     ^<DontStopIfGoingOnBatteries^>true^</DontStopIfGoingOnBatteries^>
+echo     ^<ExecutionTimeLimit^>PT8H^</ExecutionTimeLimit^>
 echo   ^</Settings^>
 echo   ^<Actions Context="Author"^>
 echo     ^<Exec^>
