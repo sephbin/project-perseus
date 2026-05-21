@@ -9,6 +9,7 @@ using Autodesk.Revit.UI;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.ui;
+using ProjectPerseus.forms;
 using System.IO;
 using static System.Net.Mime.MediaTypeNames;
 using System.Reflection;
@@ -32,6 +33,7 @@ namespace ProjectPerseus
         private queue.QueuePoller _autoSyncPoller;
         private bool _isSyncing = false;
         private bool _queueReleasedEarly = false;
+        private QueueWebForm _queueWebForm;
         private Document _currentSyncDoc = null;
         private string _currentSynCaption = "";
         private System.Diagnostics.Stopwatch _startupStopwatch;
@@ -79,23 +81,18 @@ namespace ProjectPerseus
         {
             try
             {
-                // Use the base URL from your config, ensuring no trailing slash issues
                 var baseUrl = _config.BaseUrl.TrimEnd('/');
+                var webQueueUrl = $"{baseUrl}/../syncboat/app/{docGuid}/";
 
-                // Construct the full URL for the web queue view
-                var webQueueUrl = $"{baseUrl}/../syncboat/guid/{docGuid}";
+                _queueWebForm?.Close();
+                _queueWebForm = new QueueWebForm(webQueueUrl);
+                _queueWebForm.Show();
 
-                // Launch the URL in the user's default web browser
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = webQueueUrl,
-                    UseShellExecute = true
-                });
-                Utl.WriteLog($"Opened web queue URL: {webQueueUrl}");
+                Utl.WriteLog($"Opened web queue dialog: {webQueueUrl}");
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to open web queue URL: {ex.Message}");
+                Utl.WriteLog($"Failed to open web queue dialog: {ex.Message}");
             }
         }
         private void doOnPriorToSync(DocumentSynchronizingWithCentralEventArgs e)
@@ -657,6 +654,7 @@ namespace ProjectPerseus
         {
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             ThemeIconManager.Shutdown(application);
+            _queueWebForm?.Close();
             return Result.Succeeded;
         }
         

@@ -5,7 +5,7 @@
 ArchitecturesInstallIn64BitMode=x64
 ; --- 1. App Information ---
 AppName=Project Perseus
-AppVersion=1.1.11
+AppVersion=1.1.19
 AppId={{10908502-7BB8-473D-B858-B31591187295}}
 DefaultGroupName=Andrew Butler
 
@@ -31,6 +31,9 @@ RestartApplications=no
 ; --- REVIT 2024 ---
 ; 1. The DLL payload
 ; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2024\ProjectPerseus.dll"; DestDir: "{app}\2024"; Flags: ignoreversion
+; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2024\WebView2Loader.dll"; DestDir: "{app}\2024"; Flags: ignoreversion
+; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2024\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2024"; Flags: ignoreversion
+; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2024\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2024"; Flags: ignoreversion
 
 ; 2. The Manifest pointer
 ; {commonappdata} automatically resolves to C:\ProgramData
@@ -39,11 +42,17 @@ RestartApplications=no
 
 ; --- REVIT 2025 ---
 ; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2025\ProjectPerseus.dll"; DestDir: "{app}\2025"; Flags: ignoreversion
+; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2025\WebView2Loader.dll"; DestDir: "{app}\2025"; Flags: ignoreversion
+; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2025\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2025"; Flags: ignoreversion
+; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2025\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2025"; Flags: ignoreversion
 ; Source: "E:\mydev\project-perseus\revit_plugin\manifests\ProjectPerseus_2025.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2025"; Flags: ignoreversion
 
 
 ; --- REVIT 2026 ---
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\ProjectPerseus.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\WebView2Loader.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
 Source: "E:\mydev\project-perseus\revit_plugin\manifests\ProjectPerseus_2026.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2026"; Flags: ignoreversion
 
 [Code]
