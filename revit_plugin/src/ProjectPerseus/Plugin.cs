@@ -86,7 +86,7 @@ namespace ProjectPerseus
 
                 _queueWebForm?.Close();
                 _queueWebForm = new QueueWebForm(webQueueUrl);
-                _queueWebForm.Show();
+                _queueWebForm.ShowWithRevitOwner();
 
                 Utl.WriteLog($"Opened web queue dialog: {webQueueUrl}");
             }

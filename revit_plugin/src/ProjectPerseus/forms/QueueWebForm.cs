@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Drawing;
@@ -28,7 +30,7 @@ namespace ProjectPerseus.forms
         {
             _url = url;
 
-            int screenHeight = Screen.FromControl(this).WorkingArea.Height;
+            int screenHeight = Screen.AllScreens.Min(s => s.WorkingArea.Height);
             this.Size = new Size(500, screenHeight);
             this.MinimumSize = new Size(500, 300);
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -106,10 +108,22 @@ namespace ProjectPerseus.forms
             base.WndProc(ref m);
         }
 
+        public void ShowWithRevitOwner()
+        {
+            var revitHandle = Process.GetCurrentProcess().MainWindowHandle;
+            this.Show(new NativeWindowWrapper(revitHandle));
+        }
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _webView?.Dispose();
             base.OnFormClosed(e);
+        }
+
+        private class NativeWindowWrapper : IWin32Window
+        {
+            public NativeWindowWrapper(IntPtr handle) { Handle = handle; }
+            public IntPtr Handle { get; }
         }
     }
 }
