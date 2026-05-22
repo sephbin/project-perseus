@@ -81,8 +81,8 @@ namespace ProjectPerseus
         {
             try
             {
-                var baseUrl = _config.BaseUrl.TrimEnd('/');
-                var webQueueUrl = $"{baseUrl}/../syncboat/app/guid/#/{docGuid}/";
+                var serverRoot = new Uri(_config.BaseUrl).GetLeftPart(UriPartial.Authority);
+                var webQueueUrl = $"{serverRoot}/syncboat/app/{docGuid}/";
 
                 _queueWebForm?.Close();
                 _queueWebForm = new QueueWebForm(webQueueUrl);
