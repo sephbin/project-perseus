@@ -10,6 +10,7 @@ using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.ui;
 using ProjectPerseus.forms;
+using ProjectPerseus.auth;
 using System.IO;
 using static System.Net.Mime.MediaTypeNames;
 using System.Reflection;
@@ -131,7 +132,7 @@ namespace ProjectPerseus
                 // --- 1. Check Sync Queue Status ---
                 var queueEndpoint = $"{baseUrl}/../syncboat/getCurrentQueue/{docGuid}/";
 
-                string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, _config.ApiToken, null);
+                string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, AuthService.GetAuthTokenSafely(), null);
 
                 // Deserialize the response into the new model structure
                 var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(queueResponseJson);
@@ -230,7 +231,7 @@ namespace ProjectPerseus
 
                 // Preliminary call to the web API to verify or register sync start
                 var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
-                string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
+                string response = Utl.WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
 
                 Utl.WriteLog($"Preliminary sync request sent. Response: {response}");
             }
@@ -277,7 +278,7 @@ namespace ProjectPerseus
 
                     // Preliminary call to the web API to verify or register sync start
                     var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
-                    string response = Utl.WebHelper.Post(preSyncEndpoint, _config.ApiToken, jsonPayload);
+                    string response = Utl.WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
 
                     Utl.WriteLog($"Post sync request sent. Response: {response}");
                 }
@@ -445,7 +446,7 @@ namespace ProjectPerseus
                 // --- Send to server ---
                 var metadataEndpoint = $"{baseUrl}/registersource/";
                 string jsonMetadata = JsonConvert.SerializeObject(metadata);
-                string response = Utl.WebHelper.Post(metadataEndpoint, Config.Instance.ApiToken, jsonMetadata);
+                string response = Utl.WebHelper.Post(metadataEndpoint, AuthService.GetAuthTokenSafely(), jsonMetadata);
                 JObject json = JObject.Parse(response);
                 Utl.WriteLog($"Metadata upload response: {response}");
             
@@ -645,8 +646,7 @@ namespace ProjectPerseus
         }
         private bool UploadConfigIsValid()
         {
-            return !string.IsNullOrEmpty(_config.ApiToken) 
-                   && _config.BaseUrl != null 
+            return _config.BaseUrl != null
                    && Utl.IsValidUrl(_config.BaseUrl);
         }
 
