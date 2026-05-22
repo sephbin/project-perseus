@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\mydev\\\\django-perseus\" -Recurse -Directory -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -First 20)",
+      "Bash(git *)",
+      "Bash(xargs grep -l \"middleware\\\\|Middleware\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\mydev\\\\django-perseus\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(xargs -I {} basename {})"
+    ],
+    "additionalDirectories": [
+      "C:\\mydev\\COX-LABS-PUBLIC",
+      "C:\\mydev\\django-syncboat"
+    ]
+  }
+}

@@ -243,6 +243,9 @@
     <Compile Include="forms\AutoSyncCountdownForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="forms\JwtLoginForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="forms\QueueWebForm.cs">
       <SubType>Form</SubType>
     </Compile>
