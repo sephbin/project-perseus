@@ -188,9 +188,10 @@ namespace ProjectPerseus
 
                             case SyncWarningForm.SyncAction.JoinQueue:
                                 Utl.WriteLog("User chose: Join Queue.");
-                                e.Cancel(); // Stop Revit Sync
-                                OpenWebQueueLink(docGuid); // Open Browser
-                                return; // Exit function
+                                e.Cancel();
+                                System.Threading.Tasks.Task.Run(() => TryCloseRevitSyncDialog());
+                                OpenWebQueueLink(docGuid);
+                                return;
 
                             case SyncWarningForm.SyncAction.Cancel:
                                 Utl.WriteLog("User chose: Cancel Sync.");
@@ -199,15 +200,20 @@ namespace ProjectPerseus
                             case SyncWarningForm.SyncAction.JoinQueueAndAutoSync:
                                 Utl.WriteLog("User chose: Join Queue & Auto-Sync.");
                                 e.Cancel();
-                                OpenWebQueueLink(docGuid);
+                                System.Threading.Tasks.Task.Run(() => TryCloseRevitSyncDialog());
 
-                                // Authenticate now so the token is ready when our turn arrives.
+                                // Authenticate first so the token is ready.
                                 string queueAuthToken = AuthService.GetAuthTokenSafely();
                                 if (string.IsNullOrEmpty(queueAuthToken))
                                 {
                                     Utl.WriteLog("Authentication failed — cannot join auto-sync queue.", LogLevel.Error);
                                     return;
                                 }
+
+                                // Join the queue via API — no browser window needed for auto-sync.
+                                var joinEndpoint = $"{baseUrl}/../syncboat/api/source/{docGuid}/by-guid/join/";
+                                Utl.WebHelper.Post(joinEndpoint, queueAuthToken, "{}");
+                                Utl.WriteLog($"Joined sync queue for {docGuid}.");
 
                                 if (_autoSyncPoller == null)
                                 {
@@ -744,6 +750,52 @@ namespace ProjectPerseus
             }
             _currentSynCaption = caption;
         }
+        // ── Win32 helpers for closing Revit's native sync progress dialog ──────
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        private const uint WM_CLOSE = 0x0010;
+
+        private static void TryCloseRevitSyncDialog()
+        {
+            try
+            {
+                System.Threading.Thread.Sleep(500);
+                int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+                var sb = new System.Text.StringBuilder(256);
+
+                EnumWindows((hwnd, _) =>
+                {
+                    uint windowPid;
+                    GetWindowThreadProcessId(hwnd, out windowPid);
+                    if (windowPid != (uint)pid) return true;
+
+                    sb.Clear();
+                    GetWindowText(hwnd, sb, sb.Capacity);
+                    string title = sb.ToString();
+
+                    if (title.IndexOf("Synchronize with Central", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        title.IndexOf("Synchronising with Central", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                        Utl.WriteLog($"Auto-closed Revit sync dialog: '{title}'");
+                    }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"Could not auto-close Revit sync dialog: {ex.Message}");
+            }
+        }
+        // ────────────────────────────────────────────────────────────────────────
+
         private void OnRevitIdlingDelay(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
         {
             // Let Idling fire repeatedly until 3 real seconds have passed to let the UI settle
