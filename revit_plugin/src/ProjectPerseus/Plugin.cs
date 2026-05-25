@@ -201,6 +201,7 @@ namespace ProjectPerseus
                                 Utl.WriteLog("User chose: Join Queue & Auto-Sync.");
                                 e.Cancel();
                                 System.Threading.Tasks.Task.Run(() => TryCloseRevitSyncDialog());
+                                OpenWebQueueLink(docGuid);
 
                                 // Authenticate first so the token is ready.
                                 string queueAuthToken = AuthService.GetAuthTokenSafely();
@@ -210,7 +211,8 @@ namespace ProjectPerseus
                                     return;
                                 }
 
-                                // Join the queue via API — no browser window needed for auto-sync.
+                                // Join the queue via API (browser joining via syncboat_app_by_guid handles the
+                                // web session; this covers the plugin's Bearer-token session independently).
                                 var joinEndpoint = $"{baseUrl}/../syncboat/api/source/{docGuid}/by-guid/join/";
                                 Utl.WebHelper.Post(joinEndpoint, queueAuthToken, "{}");
                                 Utl.WriteLog($"Joined sync queue for {docGuid}.");
@@ -780,7 +782,8 @@ namespace ProjectPerseus
                     GetWindowText(hwnd, sb, sb.Capacity);
                     string title = sb.ToString();
 
-                    if (title.IndexOf("Synchronize with Central", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    if (title.IndexOf("Sync With Central", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        title.IndexOf("Synchronize with Central", StringComparison.OrdinalIgnoreCase) >= 0 ||
                         title.IndexOf("Synchronising with Central", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);

@@ -120,6 +120,12 @@ namespace ProjectPerseus.auth
                     result = await _msalApp
                         .AcquireTokenInteractive(_msalScopes)
                         .WithUseEmbeddedWebView(false)
+                        .WithSystemWebViewOptions(new SystemWebViewOptions
+                        {
+                            HtmlMessageSuccess =
+                                "<html><head><script>window.onload=function(){window.close();}</script></head>" +
+                                "<body><p>Authentication complete. This window will close automatically.</p></body></html>",
+                        })
                         .ExecuteAsync();
                 }
                 catch (Exception ex)
