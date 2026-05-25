@@ -132,7 +132,7 @@ namespace ProjectPerseus
                 // --- 1. Check Sync Queue Status ---
                 var queueEndpoint = $"{baseUrl}/../syncboat/getCurrentQueue/{docGuid}/";
 
-                string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, AuthService.GetAuthTokenSafely(), null);
+                string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, null, null);
 
                 // Deserialize the response into the new model structure
                 var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(queueResponseJson);
@@ -196,14 +196,19 @@ namespace ProjectPerseus
                                 Utl.WriteLog("User chose: Cancel Sync.");
                                 e.Cancel(); // Stop Revit Sync
                                 return; // Exit function
-                            case SyncWarningForm.SyncAction.JoinQueueAndAutoSync: // Assuming you add this to your form enum
+                            case SyncWarningForm.SyncAction.JoinQueueAndAutoSync:
                                 Utl.WriteLog("User chose: Join Queue & Auto-Sync.");
-                                e.Cancel(); // Stop the CURRENT sync
+                                e.Cancel();
                                 OpenWebQueueLink(docGuid);
-                                // Join the queue on the web server (you might need to call your add-to-queue endpoint here)
-                                // e.g., Utl.WebHelper.Post($"{baseUrl}/syncboat/join/{docGuid}/{windowsUsername}", token, "{}");
 
-                                // Start listening for our turn
+                                // Authenticate now so the token is ready when our turn arrives.
+                                string queueAuthToken = AuthService.GetAuthTokenSafely();
+                                if (string.IsNullOrEmpty(queueAuthToken))
+                                {
+                                    Utl.WriteLog("Authentication failed — cannot join auto-sync queue.", LogLevel.Error);
+                                    return;
+                                }
+
                                 if (_autoSyncPoller == null)
                                 {
                                     _autoSyncPoller = new queue.QueuePoller(AutoSyncExternalEvent);
