@@ -1,7 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using Newtonsoft.Json;
 using ProjectPerseus.models;
 
@@ -35,43 +35,23 @@ namespace ProjectPerseus.queue
 
             Task.Run(async () =>
             {
-                // 🔹 Use the fresh docGuid passed into the method
+                // getCurrentQueue is LOGIN_EXEMPT — no auth token needed.
                 var endpoint = $"{_config.BaseUrl.TrimEnd('/')}/../syncboat/getCurrentQueue/{currentDocGuid}/";
 
                 while (!token.IsCancellationRequested)
                 {
                     try
                     {
-                        // 1. Get the MSAL token safely
-                        string authToken = ProjectPerseus.auth.AuthService.GetAuthTokenSafely();
-                        if (string.IsNullOrEmpty(authToken))
+                        string response = Utl.WebHelper.Get(endpoint, null, null);
+                        var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(response);
+                        List<string> users = queueStatus?.Queue ?? new List<string>();
+
+                        if (users.Count > 0 && users[0].Equals(_username, StringComparison.OrdinalIgnoreCase))
                         {
-                            Utl.WriteLog("Poller aborted: User is not authenticated.");
+                            Utl.WriteLog("We are first in the queue! Triggering Revit Sync...");
+                            _syncEvent.Raise();
                             Stop();
                             break;
-                        }
-
-                        // 2. Ask Django who is in the queue using HttpClient
-                        using (var client = new System.Net.Http.HttpClient())
-                        {
-                            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authToken);
-
-                            string response = await client.GetStringAsync(endpoint);
-                            var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(response);
-                            List<string> users = queueStatus?.Queue ?? new List<string>();
-
-                            // 3. Check if we are FIRST in the list
-                            if (users.Count > 0 && users[0].Equals(_username, StringComparison.OrdinalIgnoreCase))
-                            {
-                                Utl.WriteLog("We are first in the queue! Triggering Revit Sync...");
-
-                                // 4. WAKE UP REVIT!
-                                _syncEvent.Raise();
-
-                                // 5. Stop polling (our job is done)
-                                Stop();
-                                break;
-                            }
                         }
                     }
                     catch (Exception ex)
@@ -79,7 +59,6 @@ namespace ProjectPerseus.queue
                         Utl.WriteLog($"Poller error: {ex.Message}");
                     }
 
-                    // Wait 5 seconds before checking again (don't spam the server)
                     await Task.Delay(5000, token);
                 }
             }, token);
