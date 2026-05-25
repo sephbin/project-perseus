@@ -46,7 +46,9 @@ namespace ProjectPerseus.queue
                         var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(response);
                         List<string> users = queueStatus?.Queue ?? new List<string>();
 
-                        if (users.Count > 0 && users[0].Equals(_username, StringComparison.OrdinalIgnoreCase))
+                        // Queue may return full UPN (e.g. Andrew.Butler@cox.com.au) — strip @domain before comparing
+                        string frontUser = users.Count > 0 && users[0].Contains("@") ? users[0].Split('@')[0] : (users.Count > 0 ? users[0] : "");
+                        if (users.Count > 0 && frontUser.Equals(_username, StringComparison.OrdinalIgnoreCase))
                         {
                             Utl.WriteLog("We are first in the queue! Triggering Revit Sync...");
                             _syncEvent.Raise();

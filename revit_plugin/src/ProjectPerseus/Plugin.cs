@@ -165,15 +165,17 @@ namespace ProjectPerseus
 
                 if (queueCount > 0)
                 {
-                    // Check if the current user is the first person in the queue
-                    if (usersInQueue[0].Equals(windowsUsername, StringComparison.OrdinalIgnoreCase))
+                    // Queue may return full UPNs (e.g. Andrew.Butler@cox.com.au) — compare on the local part only
+                    string StripDomain(string u) => u.Contains("@") ? u.Split('@')[0] : u;
+
+                    if (StripDomain(usersInQueue[0]).Equals(windowsUsername, StringComparison.OrdinalIgnoreCase))
                     {
                         Utl.WriteLog($"Queue position: 1 of {queueCount}. Proceeding without alert.");
                         shouldShowDialog = false;
                     }
                     else
                     {
-                        int position = usersInQueue.FindIndex(u => u.Equals(windowsUsername, StringComparison.OrdinalIgnoreCase)) + 1;
+                        int position = usersInQueue.FindIndex(u => StripDomain(u).Equals(windowsUsername, StringComparison.OrdinalIgnoreCase)) + 1;
                         string posStr = position > 0 ? $"{position} of {queueCount}" : $"not in queue (total: {queueCount})";
                         Utl.WriteLog($"Queue position: {posStr}. Showing alert.", LogLevel.Warn);
                     }
