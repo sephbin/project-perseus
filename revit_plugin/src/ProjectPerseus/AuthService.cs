@@ -76,7 +76,7 @@ namespace ProjectPerseus.auth
             _msalApp = PublicClientApplicationBuilder
                 .Create(clientId)
                 .WithAuthority($"https://login.microsoftonline.com/{tenantId}")
-                .WithDefaultRedirectUri()
+                .WithRedirectUri("http://localhost")
                 .Build();
 
             var storageProperties = new StorageCreationPropertiesBuilder(

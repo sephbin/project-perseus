@@ -108,7 +108,7 @@ namespace ProjectPerseus
 
                     if (!string.IsNullOrEmpty(apiToken))
                     {
-                        httpWebRequest.Headers["Authorization"] = $"Token {apiToken}";
+                        httpWebRequest.Headers["Authorization"] = $"Bearer {apiToken}";
                     }
 
                     // Only send a body if the method supports it
