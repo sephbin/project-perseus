@@ -203,25 +203,37 @@ namespace ProjectPerseus
                                 System.Threading.Tasks.Task.Run(() => TryCloseRevitSyncDialog());
                                 OpenWebQueueLink(docGuid);
 
-                                // Authenticate first so the token is ready.
-                                string queueAuthToken = AuthService.GetAuthTokenSafely();
-                                if (string.IsNullOrEmpty(queueAuthToken))
-                                {
-                                    Utl.WriteLog("Authentication failed — cannot join auto-sync queue.", LogLevel.Error);
-                                    return;
-                                }
+                                // Capture locals now — can't touch Revit API or instance fields
+                                // from the background thread below.
+                                string autoSyncDocGuid = docGuid;
+                                string autoSyncBaseUrl  = baseUrl;
 
-                                // Join the queue via API (browser joining via syncboat_app_by_guid handles the
-                                // web session; this covers the plugin's Bearer-token session independently).
-                                var joinEndpoint = $"{baseUrl}/../syncboat/api/source/{docGuid}/by-guid/join/";
-                                Utl.WebHelper.Post(joinEndpoint, queueAuthToken, "{}");
-                                Utl.WriteLog($"Joined sync queue for {docGuid}.");
-
-                                if (_autoSyncPoller == null)
+                                // Auth and queue-join run on a background thread so we return
+                                // from the Revit event handler immediately (blocking it causes a crash).
+                                System.Threading.Tasks.Task.Run(async () =>
                                 {
-                                    _autoSyncPoller = new queue.QueuePoller(AutoSyncExternalEvent);
-                                }
-                                _autoSyncPoller.StartPolling(ModelGuidStorage.GetOrCreate(_currentSyncDoc));
+                                    try
+                                    {
+                                        string token = await auth.AuthService.GetTokenAsync();
+                                        if (string.IsNullOrEmpty(token))
+                                        {
+                                            Utl.WriteLog("Authentication failed — cannot join auto-sync queue.", LogLevel.Error);
+                                            return;
+                                        }
+
+                                        var joinEndpoint = $"{autoSyncBaseUrl}/../syncboat/api/source/{autoSyncDocGuid}/by-guid/join/";
+                                        Utl.WebHelper.Post(joinEndpoint, token, "{}");
+                                        Utl.WriteLog($"Joined sync queue for {autoSyncDocGuid}.");
+
+                                        if (_autoSyncPoller == null)
+                                            _autoSyncPoller = new queue.QueuePoller(AutoSyncExternalEvent);
+                                        _autoSyncPoller.StartPolling(autoSyncDocGuid);
+                                    }
+                                    catch (Exception asyncEx)
+                                    {
+                                        Utl.WriteLog($"Auto-sync queue join failed: {asyncEx.Message}", LogLevel.Error);
+                                    }
+                                });
                                 return;
                         }
                     }
