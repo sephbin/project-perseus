@@ -85,9 +85,26 @@ namespace ProjectPerseus
                 var serverRoot = new Uri(_config.BaseUrl).GetLeftPart(UriPartial.Authority);
                 var webQueueUrl = $"{serverRoot}/syncboat/app/{docGuid}/";
 
-                _queueWebForm?.Close();
-                _queueWebForm = new QueueWebForm(webQueueUrl);
-                _queueWebForm.ShowWithRevitOwner();
+                // Close any existing form (cross-thread safe)
+                var existing = _queueWebForm;
+                if (existing != null && !existing.IsDisposed)
+                {
+                    try { existing.BeginInvoke(new Action(() => existing.Close())); }
+                    catch { /* already gone */ }
+                }
+
+                var url = webQueueUrl;
+                var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                var thread = new System.Threading.Thread(() =>
+                {
+                    System.Windows.Forms.Application.EnableVisualStyles();
+                    var form = new QueueWebForm(url, revitHandle);
+                    _queueWebForm = form;
+                    System.Windows.Forms.Application.Run(form);
+                });
+                thread.SetApartmentState(System.Threading.ApartmentState.STA);
+                thread.IsBackground = true;
+                thread.Start();
 
                 Utl.WriteLog($"Opened web queue dialog: {webQueueUrl}");
             }

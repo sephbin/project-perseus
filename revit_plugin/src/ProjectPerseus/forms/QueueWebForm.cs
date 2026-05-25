@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -15,7 +14,10 @@ namespace ProjectPerseus.forms
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool ReleaseCapture();
         [DllImport("user32.dll")] private static extern int SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
+        private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
+        private const int GWLP_HWNDPARENT = -8;
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int WM_NCHITTEST = 0x0084;
         private const int HTCAPTION = 2;
@@ -25,10 +27,12 @@ namespace ProjectPerseus.forms
 
         private readonly WebView2 _webView;
         private readonly string _url;
+        private readonly IntPtr _ownerHandle;
 
-        public QueueWebForm(string url)
+        public QueueWebForm(string url, IntPtr ownerHandle = default)
         {
             _url = url;
+            _ownerHandle = ownerHandle;
 
             int screenHeight = Screen.AllScreens.Min(s => s.WorkingArea.Height);
             this.Size = new Size(500, screenHeight);
@@ -40,7 +44,13 @@ namespace ProjectPerseus.forms
             this.Controls.Add(_webView);
 
             this.Load += OnLoad;
-            this.Shown += (s, e) => { this.Activate(); SetForegroundWindow(this.Handle); };
+            this.Shown += (s, e) =>
+            {
+                this.Activate();
+                SetForegroundWindow(this.Handle);
+                if (_ownerHandle != IntPtr.Zero)
+                    SetWindowLongPtr(this.Handle, GWLP_HWNDPARENT, _ownerHandle);
+            };
         }
 
         private async void OnLoad(object sender, EventArgs e)
@@ -54,8 +64,6 @@ namespace ProjectPerseus.forms
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
                 await _webView.EnsureCoreWebView2Async(env);
 
-                // Inject drag bridge — persists across React router navigations.
-                // Any element with data-drag on it becomes a drag handle.
                 await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
                     document.addEventListener('mousedown', function(e) {
                         if (e.button === 0 && e.target.closest('[data-drag]')) {
@@ -108,22 +116,10 @@ namespace ProjectPerseus.forms
             base.WndProc(ref m);
         }
 
-        public void ShowWithRevitOwner()
-        {
-            var revitHandle = Process.GetCurrentProcess().MainWindowHandle;
-            this.Show(new NativeWindowWrapper(revitHandle));
-        }
-
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _webView?.Dispose();
             base.OnFormClosed(e);
-        }
-
-        private class NativeWindowWrapper : IWin32Window
-        {
-            public NativeWindowWrapper(IntPtr handle) { Handle = handle; }
-            public IntPtr Handle { get; }
         }
     }
 }
