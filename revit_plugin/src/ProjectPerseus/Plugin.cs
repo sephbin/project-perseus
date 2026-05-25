@@ -203,26 +203,20 @@ namespace ProjectPerseus
                                 System.Threading.Tasks.Task.Run(() => TryCloseRevitSyncDialog());
                                 OpenWebQueueLink(docGuid);
 
-                                // Capture locals now — can't touch Revit API or instance fields
-                                // from the background thread below.
+                                // Capture locals — instance fields and Revit API are off-limits on a background thread.
                                 string autoSyncDocGuid = docGuid;
                                 string autoSyncBaseUrl  = baseUrl;
+                                string autoSyncUser     = windowsUsername;
 
-                                // Auth and queue-join run on a background thread so we return
-                                // from the Revit event handler immediately (blocking it causes a crash).
-                                System.Threading.Tasks.Task.Run(async () =>
+                                System.Threading.Tasks.Task.Run(() =>
                                 {
                                     try
                                     {
-                                        string token = await auth.AuthService.GetTokenAsync();
-                                        if (string.IsNullOrEmpty(token))
-                                        {
-                                            Utl.WriteLog("Authentication failed — cannot join auto-sync queue.", LogLevel.Error);
-                                            return;
-                                        }
-
+                                        // Queue join uses Windows username directly — no MSAL/browser auth needed.
+                                        // Consistent with getCurrentQueue which is also keyed on Windows username.
                                         var joinEndpoint = $"{autoSyncBaseUrl}/../syncboat/api/source/{autoSyncDocGuid}/by-guid/join/";
-                                        Utl.WebHelper.Post(joinEndpoint, token, "{}");
+                                        var joinPayload = Newtonsoft.Json.JsonConvert.SerializeObject(new { username = autoSyncUser.ToLower() });
+                                        Utl.WebHelper.Post(joinEndpoint, null, joinPayload);
                                         Utl.WriteLog($"Joined sync queue for {autoSyncDocGuid}.");
 
                                         if (_autoSyncPoller == null)
