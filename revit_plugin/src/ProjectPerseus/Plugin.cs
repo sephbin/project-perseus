@@ -95,10 +95,13 @@ namespace ProjectPerseus
 
                 var url = webQueueUrl;
                 var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                // Get the MSAL token once here — the WebView2 will use it to establish a Django
+                // session via /api/token-login/ so the user doesn't need to authenticate twice.
+                string msalToken = AuthService.GetAuthTokenSafely();
                 var thread = new System.Threading.Thread(() =>
                 {
                     System.Windows.Forms.Application.EnableVisualStyles();
-                    var form = new QueueWebForm(url, revitHandle);
+                    var form = new QueueWebForm(url, revitHandle, msalToken);
                     _queueWebForm = form;
                     System.Windows.Forms.Application.Run(form);
                 });
@@ -314,11 +317,27 @@ namespace ProjectPerseus
 
                     string jsonPayload = JsonConvert.SerializeObject(payload);
 
-                    // Preliminary call to the web API to verify or register sync start
+                    // Log sync end event in Perseus
                     var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
                     string response = Utl.WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
-
                     Utl.WriteLog($"Post sync request sent. Response: {response}");
+
+                    // Remove the authenticated user from the syncboat queue using the MSAL token
+                    // so request.user on the server matches whoever actually authenticated.
+                    string leaveToken = AuthService.GetAuthTokenSafely();
+                    if (!string.IsNullOrEmpty(leaveToken))
+                    {
+                        var leaveEndpoint = $"{baseUrl.TrimEnd('/')}/../syncboat/api/source/{docGuid}/by-guid/leave/";
+                        try
+                        {
+                            Utl.WebHelper.Post(leaveEndpoint, leaveToken, "{}");
+                            Utl.WriteLog("Removed from sync queue.");
+                        }
+                        catch (Exception leaveEx)
+                        {
+                            Utl.WriteLog($"Failed to leave queue: {leaveEx.Message}", LogLevel.Warn);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
