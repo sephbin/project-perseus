@@ -117,16 +117,7 @@ namespace ProjectPerseus.auth
             {
                 try
                 {
-                    result = await _msalApp
-                        .AcquireTokenInteractive(_msalScopes)
-                        .WithUseEmbeddedWebView(false)
-                        .WithSystemWebViewOptions(new SystemWebViewOptions
-                        {
-                            HtmlMessageSuccess =
-                                "<html><head><script>window.onload=function(){window.close();}</script></head>" +
-                                "<body><p>Authentication complete. This window will close automatically.</p></body></html>",
-                        })
-                        .ExecuteAsync();
+                    result = await AcquireTokenInteractiveOnStaAsync();
                 }
                 catch (Exception ex)
                 {
@@ -135,6 +126,59 @@ namespace ProjectPerseus.auth
                 }
             }
             return result.AccessToken;
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // Run MSAL interactive auth on a dedicated STA thread.
+        //
+        // MSAL's system-browser flow uses Process.Start + a loopback TCP
+        // listener. On a thread-pool (MTA) thread inside Revit this can
+        // conflict with Revit's COM/shell environment and crash the process.
+        // Running it on a clean STA thread with no SynchronizationContext
+        // isolates it completely. A TaskCompletionSource lets the caller
+        // await the result without blocking any thread pool threads.
+        // ─────────────────────────────────────────────────────────────────
+        private static Task<AuthenticationResult> AcquireTokenInteractiveOnStaAsync()
+        {
+            var tcs = new TaskCompletionSource<AuthenticationResult>();
+
+            var sta = new Thread(() =>
+            {
+                // No SynchronizationContext: async continuations inside MSAL
+                // run on thread-pool threads, not back here — no deadlock risk.
+                SynchronizationContext.SetSynchronizationContext(null);
+                try
+                {
+                    using (var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(3)))
+                    {
+                        var r = _msalApp
+                            .AcquireTokenInteractive(_msalScopes)
+                            .WithUseEmbeddedWebView(false)
+                            .WithSystemWebViewOptions(new SystemWebViewOptions
+                            {
+                                HtmlMessageSuccess =
+                                    "<html><head><script>window.onload=function(){window.close();}" +
+                                    "</script></head><body><p>Authentication complete. " +
+                                    "This window will close automatically.</p></body></html>",
+                            })
+                            .ExecuteAsync(cts.Token)
+                            .ConfigureAwait(false)
+                            .GetAwaiter()
+                            .GetResult();
+                        tcs.SetResult(r);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                }
+            });
+
+            sta.SetApartmentState(ApartmentState.STA);
+            sta.IsBackground = true; // doesn't keep Revit alive if it shuts down
+            sta.Start();
+
+            return tcs.Task;
         }
 
         // ─────────────────────────────────────────────────────────────────
