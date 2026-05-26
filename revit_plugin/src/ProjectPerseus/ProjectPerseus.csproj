@@ -360,4 +360,12 @@
     <Exec Command="&quot;$(InnoSetupCompiler)&quot; &quot;$(ProjectDir)..\..\installer\perseus_installer.iss&quot;"
           ContinueOnError="WarnAndContinue" />
   </Target>
+
+  <!-- Commit and push after every successful Release build.
+       The commit body is read from .claude_changes.md at the repo root,
+       which Claude maintains during each session and the script clears after commit. -->
+  <Target Name="GitCommit" AfterTargets="BuildInstaller" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\build-commit.ps1&quot; -RepoRoot &quot;$(ProjectDir)..\..\..\&quot; -Configuration &quot;$(Configuration)&quot;"
+          ContinueOnError="WarnAndContinue" />
+  </Target>
 </Project>

@@ -69,3 +69,16 @@ Since modifying elements directly causes Revit worksharing conflicts, Perseus ta
     User settings (Server URL) are saved locally to config.json in the user's AppData folder.
 
     Icon files in ui/icons/ use .png extensions but are actually ICO format containers with multiple embedded resolutions (16x16, 32x32). Do not replace them with true PNG files.
+
+5. Build → Commit Workflow
+
+The post-build pipeline runs on every Release build: Build → BumpVersion → BuildInstaller → GitCommit.
+
+GitCommit calls build-commit.ps1 which reads .claude_changes.md from the repo root, uses its
+contents as the commit body, commits all staged changes, pushes, then clears the file.
+
+IMPORTANT — Claude must maintain .claude_changes.md during every session:
+- Append a concise bullet point for every meaningful change made to any file in this repo.
+- Use the format:  - filename.cs: one-line description of what changed and why
+- Do NOT clear the file manually — build-commit.ps1 clears it after a successful Release build.
+- If the file is empty at build time the commit message will just say "Manual build".

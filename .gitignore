@@ -1,1 +1,4 @@
 /venv
+
+# Claude session change log — read by build-commit.ps1 for commit messages, never committed itself
+.claude_changes.md
