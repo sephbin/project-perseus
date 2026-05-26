@@ -5,7 +5,7 @@
 ArchitecturesInstallIn64BitMode=x64
 ; --- 1. App Information ---
 AppName=Project Perseus
-AppVersion=1.1.42
+AppVersion=1.1.44
 AppId={{10908502-7BB8-473D-B858-B31591187295}}
 DefaultGroupName=Andrew Butler
 
@@ -50,7 +50,7 @@ RestartApplications=no
 
 ; --- REVIT 2026 ---
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\ProjectPerseus.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
-Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\WebView2Loader.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2026\runtimes\win-x64\native"; Flags: ignoreversion
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
 Source: "E:\mydev\project-perseus\revit_plugin\manifests\ProjectPerseus_2026.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2026"; Flags: ignoreversion

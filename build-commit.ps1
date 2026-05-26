@@ -1,5 +1,5 @@
 # build-commit.ps1
-# Called by the ProjectPerseus post-build target after every successful Release build.
+# Called by the ProjectPerseus post-build target after every successful build.
 # Commits all staged changes with the Claude session notes as the body, then pushes.
 # The .claude_changes.md file is cleared after a successful commit so the next
 # Claude session starts with a clean slate.
@@ -14,7 +14,7 @@ Set-Location $RepoRoot
 # Nothing to do if the working tree is clean
 $status = & git status --porcelain 2>&1
 if ([string]::IsNullOrWhiteSpace($status)) {
-    Write-Host "[build-commit] Nothing to commit — working tree clean."
+    Write-Host "[build-commit] Nothing to commit - working tree clean."
     exit 0
 }
 
@@ -29,12 +29,14 @@ if (Test-Path $changesFile) {
 $version = "unknown"
 $assemblyInfo = Join-Path $RepoRoot "revit_plugin\src\ProjectPerseus\Properties\AssemblyInfo.cs"
 if (Test-Path $assemblyInfo) {
-    $match = Select-String -Path $assemblyInfo -Pattern 'AssemblyVersion\("([^"]+)"\)'
-    if ($match) { $version = $match.Matches[0].Groups[1].Value }
+    $content = Get-Content $assemblyInfo -Raw -Encoding UTF8
+    if ($content -match 'AssemblyVersion\("([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)"\)') {
+        $version = $Matches[1]
+    }
 }
 
 # Build the commit message
-$bodyText = if ($changesBody) { $changesBody } else { "Manual build — no Claude session notes recorded." }
+$bodyText = if ($changesBody) { $changesBody } else { "Manual build - no Claude session notes recorded." }
 
 $commitMessage = "Build $version [$Configuration]
 
@@ -60,7 +62,7 @@ try {
         exit 1
     }
 
-    # Clear the changes file — Claude will repopulate it next session
+    # Clear the changes file - Claude will repopulate it next session
     [System.IO.File]::WriteAllText($changesFile, "", [System.Text.Encoding]::UTF8)
     Write-Host "[build-commit] Committed and pushed v$version. Changes log cleared."
 }

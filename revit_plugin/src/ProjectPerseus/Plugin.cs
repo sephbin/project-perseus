@@ -93,16 +93,39 @@ namespace ProjectPerseus
                     catch { /* already gone */ }
                 }
 
-                var url = webQueueUrl;
-                // token-login lives under the BaseUrl prefix (e.g. /perseus/api/token-login/)
-                // not at the server root, so construct it from BaseUrl rather than serverRoot.
-                var tokenLoginUrl = $"{_config.BaseUrl.TrimEnd('/')}/api/token-login/";
-                var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                // Exchange MSAL Bearer token for a short-lived signed SSO token.
+                // Chromium strips Authorization headers from navigation requests, so we embed
+                // the token in the URL instead and let token-login create the Django session.
+                string startUrl = webQueueUrl;
                 string msalToken = AuthService.GetAuthTokenSafely();
+                if (!string.IsNullOrEmpty(msalToken))
+                {
+                    try
+                    {
+                        var ssoEndpoint = $"{_config.BaseUrl.TrimEnd('/')}/api/sso-token/";
+                        var responseJson = Utl.WebHelper.Post(ssoEndpoint, msalToken, "{}");
+                        var ssoObj = JObject.Parse(responseJson);
+                        var ssoToken = ssoObj["sso_token"]?.ToString();
+                        if (!string.IsNullOrEmpty(ssoToken))
+                        {
+                            var tokenLoginUrl = $"{_config.BaseUrl.TrimEnd('/')}/api/token-login/";
+                            var encodedNext = Uri.EscapeDataString(new Uri(webQueueUrl).PathAndQuery);
+                            var encodedSso  = Uri.EscapeDataString(ssoToken);
+                            startUrl = $"{tokenLoginUrl}?sso_token={encodedSso}&next={encodedNext}";
+                            Utl.WriteLog("SSO token acquired — WebView2 will inherit MSAL session.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Utl.WriteLog($"SSO token exchange failed, falling back to direct navigation: {ex.Message}", LogLevel.Warn);
+                    }
+                }
+
+                var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
                 var thread = new System.Threading.Thread(() =>
                 {
                     System.Windows.Forms.Application.EnableVisualStyles();
-                    var form = new QueueWebForm(url, revitHandle, msalToken, tokenLoginUrl);
+                    var form = new QueueWebForm(startUrl, revitHandle);
                     _queueWebForm = form;
                     System.Windows.Forms.Application.Run(form);
                 });
