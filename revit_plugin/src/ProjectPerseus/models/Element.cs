@@ -56,7 +56,7 @@ namespace ProjectPerseus.models
 
             try
             {
-                var eid = new ARDB.ElementId(_element.Id.Value);
+                var eid = RevitExtensions.CreateId(_element.Id.Value);
                 var rawElem = _doc.GetElement(eid);
 
                 // 2. Skip System Elements: If it doesn't have a valid Workset, it has no history.
@@ -133,7 +133,7 @@ namespace ProjectPerseus.models
             try
             {
                 // We need the raw native element to access .ToRoom / .FromRoom properties
-                var rawId = new ARDB.ElementId(_element.Id.Value);
+                var rawId = RevitExtensions.CreateId(_element.Id.Value);
                 var rawElem = _doc.GetElement(rawId);
 
                 if (rawElem is ARDB.FamilyInstance fi)
@@ -141,14 +141,14 @@ namespace ProjectPerseus.models
                     // --- Inject "From Room" ---
                     if (fi.FromRoom != null)
                     {
-                        var p = new Parameter<long>("From Room", fi.FromRoom.Id.Value, "ElementId");
+                        var p = new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId");
                         paramDict["From Room"] = p;
                     }
 
                     // --- Inject "To Room" ---
                     if (fi.ToRoom != null)
                     {
-                        var p = new Parameter<long>("To Room", fi.ToRoom.Id.Value, "ElementId");
+                        var p = new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId");
                         paramDict["To Room"] = p;
                     }
 
@@ -156,7 +156,7 @@ namespace ProjectPerseus.models
                     // Note: fi.Room is phase-dependent. If null, we skip.
                     if (fi.Room != null)
                     {
-                        var p = new Parameter<long>("Room", fi.Room.Id.Value, "ElementId");
+                        var p = new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId");
                         if (!paramDict.ContainsKey("Room")) paramDict["Room"] = p;
                     }
                 }
