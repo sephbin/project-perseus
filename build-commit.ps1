@@ -9,11 +9,6 @@ param(
     [string]$Configuration
 )
 
-if ($Configuration -ne "Release") {
-    Write-Host "[build-commit] Skipping — Debug build."
-    exit 0
-}
-
 Set-Location $RepoRoot
 
 # Nothing to do if the working tree is clean
@@ -41,7 +36,7 @@ if (Test-Path $assemblyInfo) {
 # Build the commit message
 $bodyText = if ($changesBody) { $changesBody } else { "Manual build — no Claude session notes recorded." }
 
-$commitMessage = "Build $version
+$commitMessage = "Build $version [$Configuration]
 
 $bodyText
 

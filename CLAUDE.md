@@ -72,7 +72,7 @@ Since modifying elements directly causes Revit worksharing conflicts, Perseus ta
 
 5. Build → Commit Workflow
 
-The post-build pipeline runs on every Release build: Build → BumpVersion → BuildInstaller → GitCommit.
+The post-build pipeline runs on every build (Debug and Release): Build → BumpVersion → BuildInstaller → GitCommit.
 
 GitCommit calls build-commit.ps1 which reads .claude_changes.md from the repo root, uses its
 contents as the commit body, commits all staged changes, pushes, then clears the file.
