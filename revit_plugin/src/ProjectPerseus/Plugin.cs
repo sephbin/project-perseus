@@ -683,7 +683,8 @@ namespace ProjectPerseus
                 }
 
                 Directory.CreateDirectory(outputDir);
-                string outputPath = Path.Combine(outputDir, $"{docGuid}.json");
+                string safeName = string.Concat(doc.Title.Split(Path.GetInvalidFileNameChars()));
+                string outputPath = Path.Combine(outputDir, $"{safeName}.json");
                 File.WriteAllText(outputPath, Utl.SerializeToJson(elementDeltaList, null));
 
                 watch.Stop();

@@ -91,6 +91,8 @@ namespace ProjectPerseus.queue
                 }
 
                 OpenOptions openOptions = new OpenOptions();
+                if (modelInfo.IsLocalFile)
+                    openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
                 WorksetConfiguration worksetConfig = GetWorksetConfig(modelPath, modelInfo);
                 openOptions.SetOpenWorksetsConfiguration(worksetConfig);
 
@@ -123,14 +125,19 @@ namespace ProjectPerseus.queue
             }
         }
 
-        private WorksetConfiguration GetWorksetConfig(ModelPath cloudPath, BatchModelInfo modelInfo)
+        private WorksetConfiguration GetWorksetConfig(ModelPath modelPath, BatchModelInfo modelInfo)
         {
-            var config = new WorksetConfiguration(WorksetConfigurationOption.CloseAllWorksets);
+            // Local files are opened detached — GetUserWorksetInfo can't pre-inspect them,
+            // so fall back to opening all worksets rather than closing all.
+            var fallback = modelInfo.IsLocalFile
+                ? WorksetConfigurationOption.OpenAllWorksets
+                : WorksetConfigurationOption.CloseAllWorksets;
+            var config = new WorksetConfiguration(fallback);
 
             try
             {
                 // Fetch workset data without opening the model
-                IList<WorksetPreview> previews = WorksharingUtils.GetUserWorksetInfo(cloudPath);
+                IList<WorksetPreview> previews = WorksharingUtils.GetUserWorksetInfo(modelPath);
                 List<WorksetId> worksetsToOpen = new List<WorksetId>();
 
                 Regex whitelist = string.IsNullOrEmpty(modelInfo.WorksetWhitelistRegex) ? null : new Regex(modelInfo.WorksetWhitelistRegex, RegexOptions.IgnoreCase);
@@ -166,7 +173,7 @@ namespace ProjectPerseus.queue
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to configure worksets: {ex.Message}. Defaulting to close all.");
+                Utl.WriteLog($"Failed to configure worksets: {ex.Message}. Defaulting to {fallback}.");
             }
 
             return config;
