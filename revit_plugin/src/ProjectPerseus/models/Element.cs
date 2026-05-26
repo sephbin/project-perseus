@@ -106,6 +106,8 @@ namespace ProjectPerseus.models
                     var newParam = ParameterBase.FromArdbParameter(_element.CategoryName, param);
                     string pName = newParam.Name;
 
+                    if (string.IsNullOrEmpty(pName)) continue;
+
                     // If this is a NEW parameter name, just add it.
                     if (!paramDict.ContainsKey(pName))
                     {
@@ -161,9 +163,10 @@ namespace ProjectPerseus.models
                     }
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                Utl.WriteLog($"Element.GetParameters (Virtual Injection): {ex.Message}");
+                // "target instance does not exist in the given phase" is normal for
+                // FamilyInstances not present in the active phase — skip silently.
             }
 
             // Convert the Dictionary values back to a List
