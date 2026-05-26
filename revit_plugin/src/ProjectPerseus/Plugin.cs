@@ -631,6 +631,70 @@ namespace ProjectPerseus
             catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
         }
 
+        public static void PerformFullSyncToFile(RevitFacade revit, string outputDir, IList<string> categories, bool collectConnectedElements)
+        {
+            try
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var doc = revit.Document;
+                var docGuid = ModelGuidStorage.GetOrCreate(doc);
+
+                var elements = revit.GetAllElements();
+                Utl.WriteLog($"PerformFullSyncToFile: Found {elements.Count} elements");
+
+                var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, doc, docGuid).ToList();
+
+                // Apply category filter if specified; export everything if list is null/empty
+                if (categories != null && categories.Count > 0)
+                {
+                    elementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList();
+                    Utl.WriteLog($"PerformFullSyncToFile: Filtered to {elementDeltaList.Count} elements by category");
+                }
+
+                try
+                {
+                    foreach (Category cat in doc.Settings.Categories)
+                    {
+                        var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
+                        elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, doc, docGuid));
+                    }
+                    Utl.WriteLog($"PerformFullSyncToFile: Added categories, total {elementDeltaList.Count} items");
+                }
+                catch (Exception ex)
+                {
+                    Utl.WriteLog($"PerformFullSyncToFile: Error harvesting categories: {ex.Message}");
+                }
+
+                if (collectConnectedElements)
+                {
+                    try
+                    {
+                        HashSet<long> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
+                        var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
+                        referencedIds.ExceptWith(existingIds);
+                        Utl.WriteLog($"PerformFullSyncToFile: Found {referencedIds.Count} additional connected elements.");
+                        if (referencedIds.Count > 0)
+                            elementDeltaList.AddRange(ElementDelta.CreateListFromIds(referencedIds, doc, docGuid));
+                    }
+                    catch (Exception ex)
+                    {
+                        Utl.WriteLog($"PerformFullSyncToFile: Error collecting connected elements: {ex.Message}");
+                    }
+                }
+
+                Directory.CreateDirectory(outputDir);
+                string outputPath = Path.Combine(outputDir, $"{docGuid}.json");
+                File.WriteAllText(outputPath, Utl.SerializeToJson(elementDeltaList, null));
+
+                watch.Stop();
+                Utl.WriteLog($"PerformFullSyncToFile: Wrote {elementDeltaList.Count} elements to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"PerformFullSyncToFile failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
         public static void PerformIncrementalSync(RevitFacade revit)
         {
             try

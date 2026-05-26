@@ -53,7 +53,7 @@ namespace ProjectPerseus.queue
                 {
                     if (progressForm.AbortRequested) break;
 
-                    progressForm.UpdateStatus($"Opening Model: {modelInfo.ModelGuid}...");
+                    progressForm.UpdateStatus($"Opening Model: {modelInfo.DisplayName}...");
                     ProcessModel(modelInfo);
                 }
             }
@@ -74,46 +74,52 @@ namespace ProjectPerseus.queue
             Document doc = null;
             try
             {
-                // Convert string GUIDs to Revit GUIDs
-                Guid projGuid = Guid.Parse(modelInfo.ProjectGuid);
-                Guid modGuid = Guid.Parse(modelInfo.ModelGuid);
+                ModelPath modelPath;
 
+                if (modelInfo.IsLocalFile)
+                {
+                    Utl.WriteLog($"Opening local file: {modelInfo.LocalPath}");
+                    modelPath = new FilePath(modelInfo.LocalPath);
+                }
+                else
+                {
+                    Guid projGuid = Guid.Parse(modelInfo.ProjectGuid);
+                    Guid modGuid = Guid.Parse(modelInfo.ModelGuid);
+                    string regionCode = string.IsNullOrEmpty(modelInfo.Region) ? "US" : modelInfo.Region;
+                    Utl.WriteLog($"Building cloud path for Region: {regionCode}...");
+                    modelPath = ModelPathUtils.ConvertCloudGUIDsToCloudPath(regionCode, projGuid, modGuid);
+                }
 
-                // Use the region specified in the JSON, defaulting to "US" if it's missing or empty
-                string regionCode = string.IsNullOrEmpty(modelInfo.Region) ? "US" : modelInfo.Region;
-
-                Utl.WriteLog($"Building cloud path for Region: {regionCode}...");
-                ModelPath cloudPath = ModelPathUtils.ConvertCloudGUIDsToCloudPath(regionCode, projGuid, modGuid);
-
-                // Configure Worksets using Regex
                 OpenOptions openOptions = new OpenOptions();
-                WorksetConfiguration worksetConfig = GetWorksetConfig(cloudPath, modelInfo);
+                WorksetConfiguration worksetConfig = GetWorksetConfig(modelPath, modelInfo);
                 openOptions.SetOpenWorksetsConfiguration(worksetConfig);
 
-                // Open the document
-                doc = _uiApp.Application.OpenDocumentFile(cloudPath, openOptions);
+                doc = _uiApp.Application.OpenDocumentFile(modelPath, openOptions);
 
-                // Run Perseus Sync
-                Utl.WriteLog($"Document opened: {doc.Title}. Running Perseus Full Sync...");
+                Utl.WriteLog($"Document opened: {doc.Title}. Running Perseus sync...");
                 var revitFacade = new revit.RevitFacade(doc);
 
-                // Using your existing Plugin logic (you may need to expose PerformFullSync as public in Plugin.cs)
-                // Or extract PerformFullSync into a shared utility/service class.
-                Plugin.PerformIncrementalSync(revitFacade);
+                if (_instruction.ExportMode == models.BatchExportMode.File)
+                {
+                    string outputDir = _instruction.OutputDirectory
+                        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PerseusExports");
+                    Plugin.PerformFullSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
+                }
+                else
+                {
+                    Plugin.PerformIncrementalSync(revitFacade);
+                }
 
                 Utl.WriteLog($"Successfully processed: {doc.Title}");
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to process model {modelInfo.ModelGuid}: {ex.Message}");
+                Utl.WriteLog($"Failed to process model {modelInfo.DisplayName}: {ex.Message}");
             }
             finally
             {
-                // Close the document without saving any changes
                 if (doc != null && doc.IsValidObject)
-                {
                     doc.Close(false);
-                }
             }
         }
 
