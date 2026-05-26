@@ -94,14 +94,15 @@ namespace ProjectPerseus
                 }
 
                 var url = webQueueUrl;
+                // token-login lives under the BaseUrl prefix (e.g. /perseus/api/token-login/)
+                // not at the server root, so construct it from BaseUrl rather than serverRoot.
+                var tokenLoginUrl = $"{_config.BaseUrl.TrimEnd('/')}/api/token-login/";
                 var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                // Get the MSAL token once here — the WebView2 will use it to establish a Django
-                // session via /api/token-login/ so the user doesn't need to authenticate twice.
                 string msalToken = AuthService.GetAuthTokenSafely();
                 var thread = new System.Threading.Thread(() =>
                 {
                     System.Windows.Forms.Application.EnableVisualStyles();
-                    var form = new QueueWebForm(url, revitHandle, msalToken);
+                    var form = new QueueWebForm(url, revitHandle, msalToken, tokenLoginUrl);
                     _queueWebForm = form;
                     System.Windows.Forms.Application.Run(form);
                 });
@@ -150,7 +151,7 @@ namespace ProjectPerseus
 
 
                 // --- 1. Check Sync Queue Status ---
-                var queueEndpoint = $"{baseUrl}/../syncboat/getCurrentQueue/{docGuid}/";
+                var queueEndpoint = $"{baseUrl}/../syncboat/api/v2/source/{docGuid}/queue/";
 
                 string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, null, null);
 
@@ -236,7 +237,7 @@ namespace ProjectPerseus
                                     {
                                         // Queue join uses Windows username directly — no MSAL/browser auth needed.
                                         // Consistent with getCurrentQueue which is also keyed on Windows username.
-                                        var joinEndpoint = $"{autoSyncBaseUrl}/../syncboat/api/source/{autoSyncDocGuid}/by-guid/join/";
+                                        var joinEndpoint = $"{autoSyncBaseUrl}/../syncboat/api/v2/source/{autoSyncDocGuid}/join/";
                                         var joinPayload = Newtonsoft.Json.JsonConvert.SerializeObject(new { username = autoSyncUser.ToLower() });
                                         Utl.WebHelper.Post(joinEndpoint, null, joinPayload);
                                         Utl.WriteLog($"Joined sync queue for {autoSyncDocGuid}.");
@@ -327,7 +328,7 @@ namespace ProjectPerseus
                     string leaveToken = AuthService.GetAuthTokenSafely();
                     if (!string.IsNullOrEmpty(leaveToken))
                     {
-                        var leaveEndpoint = $"{baseUrl.TrimEnd('/')}/../syncboat/api/source/{docGuid}/by-guid/leave/";
+                        var leaveEndpoint = $"{baseUrl.TrimEnd('/')}/../syncboat/api/v2/source/{docGuid}/leave/";
                         try
                         {
                             Utl.WebHelper.Post(leaveEndpoint, leaveToken, "{}");

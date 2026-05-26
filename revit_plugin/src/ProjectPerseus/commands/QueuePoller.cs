@@ -35,8 +35,8 @@ namespace ProjectPerseus.queue
 
             Task.Run(async () =>
             {
-                // getCurrentQueue is LOGIN_EXEMPT — no auth token needed.
-                var endpoint = $"{_config.BaseUrl.TrimEnd('/')}/../syncboat/getCurrentQueue/{currentDocGuid}/";
+                // v2 queue status is LOGIN_EXEMPT — no auth token needed.
+                var endpoint = $"{_config.BaseUrl.TrimEnd('/')}/../syncboat/api/v2/source/{currentDocGuid}/queue/";
 
                 while (!token.IsCancellationRequested)
                 {

@@ -29,12 +29,14 @@ namespace ProjectPerseus.forms
         private readonly string _url;
         private readonly IntPtr _ownerHandle;
         private readonly string _token;
+        private readonly string _tokenLoginUrl;
 
-        public QueueWebForm(string url, IntPtr ownerHandle = default, string token = null)
+        public QueueWebForm(string url, IntPtr ownerHandle = default, string token = null, string tokenLoginUrl = null)
         {
             _url = url;
             _ownerHandle = ownerHandle;
             _token = token;
+            _tokenLoginUrl = tokenLoginUrl;
 
             int screenHeight = Screen.AllScreens.Min(s => s.WorkingArea.Height);
             this.Size = new Size(500, screenHeight);
@@ -76,15 +78,14 @@ namespace ProjectPerseus.forms
 
                 _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
 
-                if (!string.IsNullOrEmpty(_token))
+                if (!string.IsNullOrEmpty(_token) && !string.IsNullOrEmpty(_tokenLoginUrl))
                 {
                     // Exchange the MSAL Bearer token for a Django session so the user doesn't
                     // need to log in a second time inside the WebView2 browser.
-                    var serverRoot = new Uri(_url).GetLeftPart(UriPartial.Authority);
                     var encodedNext = Uri.EscapeDataString(new Uri(_url).PathAndQuery);
-                    var tokenLoginUrl = $"{serverRoot}/api/token-login/?next={encodedNext}";
+                    var loginUrl = $"{_tokenLoginUrl.TrimEnd('/')}/?next={encodedNext}";
                     var resourceRequest = _webView.CoreWebView2.Environment.CreateWebResourceRequest(
-                        tokenLoginUrl, "GET", null, $"Authorization: Bearer {_token}");
+                        loginUrl, "GET", null, $"Authorization: Bearer {_token}");
                     _webView.CoreWebView2.NavigateWithWebResourceRequest(resourceRequest);
                 }
                 else
