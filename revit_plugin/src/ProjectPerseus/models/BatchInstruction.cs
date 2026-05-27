@@ -7,7 +7,7 @@ using Newtonsoft.Json.Converters;
 namespace ProjectPerseus.models
 {
     [JsonConverter(typeof(StringEnumConverter))]
-    public enum BatchExportMode { Web, File }
+    public enum BatchExportMode { Web, File, IncrementalFile }
 
     public class BatchInstruction
     {

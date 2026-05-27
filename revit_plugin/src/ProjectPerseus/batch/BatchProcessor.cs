@@ -101,11 +101,16 @@ namespace ProjectPerseus.queue
                 Utl.WriteLog($"Document opened: {doc.Title}. Running Perseus sync...");
                 var revitFacade = new revit.RevitFacade(doc);
 
-                if (_instruction.ExportMode == models.BatchExportMode.File)
+                if (_instruction.ExportMode == models.BatchExportMode.File
+                    || _instruction.ExportMode == models.BatchExportMode.IncrementalFile)
                 {
                     string outputDir = _instruction.OutputDirectory
                         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PerseusExports");
-                    Plugin.PerformFullSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
+
+                    if (_instruction.ExportMode == models.BatchExportMode.IncrementalFile)
+                        Plugin.PerformIncrementalSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
+                    else
+                        Plugin.PerformFullSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
                 }
                 else
                 {

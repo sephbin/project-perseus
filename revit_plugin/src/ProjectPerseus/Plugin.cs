@@ -696,6 +696,120 @@ namespace ProjectPerseus
             }
         }
 
+        public static void PerformIncrementalSyncToFile(RevitFacade revit, string outputDir, IList<string> categories, bool collectConnectedElements)
+        {
+            var doc = revit.Document;
+            var docGuid = ModelGuidStorage.GetOrCreate(doc);
+            string safeName = string.Concat(doc.Title.Split(Path.GetInvalidFileNameChars()));
+            string outputPath = Path.Combine(outputDir, $"{safeName}.json");
+
+            // Read the last source_state from the existing file without loading it fully
+            Guid? lastVersionGuid = ReadFirstSourceState(outputPath);
+            if (lastVersionGuid == null)
+            {
+                Utl.WriteLog($"PerformIncrementalSyncToFile: No valid previous file at {outputPath}. Falling back to full sync.");
+                PerformFullSyncToFile(revit, outputDir, categories, collectConnectedElements);
+                return;
+            }
+
+            Utl.WriteLog($"PerformIncrementalSyncToFile: Last source_state = {lastVersionGuid}");
+
+            try
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+
+                var elementChangeSet = revit.GetElementChangeSet(lastVersionGuid.Value);
+
+                if (!elementChangeSet.ContainsChanges())
+                {
+                    Utl.WriteLog("PerformIncrementalSyncToFile: No changes detected.");
+                    return;
+                }
+
+                var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, doc, docGuid);
+                if (categories != null && categories.Count > 0)
+                    elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
+
+                if (collectConnectedElements)
+                {
+                    try
+                    {
+                        HashSet<long> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
+                        var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
+                        referencedIds.ExceptWith(existingIds);
+                        if (referencedIds.Count > 0)
+                            elementDeltaList.AddRange(ElementDelta.CreateListFromIds(referencedIds, doc, docGuid));
+                        Utl.WriteLog($"PerformIncrementalSyncToFile: {referencedIds.Count} connected elements added.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Utl.WriteLog($"PerformIncrementalSyncToFile: Error collecting connected elements: {ex.Message}");
+                    }
+                }
+
+                var deletedIds = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+                var currentVersionGuid = RevitFacade.GetDocumentVersionGuid(doc);
+
+                // Payload mirrors SubmitElementDeltas so it can be replayed directly against Django
+                var payload = new
+                {
+                    documentGuid = docGuid,
+                    source_state = currentVersionGuid.ToString(),
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    revitUser = doc.Application.Username,
+                    revitAccountId = doc.Application.LoginUserId,
+                    windowsUser = Environment.UserName,
+                    machine = Environment.MachineName,
+                    elements = elementDeltaList,
+                    deletedElements = deletedIds
+                };
+
+                Directory.CreateDirectory(outputDir);
+                File.WriteAllText(outputPath, Utl.SerializeToJson(payload, null));
+
+                watch.Stop();
+                Utl.WriteLog($"PerformIncrementalSyncToFile: Wrote {elementDeltaList.Count} changed + {deletedIds.Count} deleted to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");
+            }
+            catch (Autodesk.Revit.Exceptions.ArgumentException ex) when (ex.Message.Contains("baseVersionGUID"))
+            {
+                Utl.WriteLog("PerformIncrementalSyncToFile: Local history missing. Falling back to full sync.");
+                PerformFullSyncToFile(revit, outputDir, categories, collectConnectedElements);
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"PerformIncrementalSyncToFile failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        // Stream-reads just the first "source_state" value from a Perseus JSON without loading the whole file.
+        private static Guid? ReadFirstSourceState(string filePath)
+        {
+            if (!File.Exists(filePath)) return null;
+            try
+            {
+                using (var stream = File.OpenRead(filePath))
+                using (var textReader = new System.IO.StreamReader(stream))
+                using (var jsonReader = new JsonTextReader(textReader))
+                {
+                    while (jsonReader.Read())
+                    {
+                        if (jsonReader.TokenType == JsonToken.PropertyName
+                            && string.Equals((string)jsonReader.Value, "source_state", StringComparison.Ordinal))
+                        {
+                            jsonReader.Read();
+                            var raw = jsonReader.Value?.ToString();
+                            if (Guid.TryParse(raw, out var guid)) return guid;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"ReadFirstSourceState error: {ex.Message}");
+            }
+            return null;
+        }
+
         public static void PerformIncrementalSync(RevitFacade revit)
         {
             try
