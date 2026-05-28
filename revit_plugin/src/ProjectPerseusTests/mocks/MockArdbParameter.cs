@@ -6,7 +6,8 @@ namespace ProjectPerseusTests.mocks
 {
     public class MockArdbParameter : IArdbParameter
     {
-        public String Guid { get; set;  }
+        public string Guid { get; set; }
+        public long? DefinitionId { get; set; }
         public IArdbDefinition Definition { get; set; }
         public StorageType StorageType { get; set; }
         public bool HasValue { get; }
