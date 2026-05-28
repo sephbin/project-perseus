@@ -179,6 +179,8 @@ namespace ProjectPerseus.models
         string Name { get; }
         object Value { get; }
         string ValueType { get; }
+        string Guid { get; }
+        long? DefinitionId { get; }
     }
 
     public class ParameterBase : IParameter
@@ -186,6 +188,8 @@ namespace ProjectPerseus.models
         [JsonProperty("name")] public string Name { get; protected set; }
         [JsonProperty("value")] public object Value { get; protected set; }
         [JsonProperty("value_type")] public string ValueType { get; protected set; }
+        [JsonProperty("guid")] public string Guid { get; protected set; }
+        [JsonProperty("definition_id")] public long? DefinitionId { get; protected set; }
 
         public static ParameterBase FromArdbParameter(ARDB.Category elementCategory, IArdbParameter parameter)
         {
@@ -193,6 +197,8 @@ namespace ProjectPerseus.models
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
 
             var name = CreateParameterName(parameter.Definition?.Name, elementCategory, parameter.Definition?.ParameterGroup);
+            var guid = parameter.Guid;
+            var definitionId = parameter.DefinitionId;
 
             var valueType = parameter.StorageType.ToString();
 
@@ -214,22 +220,21 @@ namespace ProjectPerseus.models
             switch (parameter.StorageType)
             {
                 case StorageType.Double:
-                    return new Parameter<double>(name, parameter.AsDouble(), valueType);
+                    return new Parameter<double>(name, parameter.AsDouble(), valueType, guid, definitionId);
                 case StorageType.ElementId:
-                    return new Parameter<long>(name, parameter.AsElementId().Value, valueType);
+                    return new Parameter<long>(name, parameter.AsElementId().Value, valueType, guid, definitionId);
                 case StorageType.Integer:
-                    return new Parameter<int>(name, parameter.AsInteger(), valueType);
+                    return new Parameter<int>(name, parameter.AsInteger(), valueType, guid, definitionId);
                 case StorageType.String:
-                    return new Parameter<string>(name, parameter.AsString(), valueType);
+                    return new Parameter<string>(name, parameter.AsString(), valueType, guid, definitionId);
 
                 case StorageType.None:
-                    // assert that the parameter.HasValue is false
                     if (parameter.HasValue && parameter.Definition != null)
                         throw new ArgumentException(
                             "Parameter has a value and a definition, but the storage type is None.");
-                    return new Parameter<string>(name, null, valueType);
+                    return new Parameter<string>(name, null, valueType, guid, definitionId);
                 case StorageType.Null:
-                    return new Parameter<string>(name, null, null);
+                    return new Parameter<string>(name, null, null, null, null);
                 default:
                     throw new ArgumentOutOfRangeException();
             }
@@ -247,12 +252,13 @@ namespace ProjectPerseus.models
 
     public class Parameter<T> : ParameterBase
     {
-        public Parameter(string name, T value, string valueType)
+        public Parameter(string name, T value, string valueType, string guid = null, long? definitionId = null)
         {
             Name = name;
             Value = value;
-
             ValueType = valueType;
+            Guid = guid;
+            DefinitionId = definitionId;
         }
     }
 }

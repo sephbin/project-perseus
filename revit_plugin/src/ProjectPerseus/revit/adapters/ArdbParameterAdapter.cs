@@ -13,7 +13,21 @@ namespace ProjectPerseus.revit.adapters
             _parameter = parameter ?? throw new ArgumentNullException(nameof(parameter));
         }
         
-        public String Guid => _parameter.GUID.ToString(); // FIXME: this breaks - not everything is a shared param
+        public string Guid => _parameter.IsShared ? _parameter.GUID.ToString() : null;
+
+        public long? DefinitionId
+        {
+            get
+            {
+                if (_parameter.IsShared) return null;
+                try
+                {
+                    var id = (_parameter.Definition as ARDB.InternalDefinition)?.Id;
+                    return id?.GetIdValue();
+                }
+                catch { return null; }
+            }
+        }
         public IArdbDefinition Definition => _parameter.Definition == null ? null : new ArdbDefinitionAdapter(_parameter.Definition);
         public StorageType StorageType
         {
