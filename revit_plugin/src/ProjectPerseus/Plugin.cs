@@ -554,7 +554,7 @@ namespace ProjectPerseus
                     Utl.WriteLog("Harvesting Categories...");
                     var categoryDeltas = new List<ElementDelta>();
 
-                    foreach (Category cat in GetAllCategories(revit.Document.Settings.Categories))
+                    foreach (Category cat in GetAllCategories(revit.Document))
                     {
                         // Optional: Filter out weird categories if you want
                         // if (cat.CategoryType == CategoryType.Invalid) continue;
@@ -653,7 +653,7 @@ namespace ProjectPerseus
 
                 try
                 {
-                    foreach (Category cat in GetAllCategories(doc.Settings.Categories))
+                    foreach (Category cat in GetAllCategories(doc))
                     {
                         var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
                         elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, doc, docGuid));
@@ -896,13 +896,30 @@ namespace ProjectPerseus
             }
         }
 
-        private static IEnumerable<Category> GetAllCategories(CategoryNameMap categories)
+        private static IEnumerable<Category> GetAllCategories(Document doc)
         {
-            foreach (Category cat in categories)
-            {
+            var seen = new HashSet<ElementId>();
+
+            foreach (var cat in WalkCategoryMap(doc.Settings.Categories, seen))
                 yield return cat;
+
+            foreach (BuiltInCategory bic in Enum.GetValues(typeof(BuiltInCategory)))
+            {
+                Category cat = null;
+                try { cat = Category.GetCategory(doc, bic); } catch { }
+                if (cat != null && seen.Add(cat.Id))
+                    yield return cat;
+            }
+        }
+
+        private static IEnumerable<Category> WalkCategoryMap(CategoryNameMap map, HashSet<ElementId> seen)
+        {
+            foreach (Category cat in map)
+            {
+                if (seen.Add(cat.Id))
+                    yield return cat;
                 if (cat.SubCategories != null && cat.SubCategories.Size > 0)
-                    foreach (var sub in GetAllCategories(cat.SubCategories))
+                    foreach (var sub in WalkCategoryMap(cat.SubCategories, seen))
                         yield return sub;
             }
         }
