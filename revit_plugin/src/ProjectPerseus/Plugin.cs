@@ -918,8 +918,15 @@ namespace ProjectPerseus
                     yield return cat;
             }
 
-            // Pass 3: element scan to catch internal categories with no BuiltInCategory enum entry
+            // Pass 3: scan instances then types — catches internal categories with no BuiltInCategory enum entry,
+            // including type-only categories (Cover Type, Mass sub-types, Location Data, etc.)
             foreach (Autodesk.Revit.DB.Element elem in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+            {
+                var cat = elem.Category;
+                if (cat != null && seen.Add(cat.Id))
+                    yield return cat;
+            }
+            foreach (Autodesk.Revit.DB.Element elem in new FilteredElementCollector(doc).WhereElementIsElementType())
             {
                 var cat = elem.Category;
                 if (cat != null && seen.Add(cat.Id))
