@@ -900,13 +900,23 @@ namespace ProjectPerseus
         {
             var seen = new HashSet<ElementId>();
 
+            // Pass 1: standard category tree + all sub-categories
             foreach (var cat in WalkCategoryMap(doc.Settings.Categories, seen))
                 yield return cat;
 
+            // Pass 2: named BuiltInCategory enum members (annotation, analytical, etc.)
             foreach (BuiltInCategory bic in Enum.GetValues(typeof(BuiltInCategory)))
             {
                 Category cat = null;
                 try { cat = Category.GetCategory(doc, bic); } catch { }
+                if (cat != null && seen.Add(cat.Id))
+                    yield return cat;
+            }
+
+            // Pass 3: element scan to catch internal categories with no BuiltInCategory enum entry
+            foreach (Autodesk.Revit.DB.Element elem in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+            {
+                var cat = elem.Category;
                 if (cat != null && seen.Add(cat.Id))
                     yield return cat;
             }
