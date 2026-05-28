@@ -775,6 +775,11 @@ namespace ProjectPerseus
                 Utl.WriteLog("PerformIncrementalSyncToFile: Local history missing. Falling back to full sync.");
                 PerformFullSyncToFile(revit, outputDir, categories, collectConnectedElements);
             }
+            catch (TypeLoadException ex)
+            {
+                Utl.WriteLog($"PerformIncrementalSyncToFile: Revit API type unavailable on this Revit version ({ex.TypeName}). Falling back to full sync.");
+                PerformFullSyncToFile(revit, outputDir, categories, collectConnectedElements);
+            }
             catch (Exception ex)
             {
                 Utl.WriteLog($"PerformIncrementalSyncToFile failed: {ex.Message}\n{ex.StackTrace}");
