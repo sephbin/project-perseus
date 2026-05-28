@@ -554,7 +554,7 @@ namespace ProjectPerseus
                     Utl.WriteLog("Harvesting Categories...");
                     var categoryDeltas = new List<ElementDelta>();
 
-                    foreach (Category cat in revit.Document.Settings.Categories)
+                    foreach (Category cat in GetAllCategories(revit.Document.Settings.Categories))
                     {
                         // Optional: Filter out weird categories if you want
                         // if (cat.CategoryType == CategoryType.Invalid) continue;
@@ -653,7 +653,7 @@ namespace ProjectPerseus
 
                 try
                 {
-                    foreach (Category cat in doc.Settings.Categories)
+                    foreach (Category cat in GetAllCategories(doc.Settings.Categories))
                     {
                         var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
                         elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, doc, docGuid));
@@ -893,6 +893,17 @@ namespace ProjectPerseus
                 // Catch any other actual errors for the entire incremental process
                 Utl.WriteLog($"PerformIncrementalSync critically failed: {ex.Message}\n{ex.StackTrace}");
                 throw;
+            }
+        }
+
+        private static IEnumerable<Category> GetAllCategories(CategoryNameMap categories)
+        {
+            foreach (Category cat in categories)
+            {
+                yield return cat;
+                if (cat.SubCategories != null && cat.SubCategories.Size > 0)
+                    foreach (var sub in GetAllCategories(cat.SubCategories))
+                        yield return sub;
             }
         }
 
