@@ -37,7 +37,7 @@ def collect(deltas):
         user = element.get("last_edited_by") or "(unknown)"
         counts[user] += 1
         if counts[user] <= ELEMENT_LIST_THRESHOLD:
-            element_ids[user].append(uid)
+            element_ids[user].append(element.get("element_id"))
 
     return counts, element_ids
 
