@@ -18,12 +18,29 @@ from datetime import datetime, timezone
 import pandas as pd
 
 
+# Revit internal units are decimal feet. 1e-5 ft ≈ 3 micrometres — generous enough
+# to absorb JSON float serialisation noise and Revit's tessellation jitter while
+# still catching any real geometric movement.
+_GEOM_ABS_TOL = 1e-5
+_GEOM_REL_TOL = 1e-6
+
+
 def values_equal(a, b):
     """Exact equality for non-numerics; tolerant float comparison for numbers."""
     if a == b:
         return True
     try:
         return math.isclose(float(a), float(b), rel_tol=1e-6, abs_tol=1e-9)
+    except (TypeError, ValueError):
+        return False
+
+
+def geom_floats_equal(a, b):
+    """Float comparison tuned for Revit coordinate noise (feet, internal units)."""
+    if a == b:
+        return True
+    try:
+        return math.isclose(float(a), float(b), rel_tol=_GEOM_REL_TOL, abs_tol=_GEOM_ABS_TOL)
     except (TypeError, ValueError):
         return False
 
@@ -63,7 +80,7 @@ def geometry_map(element):
 
 
 def coords_equal(a, b):
-    """Recursively compare coordinate arrays with float tolerance."""
+    """Recursively compare coordinate arrays with geometry-appropriate float tolerance."""
     if a is None and b is None:
         return True
     if a is None or b is None:
@@ -72,7 +89,7 @@ def coords_equal(a, b):
         if len(a) != len(b):
             return False
         return all(coords_equal(x, y) for x, y in zip(a, b))
-    return values_equal(a, b)
+    return geom_floats_equal(a, b)
 
 
 def geometries_equal(a, b):
@@ -84,7 +101,7 @@ def geometries_equal(a, b):
         return False
     if not coords_equal(a.get("coordinates"), b.get("coordinates")):
         return False
-    if not values_equal(a.get("rotation"), b.get("rotation")):
+    if not geom_floats_equal(a.get("rotation"), b.get("rotation")):
         return False
     return True
 
