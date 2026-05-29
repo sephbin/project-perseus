@@ -8,6 +8,7 @@ Usage:
     python analyze_export.py <export.json>          # prints to console only
 """
 
+import argparse
 import json
 import sys
 from collections import defaultdict
@@ -93,10 +94,14 @@ def analyze(filepath, output_path=None):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        src = input("Export JSON path: ").strip()
-        out = input("Output JSON path (leave blank to skip): ").strip() or None
-    else:
-        src = sys.argv[1]
-        out = sys.argv[2] if len(sys.argv) > 2 else None
-    analyze(src, out)
+    parser = argparse.ArgumentParser(
+        description="Analyze a Perseus full/incremental JSON export.",
+        epilog=(
+            "Outputs unique key paths, leaf key names, and parameter name→value_type mappings. "
+            "Useful for inspecting the schema of an export before diffing or importing."
+        ),
+    )
+    parser.add_argument("export", help="Export JSON file to analyze")
+    parser.add_argument("output", nargs="?", default=None, help="Output JSON report path (optional)")
+    args = parser.parse_args()
+    analyze(args.export, args.output)

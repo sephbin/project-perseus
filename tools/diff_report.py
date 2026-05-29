@@ -10,6 +10,7 @@ Usage:
     python diff_report.py <old.json> <new.json> [output.json]
 """
 
+import argparse
 import json
 import math
 import sys
@@ -271,12 +272,18 @@ def report(path_a, path_b, output_path=None):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        a   = input("File A (older): ").strip()
-        b   = input("File B (newer): ").strip()
-        out = input("Output JSON path (leave blank to skip): ").strip() or None
-    else:
-        a   = sys.argv[1]
-        b   = sys.argv[2]
-        out = sys.argv[3] if len(sys.argv) > 3 else None
-    report(a, b, out)
+    parser = argparse.ArgumentParser(
+        description="Compare two Perseus full-sync JSON exports and report element changes.",
+        epilog=(
+            "Changes are reported as added, removed, or modified. "
+            "Geometry changes appear alongside parameter changes in the modified list, "
+            "distinguished by param_id_type='geometry'. "
+            "Best used with two full-sync exports — absent elements in incremental exports "
+            "mean 'unchanged', not 'deleted'."
+        ),
+    )
+    parser.add_argument("file_a", help="Older export JSON")
+    parser.add_argument("file_b", help="Newer export JSON")
+    parser.add_argument("output", nargs="?", default=None, help="Output JSON report path (optional)")
+    args = parser.parse_args()
+    report(args.file_a, args.file_b, args.output)

@@ -7,6 +7,7 @@ Usage:
     python category_report.py <export.json> [output.json]
 """
 
+import argparse
 import json
 import sys
 from collections import defaultdict
@@ -92,10 +93,14 @@ def report(filepath, output_path=None):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        src = input("Export JSON path: ").strip()
-        out = input("Output JSON path (leave blank to skip): ").strip() or None
-    else:
-        src = sys.argv[1]
-        out = sys.argv[2] if len(sys.argv) > 2 else None
-    report(src, out)
+    parser = argparse.ArgumentParser(
+        description="Group elements in a Perseus export by category and count them.",
+        epilog=(
+            "Category ElementIds are resolved from the CATEGORY- delta entries in the export. "
+            "Elements whose category ID cannot be resolved are listed separately."
+        ),
+    )
+    parser.add_argument("export", help="Export JSON file to analyze")
+    parser.add_argument("output", nargs="?", default=None, help="Output JSON report path (optional)")
+    args = parser.parse_args()
+    report(args.export, args.output)
