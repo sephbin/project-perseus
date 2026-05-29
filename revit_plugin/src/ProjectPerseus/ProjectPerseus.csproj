@@ -257,6 +257,8 @@
     <Compile Include="models\BatchInstruction.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="models\ElementDelta.cs" />
+    <Compile Include="models\geometry\GeoJsonGeometry.cs" />
+    <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
     <Compile Include="Commands.cs" />
     <Compile Include="models\SyncQueueResponse.cs" />
     <Compile Include="Plugin.cs" />

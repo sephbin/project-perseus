@@ -4,6 +4,7 @@ using System.Linq;
 using Newtonsoft.Json;
 using ProjectPerseus.revit.interfaces;
 using ProjectPerseus.revit;
+using ProjectPerseus.models.geometry;
 using ARDB = Autodesk.Revit.DB;
 
 using ProjectPerseus;
@@ -45,6 +46,9 @@ namespace ProjectPerseus.models
         public string SourceModel => _docGuid; //ModelGuidStorage.GetOrCreate(_doc);
 
         [JsonProperty("source_state")] public string SourceState => RevitFacade.GetDocumentVersionGuid(_doc).ToString();
+
+        [JsonProperty("geometries", NullValueHandling = NullValueHandling.Ignore)]
+        public List<NamedGeometry> Geometries => GetGeometries();
 
 
 
@@ -94,6 +98,21 @@ namespace ProjectPerseus.models
             // 5. If Revit genuinely has no history for this element, return null 
             return null;
         }
+        private List<NamedGeometry> GetGeometries()
+        {
+            try
+            {
+                var rawId = RevitExtensions.CreateId(_element.Id.Value);
+                var rawElem = _doc.GetElement(rawId);
+                return ElementGeometryExtractor.Extract(rawElem);
+            }
+            catch (Exception ex)
+            {
+                Utl.WriteLog($"Element.GetGeometries [{_element.Id.Value}]: {ex.Message}");
+                return null;
+            }
+        }
+
         private List<IParameter> GetParameters()
         {
             // Key = (name, definitionId) so same-name built-in params with different
@@ -137,6 +156,9 @@ namespace ProjectPerseus.models
 
                 if (rawElem is ARDB.FamilyInstance fi)
                 {
+                    if (fi.Host != null)
+                        paramDict[("Host Id", null)] = new Parameter<long>("Host Id", fi.Host.Id.GetIdValue(), "ElementId", null, "synthetic");
+
                     if (fi.FromRoom != null)
                         paramDict[("From Room", null)] = new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic");
 
