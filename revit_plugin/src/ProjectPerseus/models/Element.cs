@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
 using ProjectPerseus.revit.interfaces;
 using ProjectPerseus.revit;
@@ -95,9 +96,10 @@ namespace ProjectPerseus.models
         }
         private List<IParameter> GetParameters()
         {
-            // Use a Dictionary to enforce Unique Names
-            // Key = Parameter Name, Value = The Parameter Object
-            var paramDict = new Dictionary<string, IParameter>();
+            // Key = (name, definitionId) so same-name built-in params with different
+            // BuiltInParameter enum values are kept as distinct entries rather than
+            // non-deterministically collapsing into one.
+            var paramDict = new Dictionary<(string, string), IParameter>();
 
             foreach (var param in _element.ParametersSet)
             {
@@ -108,23 +110,18 @@ namespace ProjectPerseus.models
 
                     if (string.IsNullOrEmpty(pName)) continue;
 
-                    // If this is a NEW parameter name, just add it.
-                    if (!paramDict.ContainsKey(pName))
+                    var key = (pName, newParam.ParamId);
+
+                    if (!paramDict.ContainsKey(key))
                     {
-                        paramDict.Add(pName, newParam);
+                        paramDict.Add(key, newParam);
                     }
-                    // If we have a COLLISION (Duplicate Name), decide which one to keep.
                     else
                     {
-                        var existingParam = paramDict[pName];
-
-                        // LOGIC: Prefer ElementId (The Link) over String (The Text)
-                        // If the NEW one is an Int/ElementId and the OLD one is a String, overwrite it.
+                        var existingParam = paramDict[key];
+                        // Prefer ElementId over String for exact-key collisions
                         if (newParam.ValueType.Contains("ElementId") && existingParam.ValueType.Contains("String"))
-                        {
-                            paramDict[pName] = newParam;
-                        }
-                        // (Otherwise, keep the existing one)
+                            paramDict[key] = newParam;
                     }
                 }
                 catch (Exception ex)
@@ -132,35 +129,22 @@ namespace ProjectPerseus.models
                     Utl.WriteLog($"Element.GetParameters: {ex.Message}");
                 }
             }
+
             try
             {
-                // We need the raw native element to access .ToRoom / .FromRoom properties
                 var rawId = RevitExtensions.CreateId(_element.Id.Value);
                 var rawElem = _doc.GetElement(rawId);
 
                 if (rawElem is ARDB.FamilyInstance fi)
                 {
-                    // --- Inject "From Room" ---
                     if (fi.FromRoom != null)
-                    {
-                        var p = new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId");
-                        paramDict["From Room"] = p;
-                    }
+                        paramDict[("From Room", null)] = new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic");
 
-                    // --- Inject "To Room" ---
                     if (fi.ToRoom != null)
-                    {
-                        var p = new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId");
-                        paramDict["To Room"] = p;
-                    }
+                        paramDict[("To Room", null)] = new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId", null, "synthetic");
 
-                    // --- Inject "Room" (General placement for Furniture etc) ---
-                    // Note: fi.Room is phase-dependent. If null, we skip.
-                    if (fi.Room != null)
-                    {
-                        var p = new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId");
-                        if (!paramDict.ContainsKey("Room")) paramDict["Room"] = p;
-                    }
+                    if (fi.Room != null && !paramDict.ContainsKey(("Room", null)))
+                        paramDict[("Room", null)] = new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic");
                 }
             }
             catch
@@ -169,8 +153,17 @@ namespace ProjectPerseus.models
                 // FamilyInstances not present in the active phase — skip silently.
             }
 
-            // Convert the Dictionary values back to a List
-            return new List<IParameter>(paramDict.Values);
+            // For each group of same-name params, drop null-valued entries when any
+            // valued alternative exists — eliminates the None vs value false-change
+            // caused by duplicate built-in params (e.g. two "Category" params).
+            return paramDict.Values
+                .GroupBy(p => p.Name)
+                .SelectMany(g =>
+                {
+                    var valued = g.Where(p => p.Value != null).ToList();
+                    return valued.Count > 0 ? valued : g.ToList();
+                })
+                .ToList();
         }
     }
 
@@ -179,8 +172,8 @@ namespace ProjectPerseus.models
         string Name { get; }
         object Value { get; }
         string ValueType { get; }
-        string Guid { get; }
-        long? DefinitionId { get; }
+        string ParamId { get; }
+        string ParamIdType { get; }
     }
 
     public class ParameterBase : IParameter
@@ -188,8 +181,8 @@ namespace ProjectPerseus.models
         [JsonProperty("name")] public string Name { get; protected set; }
         [JsonProperty("value")] public object Value { get; protected set; }
         [JsonProperty("value_type")] public string ValueType { get; protected set; }
-        [JsonProperty("guid")] public string Guid { get; protected set; }
-        [JsonProperty("definition_id")] public long? DefinitionId { get; protected set; }
+        [JsonProperty("param_id")] public string ParamId { get; protected set; }
+        [JsonProperty("param_id_type")] public string ParamIdType { get; protected set; }
 
         public static ParameterBase FromArdbParameter(ARDB.Category elementCategory, IArdbParameter parameter)
         {
@@ -197,8 +190,24 @@ namespace ProjectPerseus.models
             if (parameter is null) throw new ArgumentNullException(nameof(parameter));
 
             var name = CreateParameterName(parameter.Definition?.Name, elementCategory, parameter.Definition?.ParameterGroup);
-            var guid = parameter.Guid;
-            var definitionId = parameter.DefinitionId;
+
+            string paramId;
+            string paramIdType;
+            if (parameter.Guid != null)
+            {
+                paramId = parameter.Guid;
+                paramIdType = "shared";
+            }
+            else if (parameter.DefinitionId.HasValue)
+            {
+                paramId = parameter.DefinitionId.Value.ToString();
+                paramIdType = parameter.DefinitionId.Value < 0 ? "builtin" : "project";
+            }
+            else
+            {
+                paramId = null;
+                paramIdType = "synthetic";
+            }
 
             var valueType = parameter.StorageType.ToString();
 
@@ -220,21 +229,21 @@ namespace ProjectPerseus.models
             switch (parameter.StorageType)
             {
                 case StorageType.Double:
-                    return new Parameter<double>(name, parameter.AsDouble(), valueType, guid, definitionId);
+                    return new Parameter<double>(name, parameter.AsDouble(), valueType, paramId, paramIdType);
                 case StorageType.ElementId:
-                    return new Parameter<long>(name, parameter.AsElementId().Value, valueType, guid, definitionId);
+                    return new Parameter<long>(name, parameter.AsElementId().Value, valueType, paramId, paramIdType);
                 case StorageType.Integer:
-                    return new Parameter<int>(name, parameter.AsInteger(), valueType, guid, definitionId);
+                    return new Parameter<int>(name, parameter.AsInteger(), valueType, paramId, paramIdType);
                 case StorageType.String:
-                    return new Parameter<string>(name, parameter.AsString(), valueType, guid, definitionId);
+                    return new Parameter<string>(name, parameter.AsString(), valueType, paramId, paramIdType);
 
                 case StorageType.None:
                     if (parameter.HasValue && parameter.Definition != null)
                         throw new ArgumentException(
                             "Parameter has a value and a definition, but the storage type is None.");
-                    return new Parameter<string>(name, null, valueType, guid, definitionId);
+                    return new Parameter<string>(name, null, valueType, paramId, paramIdType);
                 case StorageType.Null:
-                    return new Parameter<string>(name, null, null, null, null);
+                    return new Parameter<string>(name, null, null, null, "synthetic");
                 default:
                     throw new ArgumentOutOfRangeException();
             }
@@ -252,13 +261,13 @@ namespace ProjectPerseus.models
 
     public class Parameter<T> : ParameterBase
     {
-        public Parameter(string name, T value, string valueType, string guid = null, long? definitionId = null)
+        public Parameter(string name, T value, string valueType, string paramId = null, string paramIdType = "synthetic")
         {
             Name = name;
             Value = value;
             ValueType = valueType;
-            Guid = guid;
-            DefinitionId = definitionId;
+            ParamId = paramId;
+            ParamIdType = paramIdType;
         }
     }
 }

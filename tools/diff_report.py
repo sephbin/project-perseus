@@ -45,11 +45,7 @@ def param_map(element):
     for p in element.get("parameters", []):
         name = p.get("name")
         if name:
-            # Key on (name, guid, definition_id) so same-name params with different
-            # identifiers are not collapsed into each other
-            guid = p.get("guid")
-            def_id = p.get("definition_id")
-            key = (name, guid, def_id)
+            key = (name, p.get("param_id"))
             result[key] = p.get("value")
     return result
 
@@ -71,8 +67,8 @@ def diff(old, new):
         if old_elem.get("name") != new_elem.get("name"):
             changes.append({
                 "parameter":    "(name)",
-                "guid":         None,
-                "definition_id": None,
+                "param_id":     None,
+                "param_id_type": "synthetic",
                 "old_value":    old_elem.get("name"),
                 "new_value":    new_elem.get("name"),
             })
@@ -81,11 +77,17 @@ def diff(old, new):
             ov = old_params.get(key)
             nv = new_params.get(key)
             if not values_equal(ov, nv):
-                param_name, guid, def_id = key
+                param_name, param_id = key
+                # Recover param_id_type from whichever export has this param
+                sample = next(
+                    (p for p in (old_elem.get("parameters", []) + new_elem.get("parameters", []))
+                     if p.get("name") == param_name and p.get("param_id") == param_id),
+                    {}
+                )
                 changes.append({
                     "parameter":     param_name,
-                    "guid":          guid,
-                    "definition_id": def_id,
+                    "param_id":      param_id,
+                    "param_id_type": sample.get("param_id_type"),
                     "old_value":     ov,
                     "new_value":     nv,
                 })
