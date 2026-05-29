@@ -41,21 +41,30 @@ namespace ProjectPerseus.models.geometry
     }
 
     // Non-standard extension — see GEOJSON_REVIT_AUGMENTATION.md
-    public class RevitLocationPoint : GeoJsonGeometry
+    // Encodes a full Revit placement transform (origin + 3 orthogonal basis vectors).
+    // Handles face-hosted elements on non-horizontal planes correctly, unlike a point+rotation.
+    public class RevitTransform : GeoJsonGeometry
     {
-        public override string Type => "RevitLocationPoint";
+        public override string Type => "RevitTransform";
 
-        [JsonProperty("coordinates")]
-        public double[] Coordinates { get; }
+        [JsonProperty("origin")]
+        public double[] Origin { get; }
 
-        // Rotation in radians, counter-clockwise from the project X-axis in the horizontal plane.
-        [JsonProperty("rotation")]
-        public double Rotation { get; }
+        [JsonProperty("basis_x")]
+        public double[] BasisX { get; }
 
-        public RevitLocationPoint(double x, double y, double z, double rotation)
+        [JsonProperty("basis_y")]
+        public double[] BasisY { get; }
+
+        [JsonProperty("basis_z")]
+        public double[] BasisZ { get; }
+
+        public RevitTransform(double[] origin, double[] basisX, double[] basisY, double[] basisZ)
         {
-            Coordinates = new[] { x, y, z };
-            Rotation = rotation;
+            Origin = origin;
+            BasisX = basisX;
+            BasisY = basisY;
+            BasisZ = basisZ;
         }
     }
 

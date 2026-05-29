@@ -31,13 +31,35 @@ namespace ProjectPerseus.models.geometry
 
             if (location is ARDB.LocationPoint lp)
             {
-                var pt = lp.Point;
-                double rotation = 0;
-                try { rotation = lp.Rotation; } catch { }
+                GeoJsonGeometry geom;
 
-                GeoJsonGeometry geom = Math.Abs(rotation) > 1e-9
-                    ? (GeoJsonGeometry)new RevitLocationPoint(pt.X, pt.Y, pt.Z, rotation)
-                    : new GeoJsonPoint(pt.X, pt.Y, pt.Z);
+                if (element is ARDB.FamilyInstance fi)
+                {
+                    // GetTotalTransform includes host-face orientation, so face-hosted
+                    // elements on sloped walls/ceilings get correct basis vectors.
+                    var t = fi.GetTotalTransform();
+                    geom = new RevitTransform(
+                        new[] { t.Origin.X, t.Origin.Y, t.Origin.Z },
+                        new[] { t.BasisX.X, t.BasisX.Y, t.BasisX.Z },
+                        new[] { t.BasisY.X, t.BasisY.Y, t.BasisY.Z },
+                        new[] { t.BasisZ.X, t.BasisZ.Y, t.BasisZ.Z }
+                    );
+                }
+                else
+                {
+                    // Non-FamilyInstance point elements only have a Z-axis rotation.
+                    // Construct an explicit matrix so the representation is consistent.
+                    var pt = lp.Point;
+                    double rot = 0;
+                    try { rot = lp.Rotation; } catch { }
+                    double cos = Math.Cos(rot), sin = Math.Sin(rot);
+                    geom = new RevitTransform(
+                        new[] { pt.X, pt.Y, pt.Z },
+                        new[] { cos, sin, 0.0 },
+                        new[] { -sin, cos, 0.0 },
+                        new[] { 0.0, 0.0, 1.0 }
+                    );
+                }
 
                 results.Add(new NamedGeometry("location_point", geom));
             }

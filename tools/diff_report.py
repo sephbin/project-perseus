@@ -99,11 +99,12 @@ def geometries_equal(a, b):
         return False
     if a.get("type") != b.get("type"):
         return False
-    if not coords_equal(a.get("coordinates"), b.get("coordinates")):
-        return False
-    if not geom_floats_equal(a.get("rotation"), b.get("rotation")):
-        return False
-    return True
+    if a.get("type") == "RevitTransform":
+        return all(
+            coords_equal(a.get(f), b.get(f))
+            for f in ("origin", "basis_x", "basis_y", "basis_z")
+        )
+    return coords_equal(a.get("coordinates"), b.get("coordinates"))
 
 
 def geometry_summary(geom):
@@ -114,9 +115,12 @@ def geometry_summary(geom):
     coords = geom.get("coordinates")
     if gtype == "Point" and coords:
         return f"Point({coords[0]:.3f}, {coords[1]:.3f}, {coords[2]:.3f})"
-    if gtype == "RevitLocationPoint" and coords:
-        rot = geom.get("rotation", 0)
-        return f"RevitPoint({coords[0]:.3f}, {coords[1]:.3f}, {coords[2]:.3f}, rot={rot:.4f}rad)"
+    if gtype == "RevitTransform":
+        o = geom.get("origin") or []
+        bz = geom.get("basis_z") or []
+        origin_str = f"({o[0]:.3f}, {o[1]:.3f}, {o[2]:.3f})" if len(o) == 3 else "?"
+        normal_str = f"({bz[0]:.3f}, {bz[1]:.3f}, {bz[2]:.3f})" if len(bz) == 3 else "?"
+        return f"RevitTransform(origin={origin_str}, normal={normal_str})"
     if gtype == "LineString" and coords:
         return f"LineString({len(coords)} pts)"
     if gtype == "Polygon" and coords:

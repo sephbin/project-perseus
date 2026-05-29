@@ -20,7 +20,7 @@ These follow RFC 7946 exactly and can be consumed by any compliant GeoJSON parse
 
 | type | geometry_type label | Description |
 |---|---|---|
-| `Point` | `location_point` | Placed location of an element with no rotation (or zero rotation). Coordinates are `[x, y, z]`. |
+| `Point` | *(unused — see RevitTransform)* | Standard GeoJSON point. Not currently emitted for location_point; all placed elements use RevitTransform. |
 | `LineString` | `location_curve` | Location curve of a linear element (wall, beam, pipe, etc.). Arcs and splines are tessellated to a polyline. |
 | `Polygon` | `room_boundary` | Room boundary loops. First ring is the exterior; subsequent rings are holes. Arcs tessellated to line segments. |
 
@@ -30,24 +30,39 @@ These follow RFC 7946 exactly and can be consumed by any compliant GeoJSON parse
 
 These use a custom `type` string that is not in RFC 7946. A consuming application must detect and handle them explicitly.
 
-### `RevitLocationPoint`
+### `RevitTransform`
 
-Used for point-placed elements that have a meaningful facing direction (e.g. doors, windows, equipment). Identical to a GeoJSON `Point` with one extra field.
+Used for all point-placed elements (doors, windows, equipment, columns, etc.). Encodes the full placement as an origin point plus three orthogonal basis vectors — equivalent to a 4×4 affine transformation matrix with no scale.
+
+A simple point + Z-rotation is insufficient for elements hosted on non-horizontal faces (e.g. a window in a sloped wall, a light fixture on a raked ceiling). `RevitTransform` is derived from `FamilyInstance.GetTotalTransform()` for family instances, and constructed from `LocationPoint` + rotation for non-family elements.
 
 ```json
 {
-  "type": "RevitLocationPoint",
-  "coordinates": [x, y, z],
-  "rotation": 1.5707963
+  "type": "RevitTransform",
+  "origin":  [x, y, z],
+  "basis_x": [dx, dy, dz],
+  "basis_y": [dx, dy, dz],
+  "basis_z": [dx, dy, dz]
 }
 ```
 
 | field | type | description |
 |---|---|---|
-| `coordinates` | `[float, float, float]` | `[x, y, z]` in Revit internal feet, project CRS |
-| `rotation` | `float` | Rotation in **radians**, counter-clockwise from the project X-axis in the horizontal plane |
+| `origin` | `[float, float, float]` | Position in Revit internal feet, project CRS |
+| `basis_x` | `[float, float, float]` | Element's local X axis (facing/hand direction), unit vector |
+| `basis_y` | `[float, float, float]` | Element's local Y axis, unit vector |
+| `basis_z` | `[float, float, float]` | Element's local Z axis / face normal, unit vector |
 
-**GeoDjango handling:** Deserialise `coordinates` as a `PointField`. Store `rotation` as a separate `FloatField` on the model. Do not pass to PostGIS directly — strip the non-standard fields first.
+The three basis vectors are mutually orthogonal unit vectors forming a right-handed coordinate system. To reconstruct a 4×4 column-major matrix (e.g. for WebGL / Three.js):
+
+```
+| basis_x[0]  basis_y[0]  basis_z[0]  origin[0] |
+| basis_x[1]  basis_y[1]  basis_z[1]  origin[1] |
+| basis_x[2]  basis_y[2]  basis_z[2]  origin[2] |
+| 0           0           0           1         |
+```
+
+**GeoDjango handling:** Deserialise `origin` as a `PointField` (3D). Store `basis_x`, `basis_y`, `basis_z` as three `ArrayField(FloatField(), size=3)` columns on the model. Do not pass the full object to PostGIS directly — extract `origin` first.
 
 ---
 
@@ -62,9 +77,11 @@ Each element in the Perseus payload may include a `geometries` array. If the ele
     {
       "geometry_type": "location_point",
       "geometry": {
-        "type": "RevitLocationPoint",
-        "coordinates": [10.5, 22.3, 0.0],
-        "rotation": 0.7854
+        "type": "RevitTransform",
+        "origin":  [10.5, 22.3, 0.0],
+        "basis_x": [0.707, 0.707, 0.0],
+        "basis_y": [-0.707, 0.707, 0.0],
+        "basis_z": [0.0, 0.0, 1.0]
       }
     },
     {
@@ -84,7 +101,7 @@ Each element in the Perseus payload may include a `geometries` array. If the ele
 
 | value | standard? | description |
 |---|---|---|
-| `location_point` | yes (if `type=Point`) / no (if `type=RevitLocationPoint`) | Element's placed point. Standard Point when rotation=0, RevitLocationPoint otherwise. |
+| `location_point` | no | Element's placed point and orientation. Always `type=RevitTransform`. |
 | `location_curve` | yes | Element's linear extent. Always a `LineString`. |
 | `room_boundary` | yes | Room boundary polygon. Always a `Polygon`. First ring = exterior boundary, additional rings = holes/voids. |
 
