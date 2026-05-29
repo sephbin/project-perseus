@@ -29,6 +29,10 @@ namespace ProjectPerseus.auth
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "ProjectPerseus", "jwt_refresh.bin");
 
+        private static readonly string _patPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "ProjectPerseus", "pat.bin");
+
         // ── Shared state ─────────────────────────────────────────────────
         private static string _authType = "None";
         private static bool _isInitialized = false;
@@ -95,6 +99,12 @@ namespace ProjectPerseus.auth
         // ─────────────────────────────────────────────────────────────────
         public static async Task<string> GetTokenAsync()
         {
+            // Personal API token takes priority over all server-driven auth modes.
+            // Allows headless/batch use without interactive OAuth prompts.
+            string pat = LoadPersonalApiToken();
+            if (!string.IsNullOrEmpty(pat))
+                return pat;
+
             if (!_isInitialized)
                 await InitializeAsync();
 
@@ -198,6 +208,52 @@ namespace ProjectPerseus.auth
             }
         }
 
+        // ─────────────────────────────────────────────────────────────────
+        // Returns "Token" when a PAT is stored (Django TokenAuthentication),
+        // "Bearer" for all OAuth2/JWT/sandbox flows.
+        // Use alongside GetAuthTokenSafely() to build the Authorization header.
+        // ─────────────────────────────────────────────────────────────────
+        public static string GetAuthSchemeSafely()
+        {
+            return HasPersonalApiToken() ? "Token" : "Bearer";
+        }
+
+        // ── Personal API Token management ────────────────────────────────
+
+        public static void StorePersonalApiToken(string token)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_patPath));
+                var encrypted = ProtectedData.Protect(
+                    Encoding.UTF8.GetBytes(token), null,
+                    DataProtectionScope.CurrentUser);
+                File.WriteAllBytes(_patPath, encrypted);
+                Utl.WriteLog("Personal API token stored (DPAPI-encrypted).");
+            }
+            catch (Exception ex) { Utl.WriteLog($"Failed to store PAT: {ex.Message}"); }
+        }
+
+        public static bool HasPersonalApiToken() => File.Exists(_patPath);
+
+        public static void ClearPersonalApiToken()
+        {
+            try { if (File.Exists(_patPath)) File.Delete(_patPath); }
+            catch (Exception ex) { Utl.WriteLog($"Failed to clear PAT: {ex.Message}"); }
+        }
+
+        private static string LoadPersonalApiToken()
+        {
+            try
+            {
+                if (!File.Exists(_patPath)) return null;
+                var encrypted = File.ReadAllBytes(_patPath);
+                var bytes = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch { return null; }
+        }
+
         public static void Reset()
         {
             _msalApp = null;
@@ -206,6 +262,7 @@ namespace ProjectPerseus.auth
             _jwtTokenEndpoint = null;
             _jwtAccessToken = null;
             _jwtAccessTokenExpiry = DateTime.MinValue;
+            // PAT is intentionally not cleared on Reset — it persists across server URL changes.
         }
 
         // ═════════════════════════════════════════════════════════════════

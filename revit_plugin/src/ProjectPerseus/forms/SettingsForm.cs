@@ -20,6 +20,14 @@ namespace ProjectPerseus
         private void Settings_Load(object sender, EventArgs e)
         {
             syncUrltextBox.Text = Config.Instance.BaseUrl;
+            UpdateTokenStatus();
+        }
+
+        private void UpdateTokenStatus()
+        {
+            tokenStatusLabel.Text = ProjectPerseus.auth.AuthService.HasPersonalApiToken()
+                ? "Token stored."
+                : "No token stored.";
         }
 
         private void cancelButton_Click(object sender, EventArgs e)
@@ -32,7 +40,18 @@ namespace ProjectPerseus
             Config.Instance.BaseUrl = syncUrltextBox.Text;
             ProjectPerseus.auth.AuthService.Reset();
 
+            string newToken = apiTokenTextBox.Text.Trim();
+            if (!string.IsNullOrEmpty(newToken))
+                ProjectPerseus.auth.AuthService.StorePersonalApiToken(newToken);
+
             Close();
+        }
+
+        private void clearTokenButton_Click(object sender, EventArgs e)
+        {
+            ProjectPerseus.auth.AuthService.ClearPersonalApiToken();
+            apiTokenTextBox.Text = "";
+            UpdateTokenStatus();
         }
     }
 }

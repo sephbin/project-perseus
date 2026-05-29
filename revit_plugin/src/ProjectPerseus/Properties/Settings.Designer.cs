@@ -61,7 +61,7 @@ namespace ProjectPerseus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("61b5c760f1573b6e26f257ba8a670cc95ca71658")]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
         public string ApiToken {
             get {
                 return ((string)(this["ApiToken"]));

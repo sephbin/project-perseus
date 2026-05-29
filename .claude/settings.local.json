@@ -11,7 +11,8 @@
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
-      "C:\\mydev\\django-syncboat"
+      "C:\\mydev\\django-syncboat",
+      "C:\\mydev\\django-perseus"
     ]
   }
 }

@@ -46,6 +46,7 @@ namespace ProjectPerseus
         {
             // WriteLog("SubmitElementDeltas");
             string token = ProjectPerseus.auth.AuthService.GetAuthTokenSafely();
+            string scheme = ProjectPerseus.auth.AuthService.GetAuthSchemeSafely();
             if (string.IsNullOrEmpty(token))
             {
                 Utl.WriteLog("Sync aborted: User failed authentication.");
@@ -81,8 +82,7 @@ namespace ProjectPerseus
             // Execute the request using the HttpClient
             using (var client = new System.Net.Http.HttpClient())
             {
-                // 1. Attach the Bearer Token
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(scheme, token);
 
                 // 2. Package the JSON string for HTTP
                 var content = new System.Net.Http.StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
