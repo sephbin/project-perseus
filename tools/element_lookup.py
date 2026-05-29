@@ -32,8 +32,11 @@ def load_export(filepath):
     return elements
 
 
-def load_ids(filepath):
-    path = Path(filepath)
+def load_ids(ids_arg):
+    path = Path(ids_arg)
+    if not path.exists():
+        # treat as inline comma-separated values
+        return [i.strip() for i in ids_arg.split(",") if i.strip()]
     if path.suffix.lower() == ".json":
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -42,11 +45,10 @@ def load_ids(filepath):
         if isinstance(data, dict):
             ids = data.get("element_ids") or []
             if not ids:
-                # user_report format: look inside users list
                 for user in data.get("users", []):
                     ids.extend(user.get("element_ids") or [])
             return [str(i) for i in ids]
-        raise ValueError(f"Unrecognised JSON structure in {filepath}")
+        raise ValueError(f"Unrecognised JSON structure in {path}")
     else:
         with open(path, "r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
