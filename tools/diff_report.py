@@ -129,6 +129,109 @@ def geometry_summary(geom):
     return str(geom)
 
 
+def _linestring_length(coords):
+    total = 0.0
+    for i in range(len(coords) - 1):
+        p1, p2 = coords[i], coords[i + 1]
+        n = min(len(p1), len(p2))
+        total += math.sqrt(sum((p2[k] - p1[k]) ** 2 for k in range(n)))
+    return total
+
+
+def _rotation_angle_deg(old_g, new_g):
+    try:
+        bx_o = old_g.get("basis_x", [])
+        by_o = old_g.get("basis_y", [])
+        bz_o = old_g.get("basis_z", [])
+        bx_n = new_g.get("basis_x", [])
+        by_n = new_g.get("basis_y", [])
+        bz_n = new_g.get("basis_z", [])
+        if not all(len(v) == 3 for v in [bx_o, by_o, bz_o, bx_n, by_n, bz_n]):
+            return None
+        # trace(R_new @ R_old^T) = dot(bx_new, bx_old) + dot(by_new, by_old) + dot(bz_new, bz_old)
+        trace = (
+            sum(bx_n[i] * bx_o[i] for i in range(3)) +
+            sum(by_n[i] * by_o[i] for i in range(3)) +
+            sum(bz_n[i] * bz_o[i] for i in range(3))
+        )
+        return math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1.0) / 2.0))))
+    except Exception:
+        return None
+
+
+def _geometry_delta(old_g, new_g):
+    if old_g is None and new_g is not None:
+        return "added"
+    if old_g is not None and new_g is None:
+        return "removed"
+    if old_g is None and new_g is None:
+        return ""
+    if old_g.get("type") != new_g.get("type"):
+        return f"type: {old_g.get('type')} → {new_g.get('type')}"
+
+    gtype = old_g.get("type")
+
+    if gtype == "RevitTransform":
+        parts = []
+        oo = old_g.get("origin") or []
+        no = new_g.get("origin") or []
+        if len(oo) == 3 and len(no) == 3:
+            dist = math.sqrt(sum((b - a) ** 2 for a, b in zip(oo, no)))
+            parts.append(f"Δpos={dist:.4f} ft")
+        angle = _rotation_angle_deg(old_g, new_g)
+        if angle is not None:
+            parts.append(f"Δrot={angle:.2f}°")
+        return ", ".join(parts) if parts else "changed"
+
+    if gtype == "LineString":
+        oc = old_g.get("coordinates") or []
+        nc = new_g.get("coordinates") or []
+        if oc and nc:
+            return f"Δlen={_linestring_length(nc) - _linestring_length(oc):+.4f} ft"
+
+    if gtype == "Polygon":
+        oc = old_g.get("coordinates") or []
+        nc = new_g.get("coordinates") or []
+        if oc and nc:
+            old_p = sum(_linestring_length(ring) for ring in oc)
+            new_p = sum(_linestring_length(ring) for ring in nc)
+            return f"Δperimeter={new_p - old_p:+.4f} ft"
+
+    return "changed"
+
+
+def compute_delta(change):
+    pid_type = change.get("param_id_type")
+    val_type = change.get("value_type") or ""
+    ov = change.get("old_value")
+    nv = change.get("new_value")
+
+    if pid_type == "geometry":
+        return _geometry_delta(ov, nv)
+
+    if ov is None and nv is not None:
+        return "added"
+    if ov is not None and nv is None:
+        return "removed"
+    if ov is None and nv is None:
+        return ""
+
+    if val_type == "ElementId":
+        return "ref changed"
+
+    try:
+        return f"{float(nv) - float(ov):+g}"
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(ov, str) and isinstance(nv, str):
+        if len(ov) + len(nv) <= 60:
+            return f"'{ov}' → '{nv}'"
+        return f"{len(ov)} → {len(nv)} chars"
+
+    return "changed"
+
+
 def diff(old, new):
     old_ids = set(old)
     new_ids = set(new)
@@ -188,6 +291,9 @@ def diff(old, new):
                     "old_value":     og,
                     "new_value":     ng,
                 })
+
+        for c in changes:
+            c["delta"] = compute_delta(c)
 
         if changes:
             modified.append({"element": new_elem, "changes": changes})
@@ -256,6 +362,7 @@ def report(path_a, path_b, output_path=None):
                     "value_type":    c.get("value_type"),
                     "old_value":     geometry_summary(c["old_value"]) if is_geom else c["old_value"],
                     "new_value":     geometry_summary(c["new_value"]) if is_geom else c["new_value"],
+                    "delta":         c.get("delta"),
                 })
         print(pd.DataFrame(rows).to_string(index=False))
 
