@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using Newtonsoft.Json;
 using ProjectPerseus.revit.interfaces;
 using ProjectPerseus.revit;
@@ -115,33 +114,13 @@ namespace ProjectPerseus.models
 
         private List<IParameter> GetParameters()
         {
-            // Key = (name, definitionId) so same-name built-in params with different
-            // BuiltInParameter enum values are kept as distinct entries rather than
-            // non-deterministically collapsing into one.
-            var paramDict = new Dictionary<(string, string), IParameter>();
+            var paramList = new List<IParameter>();
 
             foreach (var param in _element.ParametersSet)
             {
                 try
                 {
-                    var newParam = ParameterBase.FromArdbParameter(_element.CategoryName, param);
-                    string pName = newParam.Name;
-
-                    if (string.IsNullOrEmpty(pName)) continue;
-
-                    var key = (pName, newParam.ParamId);
-
-                    if (!paramDict.ContainsKey(key))
-                    {
-                        paramDict.Add(key, newParam);
-                    }
-                    else
-                    {
-                        var existingParam = paramDict[key];
-                        // Prefer ElementId over String for exact-key collisions
-                        if (newParam.ValueType.Contains("ElementId") && existingParam.ValueType.Contains("String"))
-                            paramDict[key] = newParam;
-                    }
+                    paramList.Add(ParameterBase.FromArdbParameter(_element.CategoryName, param));
                 }
                 catch (Exception ex)
                 {
@@ -157,16 +136,16 @@ namespace ProjectPerseus.models
                 if (rawElem is ARDB.FamilyInstance fi)
                 {
                     if (fi.Host != null)
-                        paramDict[("Host Id", null)] = new Parameter<long>("Host Id", fi.Host.Id.GetIdValue(), "ElementId", null, "synthetic");
+                        paramList.Add(new Parameter<long>("Host Id", fi.Host.Id.GetIdValue(), "ElementId", null, "synthetic"));
 
                     if (fi.FromRoom != null)
-                        paramDict[("From Room", null)] = new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic");
+                        paramList.Add(new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
 
                     if (fi.ToRoom != null)
-                        paramDict[("To Room", null)] = new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId", null, "synthetic");
+                        paramList.Add(new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
 
-                    if (fi.Room != null && !paramDict.ContainsKey(("Room", null)))
-                        paramDict[("Room", null)] = new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic");
+                    if (fi.Room != null)
+                        paramList.Add(new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic"));
                 }
             }
             catch
@@ -175,17 +154,7 @@ namespace ProjectPerseus.models
                 // FamilyInstances not present in the active phase — skip silently.
             }
 
-            // For each group of same-name params, drop null-valued entries when any
-            // valued alternative exists — eliminates the None vs value false-change
-            // caused by duplicate built-in params (e.g. two "Category" params).
-            return paramDict.Values
-                .GroupBy(p => p.Name)
-                .SelectMany(g =>
-                {
-                    var valued = g.Where(p => p.Value != null).ToList();
-                    return valued.Count > 0 ? valued : g.ToList();
-                })
-                .ToList();
+            return paramList;
         }
     }
 
