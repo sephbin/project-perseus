@@ -16,7 +16,6 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-import pandas as pd
 
 
 def load_export(filepath):
@@ -73,15 +72,9 @@ def report(export_path, ids_path, output_path=None):
     print(f"{'='*55}\n")
 
     if found:
-        rows = [
-            {
-                "element_id": e.get("element_id"),
-                "name":       e.get("name"),
-                "last_edited_by": e.get("last_edited_by"),
-            }
-            for e in found
-        ]
-        print(pd.DataFrame(rows).to_string(index=False))
+        for e in found:
+            print(json.dumps(e, indent=2))
+            print()
 
     if missing:
         print(f"\n--- Not found in export ({len(missing)}) ---")
