@@ -1,7 +1,7 @@
 """
 diff_report.py
 Compares two Perseus full-sync JSON exports and reports added, removed, and
-modified elements with per-parameter change details.
+modified elements with per-parameter and per-geometry change details.
 
 Best used with two full-sync exports. Incremental exports only contain changed
 elements, so absent elements mean "unchanged", not "deleted".
@@ -41,13 +41,70 @@ def load(filepath):
 
 
 def param_map(element):
+    """Returns dict keyed by (name, param_id) → full param object."""
     result = {}
     for p in element.get("parameters", []):
         name = p.get("name")
         if name:
             key = (name, p.get("param_id"))
-            result[key] = p.get("value")
+            result[key] = p
     return result
+
+
+def geometry_map(element):
+    """Returns dict keyed by geometry_type → geometry object."""
+    result = {}
+    for g in element.get("geometries") or []:
+        gtype = g.get("geometry_type")
+        if gtype:
+            result[gtype] = g.get("geometry")
+    return result
+
+
+def coords_equal(a, b):
+    """Recursively compare coordinate arrays with float tolerance."""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return False
+        return all(coords_equal(x, y) for x, y in zip(a, b))
+    return values_equal(a, b)
+
+
+def geometries_equal(a, b):
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    if a.get("type") != b.get("type"):
+        return False
+    if not coords_equal(a.get("coordinates"), b.get("coordinates")):
+        return False
+    if not values_equal(a.get("rotation"), b.get("rotation")):
+        return False
+    return True
+
+
+def geometry_summary(geom):
+    """Short human-readable description of a geometry for console output."""
+    if geom is None:
+        return "None"
+    gtype = geom.get("type")
+    coords = geom.get("coordinates")
+    if gtype == "Point" and coords:
+        return f"Point({coords[0]:.3f}, {coords[1]:.3f}, {coords[2]:.3f})"
+    if gtype == "RevitLocationPoint" and coords:
+        rot = geom.get("rotation", 0)
+        return f"RevitPoint({coords[0]:.3f}, {coords[1]:.3f}, {coords[2]:.3f}, rot={rot:.4f}rad)"
+    if gtype == "LineString" and coords:
+        return f"LineString({len(coords)} pts)"
+    if gtype == "Polygon" and coords:
+        total_pts = sum(len(ring) for ring in coords)
+        return f"Polygon({len(coords)} ring(s), {total_pts} pts)"
+    return str(geom)
 
 
 def diff(old, new):
@@ -60,36 +117,54 @@ def diff(old, new):
     modified = []
     for uid in sorted(old_ids & new_ids):
         old_elem, new_elem = old[uid], new[uid]
-        old_params, new_params = param_map(old_elem), param_map(new_elem)
+        old_params = param_map(old_elem)
+        new_params = param_map(new_elem)
+        old_geoms  = geometry_map(old_elem)
+        new_geoms  = geometry_map(new_elem)
 
         changes = []
 
+        # Name change
         if old_elem.get("name") != new_elem.get("name"):
             changes.append({
-                "parameter":    "(name)",
-                "param_id":     None,
+                "parameter":     "(name)",
+                "param_id":      None,
                 "param_id_type": "synthetic",
-                "old_value":    old_elem.get("name"),
-                "new_value":    new_elem.get("name"),
+                "value_type":    "String",
+                "old_value":     old_elem.get("name"),
+                "new_value":     new_elem.get("name"),
             })
 
+        # Parameter changes
         for key in sorted(set(old_params) | set(new_params), key=lambda k: k[0]):
-            ov = old_params.get(key)
-            nv = new_params.get(key)
+            op  = old_params.get(key)
+            np_ = new_params.get(key)
+            ov  = op.get("value")  if op  else None
+            nv  = np_.get("value") if np_ else None
             if not values_equal(ov, nv):
                 param_name, param_id = key
-                # Recover param_id_type from whichever export has this param
-                sample = next(
-                    (p for p in (old_elem.get("parameters", []) + new_elem.get("parameters", []))
-                     if p.get("name") == param_name and p.get("param_id") == param_id),
-                    {}
-                )
+                sample = op or np_
                 changes.append({
                     "parameter":     param_name,
                     "param_id":      param_id,
                     "param_id_type": sample.get("param_id_type"),
+                    "value_type":    sample.get("value_type"),
                     "old_value":     ov,
                     "new_value":     nv,
+                })
+
+        # Geometry changes
+        for gtype in sorted(set(old_geoms) | set(new_geoms)):
+            og = old_geoms.get(gtype)
+            ng = new_geoms.get(gtype)
+            if not geometries_equal(og, ng):
+                changes.append({
+                    "parameter":     f"(geometry:{gtype})",
+                    "param_id":      None,
+                    "param_id_type": "geometry",
+                    "value_type":    "geometry",
+                    "old_value":     og,
+                    "new_value":     ng,
                 })
 
         if changes:
@@ -111,18 +186,27 @@ def report(path_a, path_b, output_path=None):
     new = load(path_b)
     added, removed, modified = diff(old, new)
 
-    total_changes = sum(len(m["changes"]) for m in modified)
+    total_param_changes = sum(
+        sum(1 for c in m["changes"] if c["param_id_type"] != "geometry")
+        for m in modified
+    )
+    total_geom_changes = sum(
+        sum(1 for c in m["changes"] if c["param_id_type"] == "geometry")
+        for m in modified
+    )
 
     print(f"\n{'='*65}")
     print(f"  DIFFERENTIAL REPORT")
     print(f"  A (old): {path_a}")
     print(f"  B (new): {path_b}")
     print(f"{'='*65}")
-    print(f"  Elements in A : {len(old)}")
-    print(f"  Elements in B : {len(new)}")
-    print(f"  Added         : {len(added)}")
-    print(f"  Removed       : {len(removed)}")
-    print(f"  Modified      : {len(modified)}  ({total_changes} parameter changes)")
+    print(f"  Elements in A     : {len(old)}")
+    print(f"  Elements in B     : {len(new)}")
+    print(f"  Added             : {len(added)}")
+    print(f"  Removed           : {len(removed)}")
+    print(f"  Modified          : {len(modified)}")
+    print(f"  Parameter changes : {total_param_changes}")
+    print(f"  Geometry changes  : {total_geom_changes}")
     print(f"{'='*65}")
 
     if added:
@@ -140,15 +224,25 @@ def report(path_a, path_b, output_path=None):
             uid  = m["element"].get("unique_id")
             name = m["element"].get("name")
             for c in m["changes"]:
-                rows.append({"unique_id": uid, "element_name": name, **c})
+                is_geom = c["param_id_type"] == "geometry"
+                rows.append({
+                    "unique_id":     uid,
+                    "element_name":  name,
+                    "parameter":     c["parameter"],
+                    "param_id":      c["param_id"],
+                    "param_id_type": c["param_id_type"],
+                    "value_type":    c.get("value_type"),
+                    "old_value":     geometry_summary(c["old_value"]) if is_geom else c["old_value"],
+                    "new_value":     geometry_summary(c["new_value"]) if is_geom else c["new_value"],
+                })
         print(pd.DataFrame(rows).to_string(index=False))
 
     if output_path:
         report_data = {
             "meta": {
-                "file_a":       path_a,
-                "file_b":       path_b,
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "file_a":        path_a,
+                "file_b":        path_b,
+                "generated_at":  datetime.now(timezone.utc).isoformat(),
                 "elements_in_a": len(old),
                 "elements_in_b": len(new),
             },
@@ -156,7 +250,8 @@ def report(path_a, path_b, output_path=None):
                 "added":                   len(added),
                 "removed":                 len(removed),
                 "modified":                len(modified),
-                "total_parameter_changes": total_changes,
+                "total_parameter_changes": total_param_changes,
+                "total_geometry_changes":  total_geom_changes,
             },
             "added":    [elem_row(e) for e in added],
             "removed":  [elem_row(e) for e in removed],
