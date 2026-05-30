@@ -299,6 +299,12 @@
     <Compile Include="revit\RevitExtensions.cs" />
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />
+    <Compile Include="sync\CategoryHarvester.cs" />
+    <Compile Include="sync\FullSyncRunner.cs" />
+    <Compile Include="sync\IncrementalSyncRunner.cs" />
+    <Compile Include="sync\RevitSyncDialogCloser.cs" />
+    <Compile Include="sync\StateSubmitter.cs" />
+    <Compile Include="sync\SyncOrchestrator.cs" />
     <Compile Include="ui\BatchProgressForm.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -50,14 +50,14 @@ namespace ProjectPerseus.Commands
                 syncOpts.SetRelinquishOptions(relinquishOpts);
 
                 // FIRE THE SYNC — flag tells doOnPriorToSync to skip the queue check re-entry
-                ProjectPerseus.Plugin.IsAutoSyncing = true;
+                ProjectPerseus.sync.SyncOrchestrator.IsAutoSyncing = true;
                 try
                 {
                     doc.SynchronizeWithCentral(transOpts, syncOpts);
                 }
                 finally
                 {
-                    ProjectPerseus.Plugin.IsAutoSyncing = false;
+                    ProjectPerseus.sync.SyncOrchestrator.IsAutoSyncing = false;
                 }
 
                 Utl.WriteLog("Auto-Sync command dispatched successfully.");

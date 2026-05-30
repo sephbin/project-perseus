@@ -6,6 +6,7 @@ using ProjectPerseus;
 
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
+using ProjectPerseus.sync;
 using System.IO;
 using static System.Net.Mime.MediaTypeNames;
 using System.Reflection;
@@ -34,8 +35,7 @@ namespace ProjectPerseus.Commands
 
                 var revit = new RevitFacade(doc);
 
-                // 2. Call the STATIC method directly. No more Reflection needed!
-                Plugin.PerformFullSync(revit);
+                FullSyncRunner.PerformFullSync(revit);
 
                 TaskDialog.Show("Perseus", "Full upload complete.");
                 return Result.Succeeded;

@@ -90,14 +90,12 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-05-30)
+6.1 Current Layout (snapshot 2026-05-30, after P1)
 
 ProjectPerseus/
-├── Plugin.cs                     1139 lines — god class: IExternalApplication lifecycle,
-│                                 sync event handlers, doOnPriorToSync, doOnPostSync,
-│                                 PerformFullSync/IncrementalSync (+ ToFile variants),
-│                                 GetAllCategories, OnProgressChanged, OnRevitIdlingDelay,
-│                                 TryCloseRevitSyncDialog Win32 P/Invoke. Split target.
+├── Plugin.cs                     ~130 lines — IExternalApplication lifecycle, AddRibbonPanel,
+│                                 batch trigger (Idling event → BatchProcessor handoff). Owns
+│                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 ├── Commands.cs                   3 IExternalCommand classes in ProjectPerseus.Commands
 │                                 namespace (only file using PascalCase namespace).
 ├── AuthService.cs                434 lines — MSAL + JWT + PAT + token cache + HTTP config.
@@ -111,7 +109,7 @@ ProjectPerseus/
 ├── batch/
 │   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
 ├── commands/                     Misnamed — contains queue infra, not IExternalCommands.
-│   ├── AutoSyncEvent.cs          ProjectPerseus.queue namespace.
+│   ├── AutoSyncEvent.cs          ProjectPerseus.Commands namespace; flips SyncOrchestrator.IsAutoSyncing.
 │   └── QueuePoller.cs            ProjectPerseus.queue namespace.
 ├── forms/                        WinForms #1: settings, sync warning, login, queue, etc.
 ├── ui/                           WinForms #2: BatchProgressForm, ThemeIconManager.
@@ -122,12 +120,23 @@ ProjectPerseus/
 │   ├── interfaces/               IArdb* interfaces.
 │   ├── plugin/                   2 more IExternalCommand classes (3rd command location).
 │   └── BatchFailureHandler.cs    12 lines — belongs with batch/.
+├── sync/                         NEW (P1, 2026-05-30). All sync orchestration + runners.
+│   ├── SyncOrchestrator.cs       Instance class owning sync state (_isSyncing, _currentSyncDoc,
+│                                 etc.) + DocumentSynchronizing/zed handlers + ProgressChanged.
+│                                 Statics: IsAutoSyncing, AutoSyncExternalEvent.
+│   ├── FullSyncRunner.cs         PerformFullSync (Django) + PerformFullSyncToFile (JSON file).
+│   ├── IncrementalSyncRunner.cs  PerformIncrementalSync + PerformIncrementalSyncToFile +
+│                                 private ReadFirstSourceState helper.
+│   ├── CategoryHarvester.cs      GetAllCategories + WalkCategoryMap (3-pass dedup).
+│   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
+│   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
+│                                 by title and PostMessage(WM_CLOSE).
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
 └── resources/                    Icons (.png that are actually ICO containers — §4 rule).
 
 6.2 Known Organization Smells (ranked by impact)
 
-S1  Plugin.cs is 1139 lines mixing 7 distinct responsibilities — biggest dev-QoL win to split.
+S1  [DONE — P1, 2026-05-30] Plugin.cs split into sync/ folder. Down from 1139 → ~130 lines.
 S2  IExternalCommand classes live in THREE places: Commands.cs (root), revit/plugin/. The
     commands/ folder confusingly holds queue infrastructure instead of commands.
 S3  Two folders for WinForms (forms/ and ui/) with no rule for which goes where.
@@ -173,14 +182,11 @@ ProjectPerseus/
 ├── revit/                        Revit API adapter layer.
 │   ├── ModelGuidStorage.cs       Moved from root (namespace already matches).
 │   └── (rest unchanged)
-├── sync/                         NEW — extracted from Plugin.cs.
-│   ├── SyncOrchestrator.cs       OnDocumentSynchronizing/zed event handlers.
-│   ├── PreSyncQueue.cs           doOnPriorToSync + OpenWebQueueLink.
-│   ├── PostSyncDispatcher.cs     doOnPostSync + doOnSync (full vs incremental routing).
-│   ├── FullSyncRunner.cs         PerformFullSync + PerformFullSyncToFile.
-│   ├── IncrementalSyncRunner.cs  PerformIncrementalSync + PerformIncrementalSyncToFile.
-│   ├── CategoryHarvester.cs      GetAllCategories + WalkCategoryMap.
-│   └── RevitSyncDialogCloser.cs  TryCloseRevitSyncDialog Win32 P/Invoke.
+├── sync/                         [DONE — P1] See §6.1 for the as-built layout.
+│                                 Decision: consolidated PreSyncQueue + PostSyncDispatcher into
+│                                 a single SyncOrchestrator because they share too much state
+│                                 (_isSyncing, _queueReleasedEarly, _currentSyncDoc) for a
+│                                 three-way split to be cleaner than a one-class orchestrator.
 ├── ui/                           Merged — all WinForms in one folder. forms/ deleted.
 └── web/
     ├── ProjectPerseusWeb.cs      Moved from root.
@@ -192,7 +198,7 @@ logging/Log.cs as the single logging entry point.
 
 6.4 Refactor Priorities
 
-P1  Split Plugin.cs → sync/ folder (highest dev-QoL win; touches the biggest file).
+P1  [DONE 2026-05-30] Split Plugin.cs → sync/ folder.
 P2  Consolidate commands: rename commands/ → queue/, move IExternalCommands into commands/.
 P3  Merge forms/ into ui/.
 P4  Move root-level files into their existing namespace folders (auth/, config/, web/, revit/).

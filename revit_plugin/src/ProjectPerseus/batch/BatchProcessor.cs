@@ -10,6 +10,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Events;
 using ProjectPerseus.models;
+using ProjectPerseus.sync;
 using ProjectPerseus.ui;
 
 namespace ProjectPerseus.queue
@@ -161,13 +162,13 @@ namespace ProjectPerseus.queue
                         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PerseusExports");
 
                     if (_instruction.ExportMode == models.BatchExportMode.IncrementalFile)
-                        Plugin.PerformIncrementalSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
+                        IncrementalSyncRunner.PerformIncrementalSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
                     else
-                        Plugin.PerformFullSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
+                        FullSyncRunner.PerformFullSyncToFile(revitFacade, outputDir, modelInfo.PerseusCategories, modelInfo.CollectConnectedElements);
                 }
                 else
                 {
-                    Plugin.PerformIncrementalSync(revitFacade);
+                    IncrementalSyncRunner.PerformIncrementalSync(revitFacade);
                 }
 
                 Utl.WriteLog($"Successfully processed: {doc.Title}");
