@@ -8,9 +8,9 @@ using Autodesk.Revit.DB;
 
 
 
-namespace ProjectPerseus
+namespace ProjectPerseus.web
 {
-    
+
     public class ProjectPerseusWeb
     {
         private static void WriteLog(string content)

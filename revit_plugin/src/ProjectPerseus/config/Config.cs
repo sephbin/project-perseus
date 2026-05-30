@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace ProjectPerseus
+namespace ProjectPerseus.config
 {
     public class Config
     {

@@ -90,23 +90,24 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-05-30, after P1 + P2 + P3)
+6.1 Current Layout (snapshot 2026-05-30, after P1 + P2 + P3 + P4)
 
 ProjectPerseus/
 ├── Plugin.cs                     ~130 lines — IExternalApplication lifecycle, AddRibbonPanel,
 │                                 batch trigger (Idling event → BatchProcessor handoff). Owns
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
-├── AuthService.cs                434 lines — MSAL + JWT + PAT + token cache + HTTP config.
-├── ProjectPerseusWeb.cs          221 lines — HTTP client for Django; duplicates WebHelper.
-├── ModelGuidStorage.cs           In ProjectPerseus.revit namespace despite root location.
-├── Config.cs                     AppData config.json singleton.
-├── Log.cs                        Static logger → Sentry + console.
+├── Log.cs                        Static logger → Sentry + console. Stays at root until P7
+│                                 logging unification (moves to logging/ then).
 ├── Utl.cs                        Kitchen sink: WriteLog (file), JsonDump, SerializeToJson,
-│                                 IsValidUrl, nested WebHelper, nested SentryContext.
-├── auth/                         (empty — AuthService.cs lives at root despite namespace)
+│                                 IsValidUrl, nested WebHelper, nested SentryContext. P7 + P5.
+├── auth/
+│   └── AuthService.cs            434 lines — MSAL + JWT + PAT + token cache + HTTP config.
+│                                 To be split in P6.
 ├── batch/
-│   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch — fix in P4).
+│   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
+├── config/                       NEW (P4).
+│   └── Config.cs                 Namespace ProjectPerseus → ProjectPerseus.config.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
 │   ├── EditSettingsCommand.cs    DUPLICATE of OpenSettingsCommand — unwired, candidate for deletion.
 │   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
@@ -132,7 +133,8 @@ ProjectPerseus/
 ├── revit/                        Revit API adapter layer (RevitFacade, extractors).
 │   ├── adapters/                 Ardb* wrappers around Autodesk.Revit.DB types.
 │   ├── interfaces/               IArdb* interfaces.
-│   └── BatchFailureHandler.cs    12 lines — belongs with batch/ (will move in a later pass).
+│   ├── BatchFailureHandler.cs    12 lines — belongs with batch/ (will move in a later pass).
+│   └── ModelGuidStorage.cs       Moved from root in P4 (namespace already matched).
 ├── sync/                         All sync orchestration + runners (P1, 2026-05-30).
 │   ├── SyncOrchestrator.cs       Instance class owning sync state + DocumentSynchronizing/zed
 │                                 handlers + ProgressChanged. Statics: IsAutoSyncing,
@@ -144,6 +146,9 @@ ProjectPerseus/
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
 │                                 by title and PostMessage(WM_CLOSE).
+├── web/                          NEW (P4).
+│   └── ProjectPerseusWeb.cs      Namespace ProjectPerseus → ProjectPerseus.web. Still has
+│                                 a nested WebHelper that duplicates Utl.WebHelper — P5.
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
 └── resources/                    Icons (.png that are actually ICO containers — §4 rule).
 
@@ -163,8 +168,9 @@ S7  Namespace ↔ folder mismatches: batch/ → ProjectPerseus.queue, commands/ 
     ModelGuidStorage.cs (root) → .revit, AuthService.cs (root) → .auth.
 S8  Namespace casing inconsistency: ProjectPerseus.Commands (Pascal) vs everything else
     (lowercase). Lowercase is the de-facto norm — align Commands to commands.
-S9  Six files at root (Config, Log, Utl, Commands, AuthService, ProjectPerseusWeb,
-    ModelGuidStorage) all have a clear folder they should live in.
+S9  [DONE — P4, 2026-05-30] Root-level orphans (AuthService, Config, ModelGuidStorage,
+    ProjectPerseusWeb) moved into their namespace folders. Log + Utl remain at root
+    pending P7 logging unification.
 
 6.3 Target Layout (refactor plan — NOT yet executed)
 
@@ -217,7 +223,9 @@ P1  [DONE 2026-05-30] Split Plugin.cs → sync/ folder.
 P2  [DONE 2026-05-30] Consolidated commands: commands/ holds only IExternalCommands;
     queue/ holds AutoSyncEvent + QueuePoller. revit/plugin/ folder removed.
 P3  [DONE 2026-05-30] Merged forms/ into ui/; all WinForms now in ProjectPerseus.ui namespace.
-P4  Move root-level files into their existing namespace folders (auth/, config/, web/, revit/).
+P4  [DONE 2026-05-30] Root-level files moved into folders. AuthService→auth/,
+    ModelGuidStorage→revit/ (no namespace change). Config→config/, ProjectPerseusWeb→web/
+    (with namespace fixes ProjectPerseus → ProjectPerseus.config/web).
 P5  De-duplicate WebHelper (single web/WebHelper.cs).
 P6  Split AuthService.cs into auth/ sub-files.
 P7  Unify logging: Log.cs becomes the front door; Utl.WriteLog disappears.

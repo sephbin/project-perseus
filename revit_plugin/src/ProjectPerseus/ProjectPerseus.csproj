@@ -235,16 +235,15 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AuthService.cs" />
+    <Compile Include="auth\AuthService.cs" />
     <Compile Include="batch\BatchProcessor.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
     <Compile Include="commands\InitialiseProjectCommand.cs" />
     <Compile Include="commands\OpenSettingsCommand.cs" />
     <Compile Include="commands\PerformFullUploadCommand.cs" />
     <Compile Include="commands\ResetModelGuidCommand.cs" />
-    <Compile Include="Config.cs" />
+    <Compile Include="config\Config.cs" />
     <Compile Include="Log.cs" />
-    <Compile Include="ModelGuidStorage.cs" />
     <Compile Include="models\BatchInstruction.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="models\ElementDelta.cs" />
@@ -280,6 +279,7 @@
     <Compile Include="revit\interfaces\IArdbElementId.cs" />
     <Compile Include="revit\interfaces\IArdbParameter.cs" />
     <Compile Include="revit\interfaces\IArdbParameterSet.cs" />
+    <Compile Include="revit\ModelGuidStorage.cs" />
     <Compile Include="revit\RevitExtensions.cs" />
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />
@@ -312,7 +312,7 @@
     </Compile>
     <Compile Include="ui\ThemeIconManager.cs" />
     <Compile Include="Utl.cs" />
-    <Compile Include="ProjectPerseusWeb.cs" />
+    <Compile Include="web\ProjectPerseusWeb.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

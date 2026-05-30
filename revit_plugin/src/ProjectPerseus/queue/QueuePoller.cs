@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using ProjectPerseus.config;
 using ProjectPerseus.models;
 
 namespace ProjectPerseus.queue
