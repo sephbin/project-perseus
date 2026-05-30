@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.web
 {
     // Shared HTTP helper for JSON requests against Django. Originally lived as duplicated

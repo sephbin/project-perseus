@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Autodesk.Revit.DB.Architecture;
 using ARDB = Autodesk.Revit.DB;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.models.geometry
 {
     public static class ElementGeometryExtractor
@@ -14,12 +15,12 @@ namespace ProjectPerseus.models.geometry
             var results = new List<NamedGeometry>();
 
             try { ExtractLocation(element, results); }
-            catch (Exception ex) { Utl.WriteLog($"GeometryExtractor [{element.Id}] location: {ex.Message}"); }
+            catch (Exception ex) { Log.Info($"GeometryExtractor [{element.Id}] location: {ex.Message}"); }
 
             if (element is Room room)
             {
                 try { ExtractRoomBoundary(room, results); }
-                catch (Exception ex) { Utl.WriteLog($"GeometryExtractor [{element.Id}] room_boundary: {ex.Message}"); }
+                catch (Exception ex) { Log.Info($"GeometryExtractor [{element.Id}] room_boundary: {ex.Message}"); }
             }
 
             return results.Count > 0 ? results : null;

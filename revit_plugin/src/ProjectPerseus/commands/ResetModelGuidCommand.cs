@@ -4,6 +4,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using ProjectPerseus.revit;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.commands
 {
     [Transaction(TransactionMode.Manual)]
@@ -15,7 +16,7 @@ namespace ProjectPerseus.commands
 
             if (doc == null)
             {
-                Utl.WriteLog("ResetModelGuidCommand failed: No active document.");
+                Log.Info("ResetModelGuidCommand failed: No active document.");
                 return Result.Failed;
             }
 
@@ -37,13 +38,13 @@ namespace ProjectPerseus.commands
                 string newGuid = ModelGuidStorage.ForceNewInternalGuid(doc);
 
                 TaskDialog.Show("Perseus", $"Model Identity successfully reset.\n\nNew GUID: {newGuid}\n\nPlease Save or Sync to Central to lock in this change.");
-                Utl.WriteLog($"Model GUID manually reset to: {newGuid}");
+                Log.Info($"Model GUID manually reset to: {newGuid}");
 
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Manual GUID Reset failed: {ex.Message}");
+                Log.Info($"Manual GUID Reset failed: {ex.Message}");
                 message = ex.Message;
                 return Result.Failed;
             }

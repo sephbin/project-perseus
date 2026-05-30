@@ -10,6 +10,7 @@ using ProjectPerseus;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.Creation;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.models
 {
     public class Element
@@ -107,7 +108,7 @@ namespace ProjectPerseus.models
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Element.GetGeometries [{_element.Id.Value}]: {ex.Message}");
+                Log.Info($"Element.GetGeometries [{_element.Id.Value}]: {ex.Message}");
                 return null;
             }
         }
@@ -124,7 +125,7 @@ namespace ProjectPerseus.models
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Element.GetParameters: {ex.Message}");
+                    Log.Info($"Element.GetParameters: {ex.Message}");
                 }
             }
 
@@ -242,9 +243,9 @@ namespace ProjectPerseus.models
 
         private static string CreateParameterName(string parameterName, ARDB.Category category, string parameterGroup)
         {
-            //Utl.WriteLog("ParameterBase.CreateParameterName");
+            //Log.Info("ParameterBase.CreateParameterName");
             //if (category == null) throw new ArgumentNullException(nameof(category));
-            //Utl.WriteLog("ParameterBase.CreateParameterName - after if");
+            //Log.Info("ParameterBase.CreateParameterName - after if");
             return parameterName;
 
         }

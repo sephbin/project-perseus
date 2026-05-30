@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.auth
 {
     // DPAPI-encrypted PAT stored in %AppData%\ProjectPerseus\pat.bin. When present,
@@ -24,9 +25,9 @@ namespace ProjectPerseus.auth
                     Encoding.UTF8.GetBytes(token), null,
                     DataProtectionScope.CurrentUser);
                 File.WriteAllBytes(_patPath, encrypted);
-                Utl.WriteLog("Personal API token stored (DPAPI-encrypted).");
+                Log.Info("Personal API token stored (DPAPI-encrypted).");
             }
-            catch (Exception ex) { Utl.WriteLog($"Failed to store PAT: {ex.Message}"); }
+            catch (Exception ex) { Log.Info($"Failed to store PAT: {ex.Message}"); }
         }
 
         public static bool Exists() => File.Exists(_patPath);
@@ -34,7 +35,7 @@ namespace ProjectPerseus.auth
         public static void Clear()
         {
             try { if (File.Exists(_patPath)) File.Delete(_patPath); }
-            catch (Exception ex) { Utl.WriteLog($"Failed to clear PAT: {ex.Message}"); }
+            catch (Exception ex) { Log.Info($"Failed to clear PAT: {ex.Message}"); }
         }
 
         public static string Load()

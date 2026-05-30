@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.ui
 {
     internal static class ThemeIconManager
@@ -67,7 +68,7 @@ namespace ProjectPerseus.ui
             {
                 var darkImg = TryLoad(BuildUri(baseName + "_dark"));
                 if (darkImg != null) return darkImg;
-                Utl.WriteLog($"ThemeIconManager: dark variant for '{baseName}' not found, falling back to base icon.");
+                Log.Info($"ThemeIconManager: dark variant for '{baseName}' not found, falling back to base icon.");
             }
             return TryLoad(BuildUri(baseName));
         }
@@ -94,7 +95,7 @@ namespace ProjectPerseus.ui
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"ThemeIconManager: failed to load icon {uri}: {ex.Message}");
+                Log.Info($"ThemeIconManager: failed to load icon {uri}: {ex.Message}");
                 return null;
             }
         }
@@ -116,7 +117,7 @@ namespace ProjectPerseus.ui
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"ThemeIconManager (2023): failed to set icon for '{baseName}': {ex.Message}");
+                Log.Info($"ThemeIconManager (2023): failed to set icon for '{baseName}': {ex.Message}");
             }
         }
 

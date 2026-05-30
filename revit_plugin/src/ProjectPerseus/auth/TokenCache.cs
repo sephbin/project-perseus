@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.auth
 {
     // DPAPI-encrypted JWT refresh-token persistence at %AppData%\ProjectPerseus\jwt_refresh.bin.
@@ -26,7 +27,7 @@ namespace ProjectPerseus.auth
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to store JWT refresh token: {ex.Message}");
+                Log.Info($"Failed to store JWT refresh token: {ex.Message}");
             }
         }
 

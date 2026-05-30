@@ -7,6 +7,7 @@ using ProjectPerseus.config;
 using ProjectPerseus.models;
 using ProjectPerseus.web;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.queue
 {
     // Background poller that watches the syncboat queue every 5s. When the current user
@@ -33,7 +34,7 @@ namespace ProjectPerseus.queue
             _cancellationTokenSource = new CancellationTokenSource();
             CancellationToken token = _cancellationTokenSource.Token;
 
-            Utl.WriteLog($"Auto-Sync Poller started for {currentDocGuid}. Waiting for our turn...");
+            Log.Info($"Auto-Sync Poller started for {currentDocGuid}. Waiting for our turn...");
 
             Task.Run(async () =>
             {
@@ -54,7 +55,7 @@ namespace ProjectPerseus.queue
 
                         if (users.Count > 0 && frontUser.Equals(_username, StringComparison.OrdinalIgnoreCase))
                         {
-                            Utl.WriteLog("We are first in the queue! Triggering Revit Sync...");
+                            Log.Info("We are first in the queue! Triggering Revit Sync...");
                             _syncEvent.Raise();
                             Stop();
                             break;
@@ -62,7 +63,7 @@ namespace ProjectPerseus.queue
                     }
                     catch (Exception ex)
                     {
-                        Utl.WriteLog($"Poller error: {ex.Message}");
+                        Log.Info($"Poller error: {ex.Message}");
                     }
 
                     await Task.Delay(5000, token);
@@ -77,7 +78,7 @@ namespace ProjectPerseus.queue
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource.Dispose();
                 _cancellationTokenSource = null;
-                Utl.WriteLog("Auto-Sync Poller stopped.");
+                Log.Info("Auto-Sync Poller stopped.");
             }
         }
     }

@@ -7,6 +7,8 @@ using Autodesk.Revit.DB;
 
 
 
+using ProjectPerseus.logging;
+using ProjectPerseus.util;
 namespace ProjectPerseus.web
 {
 
@@ -48,7 +50,7 @@ namespace ProjectPerseus.web
             string scheme = ProjectPerseus.auth.AuthService.GetAuthSchemeSafely();
             if (string.IsNullOrEmpty(token))
             {
-                Utl.WriteLog("Sync aborted: User failed authentication.");
+                Log.Info("Sync aborted: User failed authentication.");
                 return;
             }
 
@@ -75,8 +77,8 @@ namespace ProjectPerseus.web
                 deletedElements = deleted
             };
 
-            var jsonString = Utl.SerializeToJson(payload, null);
-            Utl.WriteLog(jsonString);
+            var jsonString = JsonUtils.SerializeToJson(payload, null);
+            Log.Info(jsonString);
 
             // Execute the request using the HttpClient
             using (var client = new System.Net.Http.HttpClient())
@@ -96,16 +98,16 @@ namespace ProjectPerseus.web
 
                     if (responseMessage.IsSuccessStatusCode)
                     {
-                        Utl.WriteLog($"SubmitElementDeltas success: {response}");
+                        Log.Info($"SubmitElementDeltas success: {response}");
                     }
                     else
                     {
-                        Utl.WriteLog($"SubmitElementDeltas failed ({responseMessage.StatusCode}): {response}");
+                        Log.Info($"SubmitElementDeltas failed ({responseMessage.StatusCode}): {response}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"SubmitElementDeltas HTTP error: {ex.Message}");
+                    Log.Info($"SubmitElementDeltas HTTP error: {ex.Message}");
                 }
             }
         }
@@ -126,7 +128,7 @@ namespace ProjectPerseus.web
                 var chunk = elementDeltas.Skip(i).Take(chunkSize).ToList();
                 WriteLog("chunk");
                 WriteLog(chunk.ToString());
-                string jsonString = Utl.SerializeToJson(chunk, null);
+                string jsonString = JsonUtils.SerializeToJson(chunk, null);
 
                 WriteLog("jsonString");
 
@@ -152,7 +154,7 @@ namespace ProjectPerseus.web
 
 
 
-            //var jsonString = Utl.SerializeToJson(elementDeltas, null);
+            //var jsonString = JsonUtils.SerializeToJson(elementDeltas, null);
             //WriteLog(jsonString);
             WriteLog("// SubmitElementState");
         }

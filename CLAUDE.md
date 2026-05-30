@@ -90,17 +90,14 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-05-30, after P1 + P2 + P3 + P4 + P5 + P6)
+6.1 Current Layout (snapshot 2026-05-30, after P1–P7 — refactor plan complete)
 
 ProjectPerseus/
 ├── Plugin.cs                     ~130 lines — IExternalApplication lifecycle, AddRibbonPanel,
 │                                 batch trigger (Idling event → BatchProcessor handoff). Owns
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
-├── Log.cs                        Static logger → Sentry + console. Stays at root until P7
-│                                 logging unification (moves to logging/ then).
-├── Utl.cs                        Kitchen sink: WriteLog (file), JsonDump, SerializeToJson,
-│                                 IsValidUrl, nested SentryContext. P7 will fold into logging/.
+│                                 Only file remaining at the root.
 ├── auth/                         Split in P6 (2026-05-30).
 │   ├── AuthService.cs            ~100 lines — server-driven coordinator: fetches auth-config
 │                                 from Django, dispatches to MsalAuth/JwtAuth/sandbox. PAT
@@ -114,7 +111,18 @@ ProjectPerseus/
 ├── batch/
 │   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
 ├── config/                       NEW (P4).
-│   └── Config.cs                 Namespace ProjectPerseus → ProjectPerseus.config.
+│   └── Config.cs                 Namespace ProjectPerseus.config.
+├── logging/                      NEW (P7, 2026-05-30). Single logging front door.
+│   ├── Log.cs                    Static Log.Info/Warn/Error/Exception/InitSession. Info is
+│                                 file only; Warn/Error/Exception also write to Sentry +
+│                                 console. File path: %AppData%\ProjectPerseus\logs\
+│                                 <timestamp>-<user>-medusa.log (per-session). InitSession
+│                                 called from Plugin.OnStartup.
+│   └── SentryContext.cs          IDisposable scope: SentrySdk.Init/Close around a
+│                                 `using (...)` block. Used in SyncOrchestrator.doOnSync.
+├── util/                         NEW (P7). Non-logging helpers extracted from Utl.cs.
+│   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
+│   └── UrlUtils.cs               IsValidUrl.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
 │   ├── EditSettingsCommand.cs    DUPLICATE of OpenSettingsCommand — unwired, candidate for deletion.
 │   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
@@ -170,10 +178,13 @@ S2  [DONE — P2, 2026-05-30] commands/ holds only IExternalCommand classes; que
     and candidates for deletion in a follow-up cleanup.
 S3  [DONE — P3, 2026-05-30] All WinForms live in ui/; forms/ deleted. SyncWarningForm
     received a proper namespace (was at global). SettingsForm + Designer moved out of root.
-S4  Two parallel logging systems: Utl.WriteLog (file) vs Log (Sentry). Pick one front door.
-S5  Utl.cs is a kitchen sink (logging, JSON, URL, SentryContext). WebHelper duplication
-    [DONE — P5, 2026-05-30]: single web/WebHelper.cs; nested copies deleted; ProjectPerseusWeb's
-    legacy "Token" call now passes the scheme explicitly. Remainder folds into P7.
+S4  [DONE — P7, 2026-05-30] Single front door: logging/Log.cs. Severity routes:
+    Info=file only; Warn/Error/Exception=file+Sentry+console. File output preserved at
+    %AppData%\ProjectPerseus\logs\*.log per session — file logs are the primary channel
+    since they're the only reliable way to see what happened inside Revit.
+S5  [DONE — P5 + P7, 2026-05-30] WebHelper consolidated in P5. Remaining Utl.cs contents
+    broken up in P7: logging → logging/Log.cs, SentryContext → logging/SentryContext.cs,
+    JSON helpers → util/JsonUtils.cs, IsValidUrl → util/UrlUtils.cs. Utl.cs deleted.
 S6  [DONE — P6, 2026-05-30] AuthService.cs split into 5 files. Coordinator stays public;
     MsalAuth, JwtAuth, PersonalAccessToken, TokenCache are internal helpers. Public API
     surface preserved verbatim — no call sites needed updating.
@@ -246,7 +257,16 @@ P5  [DONE 2026-05-30] Single web/WebHelper.cs. Nested copies in Utl.cs and Proje
     unified implementation skips both when inputs are empty.
 P6  [DONE 2026-05-30] AuthService coordinator + MsalAuth + JwtAuth + PersonalAccessToken
     + TokenCache. No external API changes; AuthService.* still resolves the same way.
-P7  Unify logging: Log.cs becomes the front door; Utl.WriteLog disappears.
+P7  [DONE 2026-05-30] Unified logging. New logging/Log.cs is the single front door.
+    Utl.WriteLog gone; all 171 callers migrated. Old root Log.cs deleted. Utl.cs deleted —
+    JSON helpers moved to util/JsonUtils.cs, IsValidUrl to util/UrlUtils.cs, SentryContext
+    to logging/SentryContext.cs. File logging at %AppData%\ProjectPerseus\logs\*.log
+    explicitly preserved as the primary signal channel out of Revit.
+
+All P1–P7 priorities are now complete. Plugin.cs is the only file remaining at the project
+root. Further structural changes (e.g. deleting the still-unwired EditSettingsCommand +
+InitialiseProjectCommand, moving BatchFailureHandler from revit/ to batch/) should be
+captured as new entries in §6.4 with their own [DONE] markers.
 
 Each priority should be its own commit/build so any breakage is localised. Update §6.1 and
 §6.3 in the same commit as the move.

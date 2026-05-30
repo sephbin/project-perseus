@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using ProjectPerseus.sync;
 using ProjectPerseus.ui;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus
 {
     [Transaction(TransactionMode.ReadOnly)]
@@ -26,7 +27,7 @@ namespace ProjectPerseus
 
             string revitVersion = application.ControlledApplication.VersionNumber;
             string pluginVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
-            Utl.InitSession(revitVersion, pluginVersion);
+            Log.InitSession(revitVersion, pluginVersion);
 
             // Batch trigger: if %AppData%\ProjectPerseus\batch_task.json exists, hand off to
             // BatchProcessor once Revit's UI has settled. The Idling event fires repeatedly,
@@ -36,7 +37,7 @@ namespace ProjectPerseus
 
             if (File.Exists(_batchFilePath))
             {
-                Utl.WriteLog("Batch task file detected. Hooking into Idling event with Stopwatch...");
+                Log.Info("Batch task file detected. Hooking into Idling event with Stopwatch...");
                 _startupStopwatch = Stopwatch.StartNew();
                 application.Idling += OnRevitIdlingDelay;
             }
@@ -103,7 +104,7 @@ namespace ProjectPerseus
             }
             _startupStopwatch.Stop();
 
-            Utl.WriteLog($"[Plugin] Idling delay finished. Actual elapsed: {_startupStopwatch.ElapsedMilliseconds}ms. Evaluating Batch Task...");
+            Log.Info($"[Plugin] Idling delay finished. Actual elapsed: {_startupStopwatch.ElapsedMilliseconds}ms. Evaluating Batch Task...");
 
             try
             {
@@ -112,19 +113,19 @@ namespace ProjectPerseus
 
                 if (instruction != null && instruction.IsValid())
                 {
-                    Utl.WriteLog("[Plugin] Batch task is valid. Launching Batch Processor...");
+                    Log.Info("[Plugin] Batch task is valid. Launching Batch Processor...");
                     var processor = new queue.BatchProcessor(uiApp, instruction, _batchFilePath);
                     processor.Start();
                 }
                 else
                 {
-                    Utl.WriteLog("[Plugin] Batch task is expired or invalid. Deleting file and ignoring.");
+                    Log.Info("[Plugin] Batch task is expired or invalid. Deleting file and ignoring.");
                     File.Delete(_batchFilePath);
                 }
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"[Plugin] Critical failure in boot trigger: {ex.Message}");
+                Log.Info($"[Plugin] Critical failure in boot trigger: {ex.Message}");
                 if (File.Exists(_batchFilePath)) File.Delete(_batchFilePath);
             }
         }

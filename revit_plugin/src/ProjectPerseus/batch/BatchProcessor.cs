@@ -13,6 +13,7 @@ using ProjectPerseus.models;
 using ProjectPerseus.sync;
 using ProjectPerseus.ui;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.queue
 {
     public class BatchProcessor
@@ -39,7 +40,7 @@ namespace ProjectPerseus.queue
                 var result = countdownForm.ShowDialog();
                 if (result == DialogResult.Cancel)
                 {
-                    Utl.WriteLog("User aborted batch process during countdown.");
+                    Log.Info("User aborted batch process during countdown.");
                     CleanupAndExit(false);
                     return;
                 }
@@ -81,18 +82,18 @@ namespace ProjectPerseus.queue
                     consecutiveFailures++;
                     if (entry.Attempt < MaxAttempts)
                     {
-                        Utl.WriteLog($"Requeueing {entry.Model.DisplayName} for retry {entry.Attempt + 1}/{MaxAttempts}.", LogLevel.Warn);
+                        Log.Warn($"Requeueing {entry.Model.DisplayName} for retry {entry.Attempt + 1}/{MaxAttempts}.");
                         queue.Enqueue(new RetryEntry { Model = entry.Model, Attempt = entry.Attempt + 1 });
                     }
                     else
                     {
-                        Utl.WriteLog($"Giving up on {entry.Model.DisplayName} after {MaxAttempts} attempts.", LogLevel.Error);
+                        Log.Error($"Giving up on {entry.Model.DisplayName} after {MaxAttempts} attempts.");
                     }
 
                     // Full pass through the queue with zero successes -> back off before the next round.
                     if (queue.Count > 0 && consecutiveFailures >= queue.Count)
                     {
-                        Utl.WriteLog($"No successes in the last pass; waiting 30s before retrying {queue.Count} model(s)...", LogLevel.Warn);
+                        Log.Warn($"No successes in the last pass; waiting 30s before retrying {queue.Count} model(s)...");
                         if (!SleepWithCountdown(RetryWaitMs, progressForm, $"Retrying {queue.Count} model(s) in")) break;
                         consecutiveFailures = 0;
                     }
@@ -100,8 +101,8 @@ namespace ProjectPerseus.queue
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Critical Batch Error: {ex.GetType().Name}: {ex.Message}", LogLevel.Error);
-                Utl.WriteLog($"Stack: {ex.StackTrace}", LogLevel.Error);
+                Log.Error($"Critical Batch Error: {ex.GetType().Name}: {ex.Message}");
+                Log.Error($"Stack: {ex.StackTrace}");
             }
             finally
             {
@@ -120,7 +121,7 @@ namespace ProjectPerseus.queue
 
                 if (modelInfo.IsLocalFile)
                 {
-                    Utl.WriteLog($"Opening local file: {modelInfo.LocalPath}");
+                    Log.Info($"Opening local file: {modelInfo.LocalPath}");
                     modelPath = new FilePath(modelInfo.LocalPath);
                 }
                 else
@@ -128,7 +129,7 @@ namespace ProjectPerseus.queue
                     Guid projGuid = Guid.Parse(modelInfo.ProjectGuid);
                     Guid modGuid = Guid.Parse(modelInfo.ModelGuid);
                     string regionCode = string.IsNullOrEmpty(modelInfo.Region) ? "US" : modelInfo.Region;
-                    Utl.WriteLog($"Building cloud path - Region: {regionCode}, Project: {projGuid}, Model: {modGuid}");
+                    Log.Info($"Building cloud path - Region: {regionCode}, Project: {projGuid}, Model: {modGuid}");
                     modelPath = ModelPathUtils.ConvertCloudGUIDsToCloudPath(regionCode, projGuid, modGuid);
                 }
 
@@ -142,17 +143,17 @@ namespace ProjectPerseus.queue
                     // Revit already told us the model is missing/invalid via GetUserWorksetInfo.
                     // Calling OpenDocumentFile against it crashes Revit (no managed exception),
                     // so bail out and let the retry queue try again later.
-                    Utl.WriteLog($"Skipping OpenDocumentFile for {modelInfo.DisplayName}: Revit reports model unreachable.", LogLevel.Warn);
+                    Log.Warn($"Skipping OpenDocumentFile for {modelInfo.DisplayName}: Revit reports model unreachable.");
                     return false;
                 }
 
                 openOptions.SetOpenWorksetsConfiguration(worksetConfig);
 
-                Utl.WriteLog($"Calling OpenDocumentFile for {modelInfo.DisplayName}...");
+                Log.Info($"Calling OpenDocumentFile for {modelInfo.DisplayName}...");
                 doc = _uiApp.Application.OpenDocumentFile(modelPath, openOptions);
-                Utl.WriteLog($"OpenDocumentFile returned for {modelInfo.DisplayName}.");
+                Log.Info($"OpenDocumentFile returned for {modelInfo.DisplayName}.");
 
-                Utl.WriteLog($"Document opened: {doc.Title}. Running Perseus sync...");
+                Log.Info($"Document opened: {doc.Title}. Running Perseus sync...");
                 var revitFacade = new revit.RevitFacade(doc);
 
                 if (_instruction.ExportMode == models.BatchExportMode.File
@@ -171,13 +172,13 @@ namespace ProjectPerseus.queue
                     IncrementalSyncRunner.PerformIncrementalSync(revitFacade);
                 }
 
-                Utl.WriteLog($"Successfully processed: {doc.Title}");
+                Log.Info($"Successfully processed: {doc.Title}");
                 return true;
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to process model {modelInfo.DisplayName}: {ex.GetType().Name}: {ex.Message}", LogLevel.Error);
-                Utl.WriteLog($"Stack: {ex.StackTrace}", LogLevel.Error);
+                Log.Error($"Failed to process model {modelInfo.DisplayName}: {ex.GetType().Name}: {ex.Message}");
+                Log.Error($"Stack: {ex.StackTrace}");
                 return false;
             }
             finally
@@ -185,7 +186,7 @@ namespace ProjectPerseus.queue
                 if (doc != null && doc.IsValidObject)
                 {
                     try { doc.Close(false); }
-                    catch (Exception ex) { Utl.WriteLog($"Error closing document: {ex.Message}", LogLevel.Warn); }
+                    catch (Exception ex) { Log.Warn($"Error closing document: {ex.Message}"); }
                 }
             }
         }
@@ -245,10 +246,8 @@ namespace ProjectPerseus.queue
                     msg.IndexOf("does not exist", StringComparison.OrdinalIgnoreCase) >= 0
                     || msg.IndexOf("not valid", StringComparison.OrdinalIgnoreCase) >= 0;
 
-                Utl.WriteLog(
-                    $"GetUserWorksetInfo failed for {modelInfo.DisplayName}: {ex.GetType().FullName}: {msg}",
-                    LogLevel.Error);
-                Utl.WriteLog($"Stack: {ex.StackTrace}", LogLevel.Error);
+                Log.Error($"GetUserWorksetInfo failed for {modelInfo.DisplayName}: {ex.GetType().FullName}: {msg}");
+                Log.Error($"Stack: {ex.StackTrace}");
 
                 if (revitFlaggedInvalid && !modelInfo.IsLocalFile)
                 {
@@ -258,7 +257,7 @@ namespace ProjectPerseus.queue
                 }
                 else
                 {
-                    Utl.WriteLog($"Defaulting workset configuration to {fallback}.", LogLevel.Warn);
+                    Log.Warn($"Defaulting workset configuration to {fallback}.");
                 }
             }
 
@@ -318,7 +317,7 @@ namespace ProjectPerseus.queue
 
             if (killRevit)
             {
-                Utl.WriteLog("Batch complete. Terminating Revit process.");
+                Log.Info("Batch complete. Terminating Revit process.");
 
                 // TerminateProcess with exit code 0: identical to Process.Kill() but the
                 // process exits with code 0, so Task Scheduler marks the run as succeeded

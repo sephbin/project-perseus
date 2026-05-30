@@ -9,6 +9,7 @@ using Autodesk.Revit.DB;
 using ProjectPerseus;
 using ProjectPerseus.revit.adapters;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.models
 {
     public class ElementDelta
@@ -37,7 +38,7 @@ namespace ProjectPerseus.models
             deltas.AddRange(CreateList(DeltaAction.Create, changeSet.CreatedElements, doc, docGuid));
             deltas.AddRange(CreateList(DeltaAction.Update, changeSet.ModifiedElements, doc, docGuid));
             //deltas.AddRange(CreateList(DeltaAction.Delete, changeSet.DeletedElements, doc, docGuid)); //TODO: Implement
-            Utl.WriteLog($"CreateListFromChangeSet, before return");
+            Log.Info($"CreateListFromChangeSet, before return");
             return deltas;
         }
 
@@ -48,24 +49,24 @@ namespace ProjectPerseus.models
             {
                 if (changeSet?.DeletedElementIds == null)
                 {
-                    Utl.WriteLog("CreateDeletedListFromChangeSet: no deleted IDs found.");
+                    Log.Info("CreateDeletedListFromChangeSet: no deleted IDs found.");
                     return new List<long>(); // 🔹 CHANGED
                 }
 
                 var deletedIds = changeSet.DeletedElementIds.ToList(); // clone in case it's reused
-                Utl.WriteLog($"CreateDeletedListFromChangeSet: Found {deletedIds.Count} deleted element IDs.");
+                Log.Info($"CreateDeletedListFromChangeSet: Found {deletedIds.Count} deleted element IDs.");
                 return deletedIds;
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"CreateDeletedListFromChangeSet failed: {ex.Message}");
+                Log.Info($"CreateDeletedListFromChangeSet failed: {ex.Message}");
                 return new List<long>(); // 🔹 CHANGED
             }
         }
 
         public static IList<ElementDelta> CreateList(DeltaAction action, IEnumerable<IArdbElement> elements, Document doc, string docGuid)
         {
-            Utl.WriteLog($"CreateList {action}");
+            Log.Info($"CreateList {action}");
             var deltas = new List<ElementDelta>();
             int count = 0;
             int total = elements.Count();
@@ -80,7 +81,7 @@ namespace ProjectPerseus.models
                 {
                     try
                     {
-                        Utl.WriteLog($"CreateList: Processed {count} of {total} ({(count * 100 / total)}%) elements");
+                        Log.Info($"CreateList: Processed {count} of {total} ({(count * 100 / total)}%) elements");
                     }
                     catch
                     {
@@ -88,7 +89,7 @@ namespace ProjectPerseus.models
                     }
                 }
             }
-            Utl.WriteLog($"CreateList {action}, before return");
+            Log.Info($"CreateList {action}, before return");
             return deltas;
         }
 
@@ -158,7 +159,7 @@ namespace ProjectPerseus.models
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Error processing referenced ID {id}: {ex.Message}");
+                    Log.Info($"Error processing referenced ID {id}: {ex.Message}");
                 }
             }
             return deltas;

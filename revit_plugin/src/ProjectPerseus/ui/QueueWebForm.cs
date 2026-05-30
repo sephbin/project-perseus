@@ -7,6 +7,7 @@ using System.Drawing;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.ui
 {
     public class QueueWebForm : Form
@@ -78,7 +79,7 @@ namespace ProjectPerseus.ui
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"WebView2 unavailable ({ex.Message}). Falling back to system browser.");
+                Log.Info($"WebView2 unavailable ({ex.Message}). Falling back to system browser.");
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = _url,

@@ -4,6 +4,7 @@ using Newtonsoft.Json.Linq;
 using ProjectPerseus.config;
 using ProjectPerseus.web;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.auth
 {
     // Server-driven auth coordinator. Asks the Django backend which auth mode to use
@@ -34,7 +35,7 @@ namespace ProjectPerseus.auth
 
             if (_authType.Equals("None", StringComparison.OrdinalIgnoreCase))
             {
-                Utl.WriteLog("Auth mode: Sandbox. MSAL bypassed.");
+                Log.Info("Auth mode: Sandbox. MSAL bypassed.");
                 _isInitialized = true;
                 return;
             }
@@ -80,7 +81,7 @@ namespace ProjectPerseus.auth
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to retrieve auth token: {ex.Message}");
+                Log.Info($"Failed to retrieve auth token: {ex.Message}");
                 return null;
             }
         }

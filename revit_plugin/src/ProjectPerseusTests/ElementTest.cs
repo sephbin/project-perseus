@@ -5,6 +5,7 @@ using Autodesk.Revit.DB;
 using Newtonsoft.Json.Linq;
 using ProjectPerseus;
 using ProjectPerseus.models;
+using ProjectPerseus.util;
 using ProjectPerseus.revit.interfaces;
 using ProjectPerseusTests.mocks;
 using ARDB = Autodesk.Revit.DB;
@@ -117,7 +118,7 @@ namespace ProjectPerseusTests
             }";
             GetMockElement(out var mockElement);
             var elementDelta = new ElementDelta(ElementDelta.DeltaAction.Create, mockElement, null, null);
-            var actualJson = Utl.SerializeToJson(elementDelta);
+            var actualJson = JsonUtils.SerializeToJson(elementDelta);
             
             var expectedToken = JToken.Parse(expectedJson);
             var actualToken = JToken.Parse(actualJson);

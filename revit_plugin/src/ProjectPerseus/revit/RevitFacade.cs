@@ -6,6 +6,7 @@ using ProjectPerseus.models;
 using ProjectPerseus.revit.interfaces;
 using ProjectPerseus;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.revit
 {
     public class RevitFacade
@@ -45,7 +46,7 @@ namespace ProjectPerseus.revit
         {
             //foreach (var d in deltas)
             //{
-            //    try { Utl.WriteLog(d.Element.originalElement.CategoryName.Name); } catch { }
+            //    try { Log.Info(d.Element.originalElement.CategoryName.Name); } catch { }
             //}
 
             if (categoryNames == null || !categoryNames.Any())

@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.sync
 {
     // Win32 helpers for closing Revit's native "Sync With Central" progress dialog.
@@ -46,14 +47,14 @@ namespace ProjectPerseus.sync
                         title.IndexOf("Synchronising with Central", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                        Utl.WriteLog($"Auto-closed Revit sync dialog: '{title}'");
+                        Log.Info($"Auto-closed Revit sync dialog: '{title}'");
                     }
                     return true;
                 }, IntPtr.Zero);
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Could not auto-close Revit sync dialog: {ex.Message}");
+                Log.Info($"Could not auto-close Revit sync dialog: {ex.Message}");
             }
         }
     }

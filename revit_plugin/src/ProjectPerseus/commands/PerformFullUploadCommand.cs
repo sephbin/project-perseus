@@ -5,6 +5,7 @@ using Autodesk.Revit.UI;
 using ProjectPerseus.revit;
 using ProjectPerseus.sync;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.commands
 {
     [Transaction(TransactionMode.Manual)]
@@ -18,7 +19,7 @@ namespace ProjectPerseus.commands
 
                 if (doc == null)
                 {
-                    Utl.WriteLog("PerformFullUploadCommand failed: No active document.");
+                    Log.Info("PerformFullUploadCommand failed: No active document.");
                     return Result.Failed;
                 }
 
@@ -30,7 +31,7 @@ namespace ProjectPerseus.commands
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Manual Full Sync failed: {ex.Message}");
+                Log.Info($"Manual Full Sync failed: {ex.Message}");
                 message = ex.Message;
                 return Result.Failed;
             }

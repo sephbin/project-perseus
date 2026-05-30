@@ -3,6 +3,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using ProjectPerseus;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.revit
 {
     public static class ModelGuidStorage
@@ -26,7 +27,7 @@ namespace ProjectPerseus.revit
                 // Retrieve current GUID (if present)
                 string storedGuid = entity.IsValid() ? entity.Get<string>(schema.GetField(FieldName)) : null;
 
-                Utl.WriteLog($"[ModelGuidStorage] Stored GUID: {storedGuid}");
+                Log.Info($"[ModelGuidStorage] Stored GUID: {storedGuid}");
 
                 // If detached or invalid, regenerate
                 if (IsDetachedFromCentral(doc) || string.IsNullOrEmpty(storedGuid))
@@ -40,7 +41,7 @@ namespace ProjectPerseus.revit
                         tx.Commit();
                     }
 
-                    Utl.WriteLog($"[ModelGuidStorage] New GUID assigned: {newGuid}");
+                    Log.Info($"[ModelGuidStorage] New GUID assigned: {newGuid}");
                     return newGuid;
                 }
 
@@ -48,7 +49,7 @@ namespace ProjectPerseus.revit
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Error in ModelGuidStorage.GetOrCreate: {ex.Message}");
+                Log.Info($"Error in ModelGuidStorage.GetOrCreate: {ex.Message}");
                 return "ErrorModelGuid";
             }
         }
@@ -81,12 +82,12 @@ namespace ProjectPerseus.revit
                     tx.Commit();
                 }
 
-                Utl.WriteLog($"[ModelGuidStorage] Forced new GUID assigned: {newGuid}");
+                Log.Info($"[ModelGuidStorage] Forced new GUID assigned: {newGuid}");
                 return newGuid;
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Error in ModelGuidStorage.ForceNewInternalGuid: {ex.Message}");
+                Log.Info($"Error in ModelGuidStorage.ForceNewInternalGuid: {ex.Message}");
                 throw; // Throw this so the external command can catch it and show an error dialog
             }
         }

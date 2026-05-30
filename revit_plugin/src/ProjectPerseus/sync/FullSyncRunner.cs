@@ -12,6 +12,8 @@ using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.web;
 
+using ProjectPerseus.logging;
+using ProjectPerseus.util;
 namespace ProjectPerseus.sync
 {
     // Full-state sync: iterates every element in the model and pushes the entire payload
@@ -24,7 +26,7 @@ namespace ProjectPerseus.sync
         {
             try
             {
-                Utl.WriteLog("Start Watch");
+                Log.Info("Start Watch");
                 var watch = Stopwatch.StartNew();
 
                 var doc = revit.Document;
@@ -52,7 +54,7 @@ namespace ProjectPerseus.sync
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Failed to read project info: {ex.Message}");
+                    Log.Info($"Failed to read project info: {ex.Message}");
                 }
 
                 var metadata = new
@@ -74,26 +76,26 @@ namespace ProjectPerseus.sync
                 string jsonMetadata = JsonConvert.SerializeObject(metadata);
                 string response = WebHelper.Post(metadataEndpoint, AuthService.GetAuthTokenSafely(), jsonMetadata);
                 JObject json = JObject.Parse(response);
-                Utl.WriteLog($"Metadata upload response: {response}");
+                Log.Info($"Metadata upload response: {response}");
 
                 var elements = revit.GetAllElements();
-                Utl.WriteLog($"PerformFullSync: Found {elements.Count} elements");
+                Log.Info($"PerformFullSync: Found {elements.Count} elements");
 
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-                Utl.WriteLog(docGuid);
+                Log.Info(docGuid);
 
                 var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid).ToList();
-                Utl.WriteLog("PerformFullSync: Created elementDeltaList");
+                Log.Info("PerformFullSync: Created elementDeltaList");
 
                 var filteredElementDeltaList = new List<ElementDelta>();
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
 
                 try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList(); }
-                catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
+                catch (Exception ex) { Log.Info(ex.ToString()); }
 
                 try
                 {
-                    Utl.WriteLog("Harvesting Categories...");
+                    Log.Info("Harvesting Categories...");
                     var categoryDeltas = new List<ElementDelta>();
 
                     foreach (Category cat in CategoryHarvester.GetAllCategories(revit.Document))
@@ -103,12 +105,12 @@ namespace ProjectPerseus.sync
                         categoryDeltas.Add(delta);
                     }
 
-                    Utl.WriteLog($"Added {categoryDeltas.Count} Categories to the payload.");
+                    Log.Info($"Added {categoryDeltas.Count} Categories to the payload.");
                     filteredElementDeltaList.AddRange(categoryDeltas);
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Error harvesting categories: {ex.Message}");
+                    Log.Info($"Error harvesting categories: {ex.Message}");
                 }
 
                 try
@@ -121,13 +123,13 @@ namespace ProjectPerseus.sync
 
                     if (collectConnected)
                     {
-                        Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+                        Log.Info("Option 'collectConnectedElements' is TRUE. Harvesting references...");
 
                         HashSet<long> referencedIds = ElementDelta.GetReferencedIds(filteredElementDeltaList);
                         var existingIds = filteredElementDeltaList.Select(x => x.Element.Id).ToHashSet();
                         referencedIds.ExceptWith(existingIds);
 
-                        Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
+                        Log.Info($"Found {referencedIds.Count} additional connected elements.");
 
                         if (referencedIds.Count > 0)
                         {
@@ -138,17 +140,17 @@ namespace ProjectPerseus.sync
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                    Log.Info($"Error in CollectConnectedElements logic: {ex.Message}");
                 }
 
-                Utl.WriteLog("PerformFullSync: Filtered Element Delta List");
+                Log.Info("PerformFullSync: Filtered Element Delta List");
                 StateSubmitter.SubmitElementState(filteredElementDeltaList);
 
                 watch.Stop();
-                Utl.WriteLog("End Watch");
-                Utl.WriteLog($"Full Upload completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                Log.Info("End Watch");
+                Log.Info($"Full Upload completed in {watch.Elapsed:hh\\:mm\\:ss}");
             }
-            catch (Exception ex) { Utl.WriteLog(ex.ToString()); }
+            catch (Exception ex) { Log.Info(ex.ToString()); }
         }
 
         public static void PerformFullSyncToFile(RevitFacade revit, string outputDir, IList<string> categories, bool collectConnectedElements)
@@ -160,14 +162,14 @@ namespace ProjectPerseus.sync
                 var docGuid = ModelGuidStorage.GetOrCreate(doc);
 
                 var elements = revit.GetAllElements();
-                Utl.WriteLog($"PerformFullSyncToFile: Found {elements.Count} elements");
+                Log.Info($"PerformFullSyncToFile: Found {elements.Count} elements");
 
                 var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, doc, docGuid).ToList();
 
                 if (categories != null && categories.Count > 0)
                 {
                     elementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList();
-                    Utl.WriteLog($"PerformFullSyncToFile: Filtered to {elementDeltaList.Count} elements by category");
+                    Log.Info($"PerformFullSyncToFile: Filtered to {elementDeltaList.Count} elements by category");
                 }
 
                 try
@@ -177,11 +179,11 @@ namespace ProjectPerseus.sync
                         var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
                         elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, doc, docGuid));
                     }
-                    Utl.WriteLog($"PerformFullSyncToFile: Added categories, total {elementDeltaList.Count} items");
+                    Log.Info($"PerformFullSyncToFile: Added categories, total {elementDeltaList.Count} items");
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"PerformFullSyncToFile: Error harvesting categories: {ex.Message}");
+                    Log.Info($"PerformFullSyncToFile: Error harvesting categories: {ex.Message}");
                 }
 
                 if (collectConnectedElements)
@@ -191,27 +193,27 @@ namespace ProjectPerseus.sync
                         HashSet<long> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
                         var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
                         referencedIds.ExceptWith(existingIds);
-                        Utl.WriteLog($"PerformFullSyncToFile: Found {referencedIds.Count} additional connected elements.");
+                        Log.Info($"PerformFullSyncToFile: Found {referencedIds.Count} additional connected elements.");
                         if (referencedIds.Count > 0)
                             elementDeltaList.AddRange(ElementDelta.CreateListFromIds(referencedIds, doc, docGuid));
                     }
                     catch (Exception ex)
                     {
-                        Utl.WriteLog($"PerformFullSyncToFile: Error collecting connected elements: {ex.Message}");
+                        Log.Info($"PerformFullSyncToFile: Error collecting connected elements: {ex.Message}");
                     }
                 }
 
                 Directory.CreateDirectory(outputDir);
                 string safeName = string.Concat(doc.Title.Split(Path.GetInvalidFileNameChars()));
                 string outputPath = Path.Combine(outputDir, $"{safeName}.json");
-                File.WriteAllText(outputPath, Utl.SerializeToJson(elementDeltaList, null));
+                File.WriteAllText(outputPath, JsonUtils.SerializeToJson(elementDeltaList, null));
 
                 watch.Stop();
-                Utl.WriteLog($"PerformFullSyncToFile: Wrote {elementDeltaList.Count} elements to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");
+                Log.Info($"PerformFullSyncToFile: Wrote {elementDeltaList.Count} elements to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"PerformFullSyncToFile failed: {ex.Message}\n{ex.StackTrace}");
+                Log.Info($"PerformFullSyncToFile failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

@@ -13,6 +13,8 @@ using ProjectPerseus.revit;
 using ProjectPerseus.ui;
 using ProjectPerseus.web;
 
+using ProjectPerseus.logging;
+using ProjectPerseus.util;
 namespace ProjectPerseus.sync
 {
     // Stateful coordinator for the Revit sync lifecycle. Owns the pre-sync queue check,
@@ -73,7 +75,7 @@ namespace ProjectPerseus.sync
             }
             else
             {
-                Utl.WriteLog($"Revit Sync was {e.Status}. Skipping Perseus upload.");
+                Log.Info($"Revit Sync was {e.Status}. Skipping Perseus upload.");
                 _isSyncing = false;
             }
             _currentSyncDoc = null;
@@ -85,7 +87,7 @@ namespace ProjectPerseus.sync
 
             string caption = e.Caption ?? "";
 
-            Utl.WriteLog($"Sync Caption Changed: {caption}");
+            Log.Info($"Sync Caption Changed: {caption}");
 
             // Caption transition "Save to Central → Open an existing project" means the central
             // write has finished. Release the queue now rather than waiting for the full sync to
@@ -94,7 +96,7 @@ namespace ProjectPerseus.sync
             {
                 _queueReleasedEarly = true;
 
-                Utl.WriteLog("Detected 'Save to Local'. Releasing queue early via ProgressChanged event!");
+                Log.Info("Detected 'Save to Local'. Releasing queue early via ProgressChanged event!");
 
                 System.Threading.Tasks.Task.Run(() =>
                 {
@@ -107,7 +109,7 @@ namespace ProjectPerseus.sync
                     }
                     catch (Exception ex)
                     {
-                        Utl.WriteLog($"Early release failed: {ex.Message}");
+                        Log.Info($"Early release failed: {ex.Message}");
                     }
                 });
             }
@@ -147,12 +149,12 @@ namespace ProjectPerseus.sync
                             var encodedNext = Uri.EscapeDataString(new Uri(webQueueUrl).PathAndQuery);
                             var encodedSso = Uri.EscapeDataString(ssoToken);
                             startUrl = $"{tokenLoginUrl}?sso_token={encodedSso}&next={encodedNext}";
-                            Utl.WriteLog("SSO token acquired — WebView2 will inherit MSAL session.");
+                            Log.Info("SSO token acquired — WebView2 will inherit MSAL session.");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Utl.WriteLog($"SSO token exchange failed, falling back to direct navigation: {ex.Message}", LogLevel.Warn);
+                        Log.Warn($"SSO token exchange failed, falling back to direct navigation: {ex.Message}");
                     }
                 }
 
@@ -168,11 +170,11 @@ namespace ProjectPerseus.sync
                 thread.IsBackground = true;
                 thread.Start();
 
-                Utl.WriteLog($"Opened web queue dialog: {webQueueUrl}");
+                Log.Info($"Opened web queue dialog: {webQueueUrl}");
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to open web queue dialog: {ex.Message}");
+                Log.Info($"Failed to open web queue dialog: {ex.Message}");
             }
         }
 
@@ -187,15 +189,15 @@ namespace ProjectPerseus.sync
                 // AutoSyncEvent already passed the queue check — skip re-entry to avoid an infinite loop.
                 if (IsAutoSyncing)
                 {
-                    Utl.WriteLog("Auto-Sync in progress – skipping queue check.");
+                    Log.Info("Auto-Sync in progress – skipping queue check.");
                     return;
                 }
 
-                Utl.WriteLog($"Sync initiated for: {e.Document?.Title ?? "unknown document"}");
+                Log.Info($"Sync initiated for: {e.Document?.Title ?? "unknown document"}");
 
                 if (UploadConfigIsValid() == false)
                 {
-                    Utl.WriteLog("Upload config invalid – skipping preliminary check.");
+                    Log.Info("Upload config invalid – skipping preliminary check.");
                     return;
                 }
 
@@ -226,19 +228,19 @@ namespace ProjectPerseus.sync
 
                     if (StripDomain(usersInQueue[0]).Equals(windowsUsername, StringComparison.OrdinalIgnoreCase))
                     {
-                        Utl.WriteLog($"Queue position: 1 of {queueCount}. Proceeding without alert.");
+                        Log.Info($"Queue position: 1 of {queueCount}. Proceeding without alert.");
                         shouldShowDialog = false;
                     }
                     else
                     {
                         int position = usersInQueue.FindIndex(u => StripDomain(u).Equals(windowsUsername, StringComparison.OrdinalIgnoreCase)) + 1;
                         string posStr = position > 0 ? $"{position} of {queueCount}" : $"not in queue (total: {queueCount})";
-                        Utl.WriteLog($"Queue position: {posStr}. Showing alert.", LogLevel.Warn);
+                        Log.Warn($"Queue position: {posStr}. Showing alert.");
                     }
                 }
                 else
                 {
-                    Utl.WriteLog("No one in the sync queue. Proceeding with preliminary check.");
+                    Log.Info("No one in the sync queue. Proceeding with preliminary check.");
                     shouldShowDialog = false;
                 }
 
@@ -253,23 +255,23 @@ namespace ProjectPerseus.sync
                         switch (form.SelectedAction)
                         {
                             case SyncWarningForm.SyncAction.SyncAnyway:
-                                Utl.WriteLog("User chose: Sync Anyway.");
+                                Log.Info("User chose: Sync Anyway.");
                                 break;
 
                             case SyncWarningForm.SyncAction.JoinQueue:
-                                Utl.WriteLog("User chose: Join Queue.");
+                                Log.Info("User chose: Join Queue.");
                                 e.Cancel();
                                 System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
                                 OpenWebQueueLink(docGuid);
                                 return;
 
                             case SyncWarningForm.SyncAction.Cancel:
-                                Utl.WriteLog("User chose: Cancel Sync.");
+                                Log.Info("User chose: Cancel Sync.");
                                 e.Cancel();
                                 return;
 
                             case SyncWarningForm.SyncAction.JoinQueueAndAutoSync:
-                                Utl.WriteLog("User chose: Join Queue & Auto-Sync.");
+                                Log.Info("User chose: Join Queue & Auto-Sync.");
                                 e.Cancel();
                                 System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
                                 OpenWebQueueLink(docGuid);
@@ -288,7 +290,7 @@ namespace ProjectPerseus.sync
                                         var joinEndpoint = $"{autoSyncBaseUrl}/../syncboat/api/v2/source/{autoSyncDocGuid}/join/";
                                         var joinPayload = JsonConvert.SerializeObject(new { username = autoSyncUser.ToLower() });
                                         WebHelper.Post(joinEndpoint, null, joinPayload);
-                                        Utl.WriteLog($"Joined sync queue for {autoSyncDocGuid}.");
+                                        Log.Info($"Joined sync queue for {autoSyncDocGuid}.");
 
                                         if (_autoSyncPoller == null)
                                             _autoSyncPoller = new QueuePoller(AutoSyncExternalEvent);
@@ -296,7 +298,7 @@ namespace ProjectPerseus.sync
                                     }
                                     catch (Exception asyncEx)
                                     {
-                                        Utl.WriteLog($"Auto-sync queue join failed: {asyncEx.Message}", LogLevel.Error);
+                                        Log.Error($"Auto-sync queue join failed: {asyncEx.Message}");
                                     }
                                 });
                                 return;
@@ -319,11 +321,11 @@ namespace ProjectPerseus.sync
                 var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
                 string response = WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
 
-                Utl.WriteLog($"Preliminary sync request sent. Response: {response}");
+                Log.Info($"Preliminary sync request sent. Response: {response}");
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Error during preliminary sync: {ex}", LogLevel.Error);
+                Log.Error($"Error during preliminary sync: {ex}");
             }
         }
 
@@ -331,11 +333,11 @@ namespace ProjectPerseus.sync
         {
             try
             {
-                Utl.WriteLog("Sync finished – contacting web server...");
+                Log.Info("Sync finished – contacting web server...");
 
                 if (UploadConfigIsValid() == false)
                 {
-                    Utl.WriteLog("Upload config invalid – skipping preliminary check.");
+                    Log.Info("Upload config invalid – skipping preliminary check.");
                     return;
                 }
 
@@ -363,7 +365,7 @@ namespace ProjectPerseus.sync
 
                 var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
                 string response = WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
-                Utl.WriteLog($"Post sync request sent. Response: {response}");
+                Log.Info($"Post sync request sent. Response: {response}");
 
                 // Use the MSAL token to leave the queue so request.user on the server matches
                 // whoever actually authenticated.
@@ -374,23 +376,23 @@ namespace ProjectPerseus.sync
                     try
                     {
                         WebHelper.Post(leaveEndpoint, leaveToken, "{}");
-                        Utl.WriteLog("Removed from sync queue.");
+                        Log.Info("Removed from sync queue.");
                     }
                     catch (Exception leaveEx)
                     {
-                        Utl.WriteLog($"Failed to leave queue: {leaveEx.Message}", LogLevel.Warn);
+                        Log.Warn($"Failed to leave queue: {leaveEx.Message}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Error during post sync: {ex}", LogLevel.Error);
+                Log.Error($"Error during post sync: {ex}");
             }
         }
 
         private void doOnSync(DocumentSynchronizedWithCentralEventArgs e)
         {
-            using (var sentry = new Utl.SentryContext())
+            using (var sentry = new SentryContext())
             {
                 try
                 {
@@ -401,14 +403,14 @@ namespace ProjectPerseus.sync
                         return;
                     }
 
-                    Utl.WriteLog("Start Watch");
+                    Log.Info("Start Watch");
                     var watch = System.Diagnostics.Stopwatch.StartNew();
 
                     try
                     {
                         var revit = new RevitFacade(e.Document);
 
-                        Utl.WriteLog("Before PerformIncrementalSync");
+                        Log.Info("Before PerformIncrementalSync");
                         IncrementalSyncRunner.PerformIncrementalSync(revit);
 
                         _config.LastSyncVersionGuid = RevitFacade.GetDocumentVersionGuid(revit.Document);
@@ -416,17 +418,17 @@ namespace ProjectPerseus.sync
                     catch (Exception ex)
                     {
                         Log.Exception(new Exception($"Error performing sync: {ex.Message}", ex));
-                        Utl.WriteLog($"Error performing sync: {ex.Message}");
+                        Log.Info($"Error performing sync: {ex.Message}");
                     }
 
                     watch.Stop();
-                    Utl.WriteLog("End Watch");
-                    Utl.WriteLog($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    Log.Info("End Watch");
+                    Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
                 }
                 catch (Exception ex)
                 {
                     Log.Error(ex.ToString());
-                    Utl.WriteLog(ex.ToString());
+                    Log.Info(ex.ToString());
                 }
             }
         }
@@ -434,7 +436,7 @@ namespace ProjectPerseus.sync
         private bool UploadConfigIsValid()
         {
             return _config.BaseUrl != null
-                   && Utl.IsValidUrl(_config.BaseUrl);
+                   && UrlUtils.IsValidUrl(_config.BaseUrl);
         }
     }
 }

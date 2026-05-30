@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.ui
 {
     public class BatchProgressForm : Form
@@ -14,7 +15,7 @@ namespace ProjectPerseus.ui
 
         public BatchProgressForm(bool isCountdownMode)
         {
-            Utl.WriteLog($"[BatchProgressForm] Constructor started. isCountdownMode = {isCountdownMode}");
+            Log.Info($"[BatchProgressForm] Constructor started. isCountdownMode = {isCountdownMode}");
 
             this.Text = "Perseus Nightly Batch";
             this.Size = new Size(400, 150);
@@ -44,8 +45,8 @@ namespace ProjectPerseus.ui
             this.Controls.Add(_btnCancel);
 
             // Add lifecycle event logs to see if Windows is actually drawing it
-            this.Load += (s, e) => Utl.WriteLog("[BatchProgressForm] Form 'Load' event fired.");
-            this.Shown += (s, e) => Utl.WriteLog("[BatchProgressForm] Form 'Shown' event fired (Should be visible to OS now).");
+            this.Load += (s, e) => Log.Info("[BatchProgressForm] Form 'Load' event fired.");
+            this.Shown += (s, e) => Log.Info("[BatchProgressForm] Form 'Shown' event fired (Should be visible to OS now).");
 
             if (isCountdownMode)
             {
@@ -54,7 +55,7 @@ namespace ProjectPerseus.ui
                 _timer.Interval = 1000;
                 _timer.Tick += Timer_Tick;
 
-                Utl.WriteLog("[BatchProgressForm] Starting countdown timer...");
+                Log.Info("[BatchProgressForm] Starting countdown timer...");
                 _timer.Start();
             }
             else
@@ -62,13 +63,13 @@ namespace ProjectPerseus.ui
                 _lblStatus.Text = "Batch processing in progress...\nDo not touch Revit.";
             }
 
-            Utl.WriteLog("[BatchProgressForm] Constructor finished.");
+            Log.Info("[BatchProgressForm] Constructor finished.");
         }
 
         private void Timer_Tick(object sender, EventArgs e)
         {
             _timeLeft--;
-            Utl.WriteLog($"[BatchProgressForm] Timer Tick. Time left: {_timeLeft}s");
+            Log.Info($"[BatchProgressForm] Timer Tick. Time left: {_timeLeft}s");
 
             if (_timeLeft > 0)
             {
@@ -76,7 +77,7 @@ namespace ProjectPerseus.ui
             }
             else
             {
-                Utl.WriteLog("[BatchProgressForm] Timer reached 0. Closing form with OK result.");
+                Log.Info("[BatchProgressForm] Timer reached 0. Closing form with OK result.");
                 _timer.Stop();
                 this.DialogResult = DialogResult.OK;
                 this.Close();
@@ -85,7 +86,7 @@ namespace ProjectPerseus.ui
 
         private void BtnCancel_Click(object sender, EventArgs e)
         {
-            Utl.WriteLog("[BatchProgressForm] User clicked Cancel button.");
+            Log.Info("[BatchProgressForm] User clicked Cancel button.");
             if (_timer != null) _timer.Stop();
             AbortRequested = true;
             this.DialogResult = DialogResult.Cancel;

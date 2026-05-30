@@ -6,6 +6,7 @@ using Microsoft.Identity.Client;
 using Microsoft.Identity.Client.Extensions.Msal;
 using Newtonsoft.Json.Linq;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.auth
 {
     // Microsoft Entra ID (MSAL) provider. Initialized lazily from auth-config returned by
@@ -35,7 +36,7 @@ namespace ProjectPerseus.auth
             var cacheHelper = await MsalCacheHelper.CreateAsync(storageProperties);
             cacheHelper.RegisterCache(_msalApp.UserTokenCache);
 
-            Utl.WriteLog($"Auth mode: EntraID. Tenant: {tenantId}");
+            Log.Info($"Auth mode: EntraID. Tenant: {tenantId}");
         }
 
         public static async Task<string> GetTokenAsync()
@@ -56,7 +57,7 @@ namespace ProjectPerseus.auth
                 }
                 catch (Exception ex)
                 {
-                    Utl.WriteLog($"Interactive MSAL login failed: {ex.Message}");
+                    Log.Info($"Interactive MSAL login failed: {ex.Message}");
                     return null;
                 }
             }

@@ -5,6 +5,7 @@ using Autodesk.Revit.UI;
 using ProjectPerseus.sync;
 using ProjectPerseus.ui;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.queue
 {
     // Runs on the main Revit thread when QueuePoller raises the ExternalEvent that this
@@ -26,12 +27,12 @@ namespace ProjectPerseus.queue
 
                     if (result == DialogResult.Cancel)
                     {
-                        Utl.WriteLog("User canceled Auto-Sync during the countdown.");
+                        Log.Info("User canceled Auto-Sync during the countdown.");
                         return;
                     }
                 }
 
-                Utl.WriteLog("Auto-Sync Event Triggered! Starting SynchronizeWithCentral...");
+                Log.Info("Auto-Sync Event Triggered! Starting SynchronizeWithCentral...");
 
                 var transOpts = new TransactWithCentralOptions();
                 var syncOpts = new SynchronizeWithCentralOptions
@@ -54,11 +55,11 @@ namespace ProjectPerseus.queue
                     SyncOrchestrator.IsAutoSyncing = false;
                 }
 
-                Utl.WriteLog("Auto-Sync command dispatched successfully.");
+                Log.Info("Auto-Sync command dispatched successfully.");
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to execute Auto-Sync: {ex.Message}");
+                Log.Info($"Failed to execute Auto-Sync: {ex.Message}");
             }
         }
 

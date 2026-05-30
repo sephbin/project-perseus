@@ -11,6 +11,8 @@ using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.web;
 
+using ProjectPerseus.logging;
+using ProjectPerseus.util;
 namespace ProjectPerseus.sync
 {
     // Incremental sync: uses Revit's GetElementChangeSet against the last-known versionGuid
@@ -25,14 +27,14 @@ namespace ProjectPerseus.sync
             {
                 var _baseUrl = Config.Instance.BaseUrl;
                 var docId = ModelGuidStorage.GetOrCreate(revit.Document);
-                Utl.WriteLog(docId);
+                Log.Info(docId);
                 var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
                 string stateJson = WebHelper.Get(StateEndpoint, null, null);
                 JObject json = JObject.Parse(stateJson);
 
                 var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
-                Utl.WriteLog(lastSyncVersionGuid.ToString());
+                Log.Info(lastSyncVersionGuid.ToString());
 
                 var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
 
@@ -54,13 +56,13 @@ namespace ProjectPerseus.sync
 
                         if (collectConnected)
                         {
-                            Utl.WriteLog("Option 'collectConnectedElements' is TRUE. Harvesting references...");
+                            Log.Info("Option 'collectConnectedElements' is TRUE. Harvesting references...");
 
                             HashSet<long> referencedIds = ElementDelta.GetReferencedIds(elementDeltaList);
                             var existingIds = elementDeltaList.Select(x => x.Element.Id).ToHashSet();
                             referencedIds.ExceptWith(existingIds);
 
-                            Utl.WriteLog($"Found {referencedIds.Count} additional connected elements.");
+                            Log.Info($"Found {referencedIds.Count} additional connected elements.");
 
                             if (referencedIds.Count > 0)
                             {
@@ -71,31 +73,31 @@ namespace ProjectPerseus.sync
                     }
                     catch (Exception ex)
                     {
-                        Utl.WriteLog($"Error in CollectConnectedElements logic: {ex.Message}");
+                        Log.Info($"Error in CollectConnectedElements logic: {ex.Message}");
                     }
 
                     var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
 
-                    Utl.WriteLog("About to run SubmitElementDeltas");
+                    Log.Info("About to run SubmitElementDeltas");
                     StateSubmitter.SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
                 }
                 else
                 {
                     Log.Info("No changes detected - skipping upload.");
-                    Utl.WriteLog("No changes detected - skipping upload.");
+                    Log.Info("No changes detected - skipping upload.");
                 }
             }
             // PacCache is gone — Revit can't replay the change set. Fall back to a full sync
             // to re-establish a baseline.
             catch (Autodesk.Revit.Exceptions.ArgumentException ex) when (ex.Message.Contains("baseVersionGUID"))
             {
-                Utl.WriteLog("WARNING: Local incremental history is missing or broken (PacCache likely cleared).");
-                Utl.WriteLog("Automatically falling back to PerformFullSync...");
+                Log.Info("WARNING: Local incremental history is missing or broken (PacCache likely cleared).");
+                Log.Info("Automatically falling back to PerformFullSync...");
                 FullSyncRunner.PerformFullSync(revit);
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"PerformIncrementalSync critically failed: {ex.Message}\n{ex.StackTrace}");
+                Log.Info($"PerformIncrementalSync critically failed: {ex.Message}\n{ex.StackTrace}");
                 throw;
             }
         }
@@ -110,12 +112,12 @@ namespace ProjectPerseus.sync
             Guid? lastVersionGuid = ReadFirstSourceState(outputPath);
             if (lastVersionGuid == null)
             {
-                Utl.WriteLog($"PerformIncrementalSyncToFile: No valid previous file at {outputPath}. Falling back to full sync.");
+                Log.Info($"PerformIncrementalSyncToFile: No valid previous file at {outputPath}. Falling back to full sync.");
                 FullSyncRunner.PerformFullSyncToFile(revit, outputDir, categories, collectConnectedElements);
                 return;
             }
 
-            Utl.WriteLog($"PerformIncrementalSyncToFile: Last source_state = {lastVersionGuid}");
+            Log.Info($"PerformIncrementalSyncToFile: Last source_state = {lastVersionGuid}");
 
             try
             {
@@ -125,7 +127,7 @@ namespace ProjectPerseus.sync
 
                 if (!elementChangeSet.ContainsChanges())
                 {
-                    Utl.WriteLog("PerformIncrementalSyncToFile: No changes detected.");
+                    Log.Info("PerformIncrementalSyncToFile: No changes detected.");
                     return;
                 }
 
@@ -142,11 +144,11 @@ namespace ProjectPerseus.sync
                         referencedIds.ExceptWith(existingIds);
                         if (referencedIds.Count > 0)
                             elementDeltaList.AddRange(ElementDelta.CreateListFromIds(referencedIds, doc, docGuid));
-                        Utl.WriteLog($"PerformIncrementalSyncToFile: {referencedIds.Count} connected elements added.");
+                        Log.Info($"PerformIncrementalSyncToFile: {referencedIds.Count} connected elements added.");
                     }
                     catch (Exception ex)
                     {
-                        Utl.WriteLog($"PerformIncrementalSyncToFile: Error collecting connected elements: {ex.Message}");
+                        Log.Info($"PerformIncrementalSyncToFile: Error collecting connected elements: {ex.Message}");
                     }
                 }
 
@@ -168,24 +170,24 @@ namespace ProjectPerseus.sync
                 };
 
                 Directory.CreateDirectory(outputDir);
-                File.WriteAllText(outputPath, Utl.SerializeToJson(payload, null));
+                File.WriteAllText(outputPath, JsonUtils.SerializeToJson(payload, null));
 
                 watch.Stop();
-                Utl.WriteLog($"PerformIncrementalSyncToFile: Wrote {elementDeltaList.Count} changed + {deletedIds.Count} deleted to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");
+                Log.Info($"PerformIncrementalSyncToFile: Wrote {elementDeltaList.Count} changed + {deletedIds.Count} deleted to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");
             }
             catch (Autodesk.Revit.Exceptions.ArgumentException ex) when (ex.Message.Contains("baseVersionGUID"))
             {
-                Utl.WriteLog("PerformIncrementalSyncToFile: Local history missing. Falling back to full sync.");
+                Log.Info("PerformIncrementalSyncToFile: Local history missing. Falling back to full sync.");
                 FullSyncRunner.PerformFullSyncToFile(revit, outputDir, categories, collectConnectedElements);
             }
             catch (TypeLoadException ex)
             {
-                Utl.WriteLog($"PerformIncrementalSyncToFile: Revit API type unavailable on this Revit version ({ex.TypeName}). Falling back to full sync.");
+                Log.Info($"PerformIncrementalSyncToFile: Revit API type unavailable on this Revit version ({ex.TypeName}). Falling back to full sync.");
                 FullSyncRunner.PerformFullSyncToFile(revit, outputDir, categories, collectConnectedElements);
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"PerformIncrementalSyncToFile failed: {ex.Message}\n{ex.StackTrace}");
+                Log.Info($"PerformIncrementalSyncToFile failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -214,7 +216,7 @@ namespace ProjectPerseus.sync
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"ReadFirstSourceState error: {ex.Message}");
+                Log.Info($"ReadFirstSourceState error: {ex.Message}");
             }
             return null;
         }

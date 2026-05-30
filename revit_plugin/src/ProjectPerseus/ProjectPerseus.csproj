@@ -247,7 +247,8 @@
     <Compile Include="commands\PerformFullUploadCommand.cs" />
     <Compile Include="commands\ResetModelGuidCommand.cs" />
     <Compile Include="config\Config.cs" />
-    <Compile Include="Log.cs" />
+    <Compile Include="logging\Log.cs" />
+    <Compile Include="logging\SentryContext.cs" />
     <Compile Include="models\BatchInstruction.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="models\ElementDelta.cs" />
@@ -315,7 +316,8 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="ui\ThemeIconManager.cs" />
-    <Compile Include="Utl.cs" />
+    <Compile Include="util\JsonUtils.cs" />
+    <Compile Include="util\UrlUtils.cs" />
     <Compile Include="web\ProjectPerseusWeb.cs" />
     <Compile Include="web\WebHelper.cs" />
   </ItemGroup>

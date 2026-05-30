@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using ProjectPerseus.config;
 using ProjectPerseus.ui;
 
+using ProjectPerseus.logging;
 namespace ProjectPerseus.auth
 {
     // Self-hosted JWT provider. The Django backend exposes /api/token/ (login) and
@@ -25,7 +26,7 @@ namespace ProjectPerseus.auth
         {
             _tokenEndpoint = authConfig["tokenEndpoint"]?.ToString()
                 ?? $"{baseUrl}/api/token/";
-            Utl.WriteLog($"Auth mode: JWT. Endpoint: {_tokenEndpoint}");
+            Log.Info($"Auth mode: JWT. Endpoint: {_tokenEndpoint}");
         }
 
         public static async Task<string> GetTokenAsync()
@@ -75,7 +76,7 @@ namespace ProjectPerseus.auth
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"JWT silent refresh failed: {ex.Message}");
+                Log.Info($"JWT silent refresh failed: {ex.Message}");
                 return null;
             }
         }
@@ -97,7 +98,7 @@ namespace ProjectPerseus.auth
 
             if (credentials == null)
             {
-                Utl.WriteLog("JWT login cancelled by user.");
+                Log.Info("JWT login cancelled by user.");
                 return null;
             }
 
@@ -110,7 +111,7 @@ namespace ProjectPerseus.auth
                 var response = await _http.PostAsync(_tokenEndpoint, body);
                 if (!response.IsSuccessStatusCode)
                 {
-                    Utl.WriteLog($"JWT login failed: {(int)response.StatusCode} {response.ReasonPhrase}");
+                    Log.Info($"JWT login failed: {(int)response.StatusCode} {response.ReasonPhrase}");
                     return null;
                 }
 
@@ -129,7 +130,7 @@ namespace ProjectPerseus.auth
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"JWT login request failed: {ex.Message}");
+                Log.Info($"JWT login request failed: {ex.Message}");
                 return null;
             }
         }
