@@ -146,6 +146,41 @@ namespace ProjectPerseus.sync
                 Log.Info("PerformFullSync: Filtered Element Delta List");
                 StateSubmitter.SubmitElementState(filteredElementDeltaList);
 
+                // Ghost-element cleanup: full sync doesn't run a Revit change set, so anything
+                // Django still has for this source that's NOT in the payload we just pushed
+                // must have been deleted (or category-filtered out) since the last sync.
+                // Ask Django for its current element_id list and submit the diff as deletions.
+                try
+                {
+                    var existingIdsEndpoint = $"{baseUrl}/sourceelements/{thisdocGuid}/";
+                    string existingIdsResponse = WebHelper.Get(existingIdsEndpoint, AuthService.GetAuthTokenSafely(), null);
+                    JObject existingIdsJson = JObject.Parse(existingIdsResponse);
+                    var djangoElementIds = existingIdsJson["element_ids"]?.ToObject<List<string>>() ?? new List<string>();
+
+                    var syncedIds = new HashSet<string>(
+                        filteredElementDeltaList
+                            .Where(d => d.Element != null)
+                            .Select(d => d.Element.Id.ToString()));
+
+                    var ghostIds = new List<long>();
+                    foreach (var id in djangoElementIds)
+                    {
+                        if (syncedIds.Contains(id)) continue;
+                        if (long.TryParse(id, out var parsed)) ghostIds.Add(parsed);
+                    }
+
+                    Log.Info($"PerformFullSync: Django reports {djangoElementIds.Count} elements; {ghostIds.Count} not present in current model — marking deleted.");
+
+                    if (ghostIds.Count > 0)
+                    {
+                        StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), ghostIds, revit.Document);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"PerformFullSync: ghost-element detection failed: {ex.Message}");
+                }
+
                 watch.Stop();
                 Log.Info("End Watch");
                 Log.Info($"Full Upload completed in {watch.Elapsed:hh\\:mm\\:ss}");
