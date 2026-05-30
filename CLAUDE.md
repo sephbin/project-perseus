@@ -82,3 +82,140 @@ IMPORTANT — Claude must maintain .claude_changes.md during every session:
 - Use the format:  - filename.cs: one-line description of what changed and why
 - Do NOT clear the file manually — build-commit.ps1 clears it after a successful Release build.
 - If the file is empty at build time the commit message will just say "Manual build".
+
+6. File Structure & Code Organization (revit_plugin/src/ProjectPerseus/)
+
+This section is the canonical map of where plugin code lives. When folders, files, or
+namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target Layout) in
+the same change. Claude relies on this section to place new code without re-deriving the
+structure each session.
+
+6.1 Current Layout (snapshot 2026-05-30)
+
+ProjectPerseus/
+├── Plugin.cs                     1139 lines — god class: IExternalApplication lifecycle,
+│                                 sync event handlers, doOnPriorToSync, doOnPostSync,
+│                                 PerformFullSync/IncrementalSync (+ ToFile variants),
+│                                 GetAllCategories, OnProgressChanged, OnRevitIdlingDelay,
+│                                 TryCloseRevitSyncDialog Win32 P/Invoke. Split target.
+├── Commands.cs                   3 IExternalCommand classes in ProjectPerseus.Commands
+│                                 namespace (only file using PascalCase namespace).
+├── AuthService.cs                434 lines — MSAL + JWT + PAT + token cache + HTTP config.
+├── ProjectPerseusWeb.cs          221 lines — HTTP client for Django; duplicates WebHelper.
+├── ModelGuidStorage.cs           In ProjectPerseus.revit namespace despite root location.
+├── Config.cs                     AppData config.json singleton.
+├── Log.cs                        Static logger → Sentry + console.
+├── Utl.cs                        Kitchen sink: WriteLog (file), JsonDump, SerializeToJson,
+│                                 IsValidUrl, nested WebHelper, nested SentryContext.
+├── auth/                         (empty — AuthService.cs lives at root despite namespace)
+├── batch/
+│   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
+├── commands/                     Misnamed — contains queue infra, not IExternalCommands.
+│   ├── AutoSyncEvent.cs          ProjectPerseus.queue namespace.
+│   └── QueuePoller.cs            ProjectPerseus.queue namespace.
+├── forms/                        WinForms #1: settings, sync warning, login, queue, etc.
+├── ui/                           WinForms #2: BatchProgressForm, ThemeIconManager.
+├── models/                       DTOs + geometry extractor.
+│   └── geometry/                 (see feedback_csproj_include.md for ARDB alias rule)
+├── revit/                        Revit API adapter layer (RevitFacade, extractors).
+│   ├── adapters/                 Ardb* wrappers around Autodesk.Revit.DB types.
+│   ├── interfaces/               IArdb* interfaces.
+│   ├── plugin/                   2 more IExternalCommand classes (3rd command location).
+│   └── BatchFailureHandler.cs    12 lines — belongs with batch/.
+├── Properties/                   AssemblyInfo + designer files (do not touch).
+└── resources/                    Icons (.png that are actually ICO containers — §4 rule).
+
+6.2 Known Organization Smells (ranked by impact)
+
+S1  Plugin.cs is 1139 lines mixing 7 distinct responsibilities — biggest dev-QoL win to split.
+S2  IExternalCommand classes live in THREE places: Commands.cs (root), revit/plugin/. The
+    commands/ folder confusingly holds queue infrastructure instead of commands.
+S3  Two folders for WinForms (forms/ and ui/) with no rule for which goes where.
+S4  Two parallel logging systems: Utl.WriteLog (file) vs Log (Sentry). Pick one front door.
+S5  Utl.cs is a kitchen sink (logging, JSON, URL, WebHelper, SentryContext) — hard to find
+    anything; WebHelper is duplicated verbatim in ProjectPerseusWeb.cs.
+S6  AuthService.cs (434 lines) bundles MSAL, JWT, PAT, refresh-token persistence, token cache.
+S7  Namespace ↔ folder mismatches: batch/ → ProjectPerseus.queue, commands/ → .queue,
+    ModelGuidStorage.cs (root) → .revit, AuthService.cs (root) → .auth.
+S8  Namespace casing inconsistency: ProjectPerseus.Commands (Pascal) vs everything else
+    (lowercase). Lowercase is the de-facto norm — align Commands to commands.
+S9  Six files at root (Config, Log, Utl, Commands, AuthService, ProjectPerseusWeb,
+    ModelGuidStorage) all have a clear folder they should live in.
+
+6.3 Target Layout (refactor plan — NOT yet executed)
+
+ProjectPerseus/
+├── Plugin.cs                     ~150 lines — only IExternalApplication lifecycle wiring.
+├── auth/
+│   ├── AuthService.cs            Coordinator: server config → pick MSAL/JWT/None.
+│   ├── MsalAuth.cs               Entra ID interactive + silent flows.
+│   ├── JwtAuth.cs                JWT login form + refresh.
+│   ├── PersonalAccessToken.cs    PAT storage / clear.
+│   └── TokenCache.cs             Refresh-token persistence to disk.
+├── batch/
+│   ├── BatchProcessor.cs         (namespace fixed to ProjectPerseus.batch)
+│   └── BatchFailureHandler.cs    Moved from revit/.
+├── commands/                     ONLY IExternalCommand classes.
+│   ├── PerformFullUploadCommand.cs    Split from Commands.cs.
+│   ├── OpenSettingsCommand.cs         Split from Commands.cs.
+│   ├── ResetModelGuidCommand.cs       Split from Commands.cs.
+│   ├── EditSettingsCommand.cs         Moved from revit/plugin/.
+│   └── InitialiseProjectCommand.cs    Moved from revit/plugin/.
+├── config/
+│   └── Config.cs                 Moved from root.
+├── logging/
+│   ├── Log.cs                    Single front door — wraps Sentry + file output.
+│   └── SentryContext.cs          Extracted from Utl.cs.
+├── models/                       Mostly unchanged (existing folder is healthy).
+├── queue/                        Renamed from commands/ (folder now matches namespace).
+│   ├── AutoSyncEvent.cs
+│   └── QueuePoller.cs
+├── revit/                        Revit API adapter layer.
+│   ├── ModelGuidStorage.cs       Moved from root (namespace already matches).
+│   └── (rest unchanged)
+├── sync/                         NEW — extracted from Plugin.cs.
+│   ├── SyncOrchestrator.cs       OnDocumentSynchronizing/zed event handlers.
+│   ├── PreSyncQueue.cs           doOnPriorToSync + OpenWebQueueLink.
+│   ├── PostSyncDispatcher.cs     doOnPostSync + doOnSync (full vs incremental routing).
+│   ├── FullSyncRunner.cs         PerformFullSync + PerformFullSyncToFile.
+│   ├── IncrementalSyncRunner.cs  PerformIncrementalSync + PerformIncrementalSyncToFile.
+│   ├── CategoryHarvester.cs      GetAllCategories + WalkCategoryMap.
+│   └── RevitSyncDialogCloser.cs  TryCloseRevitSyncDialog Win32 P/Invoke.
+├── ui/                           Merged — all WinForms in one folder. forms/ deleted.
+└── web/
+    ├── ProjectPerseusWeb.cs      Moved from root.
+    └── WebHelper.cs              Single class (de-duplicated from Utl.cs).
+
+Util/JSON helpers from Utl.cs (JsonDump, PrettyWriteJson, SerializeToJson, IsValidUrl) move
+to dedicated files under a util/ folder if their callers stay. WriteLog moves into
+logging/Log.cs as the single logging entry point.
+
+6.4 Refactor Priorities
+
+P1  Split Plugin.cs → sync/ folder (highest dev-QoL win; touches the biggest file).
+P2  Consolidate commands: rename commands/ → queue/, move IExternalCommands into commands/.
+P3  Merge forms/ into ui/.
+P4  Move root-level files into their existing namespace folders (auth/, config/, web/, revit/).
+P5  De-duplicate WebHelper (single web/WebHelper.cs).
+P6  Split AuthService.cs into auth/ sub-files.
+P7  Unify logging: Log.cs becomes the front door; Utl.WriteLog disappears.
+
+Each priority should be its own commit/build so any breakage is localised. Update §6.1 and
+§6.3 in the same commit as the move.
+
+6.5 Code-Organization Conventions
+
+- Folder names are lowercase. Namespaces match folder paths exactly:
+  `revit_plugin/src/ProjectPerseus/auth/X.cs` ⇒ `namespace ProjectPerseus.auth`.
+- One public class per file; filename matches the class.
+- IExternalCommand implementations belong in `commands/`, nowhere else.
+- WinForms (and form designers) belong in `ui/`, nowhere else.
+- Models/DTOs (no behaviour beyond serialisation) belong in `models/`.
+- Revit API wrappers/adapters belong in `revit/` (Ardb* adapters in `revit/adapters/`).
+- Sync orchestration logic (anything called from a Document* event) belongs in `sync/`.
+- HTTP and JSON wire helpers belong in `web/`.
+- Logging goes through `logging/Log.cs` (single front door). Do not add new file-output
+  helpers elsewhere.
+- Every new `.cs` file needs a `<Compile Include="..."/>` entry in ProjectPerseus.csproj
+  (see feedback_csproj_include memory — the .csproj is old-style, no glob discovery).
+- When you move or add a folder/file/namespace, update §6.1 and §6.3 in the SAME change.
