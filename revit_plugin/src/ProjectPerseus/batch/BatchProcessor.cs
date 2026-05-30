@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows.Forms;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -15,6 +16,9 @@ namespace ProjectPerseus.queue
 {
     public class BatchProcessor
     {
+        private const int MaxAttempts = 5;
+        private const int RetryWaitMs = 30_000;
+
         private readonly UIApplication _uiApp;
         private readonly BatchInstruction _instruction;
         private readonly string _taskFilePath;
@@ -49,17 +53,54 @@ namespace ProjectPerseus.queue
 
             try
             {
-                foreach (var modelInfo in _instruction.ModelsToProcess)
+                // Retry queue: failed models are re-enqueued at the end (up to MaxAttempts each).
+                // If a full pass completes with no successes, sleep RetryWaitMs before continuing
+                // so transient cloud issues have a chance to clear.
+                var queue = new Queue<RetryEntry>(
+                    _instruction.ModelsToProcess.Select(m => new RetryEntry { Model = m, Attempt = 1 }));
+                int consecutiveFailures = 0;
+
+                while (queue.Count > 0)
                 {
                     if (progressForm.AbortRequested) break;
 
-                    progressForm.UpdateStatus($"Opening Model: {modelInfo.DisplayName}...");
-                    ProcessModel(modelInfo);
+                    var entry = queue.Dequeue();
+                    string label = entry.Attempt == 1
+                        ? $"Opening Model: {entry.Model.DisplayName}..."
+                        : $"Opening Model: {entry.Model.DisplayName} (attempt {entry.Attempt}/{MaxAttempts})...";
+                    progressForm.UpdateStatus(label);
+
+                    bool success = ProcessModel(entry.Model);
+                    if (success)
+                    {
+                        consecutiveFailures = 0;
+                        continue;
+                    }
+
+                    consecutiveFailures++;
+                    if (entry.Attempt < MaxAttempts)
+                    {
+                        Utl.WriteLog($"Requeueing {entry.Model.DisplayName} for retry {entry.Attempt + 1}/{MaxAttempts}.", LogLevel.Warn);
+                        queue.Enqueue(new RetryEntry { Model = entry.Model, Attempt = entry.Attempt + 1 });
+                    }
+                    else
+                    {
+                        Utl.WriteLog($"Giving up on {entry.Model.DisplayName} after {MaxAttempts} attempts.", LogLevel.Error);
+                    }
+
+                    // Full pass through the queue with zero successes -> back off before the next round.
+                    if (queue.Count > 0 && consecutiveFailures >= queue.Count)
+                    {
+                        Utl.WriteLog($"No successes in the last pass; waiting 30s before retrying {queue.Count} model(s)...", LogLevel.Warn);
+                        if (!SleepWithCountdown(RetryWaitMs, progressForm, $"Retrying {queue.Count} model(s) in")) break;
+                        consecutiveFailures = 0;
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Critical Batch Error: {ex.Message}");
+                Utl.WriteLog($"Critical Batch Error: {ex.GetType().Name}: {ex.Message}", LogLevel.Error);
+                Utl.WriteLog($"Stack: {ex.StackTrace}", LogLevel.Error);
             }
             finally
             {
@@ -69,7 +110,7 @@ namespace ProjectPerseus.queue
             }
         }
 
-        private void ProcessModel(BatchModelInfo modelInfo)
+        private bool ProcessModel(BatchModelInfo modelInfo)
         {
             Document doc = null;
             try
@@ -86,17 +127,29 @@ namespace ProjectPerseus.queue
                     Guid projGuid = Guid.Parse(modelInfo.ProjectGuid);
                     Guid modGuid = Guid.Parse(modelInfo.ModelGuid);
                     string regionCode = string.IsNullOrEmpty(modelInfo.Region) ? "US" : modelInfo.Region;
-                    Utl.WriteLog($"Building cloud path for Region: {regionCode}...");
+                    Utl.WriteLog($"Building cloud path - Region: {regionCode}, Project: {projGuid}, Model: {modGuid}");
                     modelPath = ModelPathUtils.ConvertCloudGUIDsToCloudPath(regionCode, projGuid, modGuid);
                 }
 
                 OpenOptions openOptions = new OpenOptions();
                 if (modelInfo.IsLocalFile)
                     openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
-                WorksetConfiguration worksetConfig = GetWorksetConfig(modelPath, modelInfo);
+
+                WorksetConfiguration worksetConfig = GetWorksetConfig(modelPath, modelInfo, out bool modelReachable);
+                if (!modelReachable)
+                {
+                    // Revit already told us the model is missing/invalid via GetUserWorksetInfo.
+                    // Calling OpenDocumentFile against it crashes Revit (no managed exception),
+                    // so bail out and let the retry queue try again later.
+                    Utl.WriteLog($"Skipping OpenDocumentFile for {modelInfo.DisplayName}: Revit reports model unreachable.", LogLevel.Warn);
+                    return false;
+                }
+
                 openOptions.SetOpenWorksetsConfiguration(worksetConfig);
 
+                Utl.WriteLog($"Calling OpenDocumentFile for {modelInfo.DisplayName}...");
                 doc = _uiApp.Application.OpenDocumentFile(modelPath, openOptions);
+                Utl.WriteLog($"OpenDocumentFile returned for {modelInfo.DisplayName}.");
 
                 Utl.WriteLog($"Document opened: {doc.Title}. Running Perseus sync...");
                 var revitFacade = new revit.RevitFacade(doc);
@@ -118,20 +171,28 @@ namespace ProjectPerseus.queue
                 }
 
                 Utl.WriteLog($"Successfully processed: {doc.Title}");
+                return true;
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to process model {modelInfo.DisplayName}: {ex.Message}");
+                Utl.WriteLog($"Failed to process model {modelInfo.DisplayName}: {ex.GetType().Name}: {ex.Message}", LogLevel.Error);
+                Utl.WriteLog($"Stack: {ex.StackTrace}", LogLevel.Error);
+                return false;
             }
             finally
             {
                 if (doc != null && doc.IsValidObject)
-                    doc.Close(false);
+                {
+                    try { doc.Close(false); }
+                    catch (Exception ex) { Utl.WriteLog($"Error closing document: {ex.Message}", LogLevel.Warn); }
+                }
             }
         }
 
-        private WorksetConfiguration GetWorksetConfig(ModelPath modelPath, BatchModelInfo modelInfo)
+        private WorksetConfiguration GetWorksetConfig(ModelPath modelPath, BatchModelInfo modelInfo, out bool modelReachable)
         {
+            modelReachable = true;
+
             // Local files are opened detached — GetUserWorksetInfo can't pre-inspect them,
             // so fall back to opening all worksets rather than closing all.
             var fallback = modelInfo.IsLocalFile
@@ -178,10 +239,53 @@ namespace ProjectPerseus.queue
             }
             catch (Exception ex)
             {
-                Utl.WriteLog($"Failed to configure worksets: {ex.Message}. Defaulting to {fallback}.");
+                string msg = ex.Message ?? string.Empty;
+                bool revitFlaggedInvalid =
+                    msg.IndexOf("does not exist", StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.IndexOf("not valid", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                Utl.WriteLog(
+                    $"GetUserWorksetInfo failed for {modelInfo.DisplayName}: {ex.GetType().FullName}: {msg}",
+                    LogLevel.Error);
+                Utl.WriteLog($"Stack: {ex.StackTrace}", LogLevel.Error);
+
+                if (revitFlaggedInvalid && !modelInfo.IsLocalFile)
+                {
+                    // Cloud model reported as missing/invalid — opening it crashes Revit.
+                    // Flag unreachable so ProcessModel skips OpenDocumentFile and the retry queue can try again.
+                    modelReachable = false;
+                }
+                else
+                {
+                    Utl.WriteLog($"Defaulting workset configuration to {fallback}.", LogLevel.Warn);
+                }
             }
 
             return config;
+        }
+
+        private bool SleepWithCountdown(int totalMs, BatchProgressForm progressForm, string statusPrefix)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(totalMs);
+            int lastSecShown = -1;
+
+            while (true)
+            {
+                if (progressForm.AbortRequested) return false;
+
+                var remaining = deadline - DateTime.UtcNow;
+                if (remaining.TotalMilliseconds <= 0) return true;
+
+                int sec = (int)Math.Ceiling(remaining.TotalSeconds);
+                if (sec != lastSecShown)
+                {
+                    progressForm.UpdateStatus($"{statusPrefix} {sec}s...");
+                    lastSecShown = sec;
+                }
+
+                Thread.Sleep(100);
+                Application.DoEvents();
+            }
         }
 
         private void SuppressDialogs(object sender, DialogBoxShowingEventArgs e)
@@ -189,6 +293,12 @@ namespace ProjectPerseus.queue
             // Automatically click "Cancel" or "Close" on all popups to prevent Revit freezing
             // This handles "Missing Links", "Missing Fonts", etc.
             e.OverrideResult((int)DialogResult.Cancel);
+        }
+
+        private class RetryEntry
+        {
+            public BatchModelInfo Model;
+            public int Attempt;
         }
 
         // Terminates the current process with a specific exit code, bypassing CLR shutdown
