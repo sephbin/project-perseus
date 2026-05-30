@@ -39,7 +39,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
 
-            var syncHandler = new Commands.AutoSyncEvent();
+            var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
         }
 

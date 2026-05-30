@@ -64,7 +64,7 @@ namespace ProjectPerseus
                 "Button_RunFullSync",
                 "Upload",
                 thisAssemblyPath,
-                "ProjectPerseus.Commands.PerformFullUploadCommand");
+                "ProjectPerseus.commands.PerformFullUploadCommand");
 
             PushButton pb1 = ribbonPanel.AddItem(b1Data) as PushButton;
             pb1.ToolTip = "Upload all elements to external database";
@@ -74,7 +74,7 @@ namespace ProjectPerseus
                 "Button_Settings",
                 "Settings",
                 thisAssemblyPath,
-                "ProjectPerseus.Commands.OpenSettingsCommand");
+                "ProjectPerseus.commands.OpenSettingsCommand");
 
             PushButton settingsBtn = ribbonPanel.AddItem(settingsBtnData) as PushButton;
             settingsBtn.ToolTip = "Change Perseus Settings like: API Token and Upload URL";
@@ -84,7 +84,7 @@ namespace ProjectPerseus
                 "Button_ResetGuid",
                 "Reset Identity",
                 thisAssemblyPath,
-                "ProjectPerseus.Commands.ResetModelGuidCommand");
+                "ProjectPerseus.commands.ResetModelGuidCommand");
 
             PushButton resetBtn = ribbonPanel.AddItem(resetBtnData) as PushButton;
             resetBtn.ToolTip = "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.";

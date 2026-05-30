@@ -237,8 +237,11 @@
   <ItemGroup>
     <Compile Include="AuthService.cs" />
     <Compile Include="batch\BatchProcessor.cs" />
-    <Compile Include="commands\AutoSyncEvent.cs" />
-    <Compile Include="commands\QueuePoller.cs" />
+    <Compile Include="commands\EditSettingsCommand.cs" />
+    <Compile Include="commands\InitialiseProjectCommand.cs" />
+    <Compile Include="commands\OpenSettingsCommand.cs" />
+    <Compile Include="commands\PerformFullUploadCommand.cs" />
+    <Compile Include="commands\ResetModelGuidCommand.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="forms\AutoSyncCountdownForm.cs">
       <SubType>Form</SubType>
@@ -259,9 +262,10 @@
     <Compile Include="models\ElementDelta.cs" />
     <Compile Include="models\geometry\GeoJsonGeometry.cs" />
     <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
-    <Compile Include="Commands.cs" />
     <Compile Include="models\SyncQueueResponse.cs" />
     <Compile Include="Plugin.cs" />
+    <Compile Include="queue\AutoSyncEvent.cs" />
+    <Compile Include="queue\QueuePoller.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -294,8 +298,6 @@
     <Compile Include="revit\interfaces\IArdbElementId.cs" />
     <Compile Include="revit\interfaces\IArdbParameter.cs" />
     <Compile Include="revit\interfaces\IArdbParameterSet.cs" />
-    <Compile Include="revit\plugin\EditSettingsCommand.cs" />
-    <Compile Include="revit\plugin\InitialiseProjectCommand.cs" />
     <Compile Include="revit\RevitExtensions.cs" />
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />

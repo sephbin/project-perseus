@@ -90,14 +90,13 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-05-30, after P1)
+6.1 Current Layout (snapshot 2026-05-30, after P1 + P2)
 
 ProjectPerseus/
 ├── Plugin.cs                     ~130 lines — IExternalApplication lifecycle, AddRibbonPanel,
 │                                 batch trigger (Idling event → BatchProcessor handoff). Owns
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
-├── Commands.cs                   3 IExternalCommand classes in ProjectPerseus.Commands
-│                                 namespace (only file using PascalCase namespace).
+│                                 Ribbon strings reference ProjectPerseus.commands.*.
 ├── AuthService.cs                434 lines — MSAL + JWT + PAT + token cache + HTTP config.
 ├── ProjectPerseusWeb.cs          221 lines — HTTP client for Django; duplicates WebHelper.
 ├── ModelGuidStorage.cs           In ProjectPerseus.revit namespace despite root location.
@@ -107,23 +106,28 @@ ProjectPerseus/
 │                                 IsValidUrl, nested WebHelper, nested SentryContext.
 ├── auth/                         (empty — AuthService.cs lives at root despite namespace)
 ├── batch/
-│   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
-├── commands/                     Misnamed — contains queue infra, not IExternalCommands.
-│   ├── AutoSyncEvent.cs          ProjectPerseus.Commands namespace; flips SyncOrchestrator.IsAutoSyncing.
-│   └── QueuePoller.cs            ProjectPerseus.queue namespace.
-├── forms/                        WinForms #1: settings, sync warning, login, queue, etc.
+│   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch — fix in P4).
+├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
+│   ├── EditSettingsCommand.cs    DUPLICATE of OpenSettingsCommand — unwired, candidate for deletion.
+│   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
+│   ├── OpenSettingsCommand.cs    Ribbon: Button_Settings.
+│   ├── PerformFullUploadCommand.cs  Ribbon: Button_RunFullSync.
+│   └── ResetModelGuidCommand.cs  Ribbon: Button_ResetGuid.
+├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
+│   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
+│   └── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
+├── forms/                        WinForms #1: settings (in ProjectPerseus ns!), sync warning, login, queue.
 ├── ui/                           WinForms #2: BatchProgressForm, ThemeIconManager.
 ├── models/                       DTOs + geometry extractor.
 │   └── geometry/                 (see feedback_csproj_include.md for ARDB alias rule)
 ├── revit/                        Revit API adapter layer (RevitFacade, extractors).
 │   ├── adapters/                 Ardb* wrappers around Autodesk.Revit.DB types.
 │   ├── interfaces/               IArdb* interfaces.
-│   ├── plugin/                   2 more IExternalCommand classes (3rd command location).
-│   └── BatchFailureHandler.cs    12 lines — belongs with batch/.
-├── sync/                         NEW (P1, 2026-05-30). All sync orchestration + runners.
-│   ├── SyncOrchestrator.cs       Instance class owning sync state (_isSyncing, _currentSyncDoc,
-│                                 etc.) + DocumentSynchronizing/zed handlers + ProgressChanged.
-│                                 Statics: IsAutoSyncing, AutoSyncExternalEvent.
+│   └── BatchFailureHandler.cs    12 lines — belongs with batch/ (will move in a later pass).
+├── sync/                         All sync orchestration + runners (P1, 2026-05-30).
+│   ├── SyncOrchestrator.cs       Instance class owning sync state + DocumentSynchronizing/zed
+│                                 handlers + ProgressChanged. Statics: IsAutoSyncing,
+│                                 AutoSyncExternalEvent.
 │   ├── FullSyncRunner.cs         PerformFullSync (Django) + PerformFullSyncToFile (JSON file).
 │   ├── IncrementalSyncRunner.cs  PerformIncrementalSync + PerformIncrementalSyncToFile +
 │                                 private ReadFirstSourceState helper.
@@ -137,8 +141,9 @@ ProjectPerseus/
 6.2 Known Organization Smells (ranked by impact)
 
 S1  [DONE — P1, 2026-05-30] Plugin.cs split into sync/ folder. Down from 1139 → ~130 lines.
-S2  IExternalCommand classes live in THREE places: Commands.cs (root), revit/plugin/. The
-    commands/ folder confusingly holds queue infrastructure instead of commands.
+S2  [DONE — P2, 2026-05-30] commands/ holds only IExternalCommand classes; queue infra
+    moved to queue/. Note: EditSettingsCommand + InitialiseProjectCommand are unwired
+    and candidates for deletion in a follow-up cleanup.
 S3  Two folders for WinForms (forms/ and ui/) with no rule for which goes where.
 S4  Two parallel logging systems: Utl.WriteLog (file) vs Log (Sentry). Pick one front door.
 S5  Utl.cs is a kitchen sink (logging, JSON, URL, WebHelper, SentryContext) — hard to find
@@ -199,7 +204,8 @@ logging/Log.cs as the single logging entry point.
 6.4 Refactor Priorities
 
 P1  [DONE 2026-05-30] Split Plugin.cs → sync/ folder.
-P2  Consolidate commands: rename commands/ → queue/, move IExternalCommands into commands/.
+P2  [DONE 2026-05-30] Consolidated commands: commands/ holds only IExternalCommands;
+    queue/ holds AutoSyncEvent + QueuePoller. revit/plugin/ folder removed.
 P3  Merge forms/ into ui/.
 P4  Move root-level files into their existing namespace folders (auth/, config/, web/, revit/).
 P5  De-duplicate WebHelper (single web/WebHelper.cs).

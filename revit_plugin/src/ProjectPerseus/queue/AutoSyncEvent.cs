@@ -1,13 +1,16 @@
-﻿using System;
-using System.Windows.Forms; // Required for DialogResult
+using System;
+using System.Windows.Forms;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using ProjectPerseus.sync;
+using ProjectPerseus.ui;
 
-namespace ProjectPerseus.Commands
+namespace ProjectPerseus.queue
 {
-    /// <summary>
-    /// This runs on the Main Revit Thread when triggered by our background poller.
-    /// </summary>
+    // Runs on the main Revit thread when QueuePoller raises the ExternalEvent that this
+    // class is registered against. Shows the auto-sync countdown and then triggers Revit's
+    // SynchronizeWithCentral while flipping SyncOrchestrator.IsAutoSyncing so the queue
+    // check in doOnPriorToSync doesn't re-enter.
     public class AutoSyncEvent : IExternalEventHandler
     {
         public void Execute(UIApplication app)
@@ -17,47 +20,38 @@ namespace ProjectPerseus.Commands
 
             try
             {
-                // 1. Show the countdown dialog
-                using (var form = new ProjectPerseus.ui.AutoSyncCountdownForm())
+                using (var form = new AutoSyncCountdownForm())
                 {
-                    // ShowDialog blocks the thread until the form is closed by the user or the timer
                     var result = form.ShowDialog();
 
-                    // 2. Check if the user bailed out
                     if (result == DialogResult.Cancel)
                     {
                         Utl.WriteLog("User canceled Auto-Sync during the countdown.");
-
-                        // Optional: You might want to notify Django here that they left the queue, 
-                        // or just let them manually sync later.
                         return;
                     }
                 }
 
-                // 3. If we get here, the timer finished or they clicked "Sync Now"
                 Utl.WriteLog("Auto-Sync Event Triggered! Starting SynchronizeWithCentral...");
 
-                // Setup Sync Options
                 var transOpts = new TransactWithCentralOptions();
-                var syncOpts = new SynchronizeWithCentralOptions();
+                var syncOpts = new SynchronizeWithCentralOptions
+                {
+                    Comment = "Auto-Synced by Perseus Queue",
+                    SaveLocalAfter = true
+                };
 
-                // Optional: You can set a comment for the history
-                syncOpts.Comment = "Auto-Synced by Perseus Queue";
-                syncOpts.SaveLocalAfter = true;
-
-                // Relinquish everything so the next person isn't blocked
+                // Relinquish everything so the next person isn't blocked.
                 var relinquishOpts = new RelinquishOptions(true);
                 syncOpts.SetRelinquishOptions(relinquishOpts);
 
-                // FIRE THE SYNC — flag tells doOnPriorToSync to skip the queue check re-entry
-                ProjectPerseus.sync.SyncOrchestrator.IsAutoSyncing = true;
+                SyncOrchestrator.IsAutoSyncing = true;
                 try
                 {
                     doc.SynchronizeWithCentral(transOpts, syncOpts);
                 }
                 finally
                 {
-                    ProjectPerseus.sync.SyncOrchestrator.IsAutoSyncing = false;
+                    SyncOrchestrator.IsAutoSyncing = false;
                 }
 
                 Utl.WriteLog("Auto-Sync command dispatched successfully.");

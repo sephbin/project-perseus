@@ -1,16 +1,15 @@
-﻿using Autodesk.Revit.Attributes;
+using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-namespace ProjectPerseus.revit.plugin
+namespace ProjectPerseus.commands
 {
     [Transaction(TransactionMode.Manual)]
-    [Regeneration(RegenerationOption.Manual)]
-    public class InitialiseProjectCommand : IExternalCommand
+    public class OpenSettingsCommand : IExternalCommand
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
-            // todo
+            new SettingsForm().ShowDialog();
             return Result.Succeeded;
         }
     }
