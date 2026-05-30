@@ -90,7 +90,7 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-05-30, after P1 + P2 + P3 + P4)
+6.1 Current Layout (snapshot 2026-05-30, after P1 + P2 + P3 + P4 + P5 + P6)
 
 ProjectPerseus/
 ├── Plugin.cs                     ~130 lines — IExternalApplication lifecycle, AddRibbonPanel,
@@ -101,9 +101,16 @@ ProjectPerseus/
 │                                 logging unification (moves to logging/ then).
 ├── Utl.cs                        Kitchen sink: WriteLog (file), JsonDump, SerializeToJson,
 │                                 IsValidUrl, nested SentryContext. P7 will fold into logging/.
-├── auth/
-│   └── AuthService.cs            434 lines — MSAL + JWT + PAT + token cache + HTTP config.
-│                                 To be split in P6.
+├── auth/                         Split in P6 (2026-05-30).
+│   ├── AuthService.cs            ~100 lines — server-driven coordinator: fetches auth-config
+│                                 from Django, dispatches to MsalAuth/JwtAuth/sandbox. PAT
+│                                 takes priority over all server-driven modes.
+│   ├── MsalAuth.cs               Entra ID flow: MSAL silent → STA-thread interactive fallback.
+│   │                             Owns _msalApp, _msalScopes statics. Disk cache via MsalCacheHelper.
+│   ├── JwtAuth.cs                Self-hosted JWT: in-memory access token + refresh via
+│   │                             TokenCache. Calls JwtLoginForm when no refresh path works.
+│   ├── PersonalAccessToken.cs    DPAPI-encrypted PAT at %AppData%\ProjectPerseus\pat.bin.
+│   └── TokenCache.cs             DPAPI-encrypted JWT refresh token at jwt_refresh.bin.
 ├── batch/
 │   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
 ├── config/                       NEW (P4).
@@ -167,7 +174,9 @@ S4  Two parallel logging systems: Utl.WriteLog (file) vs Log (Sentry). Pick one 
 S5  Utl.cs is a kitchen sink (logging, JSON, URL, SentryContext). WebHelper duplication
     [DONE — P5, 2026-05-30]: single web/WebHelper.cs; nested copies deleted; ProjectPerseusWeb's
     legacy "Token" call now passes the scheme explicitly. Remainder folds into P7.
-S6  AuthService.cs (434 lines) bundles MSAL, JWT, PAT, refresh-token persistence, token cache.
+S6  [DONE — P6, 2026-05-30] AuthService.cs split into 5 files. Coordinator stays public;
+    MsalAuth, JwtAuth, PersonalAccessToken, TokenCache are internal helpers. Public API
+    surface preserved verbatim — no call sites needed updating.
 S7  Namespace ↔ folder mismatches: batch/ → ProjectPerseus.queue, commands/ → .queue,
     ModelGuidStorage.cs (root) → .revit, AuthService.cs (root) → .auth.
 S8  Namespace casing inconsistency: ProjectPerseus.Commands (Pascal) vs everything else
@@ -235,7 +244,8 @@ P5  [DONE 2026-05-30] Single web/WebHelper.cs. Nested copies in Utl.cs and Proje
     "Token" call. Fixed a latent bug in the old ProjectPerseusWeb copy: it wrote a body even
     on GET and always set the Authorization header (sending "Token " on empty tokens). The
     unified implementation skips both when inputs are empty.
-P6  Split AuthService.cs into auth/ sub-files.
+P6  [DONE 2026-05-30] AuthService coordinator + MsalAuth + JwtAuth + PersonalAccessToken
+    + TokenCache. No external API changes; AuthService.* still resolves the same way.
 P7  Unify logging: Log.cs becomes the front door; Utl.WriteLog disappears.
 
 Each priority should be its own commit/build so any breakage is localised. Update §6.1 and

@@ -236,6 +236,10 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="auth\AuthService.cs" />
+    <Compile Include="auth\JwtAuth.cs" />
+    <Compile Include="auth\MsalAuth.cs" />
+    <Compile Include="auth\PersonalAccessToken.cs" />
+    <Compile Include="auth\TokenCache.cs" />
     <Compile Include="batch\BatchProcessor.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
     <Compile Include="commands\InitialiseProjectCommand.cs" />
