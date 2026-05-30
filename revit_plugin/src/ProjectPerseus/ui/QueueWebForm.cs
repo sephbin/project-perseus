@@ -7,7 +7,7 @@ using System.Drawing;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace ProjectPerseus.forms
+namespace ProjectPerseus.ui
 {
     public class QueueWebForm : Form
     {

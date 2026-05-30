@@ -243,18 +243,6 @@
     <Compile Include="commands\PerformFullUploadCommand.cs" />
     <Compile Include="commands\ResetModelGuidCommand.cs" />
     <Compile Include="Config.cs" />
-    <Compile Include="forms\AutoSyncCountdownForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="forms\JwtLoginForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="forms\QueueWebForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="forms\SyncWarningForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
     <Compile Include="Log.cs" />
     <Compile Include="ModelGuidStorage.cs" />
     <Compile Include="models\BatchInstruction.cs" />
@@ -276,12 +264,6 @@
       <AutoGen>True</AutoGen>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
       <DependentUpon>Settings.settings</DependentUpon>
-    </Compile>
-    <Compile Include="forms\SettingsForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="forms\SettingsForm.Designer.cs">
-      <DependentUpon>SettingsForm.cs</DependentUpon>
     </Compile>
     <Compile Include="revit\adapters\ArdbCategoryAdapter.cs" />
     <Compile Include="revit\adapters\ArdbDefinitionAdapter.cs" />
@@ -307,7 +289,25 @@
     <Compile Include="sync\RevitSyncDialogCloser.cs" />
     <Compile Include="sync\StateSubmitter.cs" />
     <Compile Include="sync\SyncOrchestrator.cs" />
+    <Compile Include="ui\AutoSyncCountdownForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ui\BatchProgressForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ui\JwtLoginForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ui\QueueWebForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ui\SettingsForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ui\SettingsForm.Designer.cs">
+      <DependentUpon>SettingsForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="ui\SyncWarningForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="ui\ThemeIconManager.cs" />
@@ -323,7 +323,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="forms\SettingsForm.resx">
+    <EmbeddedResource Include="ui\SettingsForm.resx">
       <DependentUpon>SettingsForm.cs</DependentUpon>
       <SubType>Designer</SubType>
     </EmbeddedResource>

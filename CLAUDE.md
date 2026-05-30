@@ -90,7 +90,7 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-05-30, after P1 + P2)
+6.1 Current Layout (snapshot 2026-05-30, after P1 + P2 + P3)
 
 ProjectPerseus/
 ├── Plugin.cs                     ~130 lines — IExternalApplication lifecycle, AddRibbonPanel,
@@ -116,8 +116,17 @@ ProjectPerseus/
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
 │   └── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
-├── forms/                        WinForms #1: settings (in ProjectPerseus ns!), sync warning, login, queue.
-├── ui/                           WinForms #2: BatchProgressForm, ThemeIconManager.
+├── ui/                           ALL WinForms (P3, 2026-05-30). forms/ folder deleted.
+│   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
+│   ├── BatchProgressForm.cs
+│   ├── JwtLoginForm.cs           Moved from forms/, namespace ProjectPerseus.forms → .ui.
+│   ├── QueueWebForm.cs           Moved from forms/, namespace ProjectPerseus.forms → .ui.
+│   ├── SettingsForm.cs           Moved from forms/, namespace ProjectPerseus → .ui.
+│   ├── SettingsForm.Designer.cs  Partial; namespace matches SettingsForm.cs.
+│   ├── SettingsForm.resx         Embedded resource; DependentUpon resolves manifest name via
+│                                 typeof(SettingsForm).FullName, so path change is safe.
+│   ├── SyncWarningForm.cs        Moved from forms/. Was at global namespace; now ProjectPerseus.ui.
+│   └── ThemeIconManager.cs
 ├── models/                       DTOs + geometry extractor.
 │   └── geometry/                 (see feedback_csproj_include.md for ARDB alias rule)
 ├── revit/                        Revit API adapter layer (RevitFacade, extractors).
@@ -144,7 +153,8 @@ S1  [DONE — P1, 2026-05-30] Plugin.cs split into sync/ folder. Down from 1139 
 S2  [DONE — P2, 2026-05-30] commands/ holds only IExternalCommand classes; queue infra
     moved to queue/. Note: EditSettingsCommand + InitialiseProjectCommand are unwired
     and candidates for deletion in a follow-up cleanup.
-S3  Two folders for WinForms (forms/ and ui/) with no rule for which goes where.
+S3  [DONE — P3, 2026-05-30] All WinForms live in ui/; forms/ deleted. SyncWarningForm
+    received a proper namespace (was at global). SettingsForm + Designer moved out of root.
 S4  Two parallel logging systems: Utl.WriteLog (file) vs Log (Sentry). Pick one front door.
 S5  Utl.cs is a kitchen sink (logging, JSON, URL, WebHelper, SentryContext) — hard to find
     anything; WebHelper is duplicated verbatim in ProjectPerseusWeb.cs.
@@ -206,7 +216,7 @@ logging/Log.cs as the single logging entry point.
 P1  [DONE 2026-05-30] Split Plugin.cs → sync/ folder.
 P2  [DONE 2026-05-30] Consolidated commands: commands/ holds only IExternalCommands;
     queue/ holds AutoSyncEvent + QueuePoller. revit/plugin/ folder removed.
-P3  Merge forms/ into ui/.
+P3  [DONE 2026-05-30] Merged forms/ into ui/; all WinForms now in ProjectPerseus.ui namespace.
 P4  Move root-level files into their existing namespace folders (auth/, config/, web/, revit/).
 P5  De-duplicate WebHelper (single web/WebHelper.cs).
 P6  Split AuthService.cs into auth/ sub-files.

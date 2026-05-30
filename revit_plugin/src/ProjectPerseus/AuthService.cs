@@ -10,7 +10,7 @@ using Microsoft.Identity.Client;
 using Microsoft.Identity.Client.Extensions.Msal;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using ProjectPerseus.forms;
+using ProjectPerseus.ui;
 
 namespace ProjectPerseus.auth
 {

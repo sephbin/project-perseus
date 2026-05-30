@@ -2,7 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace ProjectPerseus.forms
+namespace ProjectPerseus.ui
 {
     public class JwtLoginForm : Form
     {

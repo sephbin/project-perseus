@@ -1,4 +1,4 @@
-﻿namespace ProjectPerseus
+﻿namespace ProjectPerseus.ui
 {
     partial class SettingsForm
     {
