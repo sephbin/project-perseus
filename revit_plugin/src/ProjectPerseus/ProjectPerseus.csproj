@@ -313,6 +313,7 @@
     <Compile Include="ui\ThemeIconManager.cs" />
     <Compile Include="Utl.cs" />
     <Compile Include="web\ProjectPerseusWeb.cs" />
+    <Compile Include="web\WebHelper.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

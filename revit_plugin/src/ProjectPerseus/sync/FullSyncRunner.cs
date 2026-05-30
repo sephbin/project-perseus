@@ -10,6 +10,7 @@ using ProjectPerseus.auth;
 using ProjectPerseus.config;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
+using ProjectPerseus.web;
 
 namespace ProjectPerseus.sync
 {
@@ -71,7 +72,7 @@ namespace ProjectPerseus.sync
 
                 var metadataEndpoint = $"{baseUrl}/registersource/";
                 string jsonMetadata = JsonConvert.SerializeObject(metadata);
-                string response = Utl.WebHelper.Post(metadataEndpoint, AuthService.GetAuthTokenSafely(), jsonMetadata);
+                string response = WebHelper.Post(metadataEndpoint, AuthService.GetAuthTokenSafely(), jsonMetadata);
                 JObject json = JObject.Parse(response);
                 Utl.WriteLog($"Metadata upload response: {response}");
 

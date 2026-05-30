@@ -1,7 +1,6 @@
 ﻿
 using System;
 using System.IO;
-using System.Net;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 using Sentry;
@@ -86,63 +85,6 @@ namespace ProjectPerseus
             }
         }
 
-        public static class WebHelper
-        {
-            public static string Post(string endpoint, string apiToken, string json)
-            {
-                return PerformRequest(endpoint, apiToken, json, "POST");
-            }
-            public static string Get(string endpoint, string apiToken, string json)
-            {
-                return PerformRequest(endpoint, apiToken, null, "GET");
-            }
-
-            private static string PerformRequest(string endpoint, string apiToken, string json, string method)
-            {
-                try
-                {
-                    var httpWebRequest = (HttpWebRequest)WebRequest.Create(endpoint);
-                    httpWebRequest.ContentType = "application/json";
-                    httpWebRequest.Method = method;
-                    httpWebRequest.Timeout = 300000; // 5 minutes
-
-                    if (!string.IsNullOrEmpty(apiToken))
-                    {
-                        httpWebRequest.Headers["Authorization"] = $"Bearer {apiToken}";
-                    }
-
-                    // Only send a body if the method supports it
-                    if (method == "POST" && !string.IsNullOrEmpty(json))
-                    {
-                        using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
-                        {
-                            streamWriter.Write(json);
-                        }
-                    }
-
-                    using (var httpResponse = (HttpWebResponse)httpWebRequest.GetResponse())
-                    using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
-                    {
-                        return streamReader.ReadToEnd();
-                    }
-                }
-                catch (WebException ex)
-                {
-                    var response = ex.Response as HttpWebResponse;
-                    if (response != null)
-                    {
-                        using (var reader = new StreamReader(response.GetResponseStream()))
-                        {
-                            var error = reader.ReadToEnd();
-                            Log.Error($"[WebHelper] {method} {endpoint} failed: {error}");
-                        }
-                    }
-
-                    Log.Error($"[WebHelper] {method} {endpoint} exception: {ex.Message}");
-                    throw;
-                }
-            }
-        }
         public static void JsonDump(object o, String name)
         {
             var workingDirectory = Directory.GetCurrentDirectory();

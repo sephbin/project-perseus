@@ -12,6 +12,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using ProjectPerseus.config;
 using ProjectPerseus.ui;
+using ProjectPerseus.web;
 
 namespace ProjectPerseus.auth
 {
@@ -47,7 +48,7 @@ namespace ProjectPerseus.auth
         public static async Task InitializeAsync()
         {
             var baseUrl = Config.Instance.BaseUrl.TrimEnd('/');
-            string configJson = Utl.WebHelper.Get($"{baseUrl}/api/auth-config/", null, null);
+            string configJson = WebHelper.Get($"{baseUrl}/api/auth-config/", null, null);
 
             if (string.IsNullOrEmpty(configJson))
                 throw new Exception("Could not fetch authentication configuration from server.");

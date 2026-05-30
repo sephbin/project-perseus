@@ -11,6 +11,7 @@ using ProjectPerseus.models;
 using ProjectPerseus.queue;
 using ProjectPerseus.revit;
 using ProjectPerseus.ui;
+using ProjectPerseus.web;
 
 namespace ProjectPerseus.sync
 {
@@ -137,7 +138,7 @@ namespace ProjectPerseus.sync
                     try
                     {
                         var ssoEndpoint = $"{_config.BaseUrl.TrimEnd('/')}/api/sso-token/";
-                        var responseJson = Utl.WebHelper.Post(ssoEndpoint, msalToken, "{}");
+                        var responseJson = WebHelper.Post(ssoEndpoint, msalToken, "{}");
                         var ssoObj = JObject.Parse(responseJson);
                         var ssoToken = ssoObj["sso_token"]?.ToString();
                         if (!string.IsNullOrEmpty(ssoToken))
@@ -209,7 +210,7 @@ namespace ProjectPerseus.sync
 
                 var queueEndpoint = $"{baseUrl}/../syncboat/api/v2/source/{docGuid}/queue/";
 
-                string queueResponseJson = Utl.WebHelper.Get(queueEndpoint, null, null);
+                string queueResponseJson = WebHelper.Get(queueEndpoint, null, null);
 
                 var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(queueResponseJson);
 
@@ -286,7 +287,7 @@ namespace ProjectPerseus.sync
                                         // Consistent with getCurrentQueue which is also keyed on Windows username.
                                         var joinEndpoint = $"{autoSyncBaseUrl}/../syncboat/api/v2/source/{autoSyncDocGuid}/join/";
                                         var joinPayload = JsonConvert.SerializeObject(new { username = autoSyncUser.ToLower() });
-                                        Utl.WebHelper.Post(joinEndpoint, null, joinPayload);
+                                        WebHelper.Post(joinEndpoint, null, joinPayload);
                                         Utl.WriteLog($"Joined sync queue for {autoSyncDocGuid}.");
 
                                         if (_autoSyncPoller == null)
@@ -316,7 +317,7 @@ namespace ProjectPerseus.sync
                 string jsonPayload = JsonConvert.SerializeObject(payload);
 
                 var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
-                string response = Utl.WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
+                string response = WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
 
                 Utl.WriteLog($"Preliminary sync request sent. Response: {response}");
             }
@@ -361,7 +362,7 @@ namespace ProjectPerseus.sync
                 string jsonPayload = JsonConvert.SerializeObject(payload);
 
                 var preSyncEndpoint = $"{baseUrl}/postsync/{docGuid}";
-                string response = Utl.WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
+                string response = WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
                 Utl.WriteLog($"Post sync request sent. Response: {response}");
 
                 // Use the MSAL token to leave the queue so request.user on the server matches
@@ -372,7 +373,7 @@ namespace ProjectPerseus.sync
                     var leaveEndpoint = $"{baseUrl.TrimEnd('/')}/../syncboat/api/v2/source/{docGuid}/leave/";
                     try
                     {
-                        Utl.WebHelper.Post(leaveEndpoint, leaveToken, "{}");
+                        WebHelper.Post(leaveEndpoint, leaveToken, "{}");
                         Utl.WriteLog("Removed from sync queue.");
                     }
                     catch (Exception leaveEx)

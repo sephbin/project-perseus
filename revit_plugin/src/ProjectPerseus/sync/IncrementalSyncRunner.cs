@@ -9,6 +9,7 @@ using Newtonsoft.Json.Linq;
 using ProjectPerseus.config;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
+using ProjectPerseus.web;
 
 namespace ProjectPerseus.sync
 {
@@ -27,7 +28,7 @@ namespace ProjectPerseus.sync
                 Utl.WriteLog(docId);
                 var StateEndpoint = $"{_baseUrl}/getstate/{docId}";
 
-                string stateJson = Utl.WebHelper.Get(StateEndpoint, null, null);
+                string stateJson = WebHelper.Get(StateEndpoint, null, null);
                 JObject json = JObject.Parse(stateJson);
 
                 var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());

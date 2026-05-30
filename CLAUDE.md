@@ -100,7 +100,7 @@ ProjectPerseus/
 ├── Log.cs                        Static logger → Sentry + console. Stays at root until P7
 │                                 logging unification (moves to logging/ then).
 ├── Utl.cs                        Kitchen sink: WriteLog (file), JsonDump, SerializeToJson,
-│                                 IsValidUrl, nested WebHelper, nested SentryContext. P7 + P5.
+│                                 IsValidUrl, nested SentryContext. P7 will fold into logging/.
 ├── auth/
 │   └── AuthService.cs            434 lines — MSAL + JWT + PAT + token cache + HTTP config.
 │                                 To be split in P6.
@@ -146,9 +146,12 @@ ProjectPerseus/
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
 │                                 by title and PostMessage(WM_CLOSE).
-├── web/                          NEW (P4).
-│   └── ProjectPerseusWeb.cs      Namespace ProjectPerseus → ProjectPerseus.web. Still has
-│                                 a nested WebHelper that duplicates Utl.WebHelper — P5.
+├── web/
+│   ├── ProjectPerseusWeb.cs      HTTP client for Django: SubmitElementDeltas (HttpClient +
+│                                 AuthService scheme) and SubmitElementState (legacy Token via
+│                                 shared WebHelper with scheme="Token").
+│   └── WebHelper.cs              NEW (P5). Single static WebHelper. Optional scheme param
+│                                 (defaults "Bearer") so legacy "Token" call still works.
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
 └── resources/                    Icons (.png that are actually ICO containers — §4 rule).
 
@@ -161,8 +164,9 @@ S2  [DONE — P2, 2026-05-30] commands/ holds only IExternalCommand classes; que
 S3  [DONE — P3, 2026-05-30] All WinForms live in ui/; forms/ deleted. SyncWarningForm
     received a proper namespace (was at global). SettingsForm + Designer moved out of root.
 S4  Two parallel logging systems: Utl.WriteLog (file) vs Log (Sentry). Pick one front door.
-S5  Utl.cs is a kitchen sink (logging, JSON, URL, WebHelper, SentryContext) — hard to find
-    anything; WebHelper is duplicated verbatim in ProjectPerseusWeb.cs.
+S5  Utl.cs is a kitchen sink (logging, JSON, URL, SentryContext). WebHelper duplication
+    [DONE — P5, 2026-05-30]: single web/WebHelper.cs; nested copies deleted; ProjectPerseusWeb's
+    legacy "Token" call now passes the scheme explicitly. Remainder folds into P7.
 S6  AuthService.cs (434 lines) bundles MSAL, JWT, PAT, refresh-token persistence, token cache.
 S7  Namespace ↔ folder mismatches: batch/ → ProjectPerseus.queue, commands/ → .queue,
     ModelGuidStorage.cs (root) → .revit, AuthService.cs (root) → .auth.
@@ -226,7 +230,11 @@ P3  [DONE 2026-05-30] Merged forms/ into ui/; all WinForms now in ProjectPerseus
 P4  [DONE 2026-05-30] Root-level files moved into folders. AuthService→auth/,
     ModelGuidStorage→revit/ (no namespace change). Config→config/, ProjectPerseusWeb→web/
     (with namespace fixes ProjectPerseus → ProjectPerseus.config/web).
-P5  De-duplicate WebHelper (single web/WebHelper.cs).
+P5  [DONE 2026-05-30] Single web/WebHelper.cs. Nested copies in Utl.cs and ProjectPerseusWeb.cs
+    deleted. Optional `scheme` param (default "Bearer") preserves ProjectPerseusWeb's legacy
+    "Token" call. Fixed a latent bug in the old ProjectPerseusWeb copy: it wrote a body even
+    on GET and always set the Authorization header (sending "Token " on empty tokens). The
+    unified implementation skips both when inputs are empty.
 P6  Split AuthService.cs into auth/ sub-files.
 P7  Unify logging: Log.cs becomes the front door; Utl.WriteLog disappears.
 

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using ProjectPerseus.config;
 using ProjectPerseus.models;
+using ProjectPerseus.web;
 
 namespace ProjectPerseus.queue
 {
@@ -42,7 +43,7 @@ namespace ProjectPerseus.queue
                 {
                     try
                     {
-                        string response = Utl.WebHelper.Get(endpoint, null, null);
+                        string response = WebHelper.Get(endpoint, null, null);
                         var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(response);
                         List<string> users = queueStatus?.Queue ?? new List<string>();
 
