@@ -20,6 +20,7 @@ namespace ProjectPerseus.queue
     {
         private const int MaxAttempts = 5;
         private const int RetryWaitMs = 30_000;
+        private const int RecoverDelayMs = 5_000;
 
         private readonly UIApplication _uiApp;
         private readonly BatchInstruction _instruction;
@@ -73,6 +74,13 @@ namespace ProjectPerseus.queue
                     progressForm.UpdateStatus(label);
 
                     bool success = ProcessModel(entry.Model);
+
+                    // Diagnostic: give Revit's cloud session a chance to release before the next
+                    // model. Revit 2026 has been crashing on the third+ consecutive cloud-model
+                    // GetUserWorksetInfo call — possibly cumulative state from the prior session
+                    // not being torn down fast enough. Forces GC + waits before continuing.
+                    if (queue.Count > 0 && !RecoverBetweenModels(progressForm)) break;
+
                     if (success)
                     {
                         consecutiveFailures = 0;
@@ -204,8 +212,12 @@ namespace ProjectPerseus.queue
 
             try
             {
-                // Fetch workset data without opening the model
+                // Diagnostic: bracket the GetUserWorksetInfo call so a Revit crash shows
+                // whether it happened inside the call (no "returned N worksets" line follows)
+                // vs in our own code afterwards.
+                Log.Info($"About to call GetUserWorksetInfo for {modelInfo.DisplayName}...");
                 IList<WorksetPreview> previews = WorksharingUtils.GetUserWorksetInfo(modelPath);
+                Log.Info($"GetUserWorksetInfo returned {previews.Count} workset(s) for {modelInfo.DisplayName}.");
                 List<WorksetId> worksetsToOpen = new List<WorksetId>();
 
                 Regex whitelist = string.IsNullOrEmpty(modelInfo.WorksetWhitelistRegex) ? null : new Regex(modelInfo.WorksetWhitelistRegex, RegexOptions.IgnoreCase);
@@ -290,9 +302,27 @@ namespace ProjectPerseus.queue
 
         private void SuppressDialogs(object sender, DialogBoxShowingEventArgs e)
         {
-            // Automatically click "Cancel" or "Close" on all popups to prevent Revit freezing
+            // Diagnostic: log every dialog we cancel so we can spot ones that probably
+            // shouldn't be cancelled (e.g. an ACC auth/sign-in prompt between cloud models).
+            // If a specific DialogId shows up right before a crash, that's our culprit.
+            try
+            {
+                Log.Info($"[SuppressDialogs] DialogId='{e.DialogId}', Type={e.GetType().Name}");
+            }
+            catch { /* never let the diagnostic itself break dialog handling */ }
+
+            // Automatically click "Cancel" or "Close" on all popups to prevent Revit freezing.
             // This handles "Missing Links", "Missing Fonts", etc.
             e.OverrideResult((int)DialogResult.Cancel);
+        }
+
+        private bool RecoverBetweenModels(BatchProgressForm progressForm)
+        {
+            Log.Info("Pausing + forcing GC before next model to release Revit cloud handles...");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            return SleepWithCountdown(RecoverDelayMs, progressForm, "Recovering before next model in");
         }
 
         private class RetryEntry
