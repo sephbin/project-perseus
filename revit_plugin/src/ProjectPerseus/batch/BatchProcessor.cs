@@ -13,14 +13,23 @@ using ProjectPerseus.models;
 using ProjectPerseus.sync;
 using ProjectPerseus.ui;
 
+using Newtonsoft.Json;
+
 using ProjectPerseus.logging;
 namespace ProjectPerseus.queue
 {
     public class BatchProcessor
     {
-        private const int MaxAttempts = 5;
-        private const int RetryWaitMs = 30_000;
-        private const int RecoverDelayMs = 5_000;
+        private const int MaxAttempts = 3;        // Total attempts per model across all Revit sessions before giving up.
+        private const int RecoverDelayMs = 5_000; // Pause between successful model transitions (defensive padding).
+        private const int SessionIterationCap = 50; // Sanity cap to avoid infinite loops within one Revit session.
+
+        private enum ProcessResult
+        {
+            Success,           // Sync ran cleanly.
+            RetryableFailure,  // Generic failure - safe to keep going in the same Revit session.
+            PoisonedSession,   // CentralModelException on a cloud model - Revit has a time-bomb queued; must exit before it fires.
+        }
 
         private readonly UIApplication _uiApp;
         private readonly BatchInstruction _instruction;
@@ -42,7 +51,7 @@ namespace ProjectPerseus.queue
                 if (result == DialogResult.Cancel)
                 {
                     Log.Info("User aborted batch process during countdown.");
-                    CleanupAndExit(false);
+                    CleanupAndExit(killRevit: false, exitCode: 0);
                     return;
                 }
             }
@@ -54,75 +63,130 @@ namespace ProjectPerseus.queue
             // 3. Suppress UI Dialogs
             _uiApp.DialogBoxShowing += SuppressDialogs;
 
+            int exitCode = 0;
+
             try
             {
-                // Retry queue: failed models are re-enqueued at the end (up to MaxAttempts each).
-                // If a full pass completes with no successes, sleep RetryWaitMs before continuing
-                // so transient cloud issues have a chance to clear.
-                var queue = new Queue<RetryEntry>(
-                    _instruction.ModelsToProcess.Select(m => new RetryEntry { Model = m, Attempt = 1 }));
-                int consecutiveFailures = 0;
-
-                while (queue.Count > 0)
+                // No in-memory queue any more — batch_task.json is the source of truth and
+                // is mutated as work progresses. On poison we persist + TerminateProcess(1)
+                // so Task Scheduler relaunches Revit; on success we strip the model from the
+                // file and continue. SessionIterationCap guards against an unexpected loop.
+                int iter = 0;
+                while (_instruction.ModelsToProcess.Count > 0 && iter < SessionIterationCap)
                 {
-                    Log.Info($"[Loop] Top of iteration. queue.Count={queue.Count}, consecutiveFailures={consecutiveFailures}.");
-                    if (progressForm.AbortRequested) break;
+                    iter++;
+                    if (progressForm.AbortRequested) { Log.Info("[Loop] Aborted by progress form."); break; }
 
-                    var entry = queue.Dequeue();
-                    string label = entry.Attempt == 1
-                        ? $"Opening Model: {entry.Model.DisplayName}..."
-                        : $"Opening Model: {entry.Model.DisplayName} (attempt {entry.Attempt}/{MaxAttempts})...";
-                    Log.Info($"[Loop] Dequeued {entry.Model.DisplayName} (attempt {entry.Attempt}/{MaxAttempts}). About to UpdateStatus + ProcessModel.");
-                    progressForm.UpdateStatus(label);
+                    var modelInfo = _instruction.ModelsToProcess[0];
+                    Log.Info($"[Loop] Iter {iter}: processing {modelInfo.DisplayName} (prior attempts: {modelInfo.Attempts}); {_instruction.ModelsToProcess.Count} model(s) remaining in batch.");
+                    progressForm.UpdateStatus($"Opening Model: {modelInfo.DisplayName}...");
 
-                    bool success = ProcessModel(entry.Model);
+                    var result = ProcessModel(modelInfo);
 
-                    // Diagnostic: give Revit's cloud session a chance to release before the next
-                    // model. Revit 2026 has been crashing on the third+ consecutive cloud-model
-                    // GetUserWorksetInfo call — possibly cumulative state from the prior session
-                    // not being torn down fast enough. Forces GC + waits before continuing.
-                    if (queue.Count > 0 && !RecoverBetweenModels(progressForm)) break;
-
-                    if (success)
+                    if (result == ProcessResult.Success)
                     {
-                        consecutiveFailures = 0;
+                        Log.Info($"[Loop] {modelInfo.DisplayName} OK. Removing from batch_task.json.");
+                        _instruction.ModelsToProcess.RemoveAt(0);
+                        SavePersistentState();
+
+                        if (_instruction.ModelsToProcess.Count > 0 && !RecoverBetweenModels(progressForm)) break;
                         continue;
                     }
 
-                    consecutiveFailures++;
-                    if (entry.Attempt < MaxAttempts)
+                    if (result == ProcessResult.PoisonedSession)
                     {
-                        Log.Warn($"Requeueing {entry.Model.DisplayName} for retry {entry.Attempt + 1}/{MaxAttempts}.");
-                        queue.Enqueue(new RetryEntry { Model = entry.Model, Attempt = entry.Attempt + 1 });
+                        // GetUserWorksetInfo on a bad cloud model has queued an async file-open
+                        // on a Revit worker thread that will crash Revit with an unhandled
+                        // native exception within ~5s. We MUST exit before that fires, so we
+                        // skip the normal recovery sleep entirely.
+                        modelInfo.Attempts++;
+                        if (modelInfo.Attempts >= MaxAttempts)
+                        {
+                            Log.Error($"[Loop] Giving up on {modelInfo.DisplayName} after {modelInfo.Attempts} poison failures. Removing from batch.");
+                            _instruction.ModelsToProcess.RemoveAt(0);
+                        }
+                        else
+                        {
+                            Log.Warn($"[Loop] {modelInfo.DisplayName} poisoned Revit (attempt {modelInfo.Attempts}/{MaxAttempts}). Moving to end of queue; exiting for Task Scheduler relaunch.");
+                            _instruction.ModelsToProcess.RemoveAt(0);
+                            _instruction.ModelsToProcess.Add(modelInfo);
+                        }
+                        SavePersistentState();
+
+                        // Exit code 1 when more work remains so the scheduler restarts us;
+                        // 0 if we just removed the last model (clean batch end).
+                        exitCode = _instruction.ModelsToProcess.Count > 0 ? 1 : 0;
+                        Log.Warn($"[Loop] Terminating Revit now (exit {exitCode}) to skip GetUserWorksetInfo time-bomb.");
+                        return; // finally block handles CleanupAndExit
+                    }
+
+                    // RetryableFailure — non-poison, safe to keep this Revit session alive.
+                    modelInfo.Attempts++;
+                    if (modelInfo.Attempts >= MaxAttempts)
+                    {
+                        Log.Error($"[Loop] Giving up on {modelInfo.DisplayName} after {modelInfo.Attempts} attempts. Removing from batch.");
+                        _instruction.ModelsToProcess.RemoveAt(0);
                     }
                     else
                     {
-                        Log.Error($"Giving up on {entry.Model.DisplayName} after {MaxAttempts} attempts.");
+                        Log.Warn($"[Loop] {modelInfo.DisplayName} failed (attempt {modelInfo.Attempts}/{MaxAttempts}). Moving to end of queue; staying in same Revit session.");
+                        _instruction.ModelsToProcess.RemoveAt(0);
+                        _instruction.ModelsToProcess.Add(modelInfo);
                     }
+                    SavePersistentState();
 
-                    // Full pass through the queue with zero successes -> back off before the next round.
-                    if (queue.Count > 0 && consecutiveFailures >= queue.Count)
-                    {
-                        Log.Warn($"No successes in the last pass; waiting 30s before retrying {queue.Count} model(s)...");
-                        if (!SleepWithCountdown(RetryWaitMs, progressForm, $"Retrying {queue.Count} model(s) in")) break;
-                        consecutiveFailures = 0;
-                    }
+                    if (_instruction.ModelsToProcess.Count > 0 && !RecoverBetweenModels(progressForm)) break;
+                }
+
+                if (iter >= SessionIterationCap)
+                {
+                    Log.Warn($"[Loop] Hit session iteration cap ({SessionIterationCap}). Exiting non-zero so scheduler relaunches.");
+                    exitCode = 1;
+                }
+                else if (_instruction.ModelsToProcess.Count == 0)
+                {
+                    Log.Info("[Loop] Batch complete — no models remaining.");
+                    exitCode = 0;
                 }
             }
             catch (Exception ex)
             {
                 Log.Error($"Critical Batch Error: {ex.GetType().Name}: {ex.Message}");
                 Log.Error($"Stack: {ex.StackTrace}");
+                // Unknown error — keep the file so the scheduler can retry.
+                exitCode = 1;
             }
             finally
             {
                 _uiApp.DialogBoxShowing -= SuppressDialogs;
                 progressForm.Close();
-                CleanupAndExit(true); // Kill Revit when done
+                CleanupAndExit(killRevit: true, exitCode: exitCode);
             }
         }
 
-        private bool ProcessModel(BatchModelInfo modelInfo)
+        private void SavePersistentState()
+        {
+            try
+            {
+                _instruction.Timestamp = DateTime.Now;
+                string json = JsonConvert.SerializeObject(_instruction, Formatting.Indented);
+                // Write to a temp file then move atomically so a TerminateProcess from the
+                // time-bomb mid-write can never leave a half-written batch_task.json behind.
+                string tmp = _taskFilePath + ".tmp";
+                File.WriteAllText(tmp, json);
+                if (File.Exists(_taskFilePath))
+                    File.Replace(tmp, _taskFilePath, null);
+                else
+                    File.Move(tmp, _taskFilePath);
+                Log.Info($"[State] Persisted batch_task.json — {_instruction.ModelsToProcess.Count} model(s) remaining.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[State] Failed to persist batch_task.json: {ex.Message}");
+            }
+        }
+
+        private ProcessResult ProcessModel(BatchModelInfo modelInfo)
         {
             Log.Info($"[ProcessModel] Entered for {modelInfo.DisplayName} (IsLocalFile={modelInfo.IsLocalFile}).");
             Document doc = null;
@@ -151,11 +215,12 @@ namespace ProjectPerseus.queue
                 WorksetConfiguration worksetConfig = GetWorksetConfig(modelPath, modelInfo, out bool modelReachable);
                 if (!modelReachable)
                 {
-                    // Revit already told us the model is missing/invalid via GetUserWorksetInfo.
-                    // Calling OpenDocumentFile against it crashes Revit (no managed exception),
-                    // so bail out and let the retry queue try again later.
-                    Log.Warn($"Skipping OpenDocumentFile for {modelInfo.DisplayName}: Revit reports model unreachable.");
-                    return false;
+                    // Cloud GetUserWorksetInfo just threw CentralModelException. Revit has
+                    // already queued an async file-open on a worker thread that will crash
+                    // the process with an unhandled native exception within ~5s. Caller
+                    // must persist state and TerminateProcess before that fires.
+                    Log.Warn($"Skipping OpenDocumentFile for {modelInfo.DisplayName}: Revit reports model unreachable. Session is now POISONED.");
+                    return ProcessResult.PoisonedSession;
                 }
 
                 openOptions.SetOpenWorksetsConfiguration(worksetConfig);
@@ -184,13 +249,13 @@ namespace ProjectPerseus.queue
                 }
 
                 Log.Info($"Successfully processed: {doc.Title}");
-                return true;
+                return ProcessResult.Success;
             }
             catch (Exception ex)
             {
                 Log.Error($"Failed to process model {modelInfo.DisplayName}: {ex.GetType().Name}: {ex.Message}");
                 Log.Error($"Stack: {ex.StackTrace}");
-                return false;
+                return ProcessResult.RetryableFailure;
             }
             finally
             {
@@ -354,34 +419,40 @@ namespace ProjectPerseus.queue
             return slept;
         }
 
-        private class RetryEntry
-        {
-            public BatchModelInfo Model;
-            public int Attempt;
-        }
-
         // Terminates the current process with a specific exit code, bypassing CLR shutdown
         // hooks entirely. This avoids plugin unload dialogs (e.g. Rhino.Inside) that would
         // block Environment.Exit() or a normal Revit close.
         [DllImport("kernel32.dll")] private static extern bool TerminateProcess(IntPtr hProcess, uint exitCode);
         [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
 
-        private void CleanupAndExit(bool killRevit)
+        private void CleanupAndExit(bool killRevit, int exitCode = 0)
         {
-            try
+            // Only delete batch_task.json when the batch is genuinely finished. Non-zero
+            // exit means "more work pending, scheduler please restart" — the file must
+            // survive so the next Revit launch can resume.
+            bool batchComplete = exitCode == 0 && (_instruction?.ModelsToProcess?.Count ?? 0) == 0;
+            if (batchComplete)
             {
-                if (File.Exists(_taskFilePath)) File.Delete(_taskFilePath);
+                try
+                {
+                    if (File.Exists(_taskFilePath)) File.Delete(_taskFilePath);
+                    Log.Info("[Exit] Batch complete — removed batch_task.json.");
+                }
+                catch (Exception ex) { Log.Warn($"[Exit] Failed to delete task file: {ex.Message}"); }
             }
-            catch { }
+            else
+            {
+                Log.Info($"[Exit] Leaving batch_task.json in place ({_instruction?.ModelsToProcess?.Count ?? 0} model(s) pending).");
+            }
 
             if (killRevit)
             {
-                Log.Info("Batch complete. Terminating Revit process.");
+                Log.Info($"[Exit] Terminating Revit process with exit code {exitCode}.");
 
-                // TerminateProcess with exit code 0: identical to Process.Kill() but the
-                // process exits with code 0, so Task Scheduler marks the run as succeeded
-                // rather than crashed. No CLR shutdown or plugin unload hooks fire.
-                TerminateProcess(GetCurrentProcess(), 0u);
+                // TerminateProcess sets the requested exit code on the process. Task
+                // Scheduler can be configured to retry on non-zero exits, which is how
+                // the crash-survival loop works: code 1 = "restart me", code 0 = "done".
+                TerminateProcess(GetCurrentProcess(), (uint)exitCode);
             }
         }
     }

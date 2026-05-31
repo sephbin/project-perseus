@@ -28,8 +28,13 @@ namespace ProjectPerseus.models
 
         public bool IsValid()
         {
+            // Window is generous because batch_task.json is now mutated as work progresses
+            // (completed models removed, timestamp refreshed). A multi-session run with
+            // poison-driven Revit restarts can legitimately stretch over many hours, and
+            // the timestamp is bumped on every save so this only fires when a stale file
+            // is genuinely abandoned.
             TimeSpan age = DateTime.Now - Timestamp;
-            return age.TotalHours < 4;
+            return age.TotalHours < 24;
         }
     }
 
@@ -63,6 +68,12 @@ namespace ProjectPerseus.models
         // Mirror of perseusOption_collectConnectedElements in Django parameter_dict.
         [JsonProperty("collect_connected_elements")]
         public bool CollectConnectedElements { get; set; } = false;
+
+        // Count of times this model has crashed Revit during GetUserWorksetInfo (the
+        // poison path). Persisted across Revit restarts via batch_task.json so we can
+        // give up after a cap instead of restarting forever on a permanently bad model.
+        [JsonProperty("attempts")]
+        public int Attempts { get; set; } = 0;
 
         public bool IsLocalFile => !string.IsNullOrEmpty(LocalPath);
 
