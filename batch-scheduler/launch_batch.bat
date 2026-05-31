@@ -3,13 +3,29 @@ setlocal EnableDelayedExpansion
 
 :: ==============================================================
 :: launch_batch.bat  -  Perseus Batch Launcher (CMD/BAT version)
-:: Writes batch_task.json with a fresh timestamp, then opens Revit.
+:: Writes batch_task.json (or resumes an existing one) and loops
+:: launching Revit until the plugin reports the batch is done.
+::
+:: Survival loop: the plugin's BatchProcessor exits Revit with a
+:: non-zero code and leaves batch_task.json behind when there's
+:: more work pending (e.g. a cloud-model GetUserWorksetInfo
+:: poisoned the session). When the batch is complete, the plugin
+:: deletes batch_task.json. We use the file's presence as the
+:: authoritative signal because a hard native crash might not
+:: set a clean exit code.
+::
+:: Note: CMD has no JSON parser, so "resume" here just means
+:: "the file exists" - we trust that the plugin removes it on
+:: completion. The .ps1 and .py launchers do a real parse.
+::
 :: Schedule with install_task.bat, or double-click to test.
 :: ==============================================================
 
 set REVIT_EXE=C:\Program Files\Autodesk\Revit 2026\Revit.exe
 set BATCH_DIR=%APPDATA%\ProjectPerseus
 set BATCH_FILE=%BATCH_DIR%\batch_task.json
+set MAX_RELAUNCHES=20
+set RELAUNCH_DELAY=5
 
 :: --------------------------------------------------------------
 :: Abort if Revit is already open
@@ -29,6 +45,20 @@ if not exist "%REVIT_EXE%" (
 )
 
 :: --------------------------------------------------------------
+:: Ensure output directory exists
+:: --------------------------------------------------------------
+if not exist "%BATCH_DIR%\" mkdir "%BATCH_DIR%"
+
+:: --------------------------------------------------------------
+:: Resume vs. fresh: if batch_task.json already exists, the
+:: plugin left work unfinished - resume instead of clobbering.
+:: --------------------------------------------------------------
+if exist "%BATCH_FILE%" (
+    echo Resuming existing batch_task.json - leaving file untouched.
+    goto :launch_loop
+)
+
+:: --------------------------------------------------------------
 :: Build timestamp using WMIC (locale-independent)
 :: Output format: LocalDateTime=20260520193000.000000+600
 :: --------------------------------------------------------------
@@ -39,11 +69,6 @@ if "%TIMESTAMP%"=="-T::" (
     echo ERROR: Could not read system clock via WMIC.
     exit /b 1
 )
-
-:: --------------------------------------------------------------
-:: Ensure output directory exists
-:: --------------------------------------------------------------
-if not exist "%BATCH_DIR%\" mkdir "%BATCH_DIR%"
 
 :: --------------------------------------------------------------
 :: Write batch_task.json
@@ -94,8 +119,39 @@ echo }
 ) > "%BATCH_FILE%"
 
 echo Written: %BATCH_FILE%
-echo Launching Revit 2026...
 
-start "" "%REVIT_EXE%"
+:: --------------------------------------------------------------
+:: Survival loop: launch Revit, wait, decide based on file presence.
+:: --------------------------------------------------------------
+:launch_loop
+set RELAUNCH=0
+
+:relaunch
+set /a RELAUNCH+=1
+if %RELAUNCH% GTR %MAX_RELAUNCHES% (
+    echo Hit max relaunches (%MAX_RELAUNCHES%^). Stopping; investigate batch_task.json manually.
+    exit /b 1
+)
+
+echo.
+echo === Revit launch %RELAUNCH% of %MAX_RELAUNCHES% ===
+echo Starting Revit and waiting for exit...
+start "" /wait "%REVIT_EXE%"
+set EXITCODE=%ERRORLEVEL%
+echo Revit exited with code %EXITCODE%.
+
+if not exist "%BATCH_FILE%" (
+    echo batch_task.json is gone. Batch complete.
+    exit /b 0
+)
+
+if %EXITCODE% EQU 0 (
+    echo Exit 0 but batch_task.json still exists. Treating as complete and stopping to avoid loop.
+    exit /b 0
+)
+
+echo More work pending. Relaunching in %RELAUNCH_DELAY% second(s)...
+timeout /t %RELAUNCH_DELAY% /nobreak >nul
+goto :relaunch
 
 endlocal
