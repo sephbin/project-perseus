@@ -144,6 +144,32 @@ namespace ProjectPerseus.sync
                 }
 
                 Log.Info("PerformFullSync: Filtered Element Delta List");
+
+                // Sample payload: serialize the first non-category element (indented for
+                // readability) so we can verify on disk what shape the wire payload actually
+                // takes per element — especially synthetic params like "Is FamilySymbol",
+                // "Type Id", etc. Logs to the per-session %AppData% log via Log.Info.
+                try
+                {
+                    var sample = filteredElementDeltaList.FirstOrDefault();
+                    if (sample != null)
+                    {
+                        var prettySample = JsonConvert.SerializeObject(
+                            sample,
+                            Formatting.Indented,
+                            new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+                        Log.Info($"PerformFullSync: payload sample (1 of {filteredElementDeltaList.Count}):\n{prettySample}");
+                    }
+                    else
+                    {
+                        Log.Info("PerformFullSync: payload sample skipped — list is empty.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Info($"PerformFullSync: payload sample log failed: {ex.Message}");
+                }
+
                 StateSubmitter.SubmitElementState(filteredElementDeltaList);
 
                 // Ghost-element cleanup: full sync doesn't run a Revit change set, so anything

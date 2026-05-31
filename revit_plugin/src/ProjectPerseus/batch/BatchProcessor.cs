@@ -65,12 +65,14 @@ namespace ProjectPerseus.queue
 
                 while (queue.Count > 0)
                 {
+                    Log.Info($"[Loop] Top of iteration. queue.Count={queue.Count}, consecutiveFailures={consecutiveFailures}.");
                     if (progressForm.AbortRequested) break;
 
                     var entry = queue.Dequeue();
                     string label = entry.Attempt == 1
                         ? $"Opening Model: {entry.Model.DisplayName}..."
                         : $"Opening Model: {entry.Model.DisplayName} (attempt {entry.Attempt}/{MaxAttempts})...";
+                    Log.Info($"[Loop] Dequeued {entry.Model.DisplayName} (attempt {entry.Attempt}/{MaxAttempts}). About to UpdateStatus + ProcessModel.");
                     progressForm.UpdateStatus(label);
 
                     bool success = ProcessModel(entry.Model);
@@ -122,6 +124,7 @@ namespace ProjectPerseus.queue
 
         private bool ProcessModel(BatchModelInfo modelInfo)
         {
+            Log.Info($"[ProcessModel] Entered for {modelInfo.DisplayName} (IsLocalFile={modelInfo.IsLocalFile}).");
             Document doc = null;
             try
             {
@@ -278,19 +281,23 @@ namespace ProjectPerseus.queue
 
         private bool SleepWithCountdown(int totalMs, BatchProgressForm progressForm, string statusPrefix)
         {
+            Log.Info($"[Sleep] Start: {totalMs}ms, prefix='{statusPrefix}'.");
             var deadline = DateTime.UtcNow.AddMilliseconds(totalMs);
             int lastSecShown = -1;
 
             while (true)
             {
-                if (progressForm.AbortRequested) return false;
+                if (progressForm.AbortRequested) { Log.Info("[Sleep] Aborted by progress form."); return false; }
 
                 var remaining = deadline - DateTime.UtcNow;
-                if (remaining.TotalMilliseconds <= 0) return true;
+                if (remaining.TotalMilliseconds <= 0) { Log.Info("[Sleep] Completed normally."); return true; }
 
                 int sec = (int)Math.Ceiling(remaining.TotalSeconds);
                 if (sec != lastSecShown)
                 {
+                    // Per-second heartbeat — if Revit dies mid-sleep, the last second logged
+                    // narrows the window. Cost: ~5 extra log lines per recovery pause.
+                    Log.Info($"[Sleep] {sec}s remaining; about to DoEvents.");
                     progressForm.UpdateStatus($"{statusPrefix} {sec}s...");
                     lastSecShown = sec;
                 }
@@ -318,11 +325,33 @@ namespace ProjectPerseus.queue
 
         private bool RecoverBetweenModels(BatchProgressForm progressForm)
         {
-            Log.Info("Pausing + forcing GC before next model to release Revit cloud handles...");
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-            return SleepWithCountdown(RecoverDelayMs, progressForm, "Recovering before next model in");
+            // Per-step diagnostics: prior runs end the log at "Pausing + forcing GC" with no
+            // following entries, so the crash is somewhere inside this method or the next
+            // iteration's first call. Bracket every step so we can pinpoint it.
+            Log.Info("[Recover] Pausing + forcing GC before next model to release Revit cloud handles...");
+            try
+            {
+                Log.Info("[Recover] GC.Collect #1 starting...");
+                GC.Collect();
+                Log.Info("[Recover] GC.Collect #1 returned.");
+
+                Log.Info("[Recover] GC.WaitForPendingFinalizers starting...");
+                GC.WaitForPendingFinalizers();
+                Log.Info("[Recover] GC.WaitForPendingFinalizers returned.");
+
+                Log.Info("[Recover] GC.Collect #2 starting...");
+                GC.Collect();
+                Log.Info("[Recover] GC.Collect #2 returned.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[Recover] GC step threw: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            Log.Info($"[Recover] Entering SleepWithCountdown({RecoverDelayMs}ms)...");
+            var slept = SleepWithCountdown(RecoverDelayMs, progressForm, "Recovering before next model in");
+            Log.Info($"[Recover] SleepWithCountdown returned {slept}.");
+            return slept;
         }
 
         private class RetryEntry
