@@ -148,6 +148,17 @@ namespace ProjectPerseus.models
                     if (fi.Room != null)
                         paramList.Add(new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic"));
                 }
+
+                // Object-class introspection: lets consumers distinguish instances from types
+                // (FamilySymbol, WallType, FloorType, etc.) and walk instance → type via Type Id.
+                // Type Id is -1 (InvalidElementId) when this element IS itself a type.
+                if (rawElem != null)
+                {
+                    paramList.Add(new Parameter<bool>("Is FamilySymbol", rawElem is ARDB.FamilySymbol, "Boolean", null, "synthetic"));
+                    paramList.Add(new Parameter<bool>("Is ElementType", rawElem is ARDB.ElementType, "Boolean", null, "synthetic"));
+                    paramList.Add(new Parameter<bool>("Is ElementType (Subclass)", rawElem.GetType().IsSubclassOf(typeof(ARDB.ElementType)), "Boolean", null, "synthetic"));
+                    paramList.Add(new Parameter<long>("Type Id", rawElem.GetTypeId().GetIdValue(), "ElementId", null, "synthetic"));
+                }
             }
             catch
             {
