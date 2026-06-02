@@ -126,7 +126,10 @@ class DumpExplorer(tk.Tk):
         pcols = ("name", "value", "value_type", "param_id_type")
         self.params = ttk.Treeview(params_box, columns=pcols, show="headings")
         for c, w in zip(pcols, (240, 260, 140, 110)):
-            self.params.heading(c, text=c)
+            self.params.heading(
+                c, text=c,
+                command=lambda col=c: self._sort_tree(self.params, col, False),
+            )
             self.params.column(c, width=w, anchor="w")
         self.params.pack(side="left", fill="both", expand=True)
         psb = ttk.Scrollbar(params_box, orient="vertical", command=self.params.yview)
@@ -248,6 +251,19 @@ class DumpExplorer(tk.Tk):
                     p.get("param_id_type"),
                 ),
             )
+
+    def _sort_tree(self, tv, col, reverse):
+        """Click-to-sort handler for a ttk.Treeview column. Tries numeric sort
+        first; falls back to case-insensitive string sort if any value isn't
+        a number. Re-toggles direction on each click."""
+        items = [(tv.set(k, col), k) for k in tv.get_children("")]
+        try:
+            items.sort(key=lambda t: float(t[0]), reverse=reverse)
+        except (TypeError, ValueError):
+            items.sort(key=lambda t: str(t[0]).lower(), reverse=reverse)
+        for i, (_, k) in enumerate(items):
+            tv.move(k, "", i)
+        tv.heading(col, command=lambda: self._sort_tree(tv, col, not reverse))
 
     def _show_summary(self):
         if not self.data:
