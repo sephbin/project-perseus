@@ -181,6 +181,55 @@ namespace ProjectPerseus.sync
                     if (d.Element != null) ghostCandidates.Remove(d.Element.Id.ToString());
                 }
 
+                var ghostIds = new List<long>();
+                foreach (var id in ghostCandidates)
+                {
+                    if (long.TryParse(id, out var parsed)) ghostIds.Add(parsed);
+                }
+                Log.Info($"PerformFullSync: {ghostIds.Count} ghost ids (in Django, not in current Revit model).");
+
+                // Snapshot the entire un-chunked payload to %AppData%\ProjectPerseus\
+                // fullsync-dumps\ for offline inspection. Shape matches SubmitElementDeltas
+                // so the file can be replayed against /add_to_crud_queue/ if needed. Files
+                // older than 2 days are pruned in the same pass.
+                try
+                {
+                    var dumpsFolder = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        "ProjectPerseus", "fullsync-dumps");
+                    Directory.CreateDirectory(dumpsFolder);
+
+                    var cutoff = DateTime.Now.AddDays(-2);
+                    foreach (var oldFile in Directory.GetFiles(dumpsFolder, "*-fullsync.json"))
+                    {
+                        try { if (File.GetLastWriteTime(oldFile) < cutoff) File.Delete(oldFile); }
+                        catch { }
+                    }
+
+                    string safeDocName = string.Concat(doc.Title.Split(Path.GetInvalidFileNameChars()));
+                    string dumpPath = Path.Combine(dumpsFolder, $"{DateTime.Now:yyyyMMdd-HHmmss}-{safeDocName}-fullsync.json");
+
+                    var dumpPayload = new
+                    {
+                        documentGuid = thisdocGuid,
+                        source_state = RevitFacade.GetDocumentVersionGuid(doc).ToString(),
+                        timestamp = DateTime.UtcNow.ToString("o"),
+                        revitUser = app.Username,
+                        revitAccountId = app.LoginUserId,
+                        windowsUser = Environment.UserName,
+                        machine = Environment.MachineName,
+                        elements = filteredElementDeltaList,
+                        deletedElements = ghostIds
+                    };
+
+                    File.WriteAllText(dumpPath, JsonUtils.SerializeToJson(dumpPayload, null));
+                    Log.Info($"PerformFullSync: wrote full payload snapshot to {dumpPath}");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"PerformFullSync: full payload snapshot failed: {ex.Message}");
+                }
+
                 // Sample payload: serialize the first non-category element (indented for
                 // readability) so we can verify on disk what shape the wire payload actually
                 // takes per element — especially synthetic params like "Is FamilySymbol",
@@ -208,15 +257,9 @@ namespace ProjectPerseus.sync
 
                 StateSubmitter.SubmitElementState(filteredElementDeltaList);
 
-                // Ghost cleanup: send whatever's left in ghostCandidates as deletions.
+                // Ghost cleanup: send the precomputed ghost list as deletions.
                 try
                 {
-                    var ghostIds = new List<long>();
-                    foreach (var id in ghostCandidates)
-                    {
-                        if (long.TryParse(id, out var parsed)) ghostIds.Add(parsed);
-                    }
-                    Log.Info($"PerformFullSync: {ghostIds.Count} ghost ids (in Django, not in current Revit model) — marking deleted.");
                     if (ghostIds.Count > 0)
                     {
                         StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), ghostIds, revit.Document);
