@@ -369,11 +369,14 @@
     <InnoSetupCompiler Condition="'$(InnoSetupCompiler)' == ''">C:\Program Files (x86)\Inno Setup 6\ISCC.exe</InnoSetupCompiler>
   </PropertyGroup>
 
-  <Target Name="BumpVersion" AfterTargets="Build">
+  <!-- BumpVersion must run BEFORE Build so CoreCompile bakes the new AssemblyVersion
+       into the DLL. Previously it ran AfterTargets="Build" which produced installers
+       containing a DLL stamped one version behind the installer/commit message. -->
+  <Target Name="BumpVersion" BeforeTargets="Build">
     <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot;" />
   </Target>
 
-  <Target Name="BuildInstaller" AfterTargets="BumpVersion">
+  <Target Name="BuildInstaller" AfterTargets="Build">
     <Exec Command="&quot;$(InnoSetupCompiler)&quot; &quot;$(ProjectDir)..\..\installer\perseus_installer.iss&quot;"
           ContinueOnError="WarnAndContinue" />
   </Target>
