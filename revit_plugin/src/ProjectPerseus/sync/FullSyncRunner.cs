@@ -78,8 +78,35 @@ namespace ProjectPerseus.sync
                 JObject json = JObject.Parse(response);
                 Log.Info($"Metadata upload response: {response}");
 
+                // Pre-fetch Django's current element_ids for this source so we can compute
+                // ghost deletions inline. As we walk every Revit element (and every
+                // synthesized payload entry — categories, connected) we .Remove() its id.
+                // Anything still in the set after the walk is in Django but no longer in
+                // Revit, and gets sent in the payload as a deletion.
+                var ghostCandidates = new HashSet<string>();
+                try
+                {
+                    var existingIdsEndpoint = $"{baseUrl}/sourceelements/{thisdocGuid}/";
+                    string existingIdsResponse = WebHelper.Get(existingIdsEndpoint, AuthService.GetAuthTokenSafely(), null);
+                    JObject existingIdsJson = JObject.Parse(existingIdsResponse);
+                    var djangoElementIds = existingIdsJson["element_ids"]?.ToObject<List<string>>() ?? new List<string>();
+                    ghostCandidates = new HashSet<string>(djangoElementIds);
+                    Log.Info($"PerformFullSync: pre-fetched {ghostCandidates.Count} existing element ids from Django.");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"PerformFullSync: failed to pre-fetch Django element ids: {ex.Message}");
+                }
+
                 var elements = revit.GetAllElements();
                 Log.Info($"PerformFullSync: Found {elements.Count} elements");
+
+                // Drop every Revit element id from the ghost set BEFORE category filtering
+                // so excluded-by-filter elements aren't mis-marked as deleted on next sync.
+                foreach (var e in elements)
+                {
+                    ghostCandidates.Remove(e.Id.Value.ToString());
+                }
 
                 var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
                 Log.Info(docGuid);
@@ -145,6 +172,15 @@ namespace ProjectPerseus.sync
 
                 Log.Info("PerformFullSync: Filtered Element Delta List");
 
+                // Final ghost sweep: categories and connected (type) elements aren't in
+                // `elements` (GetAllElements excludes types), so drop their ids too. Whatever
+                // remains in ghostCandidates after this is in Django but not in any payload
+                // entry — a true deletion.
+                foreach (var d in filteredElementDeltaList)
+                {
+                    if (d.Element != null) ghostCandidates.Remove(d.Element.Id.ToString());
+                }
+
                 // Sample payload: serialize the first non-category element (indented for
                 // readability) so we can verify on disk what shape the wire payload actually
                 // takes per element — especially synthetic params like "Is FamilySymbol",
@@ -172,37 +208,15 @@ namespace ProjectPerseus.sync
 
                 StateSubmitter.SubmitElementState(filteredElementDeltaList);
 
-                // Ghost-element cleanup: full sync doesn't run a Revit change set, so we
-                // ask Django for its current element_id list and treat anything Revit no
-                // longer has as a deletion. The "still alive" set must come from the actual
-                // Revit document (every element returned by GetAllElements) rather than the
-                // upload payload — otherwise the perseusCategories filter would silently
-                // soft-delete every element the user chose to exclude. We also union in
-                // whatever's in filteredElementDeltaList so that categories and any
-                // connected elements (whose ids aren't in `elements`) survive.
+                // Ghost cleanup: send whatever's left in ghostCandidates as deletions.
                 try
                 {
-                    var existingIdsEndpoint = $"{baseUrl}/sourceelements/{thisdocGuid}/";
-                    string existingIdsResponse = WebHelper.Get(existingIdsEndpoint, AuthService.GetAuthTokenSafely(), null);
-                    JObject existingIdsJson = JObject.Parse(existingIdsResponse);
-                    var djangoElementIds = existingIdsJson["element_ids"]?.ToObject<List<string>>() ?? new List<string>();
-
-                    var aliveIds = new HashSet<string>(
-                        elements.Select(e => e.Id.Value.ToString()));
-                    foreach (var d in filteredElementDeltaList)
-                    {
-                        if (d.Element != null) aliveIds.Add(d.Element.Id.ToString());
-                    }
-
                     var ghostIds = new List<long>();
-                    foreach (var id in djangoElementIds)
+                    foreach (var id in ghostCandidates)
                     {
-                        if (aliveIds.Contains(id)) continue;
                         if (long.TryParse(id, out var parsed)) ghostIds.Add(parsed);
                     }
-
-                    Log.Info($"PerformFullSync: Django reports {djangoElementIds.Count} elements; {ghostIds.Count} not present in current model — marking deleted.");
-
+                    Log.Info($"PerformFullSync: {ghostIds.Count} ghost ids (in Django, not in current Revit model) — marking deleted.");
                     if (ghostIds.Count > 0)
                     {
                         StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), ghostIds, revit.Document);
@@ -210,7 +224,7 @@ namespace ProjectPerseus.sync
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"PerformFullSync: ghost-element detection failed: {ex.Message}");
+                    Log.Error($"PerformFullSync: ghost-element cleanup failed: {ex.Message}");
                 }
 
                 watch.Stop();
