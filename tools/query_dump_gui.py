@@ -98,9 +98,12 @@ class DumpExplorer(tk.Tk):
 
         results_box = ttk.LabelFrame(left, text="Results")
         results_box.pack(side="top", fill="both", expand=True, padx=4, pady=4)
-        cols = ("element_id", "name", "category")
+        # "index" is the element's position in the outer JSON "elements" list.
+        # Django's add_to_crud_queue chunks at 1000 elements per background task,
+        # so chunk = index // 1000 (0-indexed) for ghost-hunting / debugging.
+        cols = ("index", "element_id", "name", "category")
         self.results = ttk.Treeview(results_box, columns=cols, show="headings")
-        for c, w in zip(cols, (110, 240, 140)):
+        for c, w in zip(cols, (70, 110, 240, 140)):
             self.results.heading(c, text=c)
             self.results.column(c, width=w, anchor="w")
         self.results.pack(side="left", fill="both", expand=True)
@@ -155,7 +158,12 @@ class DumpExplorer(tk.Tk):
             return
         self.elements = self.data.get("elements", [])
         self.deleted = self.data.get("deletedElements", [])
-        self._all_inner = [d["element"] for d in self.elements if "element" in d]
+        # (index_in_outer_list, inner_element_dict) — index is preserved through
+        # filtering so the results table can show it and the user can map back to
+        # the upload chunk.
+        self._all_inner = [
+            (i, d["element"]) for i, d in enumerate(self.elements) if "element" in d
+        ]
         self.status_var.set(
             f"{len(self._all_inner)} elements, {len(self.deleted)} deletions loaded."
         )
@@ -172,18 +180,18 @@ class DumpExplorer(tk.Tk):
         try:
             if mode == "Name (regex)":
                 rx = re.compile(q or ".*", re.IGNORECASE)
-                results = [e for e in self._all_inner if rx.search(e.get("name") or "")]
+                results = [(i, e) for (i, e) in self._all_inner if rx.search(e.get("name") or "")]
             elif mode == "Unique ID":
-                results = [e for e in self._all_inner if e.get("unique_id") == q]
+                results = [(i, e) for (i, e) in self._all_inner if e.get("unique_id") == q]
             elif mode == "Element ID":
-                results = [e for e in self._all_inner if str(e.get("element_id")) == q]
+                results = [(i, e) for (i, e) in self._all_inner if str(e.get("element_id")) == q]
             elif mode == "Parameter":
-                for e in self._all_inner:
+                for i, e in self._all_inner:
                     for p in e.get("parameters", []):
                         if p.get("name") != q:
                             continue
                         if v == "" or str(p.get("value")) == v:
-                            results.append(e)
+                            results.append((i, e))
                             break
         except re.error as exc:
             self.status_var.set(f"Bad regex: {exc}")
@@ -193,7 +201,7 @@ class DumpExplorer(tk.Tk):
     def _populate_results(self, results):
         self.results.delete(*self.results.get_children())
         shown = results[:MAX_DISPLAY]
-        for i, e in enumerate(shown):
+        for row, (idx, e) in enumerate(shown):
             cat = ""
             for p in e.get("parameters", []):
                 if p.get("name") == "Category":
@@ -201,8 +209,8 @@ class DumpExplorer(tk.Tk):
                     break
             self.results.insert(
                 "", "end",
-                iid=str(i),
-                values=(e.get("element_id"), e.get("name"), cat),
+                iid=str(row),
+                values=(idx, e.get("element_id"), e.get("name"), cat),
             )
         self._current_results = shown
         total = len(results)
@@ -215,8 +223,9 @@ class DumpExplorer(tk.Tk):
         sel = self.results.selection()
         if not sel:
             return
-        elem = self._current_results[int(sel[0])]
+        idx, elem = self._current_results[int(sel[0])]
         info = (
+            f"json index:     {idx}   (chunk {idx // 1000} @ 1000/chunk)\n"
             f"element_id:     {elem.get('element_id')}\n"
             f"unique_id:      {elem.get('unique_id')}\n"
             f"name:           {elem.get('name')}\n"
@@ -245,7 +254,7 @@ class DumpExplorer(tk.Tk):
             self.status_var.set("Load a file first.")
             return
         cats = Counter()
-        for e in self._all_inner:
+        for _, e in self._all_inner:
             for p in e.get("parameters", []):
                 if p.get("name") == "Category":
                     cats[p.get("value")] += 1
