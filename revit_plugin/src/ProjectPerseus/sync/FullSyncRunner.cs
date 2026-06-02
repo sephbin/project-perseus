@@ -172,10 +172,14 @@ namespace ProjectPerseus.sync
 
                 StateSubmitter.SubmitElementState(filteredElementDeltaList);
 
-                // Ghost-element cleanup: full sync doesn't run a Revit change set, so anything
-                // Django still has for this source that's NOT in the payload we just pushed
-                // must have been deleted (or category-filtered out) since the last sync.
-                // Ask Django for its current element_id list and submit the diff as deletions.
+                // Ghost-element cleanup: full sync doesn't run a Revit change set, so we
+                // ask Django for its current element_id list and treat anything Revit no
+                // longer has as a deletion. The "still alive" set must come from the actual
+                // Revit document (every element returned by GetAllElements) rather than the
+                // upload payload — otherwise the perseusCategories filter would silently
+                // soft-delete every element the user chose to exclude. We also union in
+                // whatever's in filteredElementDeltaList so that categories and any
+                // connected elements (whose ids aren't in `elements`) survive.
                 try
                 {
                     var existingIdsEndpoint = $"{baseUrl}/sourceelements/{thisdocGuid}/";
@@ -183,15 +187,17 @@ namespace ProjectPerseus.sync
                     JObject existingIdsJson = JObject.Parse(existingIdsResponse);
                     var djangoElementIds = existingIdsJson["element_ids"]?.ToObject<List<string>>() ?? new List<string>();
 
-                    var syncedIds = new HashSet<string>(
-                        filteredElementDeltaList
-                            .Where(d => d.Element != null)
-                            .Select(d => d.Element.Id.ToString()));
+                    var aliveIds = new HashSet<string>(
+                        elements.Select(e => e.Id.Value.ToString()));
+                    foreach (var d in filteredElementDeltaList)
+                    {
+                        if (d.Element != null) aliveIds.Add(d.Element.Id.ToString());
+                    }
 
                     var ghostIds = new List<long>();
                     foreach (var id in djangoElementIds)
                     {
-                        if (syncedIds.Contains(id)) continue;
+                        if (aliveIds.Contains(id)) continue;
                         if (long.TryParse(id, out var parsed)) ghostIds.Add(parsed);
                     }
 
