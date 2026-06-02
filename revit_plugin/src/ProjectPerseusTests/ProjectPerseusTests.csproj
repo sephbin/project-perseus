@@ -175,4 +175,15 @@
     <Error Condition="!Exists('..\packages\MSTest.TestAdapter.2.2.7\build\net45\MSTest.TestAdapter.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\MSTest.TestAdapter.2.2.7\build\net45\MSTest.TestAdapter.targets'))" />
   </Target>
   <Import Project="..\packages\MSTest.TestAdapter.2.2.7\build\net45\MSTest.TestAdapter.targets" Condition="Exists('..\packages\MSTest.TestAdapter.2.2.7\build\net45\MSTest.TestAdapter.targets')" />
+
+  <!-- Commit and push after the entire solution has built. This project builds last
+       because it has a ProjectReference to ProjectPerseus, so hooking AfterTargets="Build"
+       here means we only commit once the main DLL, the installer, AND the test DLL
+       have all compiled successfully. The commit body is read from .claude_changes.md
+       at the repo root, which Claude maintains during each session and the script clears
+       after commit. -->
+  <Target Name="GitCommit" AfterTargets="Build">
+    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\build-commit.ps1&quot; -RepoRoot &quot;$(ProjectDir)..\..\..&quot; -Configuration &quot;$(Configuration)&quot;"
+          ContinueOnError="WarnAndContinue" />
+  </Target>
 </Project>

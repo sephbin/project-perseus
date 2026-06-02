@@ -381,11 +381,7 @@
           ContinueOnError="WarnAndContinue" />
   </Target>
 
-  <!-- Commit and push after every successful Release build.
-       The commit body is read from .claude_changes.md at the repo root,
-       which Claude maintains during each session and the script clears after commit. -->
-  <Target Name="GitCommit" AfterTargets="BuildInstaller">
-    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\build-commit.ps1&quot; -RepoRoot &quot;$(ProjectDir)..\..\..&quot; -Configuration &quot;$(Configuration)&quot;"
-          ContinueOnError="WarnAndContinue" />
-  </Target>
+  <!-- GitCommit lives in ProjectPerseusTests.csproj (the last project to build in the
+       solution because it references ProjectPerseus). That way commit + push only run
+       once the entire solution — including tests — has compiled successfully. -->
 </Project>

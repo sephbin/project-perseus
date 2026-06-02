@@ -72,7 +72,16 @@ Since modifying elements directly causes Revit worksharing conflicts, Perseus ta
 
 5. Build → Commit Workflow
 
-The post-build pipeline runs on every build (Debug and Release): BumpVersion → Build → BuildInstaller → GitCommit. BumpVersion sits in BeforeTargets="Build" so the new AssemblyVersion is baked into the DLL before CoreCompile runs; the installer and the commit reference exactly the version that was compiled.
+The post-build pipeline runs on every build (Debug and Release). It spans both projects in the solution:
+
+  ProjectPerseus.csproj:        BumpVersion (BeforeTargets="Build") → Build → BuildInstaller (AfterTargets="Build")
+  ProjectPerseusTests.csproj:   Build → GitCommit (AfterTargets="Build")
+
+BumpVersion sits in BeforeTargets="Build" so the new AssemblyVersion is baked into the
+DLL before CoreCompile runs; the installer and the commit reference exactly the version
+that was compiled. GitCommit lives in the tests project (which is the last to build
+because it has a ProjectReference to ProjectPerseus) so commit + push only fire once
+the entire solution — main DLL, installer, and test DLL — has built successfully.
 
 GitCommit calls build-commit.ps1 which reads .claude_changes.md from the repo root, uses its
 contents as the commit body, commits all staged changes, pushes, then clears the file.
