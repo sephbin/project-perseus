@@ -406,12 +406,15 @@ namespace ProjectPerseus.sync
                     Log.Info("Start Watch");
                     var watch = System.Diagnostics.Stopwatch.StartNew();
 
+                    string batchId = Guid.NewGuid().ToString();
+                    Log.Info($"SyncBatch: {batchId}");
+
                     try
                     {
                         var revit = new RevitFacade(e.Document);
 
                         Log.Info("Before PerformIncrementalSync");
-                        IncrementalSyncRunner.PerformIncrementalSync(revit);
+                        IncrementalSyncRunner.PerformIncrementalSync(revit, batchId);
 
                         _config.LastSyncVersionGuid = RevitFacade.GetDocumentVersionGuid(revit.Document);
                     }
@@ -419,6 +422,22 @@ namespace ProjectPerseus.sync
                     {
                         Log.Exception(new Exception($"Error performing sync: {ex.Message}", ex));
                         Log.Info($"Error performing sync: {ex.Message}");
+                    }
+
+                    // Signal server that all element POSTs for this batch are done.
+                    // Server will trigger post-sync validation once all background tasks complete.
+                    try
+                    {
+                        var docGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                        var batchCloseEndpoint = $"{_config.BaseUrl}/batchclose/";
+                        var batchClosePayload = Newtonsoft.Json.JsonConvert.SerializeObject(
+                            new { batchId = batchId, documentGuid = docGuid });
+                        WebHelper.Post(batchCloseEndpoint, AuthService.GetAuthTokenSafely(), batchClosePayload);
+                        Log.Info($"SyncBatch closed: {batchId}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"batchClose call failed (non-fatal): {ex.Message}");
                     }
 
                     watch.Stop();

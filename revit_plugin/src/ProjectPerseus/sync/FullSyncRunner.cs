@@ -22,7 +22,7 @@ namespace ProjectPerseus.sync
     // a full re-upload from the ribbon.
     public static class FullSyncRunner
     {
-        public static void PerformFullSync(RevitFacade revit)
+        public static void PerformFullSync(RevitFacade revit, string batchId = null)
         {
             try
             {
@@ -255,14 +255,14 @@ namespace ProjectPerseus.sync
                     Log.Info($"PerformFullSync: payload sample log failed: {ex.Message}");
                 }
 
-                StateSubmitter.SubmitElementState(filteredElementDeltaList);
+                StateSubmitter.SubmitElementState(filteredElementDeltaList, batchId);
 
                 // Ghost cleanup: send the precomputed ghost list as deletions.
                 try
                 {
                     if (ghostIds.Count > 0)
                     {
-                        StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), ghostIds, revit.Document);
+                        StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), ghostIds, revit.Document, batchId);
                     }
                 }
                 catch (Exception ex)

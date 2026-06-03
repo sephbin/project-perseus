@@ -21,7 +21,7 @@ namespace ProjectPerseus.sync
     // elements. Falls back to FullSyncRunner if local PacCache history is missing.
     public static class IncrementalSyncRunner
     {
-        public static void PerformIncrementalSync(RevitFacade revit)
+        public static void PerformIncrementalSync(RevitFacade revit, string batchId = null)
         {
             try
             {
@@ -79,7 +79,7 @@ namespace ProjectPerseus.sync
                     var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
 
                     Log.Info("About to run SubmitElementDeltas");
-                    StateSubmitter.SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document);
+                    StateSubmitter.SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document, batchId);
                 }
                 else
                 {
@@ -93,7 +93,7 @@ namespace ProjectPerseus.sync
             {
                 Log.Info("WARNING: Local incremental history is missing or broken (PacCache likely cleared).");
                 Log.Info("Automatically falling back to PerformFullSync...");
-                FullSyncRunner.PerformFullSync(revit);
+                FullSyncRunner.PerformFullSync(revit, batchId);
             }
             catch (Exception ex)
             {

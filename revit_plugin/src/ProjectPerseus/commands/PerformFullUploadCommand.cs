@@ -2,8 +2,12 @@ using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Newtonsoft.Json;
+using ProjectPerseus.auth;
+using ProjectPerseus.config;
 using ProjectPerseus.revit;
 using ProjectPerseus.sync;
+using ProjectPerseus.web;
 
 using ProjectPerseus.logging;
 namespace ProjectPerseus.commands
@@ -24,7 +28,23 @@ namespace ProjectPerseus.commands
                 }
 
                 var revit = new RevitFacade(doc);
-                FullSyncRunner.PerformFullSync(revit);
+                string batchId = Guid.NewGuid().ToString();
+                Log.Info($"PerformFullUploadCommand SyncBatch: {batchId}");
+
+                FullSyncRunner.PerformFullSync(revit, batchId);
+
+                try
+                {
+                    var docGuid = ModelGuidStorage.GetOrCreate(doc);
+                    var batchCloseEndpoint = $"{Config.Instance.BaseUrl}/batchclose/";
+                    var payload = JsonConvert.SerializeObject(new { batchId = batchId, documentGuid = docGuid });
+                    WebHelper.Post(batchCloseEndpoint, AuthService.GetAuthTokenSafely(), payload);
+                    Log.Info($"PerformFullUploadCommand SyncBatch closed: {batchId}");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"batchClose call failed (non-fatal): {ex.Message}");
+                }
 
                 TaskDialog.Show("Perseus", "Full upload complete.");
                 return Result.Succeeded;

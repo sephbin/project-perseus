@@ -43,7 +43,7 @@ namespace ProjectPerseus.web
 
         }
 
-        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<long> deleted, Document doc)
+        public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<long> deleted, Document doc, string batchId = null)
         {
             // WriteLog("SubmitElementDeltas");
             string token = ProjectPerseus.auth.AuthService.GetAuthTokenSafely();
@@ -73,6 +73,7 @@ namespace ProjectPerseus.web
                 revitAccountId = revitAccountId,
                 windowsUser = windowsUsername,
                 machine = machineName,
+                batchId = batchId,
                 elements = elementDeltas,
                 deletedElements = deleted
             };
@@ -112,7 +113,7 @@ namespace ProjectPerseus.web
             }
         }
 
-        public void SubmitElementState(IList<models.ElementDelta> elementDeltas)
+        public void SubmitElementState(IList<models.ElementDelta> elementDeltas, string batchId = null)
         {
             WriteLog("SubmitElementState");
             int chunkSize = Math.Min(elementDeltas.Count, 10000);
@@ -127,8 +128,9 @@ namespace ProjectPerseus.web
                 WriteLog("for");
                 var chunk = elementDeltas.Skip(i).Take(chunkSize).ToList();
                 WriteLog("chunk");
-                WriteLog(chunk.ToString());
-                string jsonString = JsonUtils.SerializeToJson(chunk, null);
+                // Wrap in an envelope so the server can extract batchId without a header change.
+                var envelope = new { batchId = batchId, elements = chunk };
+                string jsonString = JsonUtils.SerializeToJson(envelope, null);
 
                 WriteLog("jsonString");
 
@@ -142,7 +144,7 @@ namespace ProjectPerseus.web
                     // before the MSAL/Bearer migration. New code should prefer the SubmitElementDeltas
                     // path which uses HttpClient + AuthService.GetAuthSchemeSafely().
                     WebHelper.Post(StateUpdateEndpoint, _apiToken, jsonString, "Token");
-                    
+
                     WriteLog($"Chunk {i / chunkSize + 1} uploaded successfully");
                 }
                 catch (Exception ex)
