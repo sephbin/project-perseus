@@ -155,6 +155,24 @@ namespace ProjectPerseus.sync
                 var filteredElementDeltaList = new List<ElementDelta>();
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
 
+                // Watch-list: log the exact CategoryName string and whether it appears in
+                // the perseusCategories list BEFORE the filter runs, so we can see exactly
+                // why a watched element is dropped.
+                if (ElementWatchList.Ids.Count > 0)
+                {
+                    Log.Info($"FullSync watch [pre-CategoryFilter]: perseusCategories=[{string.Join(", ", categories.Take(30))}]");
+                    foreach (var wid in ElementWatchList.Ids)
+                    {
+                        var wd = elementDeltaList.FirstOrDefault(d => d.Element.Id == wid);
+                        if (wd != null)
+                        {
+                            var wcat = wd.Element?.originalElement?.CategoryName?.Name ?? "<null>";
+                            var inSet = categories.Any(c => string.Equals(c, wcat, StringComparison.OrdinalIgnoreCase));
+                            Log.Info($"FullSync watch [pre-CategoryFilter]: id={wid} CategoryName='{wcat}' inCategorySet={inSet}");
+                        }
+                    }
+                }
+
                 try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList(); }
                 catch (Exception ex) { Log.Info(ex.ToString()); }
 
