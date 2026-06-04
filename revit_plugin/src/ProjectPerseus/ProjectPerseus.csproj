@@ -241,6 +241,7 @@
     <Compile Include="auth\PersonalAccessToken.cs" />
     <Compile Include="auth\TokenCache.cs" />
     <Compile Include="batch\BatchProcessor.cs" />
+    <Compile Include="commands\DiagnoseElementCommand.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
     <Compile Include="commands\InitialiseProjectCommand.cs" />
     <Compile Include="commands\OpenSettingsCommand.cs" />
@@ -294,6 +295,9 @@
     <Compile Include="sync\RevitSyncDialogCloser.cs" />
     <Compile Include="sync\StateSubmitter.cs" />
     <Compile Include="sync\SyncOrchestrator.cs" />
+    <Compile Include="ui\DiagnoseElementForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ui\AutoSyncCountdownForm.cs">
       <SubType>Form</SubType>
     </Compile>

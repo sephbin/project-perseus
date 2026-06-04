@@ -90,6 +90,15 @@ namespace ProjectPerseus
             PushButton resetBtn = ribbonPanel.AddItem(resetBtnData) as PushButton;
             resetBtn.ToolTip = "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.";
             ThemeIconManager.Register(resetBtn, "reset");
+
+            PushButtonData diagBtnData = new PushButtonData(
+                "Button_DiagnoseElement",
+                "Diagnose\nElements",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.DiagnoseElementCommand");
+
+            PushButton diagBtn = ribbonPanel.AddItem(diagBtnData) as PushButton;
+            diagBtn.ToolTip = "Enter element IDs to run a full diagnostic from the plugin's perspective and write results to the log file.";
         }
 
         private void OnRevitIdlingDelay(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)

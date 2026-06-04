@@ -101,6 +101,28 @@ namespace ProjectPerseus.sync
                 var elements = revit.GetAllElements();
                 Log.Info($"PerformFullSync: Found {elements.Count} elements");
 
+                // Log per-category counts from the raw (pre-filter) collection so we can
+                // diagnose elements that are visible in Revit but absent from the payload.
+                try
+                {
+                    var rawCategoryCounts = new System.Collections.Generic.Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var e in elements)
+                    {
+                        var catName = e.CategoryName?.Name ?? "<null>";
+                        rawCategoryCounts.TryGetValue(catName, out var c);
+                        rawCategoryCounts[catName] = c + 1;
+                    }
+                    var top = string.Join(", ", rawCategoryCounts
+                        .OrderByDescending(kv => kv.Value)
+                        .Take(20)
+                        .Select(kv => $"{kv.Key}:{kv.Value}"));
+                    Log.Info($"PerformFullSync: raw category counts (top 20): {top}");
+                }
+                catch (Exception ex)
+                {
+                    Log.Info($"PerformFullSync: category count log failed: {ex.Message}");
+                }
+
                 // Drop every Revit element id from the ghost set BEFORE category filtering
                 // so excluded-by-filter elements aren't mis-marked as deleted on next sync.
                 foreach (var e in elements)
