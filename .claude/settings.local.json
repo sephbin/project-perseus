@@ -11,7 +11,10 @@
       "Bash(Select-Object FullName)",
       "PowerShell(head *)",
       "PowerShell(Get-ChildItem -Path \"C:\\\\mydev\\\\django-syncboat\" -Recurse -File | Where-Object {$_.Name -match '\\\\.\\(bat|ps1|ini|cfg|sh\\)$' -or $_.Name -match 'nssm|service|deploy|worker'} | Select-Object FullName)",
-      "Bash(grep -E \"\\\\.\\(py|sh|bat|ps1|cfg|ini\\)$\")"
+      "Bash(grep -E \"\\\\.\\(py|sh|bat|ps1|cfg|ini\\)$\")",
+      "Bash(python -c \"import background_task; import os; print\\(os.path.dirname\\(background_task.__file__\\)\\)\")",
+      "Bash(find /usr -name \"admin.py\" -path \"*/background_task/*\")",
+      "PowerShell(python -c \"import background_task, os; print\\(os.path.dirname\\(background_task.__file__\\)\\)\")"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

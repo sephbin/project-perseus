@@ -44,11 +44,6 @@ namespace ProjectPerseus.revit
         public static List<ElementDelta> FilterByCategoryName(
             this IEnumerable<ElementDelta> deltas, IEnumerable<string> categoryNames)
         {
-            //foreach (var d in deltas)
-            //{
-            //    try { Log.Info(d.Element.originalElement.CategoryName.Name); } catch { }
-            //}
-
             if (categoryNames == null || !categoryNames.Any())
                 throw new ArgumentException("Category names list must not be null or empty.", nameof(categoryNames));
 
@@ -56,10 +51,32 @@ namespace ProjectPerseus.revit
                 categoryNames.Select(n => n.ToLowerInvariant())
             );
 
-            return deltas
-                .Where(d => d.Element?.originalElement?.CategoryName?.Name != null &&
-                    categorySet.Contains(d.Element.originalElement.CategoryName.Name.ToLowerInvariant()))
-                    .ToList();
+            var kept = new List<ElementDelta>();
+            int nullCategoryCount = 0;
+            foreach (var d in deltas)
+            {
+                var catName = d.Element?.originalElement?.CategoryName?.Name;
+                if (catName != null && categorySet.Contains(catName.ToLowerInvariant()))
+                {
+                    kept.Add(d);
+                }
+                else if (catName == null)
+                {
+                    // Null-category elements are logged individually — they may indicate
+                    // corrupted elements that should have been included (e.g. a Room whose
+                    // category accessor returned null).
+                    nullCategoryCount++;
+                    var id = d.Element?.originalElement?.Id?.Value.ToString() ?? "?";
+                    var name = d.Element?.Name ?? "?";
+                    Log.Info($"FilterByCategoryName: element_id={id} name='{name}' has null category — dropped");
+                }
+                // Non-null categories that don't match the filter are expected (most elements);
+                // we don't log them to avoid flooding the log with thousands of lines.
+            }
+            if (nullCategoryCount > 0)
+                Log.Info($"FilterByCategoryName: {nullCategoryCount} elements had null category and were dropped");
+            Log.Info($"FilterByCategoryName: {kept.Count} elements kept from category filter");
+            return kept;
         }
 
         /// <summary>

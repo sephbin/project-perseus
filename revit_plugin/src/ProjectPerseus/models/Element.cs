@@ -117,53 +117,63 @@ namespace ProjectPerseus.models
         {
             var paramList = new List<IParameter>();
 
+            int rawParamCount = 0;
             foreach (var param in _element.ParametersSet)
             {
+                rawParamCount++;
                 try
                 {
                     paramList.Add(ParameterBase.FromArdbParameter(_element.CategoryName, param));
                 }
                 catch (Exception ex)
                 {
-                    Log.Info($"Element.GetParameters: {ex.Message}");
+                    Log.Info($"Element.GetParameters [{_element.Id.Value}]: param#{rawParamCount} threw {ex.GetType().Name}: {ex.Message}");
                 }
             }
+
+            if (rawParamCount == 0)
+                Log.Info($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': ParametersSet yielded 0 parameters");
 
             try
             {
                 var rawId = RevitExtensions.CreateId(_element.Id.Value);
                 var rawElem = _doc.GetElement(rawId);
 
-                if (rawElem is ARDB.FamilyInstance fi)
+                if (rawElem == null)
                 {
-                    if (fi.Host != null)
-                        paramList.Add(new Parameter<long>("Host Id", fi.Host.Id.GetIdValue(), "ElementId", null, "synthetic"));
-
-                    if (fi.FromRoom != null)
-                        paramList.Add(new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
-
-                    if (fi.ToRoom != null)
-                        paramList.Add(new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
-
-                    if (fi.Room != null)
-                        paramList.Add(new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic"));
+                    Log.Info($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': doc.GetElement returned null — skipping synthetic params");
                 }
-
-                // Object-class introspection: lets consumers distinguish instances from types
-                // (FamilySymbol, WallType, FloorType, etc.) and walk instance → type via Type Id.
-                // Type Id is -1 (InvalidElementId) when this element IS itself a type.
-                if (rawElem != null)
+                else
                 {
+                    if (rawElem is ARDB.FamilyInstance fi)
+                    {
+                        if (fi.Host != null)
+                            paramList.Add(new Parameter<long>("Host Id", fi.Host.Id.GetIdValue(), "ElementId", null, "synthetic"));
+
+                        if (fi.FromRoom != null)
+                            paramList.Add(new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
+
+                        if (fi.ToRoom != null)
+                            paramList.Add(new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
+
+                        if (fi.Room != null)
+                            paramList.Add(new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic"));
+                    }
+
+                    // Object-class introspection: lets consumers distinguish instances from types
+                    // (FamilySymbol, WallType, FloorType, etc.) and walk instance → type via Type Id.
+                    // Type Id is -1 (InvalidElementId) when this element IS itself a type.
                     paramList.Add(new Parameter<bool>("Is FamilySymbol", rawElem is ARDB.FamilySymbol, "Boolean", null, "synthetic"));
                     paramList.Add(new Parameter<bool>("Is ElementType", rawElem is ARDB.ElementType, "Boolean", null, "synthetic"));
                     paramList.Add(new Parameter<bool>("Is ElementType (Subclass)", rawElem.GetType().IsSubclassOf(typeof(ARDB.ElementType)), "Boolean", null, "synthetic"));
                     paramList.Add(new Parameter<long>("Type Id", rawElem.GetTypeId().GetIdValue(), "ElementId", null, "synthetic"));
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 // "target instance does not exist in the given phase" is normal for
-                // FamilyInstances not present in the active phase — skip silently.
+                // FamilyInstances not present in the active phase.
+                Log.Info($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': synthetic params threw {ex.GetType().Name}: {ex.Message}");
             }
 
             return paramList;
