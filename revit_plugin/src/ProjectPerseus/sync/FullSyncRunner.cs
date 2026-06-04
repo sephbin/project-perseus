@@ -123,6 +123,14 @@ namespace ProjectPerseus.sync
                     Log.Info($"PerformFullSync: category count log failed: {ex.Message}");
                 }
 
+                // Watch-list checkpoint 1: raw GetAllElements collection.
+                if (ElementWatchList.Ids.Count > 0)
+                {
+                    var rawIdSet = new HashSet<long>(elements.Select(e => e.Id.Value));
+                    foreach (var wid in ElementWatchList.Ids)
+                        Log.Info($"FullSync watch [1-GetAllElements]: id={wid} present={rawIdSet.Contains(wid)}");
+                }
+
                 // Drop every Revit element id from the ghost set BEFORE category filtering
                 // so excluded-by-filter elements aren't mis-marked as deleted on next sync.
                 foreach (var e in elements)
@@ -136,11 +144,27 @@ namespace ProjectPerseus.sync
                 var elementDeltaList = ElementDelta.CreateList(ElementDelta.DeltaAction.Create, elements, revit.Document, docGuid).ToList();
                 Log.Info("PerformFullSync: Created elementDeltaList");
 
+                // Watch-list checkpoint 2: after ElementDelta.CreateList.
+                if (ElementWatchList.Ids.Count > 0)
+                {
+                    var deltaIdSet = new HashSet<long>(elementDeltaList.Select(d => d.Element.Id));
+                    foreach (var wid in ElementWatchList.Ids)
+                        Log.Info($"FullSync watch [2-CreateList]: id={wid} present={deltaIdSet.Contains(wid)}");
+                }
+
                 var filteredElementDeltaList = new List<ElementDelta>();
                 var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
 
                 try { filteredElementDeltaList = elementDeltaList.FilterByCategoryName(categories).ToList(); }
                 catch (Exception ex) { Log.Info(ex.ToString()); }
+
+                // Watch-list checkpoint 3: after category filter.
+                if (ElementWatchList.Ids.Count > 0)
+                {
+                    var filtIdSet = new HashSet<long>(filteredElementDeltaList.Select(d => d.Element.Id));
+                    foreach (var wid in ElementWatchList.Ids)
+                        Log.Info($"FullSync watch [3-CategoryFilter]: id={wid} present={filtIdSet.Contains(wid)}");
+                }
 
                 try
                 {
@@ -193,6 +217,14 @@ namespace ProjectPerseus.sync
                 }
 
                 Log.Info("PerformFullSync: Filtered Element Delta List");
+
+                // Watch-list checkpoint 4: final payload (categories + connected elements added).
+                if (ElementWatchList.Ids.Count > 0)
+                {
+                    var finalIdSet = new HashSet<long>(filteredElementDeltaList.Select(d => d.Element.Id));
+                    foreach (var wid in ElementWatchList.Ids)
+                        Log.Info($"FullSync watch [4-FinalPayload]: id={wid} present={finalIdSet.Contains(wid)}");
+                }
 
                 // Final ghost sweep: categories and connected (type) elements aren't in
                 // `elements` (GetAllElements excludes types), so drop their ids too. Whatever

@@ -9,6 +9,7 @@ using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.revit.adapters;
 using ProjectPerseus.ui;
+using ProjectPerseus.util;
 
 namespace ProjectPerseus.commands
 {
@@ -22,6 +23,9 @@ namespace ProjectPerseus.commands
 
             using (var form = new DiagnoseElementForm())
             {
+                if (ElementWatchList.Ids.Count > 0)
+                    form.SetElementIds(ElementWatchList.Ids);
+
                 if (form.ShowDialog() != System.Windows.Forms.DialogResult.OK)
                     return Result.Cancelled;
 
@@ -32,13 +36,18 @@ namespace ProjectPerseus.commands
                     return Result.Cancelled;
                 }
 
+                ElementWatchList.Set(ids);
+                Log.Info($"DiagnoseElementCommand: watch list set to [{string.Join(", ", ids)}]");
+
                 var docGuid = revit.ModelGuidStorage.GetOrCreate(doc);
 
                 foreach (var rawId in ids)
                     DiagnoseElement(doc, rawId, docGuid);
 
                 TaskDialog.Show("Perseus — Diagnose",
-                    $"Diagnostic complete for {ids.Count} element(s). Check the Perseus log file for results.");
+                    $"Diagnostic complete for {ids.Count} element(s).\n\n" +
+                    "These IDs are now in the watch list. Run Full Sync to see exactly where each element is dropped (or not).\n\n" +
+                    "Check the Perseus log file for results.");
             }
 
             return Result.Succeeded;

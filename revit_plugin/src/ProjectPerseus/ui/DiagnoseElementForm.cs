@@ -63,5 +63,10 @@ namespace ProjectPerseus.ui
             }
             return ids;
         }
+
+        public void SetElementIds(IEnumerable<long> ids)
+        {
+            _idsBox.Text = string.Join(System.Environment.NewLine, ids);
+        }
     }
 }
