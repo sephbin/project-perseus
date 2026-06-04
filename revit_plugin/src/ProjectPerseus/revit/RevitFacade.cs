@@ -68,7 +68,7 @@ namespace ProjectPerseus.revit
                     nullCategoryCount++;
                     var id = d.Element?.originalElement?.Id?.Value.ToString() ?? "?";
                     var name = d.Element?.Name ?? "?";
-                    Log.Info($"FilterByCategoryName: element_id={id} name='{name}' has null category — dropped");
+                    Log.Debug($"FilterByCategoryName: element_id={id} name='{name}' has null category — dropped");
                 }
                 // Non-null categories that don't match the filter are expected (most elements);
                 // we don't log them to avoid flooding the log with thousands of lines.

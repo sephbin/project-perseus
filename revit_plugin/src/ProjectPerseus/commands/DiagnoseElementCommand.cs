@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Newtonsoft.Json;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -157,13 +158,21 @@ namespace ProjectPerseus.commands
                     Log.Info($"DiagnoseElement [{rawId}]: ArdbElementAdapter threw {ex.GetType().Name}: {ex.Message}");
                 }
 
-                // 6. Full plugin serialisation path via ElementDelta — triggers all GetParameters() logging
+                // 6. Full plugin serialisation path via ElementDelta — triggers all GetParameters() logging,
+                //    then serializes to the same JSON shape the sync payload uses so Django-side ingestion
+                //    failures can be diagnosed against the actual wire format.
                 try
                 {
                     var adapter = new ArdbElementAdapter(revitElem);
                     var delta = new ElementDelta(ElementDelta.DeltaAction.Create, adapter, doc, docGuid);
                     var pluginParams = delta.Element.Parameters;
                     Log.Info($"DiagnoseElement [{rawId}]: ElementDelta.Element.Parameters count={pluginParams?.Count ?? -1} (includes synthetics)");
+
+                    var payloadJson = JsonConvert.SerializeObject(
+                        delta,
+                        Formatting.Indented,
+                        new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+                    Log.Info($"DiagnoseElement [{rawId}]: element payload JSON:\n{payloadJson}");
                 }
                 catch (Exception ex)
                 {

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Sentry;
+using ProjectPerseus.config;
 
 namespace ProjectPerseus.logging
 {
@@ -49,6 +50,12 @@ namespace ProjectPerseus.logging
         public static void Info(string message)
         {
             AppendToFile(message, "[INFO] ");
+        }
+
+        public static void Debug(string message)
+        {
+            if (Config.Instance.VerboseLogging)
+                AppendToFile(message, "[DEBUG]");
         }
 
         public static void Warn(string message)

@@ -49,6 +49,16 @@ namespace ProjectPerseus.config
         // todo: this stores the last sync version with the logged in windows user which means 
         // todo: that the user can't do multiple documents.
         // todo: we should store this in the Revit document instead.
+        public bool VerboseLogging
+        {
+            get => Properties.Settings.Default.VerboseLogging;
+            set
+            {
+                Properties.Settings.Default.VerboseLogging = value;
+                Properties.Settings.Default.Save();
+            }
+        }
+
         public Guid LastSyncVersionGuid
         {
             get => Properties.Settings.Default.LastSyncVersionGuid;

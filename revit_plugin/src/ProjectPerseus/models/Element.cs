@@ -132,7 +132,7 @@ namespace ProjectPerseus.models
             }
 
             if (rawParamCount == 0)
-                Log.Info($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': ParametersSet yielded 0 parameters");
+                Log.Debug($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': ParametersSet yielded 0 parameters");
 
             try
             {
@@ -141,7 +141,7 @@ namespace ProjectPerseus.models
 
                 if (rawElem == null)
                 {
-                    Log.Info($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': doc.GetElement returned null — skipping synthetic params");
+                    Log.Debug($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': doc.GetElement returned null — skipping synthetic params");
                 }
                 else
                 {

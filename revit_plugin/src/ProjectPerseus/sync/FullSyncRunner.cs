@@ -116,7 +116,7 @@ namespace ProjectPerseus.sync
                         .OrderByDescending(kv => kv.Value)
                         .Take(20)
                         .Select(kv => $"{kv.Key}:{kv.Value}"));
-                    Log.Info($"PerformFullSync: raw category counts (top 20): {top}");
+                    Log.Debug($"PerformFullSync: raw category counts (top 20): {top}");
                 }
                 catch (Exception ex)
                 {
@@ -128,7 +128,7 @@ namespace ProjectPerseus.sync
                 {
                     var rawIdSet = new HashSet<long>(elements.Select(e => e.Id.Value));
                     foreach (var wid in ElementWatchList.Ids)
-                        Log.Info($"FullSync watch [1-GetAllElements]: id={wid} present={rawIdSet.Contains(wid)}");
+                        Log.Debug($"FullSync watch [1-GetAllElements]: id={wid} present={rawIdSet.Contains(wid)}");
                 }
 
                 // Drop every Revit element id from the ghost set BEFORE category filtering
@@ -149,7 +149,7 @@ namespace ProjectPerseus.sync
                 {
                     var deltaIdSet = new HashSet<long>(elementDeltaList.Select(d => d.Element.Id));
                     foreach (var wid in ElementWatchList.Ids)
-                        Log.Info($"FullSync watch [2-CreateList]: id={wid} present={deltaIdSet.Contains(wid)}");
+                        Log.Debug($"FullSync watch [2-CreateList]: id={wid} present={deltaIdSet.Contains(wid)}");
                 }
 
                 var filteredElementDeltaList = new List<ElementDelta>();
@@ -160,7 +160,7 @@ namespace ProjectPerseus.sync
                 // why a watched element is dropped.
                 if (ElementWatchList.Ids.Count > 0)
                 {
-                    Log.Info($"FullSync watch [pre-CategoryFilter]: perseusCategories=[{string.Join(", ", categories.Take(30))}]");
+                    Log.Debug($"FullSync watch [pre-CategoryFilter]: perseusCategories=[{string.Join(", ", categories.Take(30))}]");
                     foreach (var wid in ElementWatchList.Ids)
                     {
                         var wd = elementDeltaList.FirstOrDefault(d => d.Element.Id == wid);
@@ -168,7 +168,7 @@ namespace ProjectPerseus.sync
                         {
                             var wcat = wd.Element?.originalElement?.CategoryName?.Name ?? "<null>";
                             var inSet = categories.Any(c => string.Equals(c, wcat, StringComparison.OrdinalIgnoreCase));
-                            Log.Info($"FullSync watch [pre-CategoryFilter]: id={wid} CategoryName='{wcat}' inCategorySet={inSet}");
+                            Log.Debug($"FullSync watch [pre-CategoryFilter]: id={wid} CategoryName='{wcat}' inCategorySet={inSet}");
                         }
                     }
                 }
@@ -181,7 +181,7 @@ namespace ProjectPerseus.sync
                 {
                     var filtIdSet = new HashSet<long>(filteredElementDeltaList.Select(d => d.Element.Id));
                     foreach (var wid in ElementWatchList.Ids)
-                        Log.Info($"FullSync watch [3-CategoryFilter]: id={wid} present={filtIdSet.Contains(wid)}");
+                        Log.Debug($"FullSync watch [3-CategoryFilter]: id={wid} present={filtIdSet.Contains(wid)}");
                 }
 
                 try
@@ -241,7 +241,7 @@ namespace ProjectPerseus.sync
                 {
                     var finalIdSet = new HashSet<long>(filteredElementDeltaList.Select(d => d.Element.Id));
                     foreach (var wid in ElementWatchList.Ids)
-                        Log.Info($"FullSync watch [4-FinalPayload]: id={wid} present={finalIdSet.Contains(wid)}");
+                        Log.Debug($"FullSync watch [4-FinalPayload]: id={wid} present={finalIdSet.Contains(wid)}");
                 }
 
                 // Final ghost sweep: categories and connected (type) elements aren't in
@@ -315,7 +315,7 @@ namespace ProjectPerseus.sync
                             sample,
                             Formatting.Indented,
                             new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
-                        Log.Info($"PerformFullSync: payload sample (1 of {filteredElementDeltaList.Count}):\n{prettySample}");
+                        Log.Debug($"PerformFullSync: payload sample (1 of {filteredElementDeltaList.Count}):\n{prettySample}");
                     }
                     else
                     {

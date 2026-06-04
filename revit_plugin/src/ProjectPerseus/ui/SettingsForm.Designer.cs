@@ -34,6 +34,7 @@
             this.apiTokenTextBox = new System.Windows.Forms.TextBox();
             this.clearTokenButton = new System.Windows.Forms.Button();
             this.tokenStatusLabel = new System.Windows.Forms.Label();
+            this.verboseLoggingCheckBox = new System.Windows.Forms.CheckBox();
             this.saveButton = new System.Windows.Forms.Button();
             this.cancelButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
@@ -91,9 +92,19 @@
             this.tokenStatusLabel.TabIndex = 5;
             this.tokenStatusLabel.Text = "No token stored.";
             //
+            // verboseLoggingCheckBox
+            //
+            this.verboseLoggingCheckBox.AutoSize = true;
+            this.verboseLoggingCheckBox.Location = new System.Drawing.Point(12, 95);
+            this.verboseLoggingCheckBox.Name = "verboseLoggingCheckBox";
+            this.verboseLoggingCheckBox.Size = new System.Drawing.Size(160, 17);
+            this.verboseLoggingCheckBox.TabIndex = 8;
+            this.verboseLoggingCheckBox.Text = "Enable verbose debug logging";
+            this.verboseLoggingCheckBox.UseVisualStyleBackColor = true;
+            //
             // saveButton
             //
-            this.saveButton.Location = new System.Drawing.Point(383, 108);
+            this.saveButton.Location = new System.Drawing.Point(383, 122);
             this.saveButton.Name = "saveButton";
             this.saveButton.Size = new System.Drawing.Size(75, 23);
             this.saveButton.TabIndex = 6;
@@ -104,7 +115,7 @@
             // cancelButton
             //
             this.cancelButton.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.cancelButton.Location = new System.Drawing.Point(464, 108);
+            this.cancelButton.Location = new System.Drawing.Point(464, 122);
             this.cancelButton.Name = "cancelButton";
             this.cancelButton.Size = new System.Drawing.Size(75, 23);
             this.cancelButton.TabIndex = 7;
@@ -118,10 +129,11 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.cancelButton;
-            this.ClientSize = new System.Drawing.Size(553, 143);
+            this.ClientSize = new System.Drawing.Size(553, 157);
             this.ControlBox = false;
             this.Controls.Add(this.cancelButton);
             this.Controls.Add(this.saveButton);
+            this.Controls.Add(this.verboseLoggingCheckBox);
             this.Controls.Add(this.tokenStatusLabel);
             this.Controls.Add(this.clearTokenButton);
             this.Controls.Add(this.apiTokenTextBox);
@@ -147,6 +159,7 @@
         private System.Windows.Forms.TextBox apiTokenTextBox;
         private System.Windows.Forms.Button clearTokenButton;
         private System.Windows.Forms.Label tokenStatusLabel;
+        private System.Windows.Forms.CheckBox verboseLoggingCheckBox;
         private System.Windows.Forms.Button saveButton;
         private System.Windows.Forms.Button cancelButton;
     }
