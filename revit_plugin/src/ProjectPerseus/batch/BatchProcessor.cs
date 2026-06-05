@@ -271,12 +271,19 @@ namespace ProjectPerseus.queue
         {
             modelReachable = true;
 
-            // Local files are opened detached — GetUserWorksetInfo can't pre-inspect them,
-            // so fall back to opening all worksets rather than closing all.
+            // Local files are opened detached — GetUserWorksetInfo can't pre-inspect them
+            // (cloud-origin local copies cause Revit to hang waiting for cloud auth).
+            // Just open all worksets and skip the whitelist/blacklist pass for local files.
             var fallback = modelInfo.IsLocalFile
                 ? WorksetConfigurationOption.OpenAllWorksets
                 : WorksetConfigurationOption.CloseAllWorksets;
             var config = new WorksetConfiguration(fallback);
+
+            if (modelInfo.IsLocalFile)
+            {
+                Log.Info($"[GetWorksetConfig] Local file — skipping GetUserWorksetInfo, opening all worksets.");
+                return config;
+            }
 
             try
             {
