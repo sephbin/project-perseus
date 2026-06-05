@@ -9,7 +9,7 @@ namespace ProjectPerseus.ui
 {
     internal static class ThemeIconManager
     {
-#if !REVIT2023
+#if REVIT2024_OR_GREATER
         private class IconEntry
         {
             public PushButton Button;
@@ -100,8 +100,8 @@ namespace ProjectPerseus.ui
             }
         }
 #else
-        // Revit 2023 has no UIThemeManager and no dark mode — keep the call sites identical
-        // by setting the light icon directly here.
+        // Revit 2022/2023 have no UIThemeManager / ThemeChangedEventArgs — keep call sites
+        // identical by setting the light icon directly with no theme-change subscription.
         public static void Register(PushButton button, string baseName)
         {
             if (button == null || string.IsNullOrEmpty(baseName)) return;
