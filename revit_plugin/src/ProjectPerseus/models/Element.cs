@@ -147,17 +147,21 @@ namespace ProjectPerseus.models
                 {
                     if (rawElem is ARDB.FamilyInstance fi)
                     {
+                        // Host is not phase-dependent — no try/catch needed.
                         if (fi.Host != null)
                             paramList.Add(new Parameter<long>("Host Id", fi.Host.Id.GetIdValue(), "ElementId", null, "synthetic"));
 
-                        if (fi.FromRoom != null)
-                            paramList.Add(new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
+                        // FromRoom / ToRoom / Room throw InvalidOperationException when the
+                        // element does not exist in the active phase. Catch per-property so
+                        // a missing phase membership only skips that one value, not the whole block.
+                        try { if (fi.FromRoom != null) paramList.Add(new Parameter<long>("From Room", fi.FromRoom.Id.GetIdValue(), "ElementId", null, "synthetic")); }
+                        catch (InvalidOperationException) { }
 
-                        if (fi.ToRoom != null)
-                            paramList.Add(new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId", null, "synthetic"));
+                        try { if (fi.ToRoom != null) paramList.Add(new Parameter<long>("To Room", fi.ToRoom.Id.GetIdValue(), "ElementId", null, "synthetic")); }
+                        catch (InvalidOperationException) { }
 
-                        if (fi.Room != null)
-                            paramList.Add(new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic"));
+                        try { if (fi.Room != null) paramList.Add(new Parameter<long>("Room", fi.Room.Id.GetIdValue(), "ElementId", null, "synthetic")); }
+                        catch (InvalidOperationException) { }
                     }
 
                     // Object-class introspection: lets consumers distinguish instances from types
@@ -171,9 +175,7 @@ namespace ProjectPerseus.models
             }
             catch (Exception ex)
             {
-                // "target instance does not exist in the given phase" is normal for
-                // FamilyInstances not present in the active phase.
-                Log.Info($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': synthetic params threw {ex.GetType().Name}: {ex.Message}");
+                Log.Debug($"Element.GetParameters [{_element.Id.Value}] '{_element.Name}': synthetic params threw {ex.GetType().Name}: {ex.Message}");
             }
 
             return paramList;
