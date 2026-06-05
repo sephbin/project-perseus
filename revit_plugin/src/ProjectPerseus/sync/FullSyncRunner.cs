@@ -402,7 +402,8 @@ namespace ProjectPerseus.sync
                 Directory.CreateDirectory(outputDir);
                 string safeName = string.Concat(doc.Title.Split(Path.GetInvalidFileNameChars()));
                 string outputPath = Path.Combine(outputDir, $"{safeName}.json");
-                File.WriteAllText(outputPath, JsonUtils.SerializeToJson(elementDeltaList, null));
+                Log.Info($"PerformFullSyncToFile: Serializing {elementDeltaList.Count} items to {outputPath}...");
+                JsonUtils.WriteToFile(elementDeltaList, outputPath);
 
                 watch.Stop();
                 Log.Info($"PerformFullSyncToFile: Wrote {elementDeltaList.Count} elements to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");

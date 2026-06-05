@@ -170,7 +170,7 @@ namespace ProjectPerseus.sync
                 };
 
                 Directory.CreateDirectory(outputDir);
-                File.WriteAllText(outputPath, JsonUtils.SerializeToJson(payload, null));
+                JsonUtils.WriteToFile(payload, outputPath);
 
                 watch.Stop();
                 Log.Info($"PerformIncrementalSyncToFile: Wrote {elementDeltaList.Count} changed + {deletedIds.Count} deleted to {outputPath} in {watch.Elapsed:hh\\:mm\\:ss}");
