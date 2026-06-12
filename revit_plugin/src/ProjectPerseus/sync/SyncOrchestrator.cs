@@ -37,6 +37,18 @@ namespace ProjectPerseus.sync
         private string _currentSynCaption = "";
         private QueuePoller _autoSyncPoller;
 
+        // Stage timing — reset at the start of each sync in doOnPriorToSync.
+        // _stageTimeStart is set on the first ProgressChanged event (i.e. when Revit
+        // actually starts work, after Perseus's pre-sync check has returned).
+        private DateTime _stageTimeStart;
+        private DateTime _stageTimeReloadLatest;
+        private DateTime _stageTimeSaveToCentral;
+        private DateTime _stageTimeFinalSaveLocal;
+        private DateTime _stageTimeRevitComplete;
+        private bool _stageReloadSeen;
+        private bool _stageSaveCentralSeen;
+        private bool _stageFinalLocalSeen;
+
         public void Subscribe(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
@@ -64,6 +76,8 @@ namespace ProjectPerseus.sync
         {
             if (e.Status == RevitAPIEventStatus.Succeeded)
             {
+                _stageTimeRevitComplete = DateTime.UtcNow;
+
                 // If the ProgressChanged early-release didn't fire (e.g. localised Revit caption),
                 // run the post-sync server call now as a fallback.
                 if (!_queueReleasedEarly)
@@ -89,11 +103,33 @@ namespace ProjectPerseus.sync
 
             Log.Info($"Sync Caption Changed: {caption}");
 
+            // T0: timestamp the first progress event so "First Save to Local" duration is
+            // measured from when Revit starts work, not from Perseus's pre-sync check.
+            if (_stageTimeStart == default)
+                _stageTimeStart = DateTime.UtcNow;
+
+            // Stage: Reload Latest begins. Caption typically contains "Reload" in English Revit.
+            if (!_stageReloadSeen && caption.Contains("Reload"))
+            {
+                _stageTimeReloadLatest = DateTime.UtcNow;
+                _stageReloadSeen = true;
+            }
+
+            // Stage: Save to Central begins.
+            if (!_stageSaveCentralSeen && caption.Contains("Save the active project back to the Central Model"))
+            {
+                _stageTimeSaveToCentral = DateTime.UtcNow;
+                _stageSaveCentralSeen = true;
+            }
+
             // Caption transition "Save to Central → Open an existing project" means the central
             // write has finished. Release the queue now rather than waiting for the full sync to
             // wrap up, so the next person isn't blocked unnecessarily.
             if (caption.Contains("Open an existing project") && _currentSynCaption.Contains("Save the active project back to the Central Model"))
             {
+                _stageTimeFinalSaveLocal = DateTime.UtcNow;
+                _stageFinalLocalSeen = true;
+
                 _queueReleasedEarly = true;
 
                 Log.Info("Detected 'Save to Local'. Releasing queue early via ProgressChanged event!");
@@ -185,6 +221,11 @@ namespace ProjectPerseus.sync
                 _isSyncing = true;
                 _queueReleasedEarly = false;
                 _currentSyncDoc = e.Document;
+                _stageTimeStart = default;
+                _stageTimeRevitComplete = default;
+                _stageReloadSeen = false;
+                _stageSaveCentralSeen = false;
+                _stageFinalLocalSeen = false;
 
                 // AutoSyncEvent already passed the queue check — skip re-entry to avoid an infinite loop.
                 if (IsAutoSyncing)
@@ -442,13 +483,52 @@ namespace ProjectPerseus.sync
 
                     watch.Stop();
                     Log.Info("End Watch");
-                    Log.Info($"Sync completed in {watch.Elapsed:hh\\:mm\\:ss}");
+                    LogStageSummary(watch.Elapsed);
                 }
                 catch (Exception ex)
                 {
                     Log.Error(ex.ToString());
                     Log.Info(ex.ToString());
                 }
+            }
+        }
+
+        private static string FormatStageDuration(TimeSpan ts)
+        {
+            return ts.TotalSeconds >= 0 ? ts.ToString(@"mm\:ss") : "--:--";
+        }
+
+        private void LogStageSummary(TimeSpan perseusTime)
+        {
+            try
+            {
+                if (_stageReloadSeen && _stageSaveCentralSeen)
+                {
+                    string firstLocal = FormatStageDuration(_stageTimeReloadLatest - _stageTimeStart);
+                    string reload     = FormatStageDuration(_stageTimeSaveToCentral - _stageTimeReloadLatest);
+                    string toCentral  = FormatStageDuration(
+                        _stageFinalLocalSeen
+                            ? _stageTimeFinalSaveLocal - _stageTimeSaveToCentral
+                            : _stageTimeRevitComplete  - _stageTimeSaveToCentral);
+                    string finalLocal = _stageFinalLocalSeen
+                        ? FormatStageDuration(_stageTimeRevitComplete - _stageTimeFinalSaveLocal)
+                        : "--:--";
+
+                    Log.Info("--- Sync Stage Timings (mm:ss) ---");
+                    Log.Info($"  First Save to Local : {firstLocal}");
+                    Log.Info($"  Reload Latest       : {reload}");
+                    Log.Info($"  Save to Central     : {toCentral}");
+                    Log.Info($"  Final Save to Local : {finalLocal}");
+                    Log.Info($"  Perseus processing  : {perseusTime:mm\\:ss}");
+                }
+                else
+                {
+                    Log.Info($"Sync completed in {perseusTime:hh\\:mm\\:ss}. Stage captions not fully detected (reload:{_stageReloadSeen} central:{_stageSaveCentralSeen}) — check 'Sync Caption Changed' log lines to calibrate caption patterns.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Stage timing summary failed: {ex.Message}");
             }
         }
 
