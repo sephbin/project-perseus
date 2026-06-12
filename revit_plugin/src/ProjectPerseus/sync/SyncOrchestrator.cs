@@ -108,18 +108,24 @@ namespace ProjectPerseus.sync
             if (_stageTimeStart == default)
                 _stageTimeStart = DateTime.UtcNow;
 
-            // Stage: Reload Latest begins. Caption typically contains "Reload" in English Revit.
-            if (!_stageReloadSeen && caption.Contains("Reload"))
+            // "Save the active project back to the Central Model" appears twice during sync:
+            //   1st entry transition = Reload Latest starts (First Save to Local just ended)
+            //   2nd entry transition = Save to Central starts (Reload Latest just ended)
+            // We detect the transition into this caption (not each individual event within it)
+            // by comparing the current caption against _currentSynCaption (the previous caption).
+            if (caption.Contains("Save the active project back to the Central Model") &&
+                !_currentSynCaption.Contains("Save the active project back to the Central Model"))
             {
-                _stageTimeReloadLatest = DateTime.UtcNow;
-                _stageReloadSeen = true;
-            }
-
-            // Stage: Save to Central begins.
-            if (!_stageSaveCentralSeen && caption.Contains("Save the active project back to the Central Model"))
-            {
-                _stageTimeSaveToCentral = DateTime.UtcNow;
-                _stageSaveCentralSeen = true;
+                if (!_stageReloadSeen)
+                {
+                    _stageTimeReloadLatest = DateTime.UtcNow;
+                    _stageReloadSeen = true;
+                }
+                else if (!_stageSaveCentralSeen)
+                {
+                    _stageTimeSaveToCentral = DateTime.UtcNow;
+                    _stageSaveCentralSeen = true;
+                }
             }
 
             // Caption transition "Save to Central → Open an existing project" means the central
@@ -521,9 +527,21 @@ namespace ProjectPerseus.sync
                     Log.Info($"  Final Save to Local : {finalLocal}");
                     Log.Info($"  Perseus processing  : {perseusTime:mm\\:ss}");
                 }
+                else if (_stageReloadSeen && _stageFinalLocalSeen)
+                {
+                    // Caption appeared only once — can't split Reload/Save-to-Central separately.
+                    string firstLocal = FormatStageDuration(_stageTimeReloadLatest - _stageTimeStart);
+                    string combined   = FormatStageDuration(_stageTimeFinalSaveLocal - _stageTimeReloadLatest);
+                    string finalLocal = FormatStageDuration(_stageTimeRevitComplete - _stageTimeFinalSaveLocal);
+                    Log.Info("--- Sync Stage Timings (mm:ss) — partial ---");
+                    Log.Info($"  First Save to Local          : {firstLocal}");
+                    Log.Info($"  Reload + Save to Central     : {combined}  (caption appeared once; expected twice)");
+                    Log.Info($"  Final Save to Local          : {finalLocal}");
+                    Log.Info($"  Perseus processing           : {perseusTime:mm\\:ss}");
+                }
                 else
                 {
-                    Log.Info($"Sync completed in {perseusTime:hh\\:mm\\:ss}. Stage captions not fully detected (reload:{_stageReloadSeen} central:{_stageSaveCentralSeen}) — check 'Sync Caption Changed' log lines to calibrate caption patterns.");
+                    Log.Info($"Sync completed in {perseusTime:hh\\:mm\\:ss}. Stage captions not detected (reload:{_stageReloadSeen} central:{_stageSaveCentralSeen}) — check 'Sync Caption Changed' log lines to calibrate caption patterns.");
                 }
             }
             catch (Exception ex)
