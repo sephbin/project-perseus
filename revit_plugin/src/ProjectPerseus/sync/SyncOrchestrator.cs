@@ -257,7 +257,8 @@ namespace ProjectPerseus.sync
                 string windowsUsername = Environment.UserName;
                 string machineName = Environment.MachineName;
 
-                var queueEndpoint = $"{baseUrl}/../syncboat/api/v2/source/{docGuid}/queue/";
+                var serverRoot = new Uri(baseUrl).GetLeftPart(UriPartial.Authority);
+                var queueEndpoint = $"{serverRoot}/syncboat/api/v2/source/{docGuid}/queue/";
 
                 string queueResponseJson = WebHelper.Get(queueEndpoint, null, null);
 
@@ -334,7 +335,7 @@ namespace ProjectPerseus.sync
                                     {
                                         // Queue join uses Windows username directly — no MSAL/browser auth needed.
                                         // Consistent with getCurrentQueue which is also keyed on Windows username.
-                                        var joinEndpoint = $"{autoSyncBaseUrl}/../syncboat/api/v2/source/{autoSyncDocGuid}/join/";
+                                        var joinEndpoint = $"{new Uri(autoSyncBaseUrl).GetLeftPart(UriPartial.Authority)}/syncboat/api/v2/source/{autoSyncDocGuid}/join/";
                                         var joinPayload = JsonConvert.SerializeObject(new { username = autoSyncUser.ToLower() });
                                         WebHelper.Post(joinEndpoint, null, joinPayload);
                                         Log.Info($"Joined sync queue for {autoSyncDocGuid}.");
@@ -414,21 +415,23 @@ namespace ProjectPerseus.sync
                 string response = WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
                 Log.Info($"Post sync request sent. Response: {response}");
 
-                // Use the MSAL token to leave the queue so request.user on the server matches
-                // whoever actually authenticated.
-                string leaveToken = AuthService.GetAuthTokenSafely();
-                if (!string.IsNullOrEmpty(leaveToken))
+                var leaveServerRoot = new Uri(baseUrl).GetLeftPart(UriPartial.Authority);
+                var leaveEndpoint = $"{leaveServerRoot}/syncboat/api/v2/source/{docGuid}/leave/";
+                try
                 {
-                    var leaveEndpoint = $"{baseUrl.TrimEnd('/')}/../syncboat/api/v2/source/{docGuid}/leave/";
-                    try
-                    {
-                        WebHelper.Post(leaveEndpoint, leaveToken, "{}");
-                        Log.Info("Removed from sync queue.");
-                    }
-                    catch (Exception leaveEx)
-                    {
-                        Log.Warn($"Failed to leave queue: {leaveEx.Message}");
-                    }
+                    string leaveToken = AuthService.GetAuthTokenSafely();
+                    // Syncboat leave/ validates a Microsoft JWT (3-part dot structure).
+                    // PAT (hex string) and sandbox sentinel have no dots and cause "Not enough segments".
+                    // Only forward the token when it's actually a JWT.
+                    bool isJwt = leaveToken != null && leaveToken.Split('.').Length >= 3;
+                    string effectiveLeaveToken = isJwt ? leaveToken : null;
+                    var leavePayload = JsonConvert.SerializeObject(new { username = windowsUsername.ToLower() });
+                    WebHelper.Post(leaveEndpoint, effectiveLeaveToken, leavePayload);
+                    Log.Info("Removed from sync queue.");
+                }
+                catch (Exception leaveEx)
+                {
+                    Log.Warn($"Failed to leave queue: {leaveEx.Message}");
                 }
             }
             catch (Exception ex)

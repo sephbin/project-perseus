@@ -38,7 +38,7 @@ namespace ProjectPerseus.queue
 
             Task.Run(async () =>
             {
-                var endpoint = $"{_config.BaseUrl.TrimEnd('/')}/../syncboat/api/v2/source/{currentDocGuid}/queue/";
+                var endpoint = $"{new Uri(_config.BaseUrl).GetLeftPart(UriPartial.Authority)}/syncboat/api/v2/source/{currentDocGuid}/queue/";
 
                 while (!token.IsCancellationRequested)
                 {
