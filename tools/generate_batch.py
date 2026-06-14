@@ -9,6 +9,7 @@ Usage:
       --output-dir D:\\RevitScrape\\output\\Perseus \\
       --export-mode FullSync \\
       --workset-regex "^A-" \\
+      --skip-done D:\\RevitScrape\\output\\Perseus \\
       --out batch_task.json
 
 Arguments:
@@ -21,6 +22,9 @@ Options:
   --no-connected        Set collect_connected_elements to false
   --category CAT        Add a perseus_categories entry (repeatable)
   --no-recurse          Only scan the top-level directory, not subdirectories
+  --skip-done DIR       Skip .rvt files whose output already exists in DIR.
+                        Matches by stripping the _detached suffix that Perseus
+                        appends to output JSON filenames (case-insensitive).
   --out FILE            Write JSON to FILE instead of stdout
   --timestamp TS        Override ISO timestamp  [default: now]
 """
@@ -48,6 +52,25 @@ def find_rvt_files(root, recurse):
     return sorted(matches)
 
 
+def build_done_set(done_dir):
+    """Return a set of lowercase stems for already-processed models.
+
+    Perseus names output files as <model-stem>_detached.json, so we strip
+    that suffix to recover the original model stem for comparison.
+    """
+    done = set()
+    for fname in os.listdir(done_dir):
+        lower = fname.lower()
+        if lower.endswith("_detached.json"):
+            stem = lower[: -len("_detached.json")]
+        elif lower.endswith(".json"):
+            stem = lower[: -len(".json")]
+        else:
+            continue
+        done.add(stem)
+    return done
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Generate a Perseus batch_task.json from a directory of .rvt files",
@@ -68,6 +91,9 @@ def main():
                     help="Add a perseus_categories entry (repeatable)")
     ap.add_argument("--no-recurse", action="store_true",
                     help="Only scan the top-level directory")
+    ap.add_argument("--skip-done", metavar="DIR",
+                    help="Skip models whose output JSON already exists in DIR "
+                         "(matches <stem>_detached.json, case-insensitive)")
     ap.add_argument("--out", metavar="FILE",
                     help="Write JSON to FILE (default: print to stdout)")
     ap.add_argument("--timestamp", metavar="TS",
@@ -87,6 +113,21 @@ def main():
     rvt_files = find_rvt_files(scan_dir, recurse=not args.no_recurse)
     if not rvt_files:
         print(f"[warn] no .rvt files found in {scan_dir}", file=sys.stderr)
+
+    if args.skip_done:
+        done_dir = os.path.abspath(args.skip_done)
+        if not os.path.isdir(done_dir):
+            print(f"[error] --skip-done is not a directory: {done_dir}", file=sys.stderr)
+            sys.exit(1)
+        done_set = build_done_set(done_dir)
+        before = len(rvt_files)
+        rvt_files = [
+            p for p in rvt_files
+            if os.path.splitext(os.path.basename(p))[0].lower() not in done_set
+        ]
+        skipped = before - len(rvt_files)
+        if skipped:
+            print(f"[info] skipped {skipped} already-processed model(s)", file=sys.stderr)
 
     batch = {
         "timestamp": timestamp,
