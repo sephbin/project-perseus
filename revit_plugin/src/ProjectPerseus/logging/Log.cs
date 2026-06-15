@@ -22,6 +22,7 @@ namespace ProjectPerseus.logging
     {
         private static string _sessionLogPath;
         private static readonly object _logLock = new object();
+        private static string _lastLoggedLine;
 
         public static void InitSession(string revitVersion, string pluginVersion)
         {
@@ -81,6 +82,8 @@ namespace ProjectPerseus.logging
 
         private static void AppendToFile(string content, string levelTag)
         {
+            string dedupeKey = $"{levelTag}\t{content}";
+
             string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             string logEntry = $"{timestamp}\t{levelTag}\t{content}{Environment.NewLine}";
 
@@ -90,6 +93,8 @@ namespace ProjectPerseus.logging
 
             lock (_logLock)
             {
+                if (dedupeKey == _lastLoggedLine) return;
+                _lastLoggedLine = dedupeKey;
                 try
                 {
                     File.AppendAllText(path, logEntry);
