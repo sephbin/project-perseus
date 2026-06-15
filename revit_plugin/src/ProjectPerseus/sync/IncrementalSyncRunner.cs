@@ -36,6 +36,13 @@ namespace ProjectPerseus.sync
                 var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
                 Log.Info(lastSyncVersionGuid.ToString());
 
+                var categories = json["source"]["parameter_dict"]["perseusCategories"]?.ToObject<List<string>>() ?? new List<string>();
+                if (categories.Count == 0)
+                {
+                    Log.Info("PerformIncrementalSync: perseusCategories is empty — skipping element collection.");
+                    return;
+                }
+
                 var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
 
                 if (elementChangeSet.ContainsChanges())
@@ -43,7 +50,6 @@ namespace ProjectPerseus.sync
                     var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
 
                     var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
-                    var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
                     elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
 
                     try

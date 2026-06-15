@@ -78,6 +78,13 @@ namespace ProjectPerseus.sync
                 JObject json = JObject.Parse(response);
                 Log.Info($"Metadata upload response: {response}");
 
+                var categories = json["source"]["parameter_dict"]["perseusCategories"]?.ToObject<List<string>>() ?? new List<string>();
+                if (categories.Count == 0)
+                {
+                    Log.Info("PerformFullSync: perseusCategories is empty — skipping element collection.");
+                    return;
+                }
+
                 // Pre-fetch Django's current element_ids for this source so we can compute
                 // ghost deletions inline. As we walk every Revit element (and every
                 // synthesized payload entry — categories, connected) we .Remove() its id.
@@ -153,7 +160,6 @@ namespace ProjectPerseus.sync
                 }
 
                 var filteredElementDeltaList = new List<ElementDelta>();
-                var categories = json["source"]["parameter_dict"]["perseusCategories"].ToObject<List<string>>();
 
                 // Watch-list: log the exact CategoryName string and whether it appears in
                 // the perseusCategories list BEFORE the filter runs, so we can see exactly
