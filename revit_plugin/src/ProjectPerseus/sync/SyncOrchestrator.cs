@@ -172,17 +172,18 @@ namespace ProjectPerseus.sync
                     catch { /* already gone */ }
                 }
 
-                // Exchange MSAL Bearer token for a short-lived signed SSO token. Chromium strips
+                // Exchange auth token for a short-lived signed SSO token. Chromium strips
                 // Authorization headers from navigation requests, so we embed the token in the URL
                 // instead and let token-login create the Django session.
                 string startUrl = webQueueUrl;
-                string msalToken = AuthService.GetAuthTokenSafely();
-                if (!string.IsNullOrEmpty(msalToken))
+                string authToken = AuthService.GetAuthTokenSafely();
+                string authScheme = AuthService.GetAuthSchemeSafely();
+                if (!string.IsNullOrEmpty(authToken))
                 {
                     try
                     {
                         var ssoEndpoint = $"{_config.BaseUrl.TrimEnd('/')}/api/sso-token/";
-                        var responseJson = WebHelper.Post(ssoEndpoint, msalToken, "{}");
+                        var responseJson = WebHelper.Post(ssoEndpoint, authToken, "{}", authScheme);
                         var ssoObj = JObject.Parse(responseJson);
                         var ssoToken = ssoObj["sso_token"]?.ToString();
                         if (!string.IsNullOrEmpty(ssoToken))
