@@ -36,10 +36,11 @@ namespace ProjectPerseus.sync
                 var lastSyncVersionGuid = Guid.Parse(json["value"].ToString());
                 Log.Info(lastSyncVersionGuid.ToString());
 
-                var categories = json["source"]["parameter_dict"]["perseusCategories"]?.ToObject<List<string>>() ?? new List<string>();
+                var rawCategories = json["source"]["parameter_dict"]["perseusCategories"]?.ToObject<List<string>>() ?? new List<string>();
+                var categories = rawCategories.FindAll(c => !string.IsNullOrWhiteSpace(c));
                 if (categories.Count == 0)
                 {
-                    Log.Info("PerformIncrementalSync: perseusCategories is empty — skipping element collection.");
+                    Log.Info("PerformIncrementalSync: perseusCategories is empty — skipping.");
                     return;
                 }
 
@@ -51,6 +52,19 @@ namespace ProjectPerseus.sync
 
                     var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
                     elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
+
+                    if (elementDeltaList.Count == 0)
+                    {
+                        var deletedIds = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
+                        if (deletedIds.Count == 0)
+                        {
+                            Log.Info("PerformIncrementalSync: 0 elements match categories and 0 deletions — skipping submit.");
+                            return;
+                        }
+                        Log.Info($"PerformIncrementalSync: 0 elements match categories, {deletedIds.Count} deletions — submitting deletions only.");
+                        StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), deletedIds, revit.Document, batchId);
+                        return;
+                    }
 
                     try
                     {

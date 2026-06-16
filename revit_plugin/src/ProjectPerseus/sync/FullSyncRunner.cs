@@ -78,10 +78,11 @@ namespace ProjectPerseus.sync
                 JObject json = JObject.Parse(response);
                 Log.Info($"Metadata upload response: {response}");
 
-                var categories = json["source"]["parameter_dict"]["perseusCategories"]?.ToObject<List<string>>() ?? new List<string>();
+                var rawCategories = json["source"]["parameter_dict"]["perseusCategories"]?.ToObject<List<string>>() ?? new List<string>();
+                var categories = rawCategories.FindAll(c => !string.IsNullOrWhiteSpace(c));
                 if (categories.Count == 0)
                 {
-                    Log.Info("PerformFullSync: perseusCategories is empty — skipping element collection.");
+                    Log.Info("PerformFullSync: perseusCategories is empty — skipping.");
                     return;
                 }
 
