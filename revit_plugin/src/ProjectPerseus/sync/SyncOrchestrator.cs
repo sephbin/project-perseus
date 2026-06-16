@@ -78,6 +78,14 @@ namespace ProjectPerseus.sync
             {
                 _stageTimeRevitComplete = DateTime.UtcNow;
 
+                // Log the post-sync gap so it is visible in the log bracket.
+                // This time includes Revit's own post-sync work plus any plugins whose
+                // DocumentSynchronizedWithCentral handler was registered before ours.
+                if (_stageFinalLocalSeen)
+                    Log.Info($"Perseus handler entered — {FormatStageDuration(_stageTimeRevitComplete - _stageTimeFinalSaveLocal)} since queue release (Revit post-sync + other plugin handlers).");
+                else
+                    Log.Info("Perseus handler entered (no queue-release timestamp — stage gap unknown).");
+
                 // If the ProgressChanged early-release didn't fire (e.g. localised Revit caption),
                 // run the post-sync server call now as a fallback.
                 if (!_queueReleasedEarly)
@@ -525,11 +533,11 @@ namespace ProjectPerseus.sync
                         : "--:--";
 
                     Log.Info("--- Sync Stage Timings (mm:ss) ---");
-                    Log.Info($"  First Save to Local : {firstLocal}");
-                    Log.Info($"  Reload Latest       : {reload}");
-                    Log.Info($"  Save to Central     : {toCentral}");
-                    Log.Info($"  Final Save to Local : {finalLocal}");
-                    Log.Info($"  Perseus processing  : {perseusTime:mm\\:ss}");
+                    Log.Info($"  First Save to Local          : {firstLocal}");
+                    Log.Info($"  Reload Latest                : {reload}");
+                    Log.Info($"  Save to Central              : {toCentral}");
+                    Log.Info($"  Post-sync gap (other plugins): {finalLocal}");
+                    Log.Info($"  Perseus processing           : {perseusTime:mm\\:ss}");
                 }
                 else if (_stageReloadSeen && _stageFinalLocalSeen)
                 {
@@ -540,7 +548,7 @@ namespace ProjectPerseus.sync
                     Log.Info("--- Sync Stage Timings (mm:ss) — partial ---");
                     Log.Info($"  First Save to Local          : {firstLocal}");
                     Log.Info($"  Reload + Save to Central     : {combined}  (caption appeared once; expected twice)");
-                    Log.Info($"  Final Save to Local          : {finalLocal}");
+                    Log.Info($"  Post-sync gap (other plugins): {finalLocal}");
                     Log.Info($"  Perseus processing           : {perseusTime:mm\\:ss}");
                 }
                 else
