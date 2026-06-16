@@ -79,7 +79,6 @@ namespace ProjectPerseus.web
             };
 
             var jsonString = JsonUtils.SerializeToJson(payload, null);
-            Log.Info(jsonString);
 
             // Execute the request using the HttpClient
             using (var client = new System.Net.Http.HttpClient())

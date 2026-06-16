@@ -84,6 +84,54 @@ namespace ProjectPerseus.sync
 
                     var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
 
+                    try
+                    {
+                        var dumpsFolder = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "ProjectPerseus", "incremental-dumps");
+                        Directory.CreateDirectory(dumpsFolder);
+
+                        var cutoff = DateTime.Now.AddDays(-2);
+                        foreach (var oldFile in Directory.GetFiles(dumpsFolder, "*-incremental.json"))
+                        {
+                            try { if (File.GetLastWriteTime(oldFile) < cutoff) File.Delete(oldFile); }
+                            catch { }
+                        }
+
+                        string safeDocName = string.Concat(revit.Document.Title.Split(Path.GetInvalidFileNameChars()));
+                        string dumpPath = Path.Combine(dumpsFolder, $"{DateTime.Now:yyyyMMdd-HHmmss}-{safeDocName}-incremental.json");
+
+                        var dumpPayload = new
+                        {
+                            documentGuid = docGuid,
+                            source_state = RevitFacade.GetDocumentVersionGuid(revit.Document).ToString(),
+                            timestamp = DateTime.UtcNow.ToString("o"),
+                            revitUser = revit.Document.Application.Username,
+                            revitAccountId = revit.Document.Application.LoginUserId,
+                            windowsUser = Environment.UserName,
+                            machine = Environment.MachineName,
+                            elements = elementDeltaList,
+                            deletedElements = elementDeltaDeletedList
+                        };
+
+                        File.WriteAllText(dumpPath, JsonUtils.SerializeToJson(dumpPayload, null));
+                        Log.Info($"PerformIncrementalSync: wrote payload snapshot ({elementDeltaList.Count} changed, {elementDeltaDeletedList.Count} deleted) to {dumpPath}");
+
+                        var sample = elementDeltaList.FirstOrDefault();
+                        if (sample != null)
+                        {
+                            var prettySample = JsonConvert.SerializeObject(
+                                sample,
+                                Formatting.Indented,
+                                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+                            Log.Debug($"PerformIncrementalSync: payload sample (1 of {elementDeltaList.Count}):\n{prettySample}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"PerformIncrementalSync: payload snapshot failed: {ex.Message}");
+                    }
+
                     Log.Info("About to run SubmitElementDeltas");
                     StateSubmitter.SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document, batchId);
                 }

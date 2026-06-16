@@ -22,7 +22,11 @@ namespace ProjectPerseus.logging
     {
         private static string _sessionLogPath;
         private static readonly object _logLock = new object();
-        private static string _lastLoggedLine;
+        private static string _lastWritten;   // dedup key of last line written to file
+        private static string _prevWritten;   // dedup key of line before that
+        private static int    _suppressed;    // lines held back in the current run
+        private static bool   _alternating;   // true = A/B pattern, false = single-line repeat
+        private static string _altNext;       // next expected line in the alternating pattern
 
         public static void InitSession(string revitVersion, string pluginVersion)
         {
@@ -82,10 +86,9 @@ namespace ProjectPerseus.logging
 
         private static void AppendToFile(string content, string levelTag)
         {
-            string dedupeKey = $"{levelTag}\t{content}";
-
+            string key      = $"{levelTag}\t{content}";
             string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            string logEntry = $"{timestamp}\t{levelTag}\t{content}{Environment.NewLine}";
+            string logEntry  = $"{timestamp}\t{levelTag}\t{content}{Environment.NewLine}";
 
             string path = _sessionLogPath ?? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -93,8 +96,48 @@ namespace ProjectPerseus.logging
 
             lock (_logLock)
             {
-                if (dedupeKey == _lastLoggedLine) return;
-                _lastLoggedLine = dedupeKey;
+                if (_suppressed > 0)
+                {
+                    if (_alternating)
+                    {
+                        if (key == _altNext)
+                        {
+                            _suppressed++;
+                            _altNext = (_altNext == _lastWritten) ? _prevWritten : _lastWritten;
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        if (key == _lastWritten)
+                        {
+                            _suppressed++;
+                            return;
+                        }
+                    }
+                    // Pattern broken — flush summary then fall through to write the new line.
+                    FlushSuppressedSummary(path);
+                }
+                else
+                {
+                    if (key == _lastWritten)
+                    {
+                        _suppressed = 1;
+                        _alternating = false;
+                        return;
+                    }
+                    if (_prevWritten != null && key == _prevWritten)
+                    {
+                        _suppressed = 1;
+                        _alternating = true;
+                        _altNext = _lastWritten;
+                        return;
+                    }
+                }
+
+                _prevWritten = _lastWritten;
+                _lastWritten = key;
+
                 try
                 {
                     File.AppendAllText(path, logEntry);
@@ -104,6 +147,18 @@ namespace ProjectPerseus.logging
                     Console.WriteLine($"Error saving log: {ex.Message}");
                 }
             }
+        }
+
+        private static void FlushSuppressedSummary(string path)
+        {
+            string summary = _alternating
+                ? $"(above 2 lines alternated {_suppressed} more times)"
+                : $"(above repeated {_suppressed} more times)";
+            string entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}\t[INFO] \t{summary}{Environment.NewLine}";
+            try { File.AppendAllText(path, entry); } catch { }
+            _suppressed  = 0;
+            _alternating = false;
+            _altNext     = null;
         }
 
         private static string GetLogsFolder()
