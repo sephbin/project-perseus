@@ -10,6 +10,7 @@ using ProjectPerseus.logging;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.web;
+using RevitElement = Autodesk.Revit.DB.Element;
 
 namespace ProjectPerseus.sync
 {
@@ -72,7 +73,6 @@ namespace ProjectPerseus.sync
             string keyColName = fields[0].GetName();
             TableSectionData section = vs.GetTableData().GetSectionData(SectionType.Body);
 
-            // Collect current Revit keys (row 0 = header, skip it)
             var revitKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int r = 1; r < section.NumberOfRows; r++)
             {
@@ -126,69 +126,72 @@ namespace ProjectPerseus.sync
                 TableData tableData = vs.GetTableData();
                 TableSectionData section = tableData.GetSectionData(SectionType.Body);
 
-                // UPDATE — find each row by key in col 0, set remaining cells
+                // UPDATE — match key element by e.Name, set parameters
+                var currentElements = new FilteredElementCollector(doc, vs.Id)
+                    .WhereElementIsNotElementType()
+                    .ToElements()
+                    .ToList();
+
                 foreach (var row in plan.RowsToUpdate)
                 {
                     if (!row.TryGetValue(keyColName, out string keyName)) continue;
-                    int rowIdx = FindRowIndex(section, keyName);
-                    if (rowIdx < 0) continue;
 
-                    for (int c = 1; c < fields.Count; c++)
+                    RevitElement match = currentElements.FirstOrDefault(e =>
+                        string.Equals(e.Name, keyName, StringComparison.OrdinalIgnoreCase));
+                    if (match == null)
                     {
-                        string colName = fields[c].GetName();
-                        if (!row.TryGetValue(colName, out string val)) continue;
-                        try { section.SetCellText(rowIdx, c, val ?? ""); }
-                        catch (Exception ex)
-                        {
-                            Log.Info($"[KeyScheduleService] SetCellText row={rowIdx} col={c}: {ex.Message}");
-                        }
+                        Log.Info($"[KeyScheduleService] Update: no element found for key '{keyName}'");
+                        continue;
                     }
+
+                    SetElementFields(match, fields, row);
                     updated++;
                 }
 
-                // CREATE — append rows at the end, set all cells
+                // CREATE — InsertRow creates the element; find it by exclusion, rename it, set params
                 foreach (var row in plan.RowsToCreate)
                 {
-                    if (!row.TryGetValue(keyColName, out string keyName) || string.IsNullOrEmpty(keyName)) continue;
+                    if (!row.TryGetValue(keyColName, out string keyName) || string.IsNullOrEmpty(keyName))
+                        continue;
                     try
                     {
-                        int insertAt = section.NumberOfRows;
-                        section.InsertRow(insertAt);
-                        // re-read section after structural change
-                        section = tableData.GetSectionData(SectionType.Body);
-                        int newRowIdx = section.NumberOfRows - 1;
+                        var beforeNames = new HashSet<string>(
+                            new FilteredElementCollector(doc, vs.Id)
+                                .WhereElementIsNotElementType()
+                                .ToElements()
+                                .Select(e => e.Name),
+                            StringComparer.OrdinalIgnoreCase);
 
-                        section.SetCellText(newRowIdx, 0, keyName);
-                        for (int c = 1; c < fields.Count; c++)
+                        section.InsertRow(section.NumberOfRows);
+                        section = tableData.GetSectionData(SectionType.Body);
+
+                        RevitElement newEl = new FilteredElementCollector(doc, vs.Id)
+                            .WhereElementIsNotElementType()
+                            .ToElements()
+                            .FirstOrDefault(e => !beforeNames.Contains(e.Name));
+
+                        if (newEl == null)
                         {
-                            string colName = fields[c].GetName();
-                            if (!row.TryGetValue(colName, out string val)) continue;
-                            try { section.SetCellText(newRowIdx, c, val ?? ""); }
-                            catch (Exception ex)
-                            {
-                                Log.Info($"[KeyScheduleService] SetCellText create col={c}: {ex.Message}");
-                            }
+                            Log.Info($"[KeyScheduleService] Create: could not locate new element for '{keyName}'");
+                            continue;
                         }
+
+                        newEl.Name = keyName;
+                        SetElementFields(newEl, fields, row);
                         created++;
                     }
                     catch (Exception ex)
                     {
-                        Log.Error($"[KeyScheduleService] InsertRow '{keyName}': {ex.Message}");
+                        Log.Error($"[KeyScheduleService] Create '{keyName}': {ex.Message}");
                         Log.Exception(ex);
                     }
                 }
 
-                // DELETE — remove from bottom to top to avoid index shift
-                var deleteIndices = new List<int>();
+                // DELETE — re-find row index each iteration after section refresh
                 foreach (string key in plan.KeysToDelete)
                 {
                     int idx = FindRowIndex(section, key);
-                    if (idx >= 0) deleteIndices.Add(idx);
-                }
-                deleteIndices.Sort((a, b) => b.CompareTo(a)); // descending
-
-                foreach (int idx in deleteIndices)
-                {
+                    if (idx < 0) continue;
                     try
                     {
                         section.RemoveRow(idx);
@@ -197,7 +200,7 @@ namespace ProjectPerseus.sync
                     }
                     catch (Exception ex)
                     {
-                        Log.Error($"[KeyScheduleService] RemoveRow idx={idx}: {ex.Message}");
+                        Log.Error($"[KeyScheduleService] Delete '{key}': {ex.Message}");
                         Log.Exception(ex);
                     }
                 }
@@ -328,6 +331,17 @@ namespace ProjectPerseus.sync
                     return r;
             }
             return -1;
+        }
+
+        private static void SetElementFields(RevitElement element, List<ScheduleField> fields, Dictionary<string, string> row)
+        {
+            foreach (ScheduleField field in fields.Skip(1))
+            {
+                if (!row.TryGetValue(field.GetName(), out string val)) continue;
+                Parameter param = element.LookupParameter(field.GetName());
+                if (param == null || param.IsReadOnly) continue;
+                TrySetParameter(param, val);
+            }
         }
 
         private static void TrySetParameter(Parameter param, string value)
