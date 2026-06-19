@@ -142,20 +142,28 @@ namespace ProjectPerseus.sync
             string key = !string.IsNullOrEmpty(doc.PathName) ? doc.PathName : doc.Title;
             if (!_triggerCache.TryGetValue(key, out List<string> cached))
             {
-                cached = FetchTriggers(doc);
-                _triggerCache[key] = cached;
+                // FetchTriggers returns null when auth isn't ready or a network error occurs.
+                // Don't cache null — let the next trigger event retry.
+                var fetched = FetchTriggers(doc);
+                if (fetched != null)
+                    _triggerCache[key] = fetched;
+                return fetched ?? new List<string>();
             }
             return cached;
         }
 
-        // Reads perseusImportKeyScheduleTriggers from the source's parameter_dict via /registersource/.
-        // Returns an empty list if the field is absent or the request fails (no auto-import).
+        // Returns the trigger list on success, or null if auth isn't ready / network failed.
+        // Null is NOT cached so the next trigger event will retry.
+        // An empty list IS cached — it means Django was reached but no triggers are configured.
         private static List<string> FetchTriggers(Document doc)
         {
             try
             {
                 string baseUrl = Config.Instance.BaseUrl;
-                if (!UrlUtils.IsValidUrl(baseUrl)) return new List<string>();
+                if (!UrlUtils.IsValidUrl(baseUrl)) return null;
+
+                string token = AuthService.GetAuthTokenSilentlyOrNull();
+                if (token == null) return null; // not authenticated yet — will retry next event
 
                 string docGuid = ModelGuidStorage.GetOrCreate(doc);
 
@@ -168,16 +176,14 @@ namespace ProjectPerseus.sync
                     timestamp    = DateTime.UtcNow.ToString("o"),
                     projectInfo  = new
                     {
-                        number = doc.ProjectInformation?.Number  ?? "",
-                        name   = doc.ProjectInformation?.Name    ?? "",
+                        number = doc.ProjectInformation?.Number     ?? "",
+                        name   = doc.ProjectInformation?.Name       ?? "",
                         client = doc.ProjectInformation?.ClientName ?? ""
                     }
                 };
 
                 string endpoint = $"{baseUrl.TrimEnd('/')}/registersource/";
                 string payload  = Newtonsoft.Json.JsonConvert.SerializeObject(metadata);
-                string token    = AuthService.GetAuthTokenSilentlyOrNull();
-                if (token == null) return new List<string>(); // not authenticated yet — skip silently
                 string response = WebHelper.Post(endpoint, token, payload,
                                                  AuthService.GetAuthSchemeSafely());
 
@@ -191,9 +197,8 @@ namespace ProjectPerseus.sync
             }
             catch (Exception ex)
             {
-                // Info rather than Warn — expected for sources that don't have this parameter set yet.
                 Log.Info($"[KeyScheduleAutoImporter] FetchTriggers '{doc.Title}': {ex.Message}");
-                return new List<string>();
+                return null; // treat any failure as "not ready" — will retry next event
             }
         }
     }
