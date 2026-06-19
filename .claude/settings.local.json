@@ -18,7 +18,8 @@
       "Bash(grep -E \"\\\\.\\(py|sh|bat|ps1|cfg|ini\\)$\")",
       "Bash(python -c \"import background_task; import os; print\\(os.path.dirname\\(background_task.__file__\\)\\)\")",
       "Bash(find /usr -name \"admin.py\" -path \"*/background_task/*\")",
-      "PowerShell(python -c \"import background_task, os; print\\(os.path.dirname\\(background_task.__file__\\)\\)\")"
+      "PowerShell(python -c \"import background_task, os; print\\(os.path.dirname\\(background_task.__file__\\)\\)\")",
+      "Bash(xargs grep -l \"WriteSetting\\\\|WriteParameter\\\\|SetParameter\")"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

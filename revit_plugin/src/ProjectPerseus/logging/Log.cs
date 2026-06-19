@@ -107,17 +107,17 @@ namespace ProjectPerseus.logging
             {
                 if (_count > 1)
                 {
-                    // Active run — extend it or break out.
+                    // Active run — extend it in memory only; no file I/O until the pattern breaks.
                     bool continues = _alternating ? key == _altNext : key == _lastKey;
                     if (continues)
                     {
                         _count++;
                         if (_alternating)
                             _altNext = (_altNext == _lastKey) ? _prevKey : _lastKey;
-                        RewriteLastLines(path);
                         return;
                     }
-                    // Pattern broken — fall through to write the new line.
+                    // Pattern broken — write the final count to file, then fall through to write the new line.
+                    RewriteLastLines(path);
                 }
                 else if (_count == 1)
                 {
@@ -126,7 +126,6 @@ namespace ProjectPerseus.logging
                     {
                         _count = 2;
                         _alternating = false;
-                        RewriteLastLines(path);
                         return;
                     }
                     if (_prevKey != null && key == _prevKey)
@@ -134,7 +133,6 @@ namespace ProjectPerseus.logging
                         _count = 2;
                         _alternating = true;
                         _altNext = _lastKey;
-                        RewriteLastLines(path);
                         return;
                     }
                 }

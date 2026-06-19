@@ -99,6 +99,33 @@ namespace ProjectPerseus
 
             PushButton diagBtn = ribbonPanel.AddItem(diagBtnData) as PushButton;
             diagBtn.ToolTip = "Enter element IDs to run a full diagnostic from the plugin's perspective and write results to the log file.";
+
+            PushButtonData manageSchedulesBtnData = new PushButtonData(
+                "Button_ManageSchedules",
+                "Manage\nSchedules",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.ManageSchedulesCommand");
+
+            PushButton manageSchedulesBtn = ribbonPanel.AddItem(manageSchedulesBtnData) as PushButton;
+            manageSchedulesBtn.ToolTip = "Add, edit, or remove the key schedule to Excel/Django mappings stored in this project file.";
+
+            PushButtonData exportSchedulesBtnData = new PushButtonData(
+                "Button_ExportSchedules",
+                "Export\nSchedules",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.ExportKeyScheduleCommand");
+
+            PushButton exportSchedulesBtn = ribbonPanel.AddItem(exportSchedulesBtnData) as PushButton;
+            exportSchedulesBtn.ToolTip = "Export Revit key schedules to Excel (and optionally to the Django backend). Configured via %AppData%\\ProjectPerseus\\key_schedules.json.";
+
+            PushButtonData importSchedulesBtnData = new PushButtonData(
+                "Button_ImportSchedules",
+                "Import\nSchedules",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.ImportKeyScheduleCommand");
+
+            PushButton importSchedulesBtn = ribbonPanel.AddItem(importSchedulesBtnData) as PushButton;
+            importSchedulesBtn.ToolTip = "Import key schedule data from Excel back into Revit. Configured via %AppData%\\ProjectPerseus\\key_schedules.json.";
         }
 
         private void OnRevitIdlingDelay(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)

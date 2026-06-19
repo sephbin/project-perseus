@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Project Perseus</Name>
+
+    <Assembly>C:\Program Files\Project Perseus\2023\ProjectPerseus.dll</Assembly>
+
+    <AddInId>257f1a77-bc53-4b92-84db-4aa79a7f3050</AddInId>
+
+    <FullClassName>ProjectPerseus.Plugin</FullClassName>
+
+    <VendorId>Andrew Butler</VendorId>
+    <VendorDescription>Andrew Butler</VendorDescription>
+  </AddIn>
+</RevitAddIns>

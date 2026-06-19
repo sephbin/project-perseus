@@ -12,6 +12,10 @@
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
+    <!-- Revit 2026 API assemblies internally reference Microsoft.CSharp 8.0.0.0 (.NET 8),
+         which conflicts with the 4.0.0.0 version from the .NET 4.8 framework. The conflict
+         is harmless — Revit resolves it at runtime — but MSBuild surfaces it as a warning. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -161,6 +165,9 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Reference Include="EPPlus">
+      <HintPath>..\packages\EPPlus.4.5.3.3\lib\net40\EPPlus.dll</HintPath>
+    </Reference>
     <Reference Include="Microsoft.Bcl.AsyncInterfaces, Version=6.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <HintPath>..\packages\Microsoft.Bcl.AsyncInterfaces.6.0.0\lib\net461\Microsoft.Bcl.AsyncInterfaces.dll</HintPath>
     </Reference>
@@ -263,6 +270,9 @@
     <Compile Include="batch\BatchProcessor.cs" />
     <Compile Include="commands\DiagnoseElementCommand.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
+    <Compile Include="commands\ExportKeyScheduleCommand.cs" />
+    <Compile Include="commands\ImportKeyScheduleCommand.cs" />
+    <Compile Include="commands\ManageSchedulesCommand.cs" />
     <Compile Include="commands\InitialiseProjectCommand.cs" />
     <Compile Include="commands\OpenSettingsCommand.cs" />
     <Compile Include="commands\PerformFullUploadCommand.cs" />
@@ -273,6 +283,8 @@
     <Compile Include="models\BatchInstruction.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="models\ElementDelta.cs" />
+    <Compile Include="models\KeyScheduleConfig.cs" />
+    <Compile Include="models\KeyScheduleData.cs" />
     <Compile Include="models\geometry\GeoJsonGeometry.cs" />
     <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
     <Compile Include="models\SyncQueueResponse.cs" />
@@ -297,6 +309,7 @@
     <Compile Include="revit\adapters\ArdbParameterAdapter.cs" />
     <Compile Include="revit\adapters\ArdbParametereSetAdapter.cs" />
     <Compile Include="revit\BatchFailureHandler.cs" />
+    <Compile Include="revit\KeyScheduleStorage.cs" />
     <Compile Include="revit\ElementChangeSet.cs" />
     <Compile Include="revit\ElementChangeSetGenerator.cs" />
     <Compile Include="revit\ElementExtractor.cs" />
@@ -312,9 +325,11 @@
     <Compile Include="sync\CategoryHarvester.cs" />
     <Compile Include="sync\FullSyncRunner.cs" />
     <Compile Include="sync\IncrementalSyncRunner.cs" />
+    <Compile Include="sync\KeyScheduleService.cs" />
     <Compile Include="sync\RevitSyncDialogCloser.cs" />
     <Compile Include="sync\StateSubmitter.cs" />
     <Compile Include="sync\SyncOrchestrator.cs" />
+    <Compile Include="ui\ManageSchedulesForm.cs" />
     <Compile Include="ui\DiagnoseElementForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -409,4 +424,27 @@
   <!-- GitCommit lives in ProjectPerseusTests.csproj (the last project to build in the
        solution because it references ProjectPerseus). That way commit + push only run
        once the entire solution — including tests — has compiled successfully. -->
+
+  <!-- ── Dev debug workflow ──────────────────────────────────────────────────────────
+       KillRevit  : kills the running Revit process before build (avoids DLL lock)
+       DevInstall : writes an .addin manifest pointing straight at the build output
+                    so Revit loads the DLL in-place — no copy step needed.
+       Both targets are gated on Debug configs that carry a year suffix (2023–2026).
+       Release and plain Debug builds are unaffected.
+  ───────────────────────────────────────────────────────────────────────────────── -->
+  <PropertyGroup>
+    <RevitVersion Condition="$(Configuration.Contains('2023'))">2023</RevitVersion>
+    <RevitVersion Condition="$(Configuration.Contains('2024'))">2024</RevitVersion>
+    <RevitVersion Condition="$(Configuration.Contains('2025'))">2025</RevitVersion>
+    <RevitVersion Condition="$(Configuration.Contains('2026'))">2026</RevitVersion>
+  </PropertyGroup>
+
+  <Target Name="KillRevit" BeforeTargets="Build" Condition="'$(RevitVersion)' != ''">
+    <Exec Command="taskkill /f /im Revit.exe" ContinueOnError="WarnAndContinue" />
+  </Target>
+
+  <Target Name="DevInstall" AfterTargets="Build" Condition="'$(RevitVersion)' != ''">
+    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)dev-install.ps1&quot; -TargetPath &quot;$(TargetPath)&quot; -RevitVersion &quot;$(RevitVersion)&quot;" />
+  </Target>
+
 </Project>

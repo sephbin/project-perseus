@@ -1,41 +1,95 @@
 @echo off
+setlocal enabledelayedexpansion
 
-set "fileName=ProjectPerseus.addin"
+:: ============================================================
+:: Project Perseus - Dev Test Installer
+:: Supports: Revit 2021, 2022, 2023, 2024
+:: Skipped:  Revit 2025+ (addin install via .bat not supported)
+:: ============================================================
 
-:: List of target directories
-set "targetDirs=%appdata%\Autodesk\Revit\Addins\2021 %appdata%\Autodesk\Revit\Addins\2022 %appdata%\Autodesk\Revit\Addins\2023 %appdata%\Autodesk\Revit\Addins\2024 %appdata%\Autodesk\Revit\Addins\2025 %appdata%\Autodesk\Revit\Addins\2026"
+set "UNC=\\sydsrv01\projects\Computational Design Group\93_Development\testing\project-perseus"
 
-for %%D in (%targetDirs%) do (
-    if exist "%%D\%fileName%" (
-        echo Deleting %%D\%fileName%...
-        del "%%D\%fileName%"
-    ) else (
-        echo File not found in %%D
+set "srcDir23=%UNC%\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023"
+set "srcDir26=%UNC%\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026"
+
+set "installDir23=%appdata%\ProjectPerseus\2023"
+set "installDir26=%appdata%\ProjectPerseus\2026"
+
+set "addInId=257f1a77-bc53-4b92-84db-4aa79a7f3050"
+set "addInClass=ProjectPerseus.Plugin"
+set "addInName=Project Perseus"
+set "addInVendor=Andrew Butler"
+
+:: --- Remove any existing addin manifests (all versions) ---
+echo Removing existing addin manifests...
+for %%V in (2021 2022 2023 2024 2025 2026) do (
+    set "f=%appdata%\Autodesk\Revit\Addins\%%V\ProjectPerseus.addin"
+    if exist "!f!" (
+        echo   Deleting !f!
+        del "!f!"
     )
 )
 
+:: --- Copy builds locally ---
+echo.
+echo Copying Debug 2023 build (Revit 2021-2023^)...
+if not exist "%installDir23%" mkdir "%installDir23%"
+xcopy "%srcDir23%" "%installDir23%" /E /I /Y
 
-set "sourceDir=\\sydsrv01\projects\Computational Design Group\93_Development\testing\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026"
-set "installDir=%appdata%\ProjectPerseus"
+echo.
+echo Copying Debug 2026 build (Revit 2024^)...
+if not exist "%installDir26%" mkdir "%installDir26%"
+xcopy "%srcDir26%" "%installDir26%" /E /I /Y
 
-:: Create target directory if it doesn't exist
-if not exist "%installDir%" (
-    echo Creating target directory: %installDir%
-    mkdir "%installDir%"
-)
+:: --- Write addin manifests ---
+echo.
+echo Writing addin manifests...
 
-xcopy "%sourceDir%" "%installDir%" /E /I /Y
-
-set "sourceFile=\\sydsrv01\projects\Computational Design Group\93_Development\testing\project-perseus\ProjectPerseus.addin"
-
-:: List of target directories
-set "targetDirs=%appdata%\Autodesk\Revit\Addins\2021 %appdata%\Autodesk\Revit\Addins\2022 %appdata%\Autodesk\Revit\Addins\2023 %appdata%\Autodesk\Revit\Addins\2024 %appdata%\Autodesk\Revit\Addins\2025 %appdata%\Autodesk\Revit\Addins\2026"
-
-for %%D in (%targetDirs%) do (
-    if exist "%%D" (
-        echo Copying to %%D...
-        copy "%sourceFile%" "%%D"
+:: Revit 2021, 2022, 2023 -> Debug 2023 build
+for %%V in (2021 2022 2023) do (
+    set "addinsDir=%appdata%\Autodesk\Revit\Addins\%%V"
+    if exist "!addinsDir!" (
+        echo   Writing !addinsDir!\ProjectPerseus.addin
+        (
+            echo ^<?xml version="1.0" encoding="utf-8"?^>
+            echo ^<RevitAddIns^>
+            echo   ^<AddIn Type="Application"^>
+            echo     ^<Name^>%addInName%^</Name^>
+            echo     ^<Assembly^>%installDir23%\ProjectPerseus.dll^</Assembly^>
+            echo     ^<AddInId^>%addInId%^</AddInId^>
+            echo     ^<FullClassName^>%addInClass%^</FullClassName^>
+            echo     ^<VendorId^>%addInVendor%^</VendorId^>
+            echo     ^<VendorDescription^>%addInVendor%^</VendorDescription^>
+            echo   ^</AddIn^>
+            echo ^</RevitAddIns^>
+        ) > "!addinsDir!\ProjectPerseus.addin"
     ) else (
-        echo Directory %%D does not exist.
+        echo   Skipping Revit %%V ^(Addins folder not found^)
     )
 )
+
+:: Revit 2024 -> Debug 2026 build
+set "addinsDir=%appdata%\Autodesk\Revit\Addins\2024"
+if exist "%addinsDir%" (
+    echo   Writing %addinsDir%\ProjectPerseus.addin
+    (
+        echo ^<?xml version="1.0" encoding="utf-8"?^>
+        echo ^<RevitAddIns^>
+        echo   ^<AddIn Type="Application"^>
+        echo     ^<Name^>%addInName%^</Name^>
+        echo     ^<Assembly^>%installDir26%\ProjectPerseus.dll^</Assembly^>
+        echo     ^<AddInId^>%addInId%^</AddInId^>
+        echo     ^<FullClassName^>%addInClass%^</FullClassName^>
+        echo     ^<VendorId^>%addInVendor%^</VendorId^>
+        echo     ^<VendorDescription^>%addInVendor%^</VendorDescription^>
+        echo   ^</AddIn^>
+        echo ^</RevitAddIns^>
+    ) > "%addinsDir%\ProjectPerseus.addin"
+) else (
+    echo   Skipping Revit 2024 ^(Addins folder not found^)
+)
+
+echo.
+echo Done. Note: Revit 2025 and 2026 are not supported by this install method.
+pause
+endlocal
