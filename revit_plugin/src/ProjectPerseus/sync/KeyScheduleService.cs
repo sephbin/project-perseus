@@ -16,6 +16,8 @@ namespace ProjectPerseus.sync
 {
     public class KeyScheduleService
     {
+        private const string KeyParamName = "Key Name";
+
         public List<KeyScheduleConfig> LoadConfig(Document doc)
         {
             return KeyScheduleStorage.Load(doc);
@@ -67,12 +69,9 @@ namespace ProjectPerseus.sync
                 return plan;
             }
 
-            List<ScheduleField> fields = GetVisibleFields(vs.Definition);
-            if (fields.Count == 0) return plan;
-
-            string keyColName = fields[0].GetName();
             TableSectionData section = vs.GetTableData().GetSectionData(SectionType.Body);
 
+            // Read existing Revit keys from the first column (always "Key Name")
             var revitKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int r = 1; r < section.NumberOfRows; r++)
             {
@@ -84,7 +83,7 @@ namespace ProjectPerseus.sync
             var excelKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in excelData.Rows)
             {
-                if (!row.TryGetValue(keyColName, out string k) || string.IsNullOrEmpty(k)) continue;
+                if (!row.TryGetValue(KeyParamName, out string k) || string.IsNullOrEmpty(k)) continue;
                 excelKeys.Add(k);
 
                 if (revitKeys.Contains(k))
@@ -113,10 +112,6 @@ namespace ProjectPerseus.sync
                 return (0, 0, 0);
             }
 
-            List<ScheduleField> fields = GetVisibleFields(vs.Definition);
-            if (fields.Count == 0) return (0, 0, 0);
-
-            string keyColName = fields[0].GetName();
             int created = 0, updated = 0, deleted = 0;
 
             using (Transaction t = new Transaction(doc, "Perseus: Import Key Schedule"))
@@ -126,7 +121,7 @@ namespace ProjectPerseus.sync
                 TableData tableData = vs.GetTableData();
                 TableSectionData section = tableData.GetSectionData(SectionType.Body);
 
-                // UPDATE — match key element by e.Name, set parameters
+                // UPDATE — find each element by its "Key Name" parameter, set all other params
                 var currentElements = new FilteredElementCollector(doc, vs.Id)
                     .WhereElementIsNotElementType()
                     .ToElements()
@@ -134,50 +129,50 @@ namespace ProjectPerseus.sync
 
                 foreach (var row in plan.RowsToUpdate)
                 {
-                    if (!row.TryGetValue(keyColName, out string keyName)) continue;
+                    if (!row.TryGetValue(KeyParamName, out string keyName)) continue;
 
                     RevitElement match = currentElements.FirstOrDefault(e =>
-                        string.Equals(e.Name, keyName, StringComparison.OrdinalIgnoreCase));
+                        string.Equals(e.LookupParameter(KeyParamName)?.AsString(), keyName,
+                                      StringComparison.OrdinalIgnoreCase));
                     if (match == null)
                     {
-                        Log.Info($"[KeyScheduleService] Update: no element found for key '{keyName}'");
+                        Log.Info($"[KeyScheduleService] Update: no element for key '{keyName}'");
                         continue;
                     }
 
-                    SetElementFields(match, fields, row);
+                    SetElementParams(match, row);
                     updated++;
                 }
 
-                // CREATE — InsertRow creates the element; find it by exclusion, rename it, set params
+                // CREATE — InsertRow creates the element; capture its ID by diffing the collector,
+                //           then set "Key Name" and all other parameters directly
                 foreach (var row in plan.RowsToCreate)
                 {
-                    if (!row.TryGetValue(keyColName, out string keyName) || string.IsNullOrEmpty(keyName))
+                    if (!row.TryGetValue(KeyParamName, out string keyName) || string.IsNullOrEmpty(keyName))
                         continue;
                     try
                     {
-                        var beforeNames = new HashSet<string>(
-                            new FilteredElementCollector(doc, vs.Id)
-                                .WhereElementIsNotElementType()
-                                .ToElements()
-                                .Select(e => e.Name),
-                            StringComparer.OrdinalIgnoreCase);
+                        var beforeIds = new FilteredElementCollector(doc, vs.Id)
+                            .WhereElementIsNotElementType()
+                            .ToElementIds()
+                            .ToHashSet();
 
                         section.InsertRow(section.NumberOfRows);
                         section = tableData.GetSectionData(SectionType.Body);
 
-                        RevitElement newEl = new FilteredElementCollector(doc, vs.Id)
+                        ElementId newId = new FilteredElementCollector(doc, vs.Id)
                             .WhereElementIsNotElementType()
-                            .ToElements()
-                            .FirstOrDefault(e => !beforeNames.Contains(e.Name));
+                            .ToElementIds()
+                            .FirstOrDefault(id => !beforeIds.Contains(id));
 
-                        if (newEl == null)
+                        if (newId == null || newId == ElementId.InvalidElementId)
                         {
-                            Log.Info($"[KeyScheduleService] Create: could not locate new element for '{keyName}'");
+                            Log.Warn($"[KeyScheduleService] Create '{keyName}': new element not found after InsertRow");
                             continue;
                         }
 
-                        newEl.Name = keyName;
-                        SetElementFields(newEl, fields, row);
+                        RevitElement newEl = doc.GetElement(newId);
+                        SetElementParams(newEl, row); // includes "Key Name"
                         created++;
                     }
                     catch (Exception ex)
@@ -187,7 +182,7 @@ namespace ProjectPerseus.sync
                     }
                 }
 
-                // DELETE — re-find row index each iteration after section refresh
+                // DELETE — re-find row index each iteration (section shifts after each removal)
                 foreach (string key in plan.KeysToDelete)
                 {
                     int idx = FindRowIndex(section, key);
@@ -333,14 +328,15 @@ namespace ProjectPerseus.sync
             return -1;
         }
 
-        private static void SetElementFields(RevitElement element, List<ScheduleField> fields, Dictionary<string, string> row)
+        // Sets all parameters on an element from a row dictionary (column header = parameter name).
+        // "Key Name" is included so new elements get their PK set in the same pass.
+        private static void SetElementParams(RevitElement element, Dictionary<string, string> row)
         {
-            foreach (ScheduleField field in fields.Skip(1))
+            foreach (var kvp in row)
             {
-                if (!row.TryGetValue(field.GetName(), out string val)) continue;
-                Parameter param = element.LookupParameter(field.GetName());
+                Parameter param = element.LookupParameter(kvp.Key);
                 if (param == null || param.IsReadOnly) continue;
-                TrySetParameter(param, val);
+                TrySetParameter(param, kvp.Value);
             }
         }
 
