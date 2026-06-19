@@ -10,7 +10,7 @@ using ProjectPerseus.sync;
 
 namespace ProjectPerseus.commands
 {
-    [Transaction(TransactionMode.ReadOnly)]
+    [Transaction(TransactionMode.Manual)]
     public class ExportKeyScheduleCommand : IExternalCommand
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
