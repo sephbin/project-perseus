@@ -499,6 +499,8 @@ namespace ProjectPerseus.sync
                         Log.Warn($"batchClose call failed (non-fatal): {ex.Message}");
                     }
 
+                    KeyScheduleAutoImporter.HandleSync(e.Document);
+
                     watch.Stop();
                     Log.Info("End Watch");
                     LogStageSummary(watch.Elapsed);

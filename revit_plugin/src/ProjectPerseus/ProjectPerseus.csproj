@@ -326,6 +326,7 @@
     <Compile Include="sync\CategoryHarvester.cs" />
     <Compile Include="sync\FullSyncRunner.cs" />
     <Compile Include="sync\IncrementalSyncRunner.cs" />
+    <Compile Include="sync\KeyScheduleAutoImporter.cs" />
     <Compile Include="sync\KeyScheduleService.cs" />
     <Compile Include="sync\RevitSyncDialogCloser.cs" />
     <Compile Include="sync\StateSubmitter.cs" />

@@ -42,6 +42,9 @@ namespace ProjectPerseus
                 application.Idling += OnRevitIdlingDelay;
             }
 
+            // Always hook Idling for key schedule auto-import (onStart + onIdle triggers).
+            application.Idling += OnKeyScheduleIdling;
+
             return Result.Succeeded;
         }
 
@@ -129,6 +132,12 @@ namespace ProjectPerseus
 
             PushButton importSchedulesBtn = schedulesPanel.AddItem(importSchedulesBtnData) as PushButton;
             importSchedulesBtn.ToolTip = "Import key schedule data from Excel into all open Revit models that have mappings configured.";
+        }
+
+        private void OnKeyScheduleIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        {
+            if (sender is UIApplication uiApp)
+                sync.KeyScheduleAutoImporter.HandleIdling(uiApp);
         }
 
         private void OnRevitIdlingDelay(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
