@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using OfficeOpenXml;
 using ProjectPerseus.models;
 
 namespace ProjectPerseus.ui
@@ -90,20 +91,29 @@ namespace ProjectPerseus.ui
                 ToolTipText = "Browse for an Excel file"
             });
 
-            // Col 3 — sheet name
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
+            // Col 3 — sheet name (combo; items populated per-row when a valid file path is entered)
+            _grid.Columns.Add(new DataGridViewComboBoxColumn
             {
                 Name = "SheetName",
                 HeaderText = "Sheet Name",
                 FillWeight = 20,
-                ToolTipText = "Worksheet name inside the Excel file. Not required if Source is a URL."
+                ToolTipText = "Worksheet name inside the Excel file. Not required if Source is a URL.",
+                DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox,
+                AutoComplete = true
             });
+
+            // Disable built-in clipboard copy (copies whole row including headers and button column)
+            _grid.ClipboardCopyMode = DataGridViewClipboardCopyMode.Disable;
+            _grid.KeyDown += OnGridKeyDown;
 
             // Suppress DataGridView's built-in error dialog (e.g. combo value not in list)
             _grid.DataError += (s, e) => e.Cancel = true;
 
-            // Allow free-text entry in the schedule combo box
+            // Allow free-text entry in the schedule and sheet combo boxes
             _grid.EditingControlShowing += OnEditingControlShowing;
+
+            // Populate sheet dropdown when source path changes
+            _grid.CellEndEdit += OnCellEndEdit;
 
             // Browse button click
             _grid.CellContentClick += OnCellContentClick;
@@ -177,6 +187,7 @@ namespace ProjectPerseus.ui
                 int idx = _grid.Rows.Add();
                 _grid.Rows[idx].Cells[ColSchedule].Value = cfg.RevitScheduleName ?? "";
                 _grid.Rows[idx].Cells[ColSource].Value   = source;
+                PopulateSheetNames(idx);
                 _grid.Rows[idx].Cells[ColSheet].Value    = cfg.ExcelSheetName ?? "";
             }
         }
@@ -191,8 +202,57 @@ namespace ProjectPerseus.ui
 
         private void OnEditingControlShowing(object sender, DataGridViewEditingControlShowingEventArgs e)
         {
-            if (_grid.CurrentCell?.ColumnIndex == ColSchedule && e.Control is ComboBox cb)
+            int col = _grid.CurrentCell?.ColumnIndex ?? -1;
+            if ((col == ColSchedule || col == ColSheet) && e.Control is ComboBox cb)
                 cb.DropDownStyle = ComboBoxStyle.DropDown;
+        }
+
+        private void OnCellEndEdit(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex == ColSource)
+                PopulateSheetNames(e.RowIndex);
+        }
+
+        private void PopulateSheetNames(int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= _grid.Rows.Count) return;
+
+            string source = _grid.Rows[rowIndex].Cells[ColSource].Value?.ToString()?.Trim() ?? "";
+            var cell = (DataGridViewComboBoxCell)_grid.Rows[rowIndex].Cells[ColSheet];
+
+            string current = cell.Value?.ToString() ?? "";
+            cell.Items.Clear();
+
+            if (!IsUrl(source) && File.Exists(source))
+            {
+                List<string> sheets = GetSheetNames(source);
+                foreach (string s in sheets)
+                    cell.Items.Add(s);
+
+                if (sheets.Contains(current))
+                    cell.Value = current;
+                else if (sheets.Count == 1)
+                    cell.Value = sheets[0];
+                else
+                    cell.Value = "";
+            }
+            else
+            {
+                cell.Value = current; // preserve whatever was typed
+            }
+        }
+
+        private static List<string> GetSheetNames(string filePath)
+        {
+            try
+            {
+                using (var package = new ExcelPackage(new FileInfo(filePath)))
+                    return package.Workbook.Worksheets.Select(ws => ws.Name).ToList();
+            }
+            catch
+            {
+                return new List<string>();
+            }
         }
 
         private void OnCellContentClick(object sender, DataGridViewCellEventArgs e)
@@ -210,8 +270,24 @@ namespace ProjectPerseus.ui
             })
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
                     _grid.Rows[e.RowIndex].Cells[ColSource].Value = dlg.FileName;
+                    PopulateSheetNames(e.RowIndex);
+                }
             }
+        }
+
+        private void OnGridKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!e.Control || e.KeyCode != Keys.C) return;
+            e.Handled = true;
+
+            // If the cell is in edit mode, let the editing control handle copy normally
+            if (_grid.IsCurrentCellInEditMode) return;
+
+            object val = _grid.CurrentCell?.Value;
+            if (val != null && !(val is DBNull))
+                Clipboard.SetText(val.ToString());
         }
 
         private void OnRemoveRow(object sender, EventArgs e)
