@@ -184,15 +184,23 @@ namespace ProjectPerseus.sync
                     }
                 }
 
-                // DELETE named rows — re-find row index each iteration (section shifts after each removal)
+                // DELETE named rows — delete the underlying element; schedule row disappears automatically
                 foreach (string key in plan.KeysToDelete)
                 {
-                    int idx = FindRowIndex(section, key);
-                    if (idx < 0) continue;
+                    RevitElement match = new FilteredElementCollector(doc, vs.Id)
+                        .WhereElementIsNotElementType()
+                        .ToElements()
+                        .FirstOrDefault(e => string.Equals(
+                            e.LookupParameter(KeyParamName)?.AsString(), key,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (match == null)
+                    {
+                        Log.Info($"[KeyScheduleService] Delete: no element found for key '{key}'");
+                        continue;
+                    }
                     try
                     {
-                        section.RemoveRow(idx);
-                        section = tableData.GetSectionData(SectionType.Body);
+                        doc.Delete(match.Id);
                         deleted++;
                     }
                     catch (Exception ex)
@@ -202,29 +210,27 @@ namespace ProjectPerseus.sync
                     }
                 }
 
-                // DELETE orphan rows — rows whose "Key Name" is empty (created by failed prior imports)
-                for (int i = 0; i < plan.OrphanRowCount; i++)
+                // DELETE orphan elements — key param is empty (created by a failed prior import)
+                if (plan.OrphanRowCount > 0)
                 {
-                    int orphanIdx = -1;
-                    for (int r = 1; r < section.NumberOfRows; r++)
+                    var orphans = new FilteredElementCollector(doc, vs.Id)
+                        .WhereElementIsNotElementType()
+                        .ToElements()
+                        .Where(e => string.IsNullOrEmpty(e.LookupParameter(KeyParamName)?.AsString()))
+                        .ToList();
+
+                    foreach (RevitElement orphan in orphans)
                     {
-                        if (string.IsNullOrEmpty(section.GetCellText(r, 0)))
+                        try
                         {
-                            orphanIdx = r;
-                            break;
+                            doc.Delete(orphan.Id);
+                            deleted++;
                         }
-                    }
-                    if (orphanIdx < 0) break;
-                    try
-                    {
-                        section.RemoveRow(orphanIdx);
-                        section = tableData.GetSectionData(SectionType.Body);
-                        deleted++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error($"[KeyScheduleService] Delete orphan row {orphanIdx}: {ex.Message}");
-                        Log.Exception(ex);
+                        catch (Exception ex)
+                        {
+                            Log.Error($"[KeyScheduleService] Delete orphan {orphan.Id}: {ex.Message}");
+                            Log.Exception(ex);
+                        }
                     }
                 }
 
@@ -344,16 +350,6 @@ namespace ProjectPerseus.sync
                 if (!f.IsHidden) fields.Add(f);
             }
             return fields;
-        }
-
-        private static int FindRowIndex(TableSectionData section, string keyName)
-        {
-            for (int r = 1; r < section.NumberOfRows; r++)
-            {
-                if (string.Equals(section.GetCellText(r, 0), keyName, StringComparison.OrdinalIgnoreCase))
-                    return r;
-            }
-            return -1;
         }
 
         // Sets all parameters on an element from a row dictionary (column header = parameter name).
