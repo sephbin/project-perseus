@@ -71,6 +71,37 @@ namespace ProjectPerseus.auth
             return await MsalAuth.GetTokenAsync();
         }
 
+        // Silent-only sync wrapper — never triggers interactive login (browser/form).
+        // Returns null when no cached credentials exist. Use for background operations
+        // (auto-import, idle checks) where showing UI would be unexpected.
+        public static string GetAuthTokenSilentlyOrNull()
+        {
+            try
+            {
+                return Task.Run(async () =>
+                {
+                    string pat = PersonalAccessToken.Load();
+                    if (!string.IsNullOrEmpty(pat)) return pat;
+
+                    if (!_isInitialized)
+                        await InitializeAsync();
+
+                    if (_authType.Equals("None", StringComparison.OrdinalIgnoreCase))
+                        return "sandbox-mode";
+
+                    if (_authType.Equals("JWT", StringComparison.OrdinalIgnoreCase))
+                        return await JwtAuth.GetTokenSilentAsync();
+
+                    return await MsalAuth.GetTokenSilentAsync();
+                }).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"Silent auth check failed: {ex.Message}");
+                return null;
+            }
+        }
+
         // Sync wrapper — safe to call from non-async Revit event handlers.
         public static string GetAuthTokenSafely()
         {

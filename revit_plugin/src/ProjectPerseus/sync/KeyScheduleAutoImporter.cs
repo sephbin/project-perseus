@@ -28,46 +28,34 @@ namespace ProjectPerseus.sync
         public const string TriggerOnSync  = "onSync";
         public const string TriggerOnIdle  = "onIdle";
 
-        private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(10);
-        private static readonly TimeSpan IdleInterval  = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan IdleInterval = TimeSpan.FromMinutes(30);
 
-        private static readonly System.Diagnostics.Stopwatch _startupTimer =
-            System.Diagnostics.Stopwatch.StartNew();
-
-        private static bool     _onStartFired = false;
-        private static DateTime _lastIdleRun  = DateTime.MinValue;
+        private static DateTime _lastIdleRun = DateTime.MinValue;
 
         // Cache trigger list per document (keyed by PathName or Title). Populated once per session.
         private static readonly Dictionary<string, List<string>> _triggerCache =
             new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
+        // Called from SyncOrchestrator when a document finishes opening.
+        // Connects to Django, reads the trigger list, and runs import if onStart is configured.
+        public static void HandleDocumentOpened(Document doc)
+        {
+            Log.Info($"[KeyScheduleAutoImporter] onStart trigger — '{doc.Title}'");
+            RunForDocument(doc, TriggerOnStart);
+        }
+
         // Called from Plugin's Idling handler on every idle tick.
         public static void HandleIdling(UIApplication uiApp)
         {
-            bool runStart = !_onStartFired
-                            && _startupTimer.Elapsed >= StartupDelay
-                            && uiApp.ActiveUIDocument != null;
+            if (DateTime.UtcNow - _lastIdleRun < IdleInterval) return;
 
-            bool runIdle  = DateTime.UtcNow - _lastIdleRun >= IdleInterval;
-
-            if (!runStart && !runIdle) return;
-
-            if (runStart)
-            {
-                _onStartFired = true;
-                Log.Info("[KeyScheduleAutoImporter] onStart trigger firing");
-            }
-            if (runIdle)
-            {
-                _lastIdleRun = DateTime.UtcNow;
-                Log.Info("[KeyScheduleAutoImporter] onIdle trigger firing");
-            }
+            _lastIdleRun = DateTime.UtcNow;
+            Log.Info("[KeyScheduleAutoImporter] onIdle trigger firing");
 
             foreach (Document doc in uiApp.Application.Documents)
             {
-                if (doc.IsFamilyDocument) continue;
-                if (runStart) RunForDocument(doc, TriggerOnStart);
-                if (runIdle)  RunForDocument(doc, TriggerOnIdle);
+                if (!doc.IsFamilyDocument)
+                    RunForDocument(doc, TriggerOnIdle);
             }
         }
 
@@ -188,7 +176,9 @@ namespace ProjectPerseus.sync
 
                 string endpoint = $"{baseUrl.TrimEnd('/')}/registersource/";
                 string payload  = Newtonsoft.Json.JsonConvert.SerializeObject(metadata);
-                string response = WebHelper.Post(endpoint, AuthService.GetAuthTokenSafely(), payload,
+                string token    = AuthService.GetAuthTokenSilentlyOrNull();
+                if (token == null) return new List<string>(); // not authenticated yet — skip silently
+                string response = WebHelper.Post(endpoint, token, payload,
                                                  AuthService.GetAuthSchemeSafely());
 
                 var json = JObject.Parse(response);

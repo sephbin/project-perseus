@@ -51,6 +51,7 @@ namespace ProjectPerseus.sync
 
         public void Subscribe(UIControlledApplication application)
         {
+            application.ControlledApplication.DocumentOpened += OnDocumentOpened;
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
@@ -61,10 +62,17 @@ namespace ProjectPerseus.sync
 
         public void Unsubscribe(UIControlledApplication application)
         {
+            application.ControlledApplication.DocumentOpened -= OnDocumentOpened;
             application.ControlledApplication.DocumentSynchronizingWithCentral -= OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
             _queueWebForm?.Close();
+        }
+
+        private void OnDocumentOpened(object sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs e)
+        {
+            if (e.Document != null && !e.Document.IsFamilyDocument)
+                KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
         }
 
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)

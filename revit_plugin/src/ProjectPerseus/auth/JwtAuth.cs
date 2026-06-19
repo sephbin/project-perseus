@@ -47,6 +47,20 @@ namespace ProjectPerseus.auth
             return await AcquireViaLoginFormAsync();
         }
 
+        // Silent-only variant — returns null rather than showing the login form.
+        // Used by background/automatic operations that must never show UI.
+        public static async Task<string> GetTokenSilentAsync()
+        {
+            if (_cachedAccessToken != null && DateTime.UtcNow < _cachedAccessExpiry.AddSeconds(-30))
+                return _cachedAccessToken;
+
+            string refreshToken = TokenCache.LoadRefreshToken();
+            if (refreshToken != null)
+                return await TryRefreshAsync(refreshToken);
+
+            return null; // no credentials cached — caller should let user authenticate normally
+        }
+
         public static void Reset()
         {
             _tokenEndpoint = null;

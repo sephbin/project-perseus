@@ -64,6 +64,30 @@ namespace ProjectPerseus.auth
             return result.AccessToken;
         }
 
+        // Silent-only variant — returns null rather than triggering interactive login.
+        // Used by background/automatic operations that must never show UI.
+        public static async Task<string> GetTokenSilentAsync()
+        {
+            if (_msalApp == null) return null;
+            try
+            {
+                var accounts = await _msalApp.GetAccountsAsync();
+                var result = await _msalApp
+                    .AcquireTokenSilent(_msalScopes, accounts.FirstOrDefault())
+                    .ExecuteAsync();
+                return result.AccessToken;
+            }
+            catch (MsalUiRequiredException)
+            {
+                return null; // no cached token — caller should let user authenticate normally
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"MSAL silent token attempt failed: {ex.Message}");
+                return null;
+            }
+        }
+
         public static void Reset()
         {
             _msalApp = null;
