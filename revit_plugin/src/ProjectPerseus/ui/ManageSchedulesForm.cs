@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using ProjectPerseus.models;
 
@@ -14,10 +16,19 @@ namespace ProjectPerseus.ui
         private Button _saveBtn;
         private Button _cancelBtn;
 
+        private readonly List<string> _availableSchedules;
+
+        // Column indices — kept as constants so they stay in sync with InitializeComponent
+        private const int ColSchedule = 0;
+        private const int ColSource   = 1;
+        private const int ColBrowse   = 2;
+        private const int ColSheet    = 3;
+
         public List<KeyScheduleConfig> Result { get; private set; }
 
-        public ManageSchedulesForm(List<KeyScheduleConfig> existing)
+        public ManageSchedulesForm(List<KeyScheduleConfig> existing, List<string> availableSchedules)
         {
+            _availableSchedules = availableSchedules ?? new List<string>();
             InitializeComponent();
             LoadRows(existing);
         }
@@ -25,9 +36,9 @@ namespace ProjectPerseus.ui
         private void InitializeComponent()
         {
             Text = "Perseus: Key Schedule Mappings";
-            Width = 920;
-            Height = 460;
-            MinimumSize = new Size(700, 350);
+            Width = 960;
+            Height = 420;
+            MinimumSize = new Size(700, 320);
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Segoe UI", 9f);
 
@@ -43,56 +54,73 @@ namespace ProjectPerseus.ui
                 BackgroundColor = SystemColors.Window
             };
 
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
+            // Col 0 — schedule name dropdown
+            var scheduleCol = new DataGridViewComboBoxColumn
             {
                 Name = "RevitScheduleName",
                 HeaderText = "Revit Schedule Name",
-                FillWeight = 22
-            });
+                FillWeight = 24,
+                ToolTipText = "Select a key schedule from this document",
+                DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox,
+                AutoComplete = true
+            };
+            foreach (string s in _availableSchedules)
+                scheduleCol.Items.Add(s);
+            _grid.Columns.Add(scheduleCol);
+
+            // Col 1 — source (file path or URL)
             _grid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                Name = "ExcelFilePath",
-                HeaderText = "Excel File Path",
-                FillWeight = 38,
-                ToolTipText = "Full path to the .xlsx file"
+                Name = "Source",
+                HeaderText = "Source (Path or URL)",
+                FillWeight = 42,
+                ToolTipText = "Full path to an .xlsx file, or a URL (Django endpoint / SharePoint). If a URL, Sheet Name is not required."
             });
+
+            // Col 2 — browse button (narrow)
+            _grid.Columns.Add(new DataGridViewButtonColumn
+            {
+                Name = "Browse",
+                HeaderText = "",
+                Text = "...",
+                UseColumnTextForButtonValue = true,
+                Width = 32,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                FillWeight = 1,
+                ToolTipText = "Browse for an Excel file"
+            });
+
+            // Col 3 — sheet name
             _grid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                Name = "ExcelSheetName",
+                Name = "SheetName",
                 HeaderText = "Sheet Name",
-                FillWeight = 18
+                FillWeight = 20,
+                ToolTipText = "Worksheet name inside the Excel file. Not required if Source is a URL."
             });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "DjangoEndpoint",
-                HeaderText = "Django Endpoint (optional)",
-                FillWeight = 22,
-                ToolTipText = "Leave blank to skip Django sync for this schedule"
-            });
+
+            // Suppress DataGridView's built-in error dialog (e.g. combo value not in list)
+            _grid.DataError += (s, e) => e.Cancel = true;
+
+            // Allow free-text entry in the schedule combo box
+            _grid.EditingControlShowing += OnEditingControlShowing;
+
+            // Browse button click
+            _grid.CellContentClick += OnCellContentClick;
 
             _addBtn    = new Button { Text = "Add Row",    Width = 90,  Height = 28 };
             _removeBtn = new Button { Text = "Remove Row", Width = 100, Height = 28 };
             _saveBtn   = new Button { Text = "Save",       Width = 80,  Height = 28, DialogResult = DialogResult.OK };
             _cancelBtn = new Button { Text = "Cancel",     Width = 80,  Height = 28, DialogResult = DialogResult.Cancel };
 
-            _addBtn.Click    += (s, e) => _grid.Rows.Add("", "", "", "");
+            _addBtn.Click    += (s, e) => AddEmptyRow();
             _removeBtn.Click += OnRemoveRow;
-
-            var hint = new Label
-            {
-                Text = "Changes are saved to the Revit model (Extensible Storage) and travel with the project file.",
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleLeft,
-                ForeColor = SystemColors.GrayText,
-                Font = new Font("Segoe UI", 8.5f)
-            };
+            _saveBtn.Click   += OnSaveClick;
 
             var leftPanel = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.LeftToRight,
-                AutoSize = true,
-                Padding = new Padding(0),
-                Margin = new Padding(0)
+                AutoSize = true
             };
             leftPanel.Controls.Add(_addBtn);
             leftPanel.Controls.Add(_removeBtn);
@@ -100,9 +128,7 @@ namespace ProjectPerseus.ui
             var rightPanel = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.LeftToRight,
-                AutoSize = true,
-                Padding = new Padding(0),
-                Margin = new Padding(0)
+                AutoSize = true
             };
             rightPanel.Controls.Add(_saveBtn);
             rightPanel.Controls.Add(_cancelBtn);
@@ -111,15 +137,13 @@ namespace ProjectPerseus.ui
             {
                 Dock = DockStyle.Bottom,
                 Height = 44,
-                ColumnCount = 3,
+                ColumnCount = 2,
                 Padding = new Padding(6, 6, 6, 6)
             };
-            buttonRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             buttonRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             buttonRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            buttonRow.Controls.Add(leftPanel, 0, 0);
-            buttonRow.Controls.Add(hint,      1, 0);
-            buttonRow.Controls.Add(rightPanel, 2, 0);
+            buttonRow.Controls.Add(leftPanel,  0, 0);
+            buttonRow.Controls.Add(rightPanel, 1, 0);
 
             Controls.Add(_grid);
             Controls.Add(buttonRow);
@@ -128,15 +152,66 @@ namespace ProjectPerseus.ui
             CancelButton = _cancelBtn;
         }
 
+        private void AddEmptyRow()
+        {
+            int idx = _grid.Rows.Add();
+            // combo cell needs the value explicitly set (empty string is fine)
+            _grid.Rows[idx].Cells[ColSchedule].Value = "";
+            _grid.Rows[idx].Cells[ColSource].Value   = "";
+            _grid.Rows[idx].Cells[ColSheet].Value    = "";
+        }
+
         private void LoadRows(List<KeyScheduleConfig> configs)
         {
             _grid.Rows.Clear();
             foreach (var cfg in configs)
-                _grid.Rows.Add(
-                    cfg.RevitScheduleName ?? "",
-                    cfg.ExcelFilePath    ?? "",
-                    cfg.ExcelSheetName   ?? "",
-                    cfg.DjangoEndpoint   ?? "");
+            {
+                // Ensure the existing schedule name is in the combo list
+                EnsureScheduleInList(cfg.RevitScheduleName);
+
+                // Source: file path takes priority; fall back to Django endpoint
+                string source = !string.IsNullOrEmpty(cfg.ExcelFilePath)
+                    ? cfg.ExcelFilePath
+                    : cfg.DjangoEndpoint ?? "";
+
+                int idx = _grid.Rows.Add();
+                _grid.Rows[idx].Cells[ColSchedule].Value = cfg.RevitScheduleName ?? "";
+                _grid.Rows[idx].Cells[ColSource].Value   = source;
+                _grid.Rows[idx].Cells[ColSheet].Value    = cfg.ExcelSheetName ?? "";
+            }
+        }
+
+        private void EnsureScheduleInList(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            var col = (DataGridViewComboBoxColumn)_grid.Columns[ColSchedule];
+            if (!col.Items.Contains(name))
+                col.Items.Add(name);
+        }
+
+        private void OnEditingControlShowing(object sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            if (_grid.CurrentCell?.ColumnIndex == ColSchedule && e.Control is ComboBox cb)
+                cb.DropDownStyle = ComboBoxStyle.DropDown;
+        }
+
+        private void OnCellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex != ColBrowse) return;
+
+            string current = _grid.Rows[e.RowIndex].Cells[ColSource].Value?.ToString() ?? "";
+            if (IsUrl(current)) return; // browse not meaningful for URLs
+
+            using (var dlg = new OpenFileDialog
+            {
+                Title  = "Select Excel File",
+                Filter = "Excel Files (*.xlsx)|*.xlsx|All Files (*.*)|*.*",
+                FileName = File.Exists(current) ? current : ""
+            })
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    _grid.Rows[e.RowIndex].Cells[ColSource].Value = dlg.FileName;
+            }
         }
 
         private void OnRemoveRow(object sender, EventArgs e)
@@ -145,6 +220,51 @@ namespace ProjectPerseus.ui
             {
                 if (!row.IsNewRow)
                     _grid.Rows.Remove(row);
+            }
+        }
+
+        private void OnSaveClick(object sender, EventArgs e)
+        {
+            // End any active edit so current cell value is committed
+            _grid.EndEdit();
+
+            var warnings = new List<string>();
+            int rowNum = 0;
+            foreach (DataGridViewRow row in _grid.Rows)
+            {
+                rowNum++;
+                string name   = row.Cells[ColSchedule].Value?.ToString()?.Trim() ?? "";
+                string source = row.Cells[ColSource].Value?.ToString()?.Trim()   ?? "";
+                string sheet  = row.Cells[ColSheet].Value?.ToString()?.Trim()    ?? "";
+
+                if (string.IsNullOrEmpty(name)) continue;
+
+                if (string.IsNullOrEmpty(source))
+                {
+                    warnings.Add($"Row {rowNum} ({name}): Source is empty.");
+                    continue;
+                }
+
+                if (!IsUrl(source))
+                {
+                    if (string.IsNullOrEmpty(sheet))
+                        warnings.Add($"Row {rowNum} ({name}): Sheet Name is required when Source is a file path.");
+                    if (!File.Exists(source))
+                        warnings.Add($"Row {rowNum} ({name}): File not found — {source}");
+                }
+            }
+
+            if (warnings.Count > 0)
+            {
+                string msg = "The following issues were found:\n\n  • " +
+                             string.Join("\n  • ", warnings) +
+                             "\n\nSave anyway?";
+                if (MessageBox.Show(msg, "Perseus: Validation Warnings",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
+                {
+                    DialogResult = DialogResult.None; // keep form open
+                    return;
+                }
             }
         }
 
@@ -160,17 +280,40 @@ namespace ProjectPerseus.ui
             var list = new List<KeyScheduleConfig>();
             foreach (DataGridViewRow row in _grid.Rows)
             {
-                string name = row.Cells["RevitScheduleName"].Value?.ToString()?.Trim() ?? "";
+                string name   = row.Cells[ColSchedule].Value?.ToString()?.Trim() ?? "";
+                string source = row.Cells[ColSource].Value?.ToString()?.Trim()   ?? "";
+                string sheet  = row.Cells[ColSheet].Value?.ToString()?.Trim()    ?? "";
+
                 if (string.IsNullOrEmpty(name)) continue;
-                list.Add(new KeyScheduleConfig
+
+                if (IsUrl(source))
                 {
-                    RevitScheduleName = name,
-                    ExcelFilePath     = row.Cells["ExcelFilePath"].Value?.ToString()?.Trim() ?? "",
-                    ExcelSheetName    = row.Cells["ExcelSheetName"].Value?.ToString()?.Trim() ?? "",
-                    DjangoEndpoint    = row.Cells["DjangoEndpoint"].Value?.ToString()?.Trim() ?? ""
-                });
+                    list.Add(new KeyScheduleConfig
+                    {
+                        RevitScheduleName = name,
+                        ExcelFilePath     = "",
+                        ExcelSheetName    = "",
+                        DjangoEndpoint    = source
+                    });
+                }
+                else
+                {
+                    list.Add(new KeyScheduleConfig
+                    {
+                        RevitScheduleName = name,
+                        ExcelFilePath     = source,
+                        ExcelSheetName    = sheet,
+                        DjangoEndpoint    = ""
+                    });
+                }
             }
             return list;
         }
+
+        private static bool IsUrl(string value) =>
+            !string.IsNullOrEmpty(value) &&
+            (value.StartsWith("http://",  StringComparison.OrdinalIgnoreCase) ||
+             value.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+             value.StartsWith("ftp://",   StringComparison.OrdinalIgnoreCase));
     }
 }

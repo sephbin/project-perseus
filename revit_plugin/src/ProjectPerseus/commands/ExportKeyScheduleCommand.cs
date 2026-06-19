@@ -15,57 +15,60 @@ namespace ProjectPerseus.commands
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
-            Document doc = commandData.Application.ActiveUIDocument?.Document;
-            if (doc == null)
+            var service = new KeyScheduleService();
+            var summary = new StringBuilder();
+            var errors = new List<string>();
+            int totalExported = 0;
+            int docsProcessed = 0;
+
+            foreach (Document doc in commandData.Application.Application.Documents)
             {
-                message = "No active document.";
-                return Result.Failed;
+                if (doc.IsFamilyDocument) continue;
+
+                List<KeyScheduleConfig> configs = service.LoadConfig(doc);
+                if (configs.Count == 0) continue;
+
+                docsProcessed++;
+                summary.AppendLine(doc.Title + ":");
+
+                foreach (var cfg in configs)
+                {
+                    try
+                    {
+                        KeyScheduleData data = service.ReadFromRevit(doc, cfg.RevitScheduleName);
+                        if (data == null)
+                        {
+                            errors.Add($"[{doc.Title}] '{cfg.RevitScheduleName}': not found in model");
+                            continue;
+                        }
+
+                        service.WriteToExcel(data, cfg.ExcelFilePath, cfg.ExcelSheetName);
+                        summary.AppendLine($"  {cfg.RevitScheduleName}: {data.Rows.Count} rows → {cfg.ExcelFilePath}");
+
+                        if (!string.IsNullOrEmpty(cfg.DjangoEndpoint))
+                            service.PushToDjango(data, cfg.DjangoEndpoint);
+
+                        totalExported++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"[ExportKeyScheduleCommand] [{doc.Title}] '{cfg.RevitScheduleName}': {ex.Message}");
+                        Log.Exception(ex);
+                        errors.Add($"[{doc.Title}] '{cfg.RevitScheduleName}': {ex.Message}");
+                    }
+                }
             }
 
-            var service = new KeyScheduleService();
-            List<KeyScheduleConfig> configs = service.LoadConfig(doc);
-
-            if (configs.Count == 0)
+            if (docsProcessed == 0)
             {
                 TaskDialog.Show("Perseus: Export Schedules",
-                    "No key schedules configured for this project.\n\nUse the 'Manage Schedules' button to add mappings.");
+                    "No open models have key schedules configured.\n\nUse the 'Manage Schedules' button to add mappings.");
                 return Result.Succeeded;
             }
 
-            var summary = new StringBuilder();
-            int exported = 0;
-            var errors = new List<string>();
-
-            foreach (var cfg in configs)
-            {
-                try
-                {
-                    KeyScheduleData data = service.ReadFromRevit(doc, cfg.RevitScheduleName);
-                    if (data == null)
-                    {
-                        errors.Add($"'{cfg.RevitScheduleName}': not found in model");
-                        continue;
-                    }
-
-                    service.WriteToExcel(data, cfg.ExcelFilePath, cfg.ExcelSheetName);
-                    summary.AppendLine($"  {cfg.RevitScheduleName}: {data.Rows.Count} rows → {cfg.ExcelFilePath}");
-
-                    if (!string.IsNullOrEmpty(cfg.DjangoEndpoint))
-                        service.PushToDjango(data, cfg.DjangoEndpoint);
-
-                    exported++;
-                }
-                catch (Exception ex)
-                {
-                    Log.Error($"[ExportKeyScheduleCommand] '{cfg.RevitScheduleName}': {ex.Message}");
-                    Log.Exception(ex);
-                    errors.Add($"'{cfg.RevitScheduleName}': {ex.Message}");
-                }
-            }
-
             var resultText = new StringBuilder();
-            if (exported > 0)
-                resultText.AppendLine($"Exported {exported} schedule(s):\n").Append(summary);
+            if (totalExported > 0)
+                resultText.Append(summary);
             if (errors.Count > 0)
                 resultText.AppendLine($"\nErrors:\n  " + string.Join("\n  ", errors));
 

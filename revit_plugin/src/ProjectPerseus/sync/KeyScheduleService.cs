@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 using OfficeOpenXml;
@@ -165,12 +166,28 @@ namespace ProjectPerseus.sync
 
         public KeyScheduleData ReadFromExcel(string filePath, string sheetName)
         {
+            try
+            {
+                return ReadFromExcelEpPlus(filePath, sheetName);
+            }
+            catch (IOException ioEx)
+            {
+                // File is likely locked by a running Excel instance — try COM fallback
+                Log.Warn($"[KeyScheduleService] EPPlus could not open '{filePath}' ({ioEx.Message}) — trying COM fallback");
+                KeyScheduleData comResult = ReadFromExcelCom(filePath, sheetName);
+                if (comResult != null) return comResult;
+                throw; // COM also failed; surface the original IO error
+            }
+        }
+
+        private static KeyScheduleData ReadFromExcelEpPlus(string filePath, string sheetName)
+        {
             using (var package = new ExcelPackage(new FileInfo(filePath)))
             {
                 ExcelWorksheet sheet = package.Workbook.Worksheets[sheetName];
                 if (sheet == null)
                 {
-                    Log.Warn($"[KeyScheduleService] Sheet '{sheetName}' not found in {filePath}");
+                    Log.Warn($"[KeyScheduleService] EPPlus: sheet '{sheetName}' not found in {filePath}");
                     return null;
                 }
 
@@ -190,8 +207,114 @@ namespace ProjectPerseus.sync
                     data.Rows.Add(row);
                 }
 
-                Log.Info($"[KeyScheduleService] Read {data.Rows.Count} rows from Excel '{sheetName}'");
+                Log.Info($"[KeyScheduleService] EPPlus: read {data.Rows.Count} rows from '{sheetName}'");
                 return data;
+            }
+        }
+
+        // Reads from a workbook already open in Excel via COM late-binding.
+        // Requires Excel to be running and the file to be open in it.
+        // Does NOT close or modify the workbook.
+        private static KeyScheduleData ReadFromExcelCom(string filePath, string sheetName)
+        {
+            object excelObj = null;
+            try
+            {
+                excelObj = Marshal.GetActiveObject("Excel.Application");
+            }
+            catch (COMException)
+            {
+                Log.Warn("[KeyScheduleService] COM: Excel is not running — cannot use COM fallback");
+                return null;
+            }
+
+            dynamic excel = excelObj;
+            dynamic targetWb = null;
+            dynamic targetWs = null;
+            dynamic usedRange = null;
+
+            try
+            {
+                // Find the workbook by full path
+                foreach (dynamic wb in excel.Workbooks)
+                {
+                    try
+                    {
+                        if (string.Equals(wb.FullName?.ToString(), filePath,
+                                          StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetWb = wb;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (targetWb == null)
+                {
+                    Log.Warn($"[KeyScheduleService] COM: '{Path.GetFileName(filePath)}' is not open in Excel");
+                    return null;
+                }
+
+                // Find the worksheet
+                foreach (dynamic ws in targetWb.Worksheets)
+                {
+                    try
+                    {
+                        if (string.Equals(ws.Name?.ToString(), sheetName,
+                                          StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetWs = ws;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (targetWs == null)
+                {
+                    Log.Warn($"[KeyScheduleService] COM: sheet '{sheetName}' not found in open workbook");
+                    return null;
+                }
+
+                usedRange = targetWs.UsedRange;
+                int rows = (int)usedRange.Rows.Count;
+                int cols = (int)usedRange.Columns.Count;
+
+                var data = new KeyScheduleData { ScheduleName = sheetName };
+                if (rows < 1) return data;
+
+                for (int c = 1; c <= cols; c++)
+                {
+                    object val = usedRange.Cells[1, c].Value2;
+                    data.ColumnNames.Add(val?.ToString() ?? $"Col{c}");
+                }
+
+                for (int r = 2; r <= rows; r++)
+                {
+                    var row = new Dictionary<string, string>();
+                    for (int c = 1; c <= cols; c++)
+                    {
+                        object val = usedRange.Cells[r, c].Value2;
+                        row[data.ColumnNames[c - 1]] = val?.ToString() ?? "";
+                    }
+                    data.Rows.Add(row);
+                }
+
+                Log.Info($"[KeyScheduleService] COM: read {data.Rows.Count} rows from '{sheetName}'");
+                return data;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[KeyScheduleService] COM: read failed: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                if (usedRange  != null) try { Marshal.ReleaseComObject(usedRange);  } catch { }
+                if (targetWs   != null) try { Marshal.ReleaseComObject(targetWs);   } catch { }
+                if (targetWb   != null) try { Marshal.ReleaseComObject(targetWb);   } catch { }
+                if (excelObj   != null) try { Marshal.ReleaseComObject(excelObj);   } catch { }
             }
         }
 
