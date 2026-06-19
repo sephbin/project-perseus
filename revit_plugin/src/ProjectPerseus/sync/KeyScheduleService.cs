@@ -72,6 +72,8 @@ namespace ProjectPerseus.sync
             {
                 t.Start();
 
+                EnsureScheduleFields(vs, excelData.ColumnNames);
+
                 TableData tableData = vs.GetTableData();
                 TableSectionData section = tableData.GetSectionData(SectionType.Body);
 
@@ -376,6 +378,47 @@ namespace ProjectPerseus.sync
         }
 
         // --- Private helpers ---
+
+        // Adds any Excel column header that matches a schedulable field not yet visible in the schedule.
+        // On duplicate names, the field with the lowest ParameterId wins.
+        private static void EnsureScheduleFields(ViewSchedule vs, List<string> columnNames)
+        {
+            ScheduleDefinition def = vs.Definition;
+
+            // Build name → best SchedulableField (lowest ParameterId on ties)
+            var schedulable = new Dictionary<string, SchedulableField>(StringComparer.OrdinalIgnoreCase);
+            foreach (SchedulableField sf in def.GetSchedulableFields())
+            {
+                string name = sf.GetName(vs.Document);
+                if (!schedulable.TryGetValue(name, out SchedulableField existing) ||
+                    sf.ParameterId.GetIdValue() < existing.ParameterId.GetIdValue())
+                {
+                    schedulable[name] = sf;
+                }
+            }
+
+            // Collect names already visible in the schedule
+            var visible = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < def.GetFieldCount(); i++)
+                visible.Add(def.GetField(i).GetName());
+
+            // Add any Excel column that is schedulable but not yet visible
+            foreach (string col in columnNames)
+            {
+                if (visible.Contains(col)) continue;
+                if (!schedulable.TryGetValue(col, out SchedulableField sf)) continue;
+
+                try
+                {
+                    def.AddField(sf);
+                    Log.Info($"[KeyScheduleService] Added field '{col}' to schedule '{vs.Name}'");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"[KeyScheduleService] Could not add field '{col}' to '{vs.Name}': {ex.Message}");
+                }
+            }
+        }
 
         private static ViewSchedule FindKeySchedule(Document doc, string name)
         {
