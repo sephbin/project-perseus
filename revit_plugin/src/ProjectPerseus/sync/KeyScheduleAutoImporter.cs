@@ -182,9 +182,12 @@ namespace ProjectPerseus.sync
                                                  AuthService.GetAuthSchemeSafely());
 
                 var json = JObject.Parse(response);
-                return json["source"]?["parameter_dict"]?["perseusOption_importKeyScheduleTriggers"]
-                           ?.ToObject<List<string>>()
-                       ?? new List<string>();
+                var triggers = json["source"]?["parameter_dict"]?["perseusOption_importKeyScheduleTriggers"]
+                                   ?.ToObject<List<string>>()
+                               ?? new List<string>();
+
+                Log.Info($"[KeyScheduleAutoImporter] '{doc.Title}' triggers: [{string.Join(", ", triggers)}]");
+                return triggers;
             }
             catch (Exception ex)
             {
