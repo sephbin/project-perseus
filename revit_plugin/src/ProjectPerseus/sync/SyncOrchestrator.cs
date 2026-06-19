@@ -217,19 +217,30 @@ namespace ProjectPerseus.sync
                     }
                 }
 
-                var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                var thread = new System.Threading.Thread(() =>
+                if (_config.UseSystemBrowser)
                 {
-                    System.Windows.Forms.Application.EnableVisualStyles();
-                    var form = new QueueWebForm(startUrl, revitHandle);
-                    _queueWebForm = form;
-                    System.Windows.Forms.Application.Run(form);
-                });
-                thread.SetApartmentState(System.Threading.ApartmentState.STA);
-                thread.IsBackground = true;
-                thread.Start();
-
-                Log.Info($"Opened web queue dialog: {webQueueUrl}");
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = startUrl,
+                        UseShellExecute = true
+                    });
+                    Log.Info($"Opened web queue in system browser: {webQueueUrl}");
+                }
+                else
+                {
+                    var revitHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                    var thread = new System.Threading.Thread(() =>
+                    {
+                        System.Windows.Forms.Application.EnableVisualStyles();
+                        var form = new QueueWebForm(startUrl, revitHandle);
+                        _queueWebForm = form;
+                        System.Windows.Forms.Application.Run(form);
+                    });
+                    thread.SetApartmentState(System.Threading.ApartmentState.STA);
+                    thread.IsBackground = true;
+                    thread.Start();
+                    Log.Info($"Opened web queue dialog: {webQueueUrl}");
+                }
             }
             catch (Exception ex)
             {

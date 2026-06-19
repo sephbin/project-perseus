@@ -35,6 +35,7 @@
             this.clearTokenButton = new System.Windows.Forms.Button();
             this.tokenStatusLabel = new System.Windows.Forms.Label();
             this.verboseLoggingCheckBox = new System.Windows.Forms.CheckBox();
+            this.useSystemBrowserCheckBox = new System.Windows.Forms.CheckBox();
             this.saveButton = new System.Windows.Forms.Button();
             this.cancelButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
@@ -102,9 +103,19 @@
             this.verboseLoggingCheckBox.Text = "Enable verbose debug logging";
             this.verboseLoggingCheckBox.UseVisualStyleBackColor = true;
             //
+            // useSystemBrowserCheckBox
+            //
+            this.useSystemBrowserCheckBox.AutoSize = true;
+            this.useSystemBrowserCheckBox.Location = new System.Drawing.Point(12, 115);
+            this.useSystemBrowserCheckBox.Name = "useSystemBrowserCheckBox";
+            this.useSystemBrowserCheckBox.Size = new System.Drawing.Size(210, 17);
+            this.useSystemBrowserCheckBox.TabIndex = 9;
+            this.useSystemBrowserCheckBox.Text = "Open queue page in system browser";
+            this.useSystemBrowserCheckBox.UseVisualStyleBackColor = true;
+            //
             // saveButton
             //
-            this.saveButton.Location = new System.Drawing.Point(383, 122);
+            this.saveButton.Location = new System.Drawing.Point(383, 142);
             this.saveButton.Name = "saveButton";
             this.saveButton.Size = new System.Drawing.Size(75, 23);
             this.saveButton.TabIndex = 6;
@@ -115,7 +126,7 @@
             // cancelButton
             //
             this.cancelButton.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.cancelButton.Location = new System.Drawing.Point(464, 122);
+            this.cancelButton.Location = new System.Drawing.Point(464, 142);
             this.cancelButton.Name = "cancelButton";
             this.cancelButton.Size = new System.Drawing.Size(75, 23);
             this.cancelButton.TabIndex = 7;
@@ -129,10 +140,11 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.cancelButton;
-            this.ClientSize = new System.Drawing.Size(553, 157);
+            this.ClientSize = new System.Drawing.Size(553, 177);
             this.ControlBox = false;
             this.Controls.Add(this.cancelButton);
             this.Controls.Add(this.saveButton);
+            this.Controls.Add(this.useSystemBrowserCheckBox);
             this.Controls.Add(this.verboseLoggingCheckBox);
             this.Controls.Add(this.tokenStatusLabel);
             this.Controls.Add(this.clearTokenButton);
@@ -160,6 +172,7 @@
         private System.Windows.Forms.Button clearTokenButton;
         private System.Windows.Forms.Label tokenStatusLabel;
         private System.Windows.Forms.CheckBox verboseLoggingCheckBox;
+        private System.Windows.Forms.CheckBox useSystemBrowserCheckBox;
         private System.Windows.Forms.Button saveButton;
         private System.Windows.Forms.Button cancelButton;
     }

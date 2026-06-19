@@ -22,6 +22,7 @@ namespace ProjectPerseus.ui
         {
             syncUrltextBox.Text = Config.Instance.BaseUrl;
             verboseLoggingCheckBox.Checked = Config.Instance.VerboseLogging;
+            useSystemBrowserCheckBox.Checked = Config.Instance.UseSystemBrowser;
             UpdateTokenStatus();
         }
 
@@ -41,6 +42,7 @@ namespace ProjectPerseus.ui
         {
             Config.Instance.BaseUrl = syncUrltextBox.Text;
             Config.Instance.VerboseLogging = verboseLoggingCheckBox.Checked;
+            Config.Instance.UseSystemBrowser = useSystemBrowserCheckBox.Checked;
             ProjectPerseus.auth.AuthService.Reset();
 
             string newToken = apiTokenTextBox.Text.Trim();

@@ -82,5 +82,17 @@ namespace ProjectPerseus.Properties {
                 this["VerboseLogging"] = value;
             }
         }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool UseSystemBrowser {
+            get {
+                return ((bool)(this["UseSystemBrowser"]));
+            }
+            set {
+                this["UseSystemBrowser"] = value;
+            }
+        }
     }
 }

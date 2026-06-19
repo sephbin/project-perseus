@@ -59,6 +59,16 @@ namespace ProjectPerseus.config
             }
         }
 
+        public bool UseSystemBrowser
+        {
+            get => Properties.Settings.Default.UseSystemBrowser;
+            set
+            {
+                Properties.Settings.Default.UseSystemBrowser = value;
+                Properties.Settings.Default.Save();
+            }
+        }
+
         public Guid LastSyncVersionGuid
         {
             get => Properties.Settings.Default.LastSyncVersionGuid;
