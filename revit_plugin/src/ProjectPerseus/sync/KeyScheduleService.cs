@@ -16,13 +16,14 @@ namespace ProjectPerseus.sync
 {
     public class KeyScheduleService
     {
-        private const string KeyParamName = "Key Name";
+        public const string KeyParamName = "Key Name";
 
         public List<KeyScheduleConfig> LoadConfig(Document doc)
         {
             return KeyScheduleStorage.Load(doc);
         }
 
+        // Read all rows from a Revit key schedule (used by Export).
         public KeyScheduleData ReadFromRevit(Document doc, string scheduleName)
         {
             ViewSchedule vs = FindKeySchedule(doc, scheduleName);
@@ -40,7 +41,6 @@ namespace ProjectPerseus.sync
             var data = new KeyScheduleData { ScheduleName = scheduleName };
             data.ColumnNames = fields.Select(f => f.GetName()).ToList();
 
-            // Row 0 is the header; data starts at row 1
             for (int r = 1; r < rowCount; r++)
             {
                 var row = new Dictionary<string, string>();
@@ -53,182 +53,80 @@ namespace ProjectPerseus.sync
             return data;
         }
 
-        public KeyScheduleImportPlan AnalyzeImport(Document doc, KeyScheduleData excelData, string scheduleName)
+        // Import all rows from excelData into the named schedule.
+        // Creates new elements for keys not already present; updates existing elements.
+        // Returns (created, updated) counts.
+        public (int created, int updated) ImportRows(Document doc, KeyScheduleData excelData, string scheduleName)
         {
-            var plan = new KeyScheduleImportPlan
-            {
-                ScheduleName = scheduleName,
-                ColumnNames = new List<string>(excelData.ColumnNames)
-            };
-
             ViewSchedule vs = FindKeySchedule(doc, scheduleName);
             if (vs == null)
             {
-                plan.ScheduleNotFound = true;
-                Log.Warn($"[KeyScheduleService] Schedule '{scheduleName}' not found for analysis");
-                return plan;
+                Log.Warn($"[KeyScheduleService] ImportRows: '{scheduleName}' not found");
+                return (0, 0);
             }
 
-            TableSectionData section = vs.GetTableData().GetSectionData(SectionType.Body);
+            int created = 0, updated = 0;
 
-            // Read existing Revit keys from the first column (always "Key Name")
-            var revitKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (int r = 1; r < section.NumberOfRows; r++)
-            {
-                string k = section.GetCellText(r, 0);
-                if (string.IsNullOrEmpty(k))
-                    plan.OrphanRowCount++;   // rows with no key name (e.g. from a failed prior import)
-                else
-                    revitKeys.Add(k);
-            }
-
-            var excelKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var row in excelData.Rows)
-            {
-                if (!row.TryGetValue(KeyParamName, out string k) || string.IsNullOrEmpty(k)) continue;
-                excelKeys.Add(k);
-
-                if (revitKeys.Contains(k))
-                    plan.RowsToUpdate.Add(row);
-                else
-                    plan.RowsToCreate.Add(row);
-            }
-
-            foreach (string k in revitKeys)
-            {
-                if (!excelKeys.Contains(k))
-                    plan.KeysToDelete.Add(k);
-            }
-
-            Log.Info($"[KeyScheduleService] Analyze '{scheduleName}': " +
-                     $"Create={plan.RowsToCreate.Count} Update={plan.RowsToUpdate.Count} Delete={plan.KeysToDelete.Count}");
-            return plan;
-        }
-
-        public (int created, int updated, int deleted) ExecuteImport(Document doc, KeyScheduleImportPlan plan)
-        {
-            ViewSchedule vs = FindKeySchedule(doc, plan.ScheduleName);
-            if (vs == null)
-            {
-                Log.Warn($"[KeyScheduleService] Schedule '{plan.ScheduleName}' not found for execute");
-                return (0, 0, 0);
-            }
-
-            int created = 0, updated = 0, deleted = 0;
-
-            using (Transaction t = new Transaction(doc, "Perseus: Import Key Schedule"))
+            using (Transaction t = new Transaction(doc, $"Perseus: Import {scheduleName}"))
             {
                 t.Start();
 
                 TableData tableData = vs.GetTableData();
                 TableSectionData section = tableData.GetSectionData(SectionType.Body);
 
-                // UPDATE — find each element by its "Key Name" parameter, set all other params
-                var currentElements = new FilteredElementCollector(doc, vs.Id)
-                    .WhereElementIsNotElementType()
-                    .ToElements()
-                    .ToList();
-
-                foreach (var row in plan.RowsToUpdate)
-                {
-                    if (!row.TryGetValue(KeyParamName, out string keyName)) continue;
-
-                    RevitElement match = currentElements.FirstOrDefault(e =>
-                        string.Equals(e.LookupParameter(KeyParamName)?.AsString(), keyName,
-                                      StringComparison.OrdinalIgnoreCase));
-                    if (match == null)
-                    {
-                        Log.Info($"[KeyScheduleService] Update: no element for key '{keyName}'");
-                        continue;
-                    }
-
-                    SetElementParams(match, row);
-                    updated++;
-                }
-
-                // CREATE — InsertRow creates the element; capture its ID by diffing the collector,
-                //           then set "Key Name" and all other parameters directly
-                foreach (var row in plan.RowsToCreate)
+                foreach (var row in excelData.Rows)
                 {
                     if (!row.TryGetValue(KeyParamName, out string keyName) || string.IsNullOrEmpty(keyName))
+                    {
+                        Log.Warn($"[KeyScheduleService]   Row has no '{KeyParamName}' — skipped");
                         continue;
-                    try
-                    {
-                        var beforeIds = new FilteredElementCollector(doc, vs.Id)
-                            .WhereElementIsNotElementType()
-                            .ToElementIds()
-                            .ToHashSet();
-
-                        section.InsertRow(section.NumberOfRows);
-                        section = tableData.GetSectionData(SectionType.Body);
-
-                        ElementId newId = new FilteredElementCollector(doc, vs.Id)
-                            .WhereElementIsNotElementType()
-                            .ToElementIds()
-                            .FirstOrDefault(id => !beforeIds.Contains(id));
-
-                        if (newId == null || newId == ElementId.InvalidElementId)
-                        {
-                            Log.Warn($"[KeyScheduleService] Create '{keyName}': new element not found after InsertRow");
-                            continue;
-                        }
-
-                        RevitElement newEl = doc.GetElement(newId);
-                        SetElementParams(newEl, row); // includes "Key Name"
-                        created++;
                     }
-                    catch (Exception ex)
-                    {
-                        Log.Error($"[KeyScheduleService] Create '{keyName}': {ex.Message}");
-                        Log.Exception(ex);
-                    }
-                }
 
-                // DELETE named rows — delete the underlying element; schedule row disappears automatically
-                foreach (string key in plan.KeysToDelete)
-                {
-                    RevitElement match = new FilteredElementCollector(doc, vs.Id)
+                    RevitElement existing = new FilteredElementCollector(doc, vs.Id)
                         .WhereElementIsNotElementType()
                         .ToElements()
                         .FirstOrDefault(e => string.Equals(
-                            e.LookupParameter(KeyParamName)?.AsString(), key,
+                            e.LookupParameter(KeyParamName)?.AsString(), keyName,
                             StringComparison.OrdinalIgnoreCase));
-                    if (match == null)
-                    {
-                        Log.Info($"[KeyScheduleService] Delete: no element found for key '{key}'");
-                        continue;
-                    }
-                    try
-                    {
-                        doc.Delete(match.Id);
-                        deleted++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error($"[KeyScheduleService] Delete '{key}': {ex.Message}");
-                        Log.Exception(ex);
-                    }
-                }
 
-                // DELETE orphan elements — key param is empty (created by a failed prior import)
-                if (plan.OrphanRowCount > 0)
-                {
-                    var orphans = new FilteredElementCollector(doc, vs.Id)
-                        .WhereElementIsNotElementType()
-                        .ToElements()
-                        .Where(e => string.IsNullOrEmpty(e.LookupParameter(KeyParamName)?.AsString()))
-                        .ToList();
-
-                    foreach (RevitElement orphan in orphans)
+                    if (existing != null)
                     {
+                        Log.Info($"[KeyScheduleService]   UPDATE '{keyName}' (id={existing.Id})");
+                        SetElementParams(existing, row);
+                        updated++;
+                    }
+                    else
+                    {
+                        Log.Info($"[KeyScheduleService]   CREATE '{keyName}'");
                         try
                         {
-                            doc.Delete(orphan.Id);
-                            deleted++;
+                            var beforeIds = new FilteredElementCollector(doc, vs.Id)
+                                .WhereElementIsNotElementType()
+                                .ToElementIds()
+                                .ToHashSet();
+
+                            section.InsertRow(section.NumberOfRows);
+                            section = tableData.GetSectionData(SectionType.Body);
+
+                            ElementId newId = new FilteredElementCollector(doc, vs.Id)
+                                .WhereElementIsNotElementType()
+                                .ToElementIds()
+                                .FirstOrDefault(id => !beforeIds.Contains(id));
+
+                            if (newId == null || newId == ElementId.InvalidElementId)
+                            {
+                                Log.Warn($"[KeyScheduleService]   CREATE '{keyName}': element not found after InsertRow");
+                                continue;
+                            }
+
+                            RevitElement newEl = doc.GetElement(newId);
+                            SetElementParams(newEl, row);
+                            Log.Info($"[KeyScheduleService]   CREATE '{keyName}' OK (id={newId})");
+                            created++;
                         }
                         catch (Exception ex)
                         {
-                            Log.Error($"[KeyScheduleService] Delete orphan {orphan.Id}: {ex.Message}");
+                            Log.Error($"[KeyScheduleService]   CREATE '{keyName}': {ex.Message}");
                             Log.Exception(ex);
                         }
                     }
@@ -237,9 +135,32 @@ namespace ProjectPerseus.sync
                 t.Commit();
             }
 
-            Log.Info($"[KeyScheduleService] ExecuteImport '{plan.ScheduleName}': " +
-                     $"Created={created} Updated={updated} Deleted={deleted}");
-            return (created, updated, deleted);
+            return (created, updated);
+        }
+
+        // Returns all elements currently in the named schedule with their key name values.
+        // Logs each element found (for post-import state verification).
+        public List<(string keyName, RevitElement element)> GetScheduleElements(Document doc, string scheduleName)
+        {
+            ViewSchedule vs = FindKeySchedule(doc, scheduleName);
+            if (vs == null)
+            {
+                Log.Warn($"[KeyScheduleService] GetScheduleElements: '{scheduleName}' not found");
+                return new List<(string, RevitElement)>();
+            }
+
+            var result = new List<(string, RevitElement)>();
+
+            foreach (RevitElement e in new FilteredElementCollector(doc, vs.Id)
+                .WhereElementIsNotElementType()
+                .ToElements())
+            {
+                string key = e.LookupParameter(KeyParamName)?.AsString() ?? "";
+                Log.Info($"[KeyScheduleService]   Element id={e.Id} '{KeyParamName}'='{key}'");
+                result.Add((key, e));
+            }
+
+            return result;
         }
 
         public KeyScheduleData ReadFromExcel(string filePath, string sheetName)
@@ -352,8 +273,7 @@ namespace ProjectPerseus.sync
             return fields;
         }
 
-        // Sets all parameters on an element from a row dictionary (column header = parameter name).
-        // "Key Name" is included so new elements get their PK set in the same pass.
+        // Sets parameters on an element using column headers from the Excel row as parameter names.
         private static void SetElementParams(RevitElement element, Dictionary<string, string> row)
         {
             foreach (var kvp in row)
