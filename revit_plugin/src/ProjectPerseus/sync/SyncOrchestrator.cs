@@ -371,6 +371,10 @@ namespace ProjectPerseus.sync
                     }
                 }
 
+                // Import key schedules from Excel before the sync so the updated data
+                // is included in what Revit pushes to Django.
+                KeyScheduleAutoImporter.HandleSync(e.Document);
+
                 var payload = new
                 {
                     documentGuid = docGuid,
@@ -506,8 +510,6 @@ namespace ProjectPerseus.sync
                     {
                         Log.Warn($"batchClose call failed (non-fatal): {ex.Message}");
                     }
-
-                    KeyScheduleAutoImporter.HandleSync(e.Document);
 
                     watch.Stop();
                     Log.Info("End Watch");
