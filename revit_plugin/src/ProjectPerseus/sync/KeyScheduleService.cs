@@ -10,7 +10,6 @@ using ProjectPerseus.logging;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.web;
-using RevitElement = Autodesk.Revit.DB.Element;
 
 namespace ProjectPerseus.sync
 {
@@ -31,9 +30,9 @@ namespace ProjectPerseus.sync
             }
 
             List<ScheduleField> fields = GetVisibleFields(vs.Definition);
-            TableSectionData sectionData = vs.GetTableData().GetSectionData(SectionType.Body);
-            int rowCount = sectionData.NumberOfRows;
-            int colCount = sectionData.NumberOfColumns;
+            TableSectionData section = vs.GetTableData().GetSectionData(SectionType.Body);
+            int rowCount = section.NumberOfRows;
+            int colCount = section.NumberOfColumns;
 
             var data = new KeyScheduleData { ScheduleName = scheduleName };
             data.ColumnNames = fields.Select(f => f.GetName()).ToList();
@@ -43,7 +42,7 @@ namespace ProjectPerseus.sync
             {
                 var row = new Dictionary<string, string>();
                 for (int c = 0; c < Math.Min(colCount, fields.Count); c++)
-                    row[fields[c].GetName()] = sectionData.GetCellText(r, c);
+                    row[fields[c].GetName()] = section.GetCellText(r, c);
                 data.Rows.Add(row);
             }
 
@@ -51,51 +50,164 @@ namespace ProjectPerseus.sync
             return data;
         }
 
-        public int WriteToRevit(Document doc, KeyScheduleData data, string scheduleName)
+        public KeyScheduleImportPlan AnalyzeImport(Document doc, KeyScheduleData excelData, string scheduleName)
         {
+            var plan = new KeyScheduleImportPlan
+            {
+                ScheduleName = scheduleName,
+                ColumnNames = new List<string>(excelData.ColumnNames)
+            };
+
             ViewSchedule vs = FindKeySchedule(doc, scheduleName);
             if (vs == null)
             {
-                Log.Warn($"[KeyScheduleService] Key schedule '{scheduleName}' not found for write");
-                return 0;
+                plan.ScheduleNotFound = true;
+                Log.Warn($"[KeyScheduleService] Schedule '{scheduleName}' not found for analysis");
+                return plan;
             }
 
             List<ScheduleField> fields = GetVisibleFields(vs.Definition);
-            if (fields.Count == 0) return 0;
+            if (fields.Count == 0) return plan;
 
-            ScheduleField keyField = fields[0];
-            List<RevitElement> keyElements = new FilteredElementCollector(doc, vs.Id).ToElements().Cast<RevitElement>().ToList();
+            string keyColName = fields[0].GetName();
+            TableSectionData section = vs.GetTableData().GetSectionData(SectionType.Body);
 
-            int updated = 0;
+            // Collect current Revit keys (row 0 = header, skip it)
+            var revitKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int r = 1; r < section.NumberOfRows; r++)
+            {
+                string k = section.GetCellText(r, 0);
+                if (!string.IsNullOrEmpty(k))
+                    revitKeys.Add(k);
+            }
+
+            var excelKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in excelData.Rows)
+            {
+                if (!row.TryGetValue(keyColName, out string k) || string.IsNullOrEmpty(k)) continue;
+                excelKeys.Add(k);
+
+                if (revitKeys.Contains(k))
+                    plan.RowsToUpdate.Add(row);
+                else
+                    plan.RowsToCreate.Add(row);
+            }
+
+            foreach (string k in revitKeys)
+            {
+                if (!excelKeys.Contains(k))
+                    plan.KeysToDelete.Add(k);
+            }
+
+            Log.Info($"[KeyScheduleService] Analyze '{scheduleName}': " +
+                     $"Create={plan.RowsToCreate.Count} Update={plan.RowsToUpdate.Count} Delete={plan.KeysToDelete.Count}");
+            return plan;
+        }
+
+        public (int created, int updated, int deleted) ExecuteImport(Document doc, KeyScheduleImportPlan plan)
+        {
+            ViewSchedule vs = FindKeySchedule(doc, plan.ScheduleName);
+            if (vs == null)
+            {
+                Log.Warn($"[KeyScheduleService] Schedule '{plan.ScheduleName}' not found for execute");
+                return (0, 0, 0);
+            }
+
+            List<ScheduleField> fields = GetVisibleFields(vs.Definition);
+            if (fields.Count == 0) return (0, 0, 0);
+
+            string keyColName = fields[0].GetName();
+            int created = 0, updated = 0, deleted = 0;
+
             using (Transaction t = new Transaction(doc, "Perseus: Import Key Schedule"))
             {
                 t.Start();
-                foreach (var row in data.Rows)
+
+                TableData tableData = vs.GetTableData();
+                TableSectionData section = tableData.GetSectionData(SectionType.Body);
+
+                // UPDATE — find each row by key in col 0, set remaining cells
+                foreach (var row in plan.RowsToUpdate)
                 {
-                    if (!row.TryGetValue(keyField.GetName(), out string keyName) || string.IsNullOrEmpty(keyName))
-                        continue;
+                    if (!row.TryGetValue(keyColName, out string keyName)) continue;
+                    int rowIdx = FindRowIndex(section, keyName);
+                    if (rowIdx < 0) continue;
 
-                    RevitElement match = keyElements.FirstOrDefault(e => MatchesKeyName(e, keyField, keyName));
-                    if (match == null)
+                    for (int c = 1; c < fields.Count; c++)
                     {
-                        Log.Info($"[KeyScheduleService] No element for key '{keyName}' — skipping");
-                        continue;
-                    }
-
-                    foreach (ScheduleField field in fields.Skip(1))
-                    {
-                        if (!row.TryGetValue(field.GetName(), out string cellValue)) continue;
-                        Parameter param = match.LookupParameter(field.GetName());
-                        if (param == null || param.IsReadOnly) continue;
-                        TrySetParameter(param, cellValue);
+                        string colName = fields[c].GetName();
+                        if (!row.TryGetValue(colName, out string val)) continue;
+                        try { section.SetCellText(rowIdx, c, val ?? ""); }
+                        catch (Exception ex)
+                        {
+                            Log.Info($"[KeyScheduleService] SetCellText row={rowIdx} col={c}: {ex.Message}");
+                        }
                     }
                     updated++;
                 }
+
+                // CREATE — append rows at the end, set all cells
+                foreach (var row in plan.RowsToCreate)
+                {
+                    if (!row.TryGetValue(keyColName, out string keyName) || string.IsNullOrEmpty(keyName)) continue;
+                    try
+                    {
+                        int insertAt = section.NumberOfRows;
+                        section.InsertRow(insertAt);
+                        // re-read section after structural change
+                        section = tableData.GetSectionData(SectionType.Body);
+                        int newRowIdx = section.NumberOfRows - 1;
+
+                        section.SetCellText(newRowIdx, 0, keyName);
+                        for (int c = 1; c < fields.Count; c++)
+                        {
+                            string colName = fields[c].GetName();
+                            if (!row.TryGetValue(colName, out string val)) continue;
+                            try { section.SetCellText(newRowIdx, c, val ?? ""); }
+                            catch (Exception ex)
+                            {
+                                Log.Info($"[KeyScheduleService] SetCellText create col={c}: {ex.Message}");
+                            }
+                        }
+                        created++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"[KeyScheduleService] InsertRow '{keyName}': {ex.Message}");
+                        Log.Exception(ex);
+                    }
+                }
+
+                // DELETE — remove from bottom to top to avoid index shift
+                var deleteIndices = new List<int>();
+                foreach (string key in plan.KeysToDelete)
+                {
+                    int idx = FindRowIndex(section, key);
+                    if (idx >= 0) deleteIndices.Add(idx);
+                }
+                deleteIndices.Sort((a, b) => b.CompareTo(a)); // descending
+
+                foreach (int idx in deleteIndices)
+                {
+                    try
+                    {
+                        section.RemoveRow(idx);
+                        section = tableData.GetSectionData(SectionType.Body);
+                        deleted++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"[KeyScheduleService] RemoveRow idx={idx}: {ex.Message}");
+                        Log.Exception(ex);
+                    }
+                }
+
                 t.Commit();
             }
 
-            Log.Info($"[KeyScheduleService] Updated {updated}/{data.Rows.Count} rows in '{scheduleName}'");
-            return updated;
+            Log.Info($"[KeyScheduleService] ExecuteImport '{plan.ScheduleName}': " +
+                     $"Created={created} Updated={updated} Deleted={deleted}");
+            return (created, updated, deleted);
         }
 
         public KeyScheduleData ReadFromExcel(string filePath, string sheetName)
@@ -208,11 +320,14 @@ namespace ProjectPerseus.sync
             return fields;
         }
 
-        private static bool MatchesKeyName(RevitElement e, ScheduleField keyField, string keyName)
+        private static int FindRowIndex(TableSectionData section, string keyName)
         {
-            Parameter p = e.LookupParameter(keyField.GetName());
-            string val = p?.AsString() ?? e.Name;
-            return string.Equals(val, keyName, StringComparison.OrdinalIgnoreCase);
+            for (int r = 1; r < section.NumberOfRows; r++)
+            {
+                if (string.Equals(section.GetCellText(r, 0), keyName, StringComparison.OrdinalIgnoreCase))
+                    return r;
+            }
+            return -1;
         }
 
         private static void TrySetParameter(Parameter param, string value)

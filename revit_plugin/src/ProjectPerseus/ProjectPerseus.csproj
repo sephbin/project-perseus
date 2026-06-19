@@ -285,6 +285,7 @@
     <Compile Include="models\ElementDelta.cs" />
     <Compile Include="models\KeyScheduleConfig.cs" />
     <Compile Include="models\KeyScheduleData.cs" />
+    <Compile Include="models\KeyScheduleImportPlan.cs" />
     <Compile Include="models\geometry\GeoJsonGeometry.cs" />
     <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
     <Compile Include="models\SyncQueueResponse.cs" />

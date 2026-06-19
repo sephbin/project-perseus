@@ -33,45 +33,71 @@ namespace ProjectPerseus.commands
                 return Result.Succeeded;
             }
 
-            var previews = new List<(KeyScheduleConfig cfg, KeyScheduleData data)>();
-            var skipped = new List<string>();
+            // Phase 1 — read Excel and analyze each schedule (no document writes)
+            var plans = new List<KeyScheduleImportPlan>();
+            var readErrors = new List<string>();
 
             foreach (var cfg in configs)
             {
                 if (!File.Exists(cfg.ExcelFilePath))
                 {
-                    skipped.Add($"'{cfg.RevitScheduleName}': file not found at {cfg.ExcelFilePath}");
+                    readErrors.Add($"'{cfg.RevitScheduleName}': file not found at {cfg.ExcelFilePath}");
                     continue;
                 }
                 try
                 {
-                    KeyScheduleData data = service.ReadFromExcel(cfg.ExcelFilePath, cfg.ExcelSheetName);
-                    if (data != null)
-                        previews.Add((cfg, data));
+                    KeyScheduleData excelData = service.ReadFromExcel(cfg.ExcelFilePath, cfg.ExcelSheetName);
+                    if (excelData == null)
+                    {
+                        readErrors.Add($"'{cfg.RevitScheduleName}': sheet '{cfg.ExcelSheetName}' not found in Excel");
+                        continue;
+                    }
+
+                    KeyScheduleImportPlan plan = service.AnalyzeImport(doc, excelData, cfg.RevitScheduleName);
+                    if (plan.ScheduleNotFound)
+                        readErrors.Add($"'{cfg.RevitScheduleName}': schedule not found in model");
                     else
-                        skipped.Add($"'{cfg.RevitScheduleName}': sheet '{cfg.ExcelSheetName}' not found in Excel");
+                        plans.Add(plan);
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"[ImportKeyScheduleCommand] Read Excel '{cfg.ExcelFilePath}': {ex.Message}");
+                    Log.Error($"[ImportKeyScheduleCommand] Read/analyze '{cfg.RevitScheduleName}': {ex.Message}");
                     Log.Exception(ex);
-                    skipped.Add($"'{cfg.RevitScheduleName}': {ex.Message}");
+                    readErrors.Add($"'{cfg.RevitScheduleName}': {ex.Message}");
                 }
             }
 
-            if (previews.Count == 0)
+            if (plans.Count == 0)
             {
-                string body = skipped.Count > 0
-                    ? "Nothing to import:\n  " + string.Join("\n  ", skipped)
+                string body = readErrors.Count > 0
+                    ? "Nothing to import:\n  " + string.Join("\n  ", readErrors)
                     : "No schedule data could be read.";
                 TaskDialog.Show("Perseus: Import Schedules", body);
                 return Result.Succeeded;
             }
 
-            // Confirmation
-            var confirmText = new StringBuilder("The following will be imported into Revit:\n\n");
-            foreach (var (cfg, data) in previews)
-                confirmText.AppendLine($"  {cfg.RevitScheduleName}: {data.Rows.Count} rows  ({Path.GetFileName(cfg.ExcelFilePath)})");
+            // Phase 2 — confirm dialog showing C/U/D with delete rows listed explicitly
+            var confirmText = new StringBuilder($"Ready to import {plans.Count} schedule(s):\n\n");
+            foreach (var plan in plans)
+            {
+                confirmText.AppendLine($"  {plan.ScheduleName}");
+                if (plan.RowsToCreate.Count > 0)
+                    confirmText.AppendLine($"    Create : {plan.RowsToCreate.Count} row(s)");
+                if (plan.RowsToUpdate.Count > 0)
+                    confirmText.AppendLine($"    Update : {plan.RowsToUpdate.Count} row(s)");
+                if (plan.KeysToDelete.Count > 0)
+                {
+                    confirmText.AppendLine($"    Delete : {plan.KeysToDelete.Count} row(s)");
+                    foreach (string key in plan.KeysToDelete)
+                        confirmText.AppendLine($"             • {key}");
+                }
+            }
+
+            if (HasDeletes(plans))
+                confirmText.AppendLine("\nDeleted rows cannot be recovered. Proceed?");
+
+            if (readErrors.Count > 0)
+                confirmText.AppendLine("\nSkipped:\n  " + string.Join("\n  ", readErrors));
 
             TaskDialog confirm = new TaskDialog("Perseus: Import Schedules")
             {
@@ -82,27 +108,35 @@ namespace ProjectPerseus.commands
             if (confirm.Show() == TaskDialogResult.Cancel)
                 return Result.Cancelled;
 
+            // Phase 3 — execute
             var summary = new StringBuilder();
-            foreach (var (cfg, data) in previews)
+            foreach (var plan in plans)
             {
                 try
                 {
-                    int updated = service.WriteToRevit(doc, data, cfg.RevitScheduleName);
-                    summary.AppendLine($"  {cfg.RevitScheduleName}: {updated}/{data.Rows.Count} rows updated");
+                    var (created, updated, deleted) = service.ExecuteImport(doc, plan);
+                    summary.AppendLine($"  {plan.ScheduleName}: +{created} created, ~{updated} updated, -{deleted} deleted");
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"[ImportKeyScheduleCommand] WriteToRevit '{cfg.RevitScheduleName}': {ex.Message}");
+                    Log.Error($"[ImportKeyScheduleCommand] ExecuteImport '{plan.ScheduleName}': {ex.Message}");
                     Log.Exception(ex);
-                    summary.AppendLine($"  {cfg.RevitScheduleName}: ERROR — {ex.Message}");
+                    summary.AppendLine($"  {plan.ScheduleName}: ERROR — {ex.Message}");
                 }
             }
 
-            if (skipped.Count > 0)
-                summary.AppendLine("\nSkipped:\n  " + string.Join("\n  ", skipped));
+            if (readErrors.Count > 0)
+                summary.AppendLine("\nSkipped:\n  " + string.Join("\n  ", readErrors));
 
             TaskDialog.Show("Perseus: Import Schedules", summary.ToString().Trim());
             return Result.Succeeded;
+        }
+
+        private static bool HasDeletes(List<KeyScheduleImportPlan> plans)
+        {
+            foreach (var p in plans)
+                if (p.KeysToDelete.Count > 0) return true;
+            return false;
         }
     }
 }
