@@ -10,6 +10,7 @@ namespace ProjectPerseus.models
         public List<Dictionary<string, string>> RowsToUpdate { get; set; }
         public List<string> KeysToDelete { get; set; }
         public bool ScheduleNotFound { get; set; }
+        public int OrphanRowCount { get; set; }  // rows with empty key name (failed prior imports)
 
         public KeyScheduleImportPlan()
         {

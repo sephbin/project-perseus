@@ -76,7 +76,9 @@ namespace ProjectPerseus.sync
             for (int r = 1; r < section.NumberOfRows; r++)
             {
                 string k = section.GetCellText(r, 0);
-                if (!string.IsNullOrEmpty(k))
+                if (string.IsNullOrEmpty(k))
+                    plan.OrphanRowCount++;   // rows with no key name (e.g. from a failed prior import)
+                else
                     revitKeys.Add(k);
             }
 
@@ -182,7 +184,7 @@ namespace ProjectPerseus.sync
                     }
                 }
 
-                // DELETE — re-find row index each iteration (section shifts after each removal)
+                // DELETE named rows — re-find row index each iteration (section shifts after each removal)
                 foreach (string key in plan.KeysToDelete)
                 {
                     int idx = FindRowIndex(section, key);
@@ -196,6 +198,32 @@ namespace ProjectPerseus.sync
                     catch (Exception ex)
                     {
                         Log.Error($"[KeyScheduleService] Delete '{key}': {ex.Message}");
+                        Log.Exception(ex);
+                    }
+                }
+
+                // DELETE orphan rows — rows whose "Key Name" is empty (created by failed prior imports)
+                for (int i = 0; i < plan.OrphanRowCount; i++)
+                {
+                    int orphanIdx = -1;
+                    for (int r = 1; r < section.NumberOfRows; r++)
+                    {
+                        if (string.IsNullOrEmpty(section.GetCellText(r, 0)))
+                        {
+                            orphanIdx = r;
+                            break;
+                        }
+                    }
+                    if (orphanIdx < 0) break;
+                    try
+                    {
+                        section.RemoveRow(orphanIdx);
+                        section = tableData.GetSectionData(SectionType.Body);
+                        deleted++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"[KeyScheduleService] Delete orphan row {orphanIdx}: {ex.Message}");
                         Log.Exception(ex);
                     }
                 }

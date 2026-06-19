@@ -91,6 +91,8 @@ namespace ProjectPerseus.commands
                     foreach (string key in plan.KeysToDelete)
                         confirmText.AppendLine($"             • {key}");
                 }
+                if (plan.OrphanRowCount > 0)
+                    confirmText.AppendLine($"    Delete : {plan.OrphanRowCount} unnamed row(s) with no key name");
             }
 
             if (HasDeletes(plans))
@@ -135,7 +137,7 @@ namespace ProjectPerseus.commands
         private static bool HasDeletes(List<KeyScheduleImportPlan> plans)
         {
             foreach (var p in plans)
-                if (p.KeysToDelete.Count > 0) return true;
+                if (p.KeysToDelete.Count > 0 || p.OrphanRowCount > 0) return true;
             return false;
         }
     }
