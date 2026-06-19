@@ -37,11 +37,14 @@ namespace ProjectPerseus.sync
             new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         // Called from SyncOrchestrator when a document finishes opening.
-        // Connects to Django, reads the trigger list, and runs import if onStart is configured.
+        // Connects to Django, reads the trigger list, then runs onStart and onIdle immediately.
+        // onIdle runs here too because opening a document is the first idle moment for it —
+        // there's no reason to wait for the 30-minute timer to lap.
         public static void HandleDocumentOpened(Document doc)
         {
-            Log.Info($"[KeyScheduleAutoImporter] onStart trigger — '{doc.Title}'");
+            Log.Info($"[KeyScheduleAutoImporter] Document opened — '{doc.Title}'");
             RunForDocument(doc, TriggerOnStart);
+            RunForDocument(doc, TriggerOnIdle);
         }
 
         // Called from Plugin's Idling handler on every idle tick.
