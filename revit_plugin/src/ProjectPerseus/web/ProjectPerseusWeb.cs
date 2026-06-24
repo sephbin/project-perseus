@@ -116,7 +116,7 @@ namespace ProjectPerseus.web
         public void SubmitElementState(IList<models.ElementDelta> elementDeltas, string batchId = null)
         {
             WriteLog("SubmitElementState");
-            int chunkSize = Math.Min(elementDeltas.Count, 10000);
+            int chunkSize = 1000;
             WriteLog("chunkSize");
             int total = elementDeltas.Count;
             WriteLog("total");
