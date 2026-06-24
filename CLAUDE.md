@@ -130,6 +130,10 @@ ProjectPerseus/
 │   └── SentryContext.cs          IDisposable scope: SentrySdk.Init/Close around a
 │                                 `using (...)` block. Used in SyncOrchestrator.doOnSync.
 ├── util/                         NEW (P7). Non-logging helpers extracted from Utl.cs.
+│   ├── FilterEvaluator.cs        Python-subset expression evaluator for key schedule import filters.
+│   │                             Supports row["Col"] access, re.search/match/findall, math.*,
+│   │                             string methods, comparisons, and/or/not, len/float/int/str.
+│   │                             No external dependencies — pure C# recursive-descent evaluator.
 │   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
 │   └── UrlUtils.cs               IsValidUrl.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
@@ -150,9 +154,17 @@ ProjectPerseus/
 │   ├── SettingsForm.Designer.cs  Partial; namespace matches SettingsForm.cs.
 │   ├── SettingsForm.resx         Embedded resource; DependentUpon resolves manifest name via
 │                                 typeof(SettingsForm).FullName, so path change is safe.
+│   ├── EditFiltersForm.cs        NEW. WinForms dialog for editing per-schedule cascading import
+│   │                             filter rules (Field/Condition/Value/Action DataGridView).
 │   ├── SyncWarningForm.cs        Moved from forms/. Was at global namespace; now ProjectPerseus.ui.
 │   └── ThemeIconManager.cs
 ├── models/                       DTOs + geometry extractor.
+│   ├── KeyScheduleConfig.cs      Per-schedule mapping: schedule name, Excel path/sheet, Django
+│   │                             endpoint, and Filters list (List<KeyScheduleFilter>).
+│   ├── KeyScheduleData.cs        Schedule rows (ScheduleName, ColumnNames, Rows).
+│   ├── KeyScheduleFilter.cs      FilterAction enum (Exclude/Include) + KeyScheduleFilter class
+│   │                             (Action + Expression Python string). Evaluated by util/FilterEvaluator.
+│   ├── KeyScheduleImportPlan.cs  Import plan (rows to create/update, keys to delete).
 │   └── geometry/                 (see feedback_csproj_include.md for ARDB alias rule)
 ├── revit/                        Revit API adapter layer (RevitFacade, extractors).
 │   ├── adapters/                 Ardb* wrappers around Autodesk.Revit.DB types.

@@ -69,10 +69,11 @@ namespace ProjectPerseus.commands
                             readErrors.Add($"[{doc.Title}] '{cfg.RevitScheduleName}': sheet '{cfg.ExcelSheetName}' not found in Excel");
                             continue;
                         }
+                        data = KeyScheduleService.ApplyFilters(data, cfg.Filters);
                         var keys = data.Rows
                             .Select(r => r.TryGetValue(KeyScheduleService.KeyParamName, out string k) ? k : "?")
                             .ToList();
-                        Log.Info($"[ImportKeySchedule]   {data.Rows.Count} row(s): {string.Join(", ", keys)}");
+                        Log.Info($"[ImportKeySchedule]   {data.Rows.Count} row(s) after filters: {string.Join(", ", keys)}");
                         workItems.Add((cfg, data));
                     }
                     catch (Exception ex)

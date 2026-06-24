@@ -106,6 +106,7 @@ namespace ProjectPerseus.sync
                             continue;
                         }
 
+                        data = KeyScheduleService.ApplyFilters(data, cfg.Filters);
                         var (created, updated) = service.ImportRows(doc, data, cfg.RevitScheduleName);
                         Log.Info($"[KeyScheduleAutoImporter]   '{cfg.RevitScheduleName}': +{created} created  ~{updated} updated");
 

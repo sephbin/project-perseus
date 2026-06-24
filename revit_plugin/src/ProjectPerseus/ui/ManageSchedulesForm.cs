@@ -24,6 +24,7 @@ namespace ProjectPerseus.ui
         private const int ColSource   = 1;
         private const int ColBrowse   = 2;
         private const int ColSheet    = 3;
+        private const int ColFilters  = 4;
 
         public List<KeyScheduleConfig> Result { get; private set; }
 
@@ -102,6 +103,18 @@ namespace ProjectPerseus.ui
                 AutoComplete = true
             });
 
+            // Col 4 — filter rules button (label updates to show active rule count)
+            _grid.Columns.Add(new DataGridViewButtonColumn
+            {
+                Name = "Filters",
+                HeaderText = "Filters",
+                UseColumnTextForButtonValue = false,
+                Width = 90,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+                FillWeight = 1,
+                ToolTipText = "Edit cascading import filter rules for this schedule"
+            });
+
             // Disable built-in clipboard copy (copies whole row including headers and button column)
             _grid.ClipboardCopyMode = DataGridViewClipboardCopyMode.Disable;
             _grid.KeyDown += OnGridKeyDown;
@@ -169,6 +182,16 @@ namespace ProjectPerseus.ui
             _grid.Rows[idx].Cells[ColSchedule].Value = "";
             _grid.Rows[idx].Cells[ColSource].Value   = "";
             _grid.Rows[idx].Cells[ColSheet].Value    = "";
+            _grid.Rows[idx].Tag = new List<KeyScheduleFilter>();
+            UpdateFilterButtonText(idx);
+        }
+
+        private void UpdateFilterButtonText(int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= _grid.Rows.Count) return;
+            var filters = _grid.Rows[rowIndex].Tag as List<KeyScheduleFilter>;
+            int n = filters?.Count ?? 0;
+            _grid.Rows[rowIndex].Cells[ColFilters].Value = n == 0 ? "Filters..." : $"Filters ({n})";
         }
 
         private void LoadRows(List<KeyScheduleConfig> configs)
@@ -189,6 +212,8 @@ namespace ProjectPerseus.ui
                 _grid.Rows[idx].Cells[ColSource].Value   = source;
                 PopulateSheetNames(idx);
                 _grid.Rows[idx].Cells[ColSheet].Value    = cfg.ExcelSheetName ?? "";
+                _grid.Rows[idx].Tag = cfg.Filters ?? new List<KeyScheduleFilter>();
+                UpdateFilterButtonText(idx);
             }
         }
 
@@ -257,22 +282,39 @@ namespace ProjectPerseus.ui
 
         private void OnCellContentClick(object sender, DataGridViewCellEventArgs e)
         {
-            if (e.RowIndex < 0 || e.ColumnIndex != ColBrowse) return;
+            if (e.RowIndex < 0) return;
 
-            string current = _grid.Rows[e.RowIndex].Cells[ColSource].Value?.ToString() ?? "";
-            if (IsUrl(current)) return; // browse not meaningful for URLs
+            if (e.ColumnIndex == ColBrowse)
+            {
+                string current = _grid.Rows[e.RowIndex].Cells[ColSource].Value?.ToString() ?? "";
+                if (IsUrl(current)) return;
 
-            using (var dlg = new OpenFileDialog
-            {
-                Title  = "Select Excel File",
-                Filter = "Excel Files (*.xlsx)|*.xlsx|All Files (*.*)|*.*",
-                FileName = File.Exists(current) ? current : ""
-            })
-            {
-                if (dlg.ShowDialog(this) == DialogResult.OK)
+                using (var dlg = new OpenFileDialog
                 {
-                    _grid.Rows[e.RowIndex].Cells[ColSource].Value = dlg.FileName;
-                    PopulateSheetNames(e.RowIndex);
+                    Title  = "Select Excel File",
+                    Filter = "Excel Files (*.xlsx)|*.xlsx|All Files (*.*)|*.*",
+                    FileName = File.Exists(current) ? current : ""
+                })
+                {
+                    if (dlg.ShowDialog(this) == DialogResult.OK)
+                    {
+                        _grid.Rows[e.RowIndex].Cells[ColSource].Value = dlg.FileName;
+                        PopulateSheetNames(e.RowIndex);
+                    }
+                }
+            }
+            else if (e.ColumnIndex == ColFilters)
+            {
+                string scheduleName = _grid.Rows[e.RowIndex].Cells[ColSchedule].Value?.ToString()?.Trim();
+                if (string.IsNullOrEmpty(scheduleName)) scheduleName = "this schedule";
+                var current = _grid.Rows[e.RowIndex].Tag as List<KeyScheduleFilter> ?? new List<KeyScheduleFilter>();
+                using (var form = new EditFiltersForm(current, scheduleName))
+                {
+                    if (form.ShowDialog(this) == DialogResult.OK)
+                    {
+                        _grid.Rows[e.RowIndex].Tag = form.Result;
+                        UpdateFilterButtonText(e.RowIndex);
+                    }
                 }
             }
         }
@@ -362,6 +404,8 @@ namespace ProjectPerseus.ui
 
                 if (string.IsNullOrEmpty(name)) continue;
 
+                var filters = row.Tag as List<KeyScheduleFilter> ?? new List<KeyScheduleFilter>();
+
                 if (IsUrl(source))
                 {
                     list.Add(new KeyScheduleConfig
@@ -369,7 +413,8 @@ namespace ProjectPerseus.ui
                         RevitScheduleName = name,
                         ExcelFilePath     = "",
                         ExcelSheetName    = "",
-                        DjangoEndpoint    = source
+                        DjangoEndpoint    = source,
+                        Filters           = filters
                     });
                 }
                 else
@@ -379,7 +424,8 @@ namespace ProjectPerseus.ui
                         RevitScheduleName = name,
                         ExcelFilePath     = source,
                         ExcelSheetName    = sheet,
-                        DjangoEndpoint    = ""
+                        DjangoEndpoint    = "",
+                        Filters           = filters
                     });
                 }
             }

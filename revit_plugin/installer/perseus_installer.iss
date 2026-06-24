@@ -28,6 +28,15 @@ RestartApplications=no
 ; Optional: Adds your plugin icon to the Windows Add/Remove Programs list
 ; UninstallDisplayIcon={app}\2026\reset.png
 [Files]
+; --- REVIT 2023 ---
+; skipifsourcedoesntexist allows single-version builds to still produce a valid installer
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\ProjectPerseus.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2023\runtimes\win-x64\native"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\manifests\ProjectPerseus_2023.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2023"; Flags: ignoreversion skipifsourcedoesntexist
+
+
 ; --- REVIT 2024 ---
 ; 1. The DLL payload
 ; Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2024\ProjectPerseus.dll"; DestDir: "{app}\2024"; Flags: ignoreversion

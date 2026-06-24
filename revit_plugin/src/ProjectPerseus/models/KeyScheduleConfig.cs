@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace ProjectPerseus.models
 {
     public class KeyScheduleConfig
@@ -6,5 +8,6 @@ namespace ProjectPerseus.models
         public string ExcelFilePath { get; set; }
         public string ExcelSheetName { get; set; }
         public string DjangoEndpoint { get; set; }
+        public List<KeyScheduleFilter> Filters { get; set; } = new List<KeyScheduleFilter>();
     }
 }

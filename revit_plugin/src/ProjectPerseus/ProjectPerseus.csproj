@@ -285,6 +285,7 @@
     <Compile Include="models\ElementDelta.cs" />
     <Compile Include="models\KeyScheduleConfig.cs" />
     <Compile Include="models\KeyScheduleData.cs" />
+    <Compile Include="models\KeyScheduleFilter.cs" />
     <Compile Include="models\KeyScheduleImportPlan.cs" />
     <Compile Include="models\geometry\GeoJsonGeometry.cs" />
     <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
@@ -331,6 +332,7 @@
     <Compile Include="sync\RevitSyncDialogCloser.cs" />
     <Compile Include="sync\StateSubmitter.cs" />
     <Compile Include="sync\SyncOrchestrator.cs" />
+    <Compile Include="ui\EditFiltersForm.cs" />
     <Compile Include="ui\ManageSchedulesForm.cs" />
     <Compile Include="ui\DiagnoseElementForm.cs">
       <SubType>Form</SubType>
@@ -358,6 +360,7 @@
     </Compile>
     <Compile Include="ui\ThemeIconManager.cs" />
     <Compile Include="util\ElementWatchList.cs" />
+    <Compile Include="util\FilterEvaluator.cs" />
     <Compile Include="util\JsonUtils.cs" />
     <Compile Include="util\UrlUtils.cs" />
     <Compile Include="web\ProjectPerseusWeb.cs" />
@@ -414,7 +417,7 @@
   <!-- BumpVersion must run BEFORE Build so CoreCompile bakes the new AssemblyVersion
        into the DLL. Previously it ran AfterTargets="Build" which produced installers
        containing a DLL stamped one version behind the installer/commit message. -->
-  <Target Name="BumpVersion" BeforeTargets="Build">
+  <Target Name="BumpVersion" BeforeTargets="Build" Condition="'$(SkipBumpVersion)' != 'true'">
     <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot;" />
   </Target>
 

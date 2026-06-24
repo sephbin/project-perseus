@@ -10,6 +10,7 @@ using ProjectPerseus.config;
 using ProjectPerseus.logging;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
+using ProjectPerseus.util;
 using ProjectPerseus.web;
 using RevitElement = Autodesk.Revit.DB.Element;
 
@@ -375,6 +376,38 @@ namespace ProjectPerseus.sync
                 Log.Error($"[KeyScheduleService] Django push failed for '{endpoint}': {ex.Message}");
                 Log.Exception(ex);
             }
+        }
+
+        // Returns a new KeyScheduleData containing only rows that pass the cascading filter rules.
+        // Rules apply in order; each matching rule whose Python expression returns truthy sets that
+        // row's state (Include/Exclude), so later rules override earlier ones.
+        // Empty/null filters returns data unchanged.
+        public static KeyScheduleData ApplyFilters(KeyScheduleData data, List<KeyScheduleFilter> filters)
+        {
+            if (data == null || filters == null || filters.Count == 0) return data;
+
+            var result = new KeyScheduleData { ScheduleName = data.ScheduleName };
+            result.ColumnNames.AddRange(data.ColumnNames);
+
+            int excluded = 0;
+            foreach (var row in data.Rows)
+            {
+                bool included = true;
+                foreach (var filter in filters)
+                {
+                    if (!string.IsNullOrWhiteSpace(filter.Expression) &&
+                        FilterEvaluator.Evaluate(filter.Expression, row))
+                    {
+                        included = (filter.Action == FilterAction.Include);
+                    }
+                }
+                if (included) result.Rows.Add(row);
+                else excluded++;
+            }
+
+            if (excluded > 0)
+                Log.Info($"[KeyScheduleService] ApplyFilters: {excluded}/{data.Rows.Count} row(s) filtered out of '{data.ScheduleName}'");
+            return result;
         }
 
         // --- Private helpers ---
