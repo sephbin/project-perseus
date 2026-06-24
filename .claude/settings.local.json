@@ -20,7 +20,9 @@
       "Bash(find /usr -name \"admin.py\" -path \"*/background_task/*\")",
       "PowerShell(python -c \"import background_task, os; print\\(os.path.dirname\\(background_task.__file__\\)\\)\")",
       "Bash(xargs grep -l \"WriteSetting\\\\|WriteParameter\\\\|SetParameter\")",
-      "PowerShell($ip = \"C:\\\\Program Files\\\\Autodesk\\\\Revit 2020\\\\AddIns\\\\DynamoForRevit\\\\IronPython.dll\"; [System.Diagnostics.FileVersionInfo]::GetVersionInfo\\($ip\\).FileVersion)"
+      "PowerShell($ip = \"C:\\\\Program Files\\\\Autodesk\\\\Revit 2020\\\\AddIns\\\\DynamoForRevit\\\\IronPython.dll\"; [System.Diagnostics.FileVersionInfo]::GetVersionInfo\\($ip\\).FileVersion)",
+      "Bash(Select-Object -First 50)",
+      "Bash(Format-Table FullName)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

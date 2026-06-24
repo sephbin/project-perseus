@@ -34,7 +34,6 @@ namespace ProjectPerseus.web
         //private string ElementsEndpoint => $"{_baseUrl}/rapi/elements/";
         private string ElementsEndpoint => $"{_baseUrl}/add_to_crud_queue/";
         
-        private string StateUpdateEndpoint => $"{_baseUrl}/stateupdate/";
 
         public ProjectPerseusWeb(string baseUrl, string apiToken)
         {
@@ -113,52 +112,5 @@ namespace ProjectPerseus.web
             }
         }
 
-        public void SubmitElementState(IList<models.ElementDelta> elementDeltas, string batchId = null)
-        {
-            WriteLog("SubmitElementState");
-            int chunkSize = 1000;
-            WriteLog("chunkSize");
-            int total = elementDeltas.Count;
-            WriteLog("total");
-            int totalChunks = (int)Math.Ceiling((double)total / chunkSize);
-            WriteLog("totalChunks");
-            WriteLog($"SubmitElementState: {total} elements to upload in {totalChunks} chunks (chunk size {chunkSize})");
-            for (int i = 0; i < total; i += chunkSize)
-            {
-                WriteLog("for");
-                var chunk = elementDeltas.Skip(i).Take(chunkSize).ToList();
-                WriteLog("chunk");
-                // Wrap in an envelope so the server can extract batchId without a header change.
-                var envelope = new { batchId = batchId, elements = chunk };
-                string jsonString = JsonUtils.SerializeToJson(envelope, null);
-
-                WriteLog("jsonString");
-
-                WriteLog($"Uploading chunk {i / chunkSize + 1} of {totalChunks}, containing {chunk.Count} elements");
-
-                try
-                {
-                    var preview = jsonString.Length > 5000 ? jsonString.Substring(0, 5000) + "..." : jsonString;
-                    WriteLog(preview);
-                    // Legacy Django TokenAuthentication scheme; matches what this endpoint expected
-                    // before the MSAL/Bearer migration. New code should prefer the SubmitElementDeltas
-                    // path which uses HttpClient + AuthService.GetAuthSchemeSafely().
-                    WebHelper.Post(StateUpdateEndpoint, _apiToken, jsonString, "Token");
-
-                    WriteLog($"Chunk {i / chunkSize + 1} uploaded successfully");
-                }
-                catch (Exception ex)
-                {
-                    WriteLog($"Error posting chunk {i / chunkSize + 1}: {ex.Message}");
-                }
-            }
-
-
-
-
-            //var jsonString = JsonUtils.SerializeToJson(elementDeltas, null);
-            //WriteLog(jsonString);
-            WriteLog("// SubmitElementState");
-        }
     }
 }

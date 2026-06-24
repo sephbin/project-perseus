@@ -16,10 +16,5 @@ namespace ProjectPerseus.sync
                 .SubmitElementDeltas(elements, deleted, doc, batchId);
         }
 
-        public static void SubmitElementState(IList<ElementDelta> elements, string batchId = null)
-        {
-            new ProjectPerseusWeb(Config.Instance.BaseUrl, Config.Instance.ApiToken)
-                .SubmitElementState(elements, batchId);
-        }
     }
 }

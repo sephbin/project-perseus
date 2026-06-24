@@ -334,20 +334,8 @@ namespace ProjectPerseus.sync
                     Log.Info($"PerformFullSync: payload sample log failed: {ex.Message}");
                 }
 
-                StateSubmitter.SubmitElementState(filteredElementDeltaList, batchId);
-
-                // Ghost cleanup: send the precomputed ghost list as deletions.
-                try
-                {
-                    if (ghostIds.Count > 0)
-                    {
-                        StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), ghostIds, revit.Document, batchId);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Error($"PerformFullSync: ghost-element cleanup failed: {ex.Message}");
-                }
+                // Full sync and ghost deletions go through the same endpoint as incremental.
+                StateSubmitter.SubmitElementDeltas(filteredElementDeltaList, ghostIds, revit.Document, batchId);
 
                 watch.Stop();
                 Log.Info("End Watch");
