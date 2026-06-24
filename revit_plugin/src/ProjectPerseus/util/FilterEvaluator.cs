@@ -151,28 +151,34 @@ namespace ProjectPerseus.util
                 if (i + 1 < src.Length)
                 {
                     string two = src.Substring(i, 2);
-                    TT? tt2 = two switch
-                    {
-                        "==" => TT.Eq, "!=" => TT.Neq,
-                        "<=" => TT.Le,  ">=" => TT.Ge,
-                        _    => (TT?)null
-                    };
-                    if (tt2 != null) { toks.Add(new Tok { Type = tt2.Value, Text = two }); i += 2; continue; }
+                    TT twoType;
+                    bool twoMatch = true;
+                    if      (two == "==") twoType = TT.Eq;
+                    else if (two == "!=") twoType = TT.Neq;
+                    else if (two == "<=") twoType = TT.Le;
+                    else if (two == ">=") twoType = TT.Ge;
+                    else { twoType = TT.EOF; twoMatch = false; }
+                    if (twoMatch) { toks.Add(new Tok { Type = twoType, Text = two }); i += 2; continue; }
                 }
 
                 // --- Single-char operators ------------------------------------
-                TT? tt1 = c switch
-                {
-                    '<' => TT.Lt,  '>' => TT.Gt,
-                    '[' => TT.LBracket, ']' => TT.RBracket,
-                    '(' => TT.LParen,   ')' => TT.RParen,
-                    '.' => TT.Dot,      ',' => TT.Comma,
-                    '+' => TT.Plus,     '-' => TT.Minus,
-                    '*' => TT.Star,     '/' => TT.Slash,
-                    '%' => TT.Percent,
-                    _   => (TT?)null
-                };
-                if (tt1 != null) { toks.Add(new Tok { Type = tt1.Value, Text = c.ToString() }); i++; continue; }
+                TT oneType;
+                bool oneMatch = true;
+                if      (c == '<') oneType = TT.Lt;
+                else if (c == '>') oneType = TT.Gt;
+                else if (c == '[') oneType = TT.LBracket;
+                else if (c == ']') oneType = TT.RBracket;
+                else if (c == '(') oneType = TT.LParen;
+                else if (c == ')') oneType = TT.RParen;
+                else if (c == '.') oneType = TT.Dot;
+                else if (c == ',') oneType = TT.Comma;
+                else if (c == '+') oneType = TT.Plus;
+                else if (c == '-') oneType = TT.Minus;
+                else if (c == '*') oneType = TT.Star;
+                else if (c == '/') oneType = TT.Slash;
+                else if (c == '%') oneType = TT.Percent;
+                else { oneType = TT.EOF; oneMatch = false; }
+                if (oneMatch) { toks.Add(new Tok { Type = oneType, Text = c.ToString() }); i++; continue; }
 
                 throw new FormatException($"Unexpected character '{c}'");
             }
