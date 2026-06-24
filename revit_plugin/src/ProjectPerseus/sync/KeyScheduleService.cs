@@ -215,17 +215,30 @@ namespace ProjectPerseus.sync
             }
         }
 
+        // Marshal.GetActiveObject was removed in .NET 5+; call the Win32 API directly.
+        [DllImport("ole32.dll")]
+        private static extern int CLSIDFromProgID(
+            [MarshalAs(UnmanagedType.LPWStr)] string lpszProgID, out Guid pclsid);
+
+        [DllImport("oleaut32.dll", PreserveSig = false)]
+        private static extern void GetActiveObject(
+            [In] ref Guid rclsid, IntPtr pvReserved,
+            [MarshalAs(UnmanagedType.IUnknown)] out object ppunk);
+
+        private static object GetActiveComObject(string progId)
+        {
+            if (CLSIDFromProgID(progId, out Guid clsid) != 0) return null;
+            try { GetActiveObject(ref clsid, IntPtr.Zero, out object obj); return obj; }
+            catch (COMException) { return null; }
+        }
+
         // Reads from a workbook already open in Excel via COM late-binding.
         // Requires Excel to be running and the file to be open in it.
         // Does NOT close or modify the workbook.
         private static KeyScheduleData ReadFromExcelCom(string filePath, string sheetName)
         {
-            object excelObj = null;
-            try
-            {
-                excelObj = Marshal.GetActiveObject("Excel.Application");
-            }
-            catch (COMException)
+            object excelObj = GetActiveComObject("Excel.Application");
+            if (excelObj == null)
             {
                 Log.Warn("[KeyScheduleService] COM: Excel is not running — cannot use COM fallback");
                 return null;
