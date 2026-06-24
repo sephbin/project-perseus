@@ -90,6 +90,7 @@ namespace ProjectPerseus.web
 
                 try
                 {
+                    Log.Info($"[ProjectPerseusWeb] POST {ElementsEndpoint}");
                     // 3. Send the POST request safely blocking the thread
                     var responseMessage = client.PostAsync(ElementsEndpoint, content).GetAwaiter().GetResult();
 

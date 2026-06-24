@@ -25,6 +25,7 @@ namespace ProjectPerseus.web
 
         private static string PerformRequest(string endpoint, string apiToken, string json, string method, string scheme)
         {
+            Log.Info($"[WebHelper] {method} {endpoint}");
             try
             {
                 var httpWebRequest = (HttpWebRequest)WebRequest.Create(endpoint);

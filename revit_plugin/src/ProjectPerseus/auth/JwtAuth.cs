@@ -76,6 +76,7 @@ namespace ProjectPerseus.auth
                     JsonConvert.SerializeObject(new { refresh = refreshToken }),
                     Encoding.UTF8, "application/json");
 
+                Log.Info($"[JwtAuth] POST {_tokenEndpoint.TrimEnd('/')}/refresh/");
                 var response = await _http.PostAsync(_tokenEndpoint.TrimEnd('/') + "/refresh/", body);
                 if (!response.IsSuccessStatusCode)
                     return null;
@@ -122,6 +123,7 @@ namespace ProjectPerseus.auth
                     JsonConvert.SerializeObject(new { username = credentials.Value.username, password = credentials.Value.password }),
                     Encoding.UTF8, "application/json");
 
+                Log.Info($"[JwtAuth] POST {_tokenEndpoint}");
                 var response = await _http.PostAsync(_tokenEndpoint, body);
                 if (!response.IsSuccessStatusCode)
                 {
