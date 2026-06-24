@@ -188,32 +188,36 @@ namespace ProjectPerseus.sync
                     catch { /* already gone */ }
                 }
 
-                // Exchange auth token for a short-lived signed SSO token. Chromium strips
-                // Authorization headers from navigation requests, so we embed the token in the URL
-                // instead and let token-login create the Django session.
+                // SSO token exchange is only needed for the embedded WebView2 (Chromium strips
+                // Authorization headers from navigation requests, so we embed a short-lived token
+                // in the URL instead and let token-login create the Django session).
+                // Skip entirely when using the system browser — it handles its own auth.
                 string startUrl = webQueueUrl;
-                string authToken = AuthService.GetAuthTokenSafely();
-                string authScheme = AuthService.GetAuthSchemeSafely();
-                if (!string.IsNullOrEmpty(authToken))
+                if (!_config.UseSystemBrowser)
                 {
-                    try
+                    string authToken = AuthService.GetAuthTokenSafely();
+                    string authScheme = AuthService.GetAuthSchemeSafely();
+                    if (!string.IsNullOrEmpty(authToken))
                     {
-                        var ssoEndpoint = $"{_config.BaseUrl.TrimEnd('/')}/api/sso-token/";
-                        var responseJson = WebHelper.Post(ssoEndpoint, authToken, "{}", authScheme);
-                        var ssoObj = JObject.Parse(responseJson);
-                        var ssoToken = ssoObj["sso_token"]?.ToString();
-                        if (!string.IsNullOrEmpty(ssoToken))
+                        try
                         {
-                            var tokenLoginUrl = $"{_config.BaseUrl.TrimEnd('/')}/api/token-login/";
-                            var encodedNext = Uri.EscapeDataString(new Uri(webQueueUrl).PathAndQuery);
-                            var encodedSso = Uri.EscapeDataString(ssoToken);
-                            startUrl = $"{tokenLoginUrl}?sso_token={encodedSso}&next={encodedNext}";
-                            Log.Info("SSO token acquired — WebView2 will inherit MSAL session.");
+                            var ssoEndpoint = $"{_config.BaseUrl.TrimEnd('/')}/api/sso-token/";
+                            var responseJson = WebHelper.Post(ssoEndpoint, authToken, "{}", authScheme);
+                            var ssoObj = JObject.Parse(responseJson);
+                            var ssoToken = ssoObj["sso_token"]?.ToString();
+                            if (!string.IsNullOrEmpty(ssoToken))
+                            {
+                                var tokenLoginUrl = $"{_config.BaseUrl.TrimEnd('/')}/api/token-login/";
+                                var encodedNext = Uri.EscapeDataString(new Uri(webQueueUrl).PathAndQuery);
+                                var encodedSso = Uri.EscapeDataString(ssoToken);
+                                startUrl = $"{tokenLoginUrl}?sso_token={encodedSso}&next={encodedNext}";
+                                Log.Info("SSO token acquired — WebView2 will inherit MSAL session.");
+                            }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warn($"SSO token exchange failed, falling back to direct navigation: {ex.Message}");
+                        catch (Exception ex)
+                        {
+                            Log.Warn($"SSO token exchange failed, falling back to direct navigation: {ex.Message}");
+                        }
                     }
                 }
 
@@ -451,14 +455,11 @@ namespace ProjectPerseus.sync
                 var leaveEndpoint = $"{leaveServerRoot}/syncboat/api/v2/source/{docGuid}/leave/";
                 try
                 {
-                    string leaveToken = AuthService.GetAuthTokenSafely();
-                    // Syncboat leave/ validates a Microsoft JWT (3-part dot structure).
-                    // PAT (hex string) and sandbox sentinel have no dots and cause "Not enough segments".
-                    // Only forward the token when it's actually a JWT.
-                    bool isJwt = leaveToken != null && leaveToken.Split('.').Length >= 3;
-                    string effectiveLeaveToken = isJwt ? leaveToken : null;
+                    // leave/ accepts AllowAny and falls back to the username in the request body.
+                    // Do not send a Bearer token: the Perseus JWT is scoped to Perseus's audience,
+                    // not Syncboat's, so Syncboat's JWT validator rejects it with "Audience doesn't match".
                     var leavePayload = JsonConvert.SerializeObject(new { username = windowsUsername.ToLower() });
-                    WebHelper.Post(leaveEndpoint, effectiveLeaveToken, leavePayload);
+                    WebHelper.Post(leaveEndpoint, null, leavePayload);
                     Log.Info("Removed from sync queue.");
                 }
                 catch (Exception leaveEx)
