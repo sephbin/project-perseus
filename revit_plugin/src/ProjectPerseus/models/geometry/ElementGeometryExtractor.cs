@@ -19,8 +19,8 @@ namespace ProjectPerseus.models.geometry
 
             if (element is Room room)
             {
-                try { ExtractRoomBoundary(room, results); }
-                catch (Exception ex) { Log.Info($"GeometryExtractor [{element.Id}] room_boundary: {ex.Message}"); }
+                try { ExtractRoomBoundaries(room, results); }
+                catch (Exception ex) { Log.Info($"GeometryExtractor [{element.Id}] room_boundaries: {ex.Message}"); }
             }
 
             return results.Count > 0 ? results : null;
@@ -86,36 +86,47 @@ namespace ProjectPerseus.models.geometry
             return new GeoJsonLineString(coords);
         }
 
-        private static void ExtractRoomBoundary(Room room, List<NamedGeometry> results)
+        private static readonly (ARDB.SpatialElementBoundaryLocation Location, string Name)[] _roomBoundaryTypes =
         {
-            var opts = new ARDB.SpatialElementBoundaryOptions
+            (ARDB.SpatialElementBoundaryLocation.Center,       "room_boundary_center"),
+            (ARDB.SpatialElementBoundaryLocation.Finish,       "room_boundary_finish"),
+            (ARDB.SpatialElementBoundaryLocation.CoreBoundary, "room_boundary_core_boundary"),
+            (ARDB.SpatialElementBoundaryLocation.CoreCenter,   "room_boundary_core_center"),
+        };
+
+        private static void ExtractRoomBoundaries(Room room, List<NamedGeometry> results)
+        {
+            foreach (var (location, name) in _roomBoundaryTypes)
             {
-                SpatialElementBoundaryLocation = ARDB.SpatialElementBoundaryLocation.Center
-            };
-
-            var segments = room.GetBoundarySegments(opts);
-            if (segments == null || segments.Count == 0) return;
-
-            var rings = new double[segments.Count][][];
-            for (int r = 0; r < segments.Count; r++)
-            {
-                var ring = segments[r];
-                var ringCoords = new List<double[]>();
-
-                foreach (var seg in ring)
+                var opts = new ARDB.SpatialElementBoundaryOptions
                 {
-                    var pts = seg.GetCurve().Tessellate();
-                    for (int i = 0; i < pts.Count - 1; i++)
-                        ringCoords.Add(new[] { pts[i].X, pts[i].Y, pts[i].Z });
+                    SpatialElementBoundaryLocation = location
+                };
+
+                var segments = room.GetBoundarySegments(opts);
+                if (segments == null || segments.Count == 0) continue;
+
+                var rings = new double[segments.Count][][];
+                for (int r = 0; r < segments.Count; r++)
+                {
+                    var ring = segments[r];
+                    var ringCoords = new List<double[]>();
+
+                    foreach (var seg in ring)
+                    {
+                        var pts = seg.GetCurve().Tessellate();
+                        for (int i = 0; i < pts.Count - 1; i++)
+                            ringCoords.Add(new[] { pts[i].X, pts[i].Y, pts[i].Z });
+                    }
+
+                    if (ringCoords.Count == 0) continue;
+
+                    ringCoords.Add(ringCoords[0]);
+                    rings[r] = ringCoords.ToArray();
                 }
 
-                if (ringCoords.Count == 0) continue;
-
-                ringCoords.Add(ringCoords[0]);
-                rings[r] = ringCoords.ToArray();
+                results.Add(new NamedGeometry(name, new GeoJsonPolygon(rings)));
             }
-
-            results.Add(new NamedGeometry("room_boundary", new GeoJsonPolygon(rings)));
         }
     }
 }

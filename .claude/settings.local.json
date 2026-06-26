@@ -22,7 +22,12 @@
       "Bash(xargs grep -l \"WriteSetting\\\\|WriteParameter\\\\|SetParameter\")",
       "PowerShell($ip = \"C:\\\\Program Files\\\\Autodesk\\\\Revit 2020\\\\AddIns\\\\DynamoForRevit\\\\IronPython.dll\"; [System.Diagnostics.FileVersionInfo]::GetVersionInfo\\($ip\\).FileVersion)",
       "Bash(Select-Object -First 50)",
-      "Bash(Format-Table FullName)"
+      "Bash(Format-Table FullName)",
+      "Bash(python -c \"from background_task.models import Task; print\\([f.name for f in Task._meta.get_fields\\(\\)]\\)\")",
+      "Read(//c/venv/COXLABSPUBLIC/Lib/site-packages/background_task/**)",
+      "Bash(findstr \"locked\")",
+      "Bash(Get-ChildItem -Directory)",
+      "Bash(Select-Object -ExpandProperty Name)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
