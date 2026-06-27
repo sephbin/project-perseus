@@ -35,9 +35,8 @@ namespace ProjectPerseus.sync
         {
             try
             {
-                var serverRoot = new Uri(Config.Instance.BaseUrl).GetLeftPart(UriPartial.Authority);
-                var endpoint   = $"{serverRoot}/source/{docGuid}/pending-edits/";
-                string json    = WebHelper.Get(endpoint, AuthService.GetAuthTokenSafely(), null);
+                var endpoint = $"{Config.Instance.BaseUrl.TrimEnd('/')}/source/{docGuid}/pending-edits/";
+                string json  = WebHelper.Get(endpoint, AuthService.GetAuthTokenSafely(), null);
                 return JsonConvert.DeserializeObject<List<PendingEditItem>>(json) ?? new List<PendingEditItem>();
             }
             catch (Exception ex)
@@ -127,9 +126,8 @@ namespace ProjectPerseus.sync
         {
             try
             {
-                var serverRoot = new Uri(Config.Instance.BaseUrl).GetLeftPart(UriPartial.Authority);
-                var endpoint   = $"{serverRoot}/source/{docGuid}/pending-edits/mark-applied/";
-                var payload    = JsonConvert.SerializeObject(new { ids });
+                var endpoint = $"{Config.Instance.BaseUrl.TrimEnd('/')}/source/{docGuid}/pending-edits/mark-applied/";
+                var payload  = JsonConvert.SerializeObject(new { ids });
                 WebHelper.Post(endpoint, AuthService.GetAuthTokenSafely(), payload);
                 Log.Info($"PendingEditsApplier: marked {ids.Count} edit(s) applied.");
             }
