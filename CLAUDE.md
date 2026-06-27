@@ -158,6 +158,9 @@ ProjectPerseus/
 │                                 typeof(SettingsForm).FullName, so path change is safe.
 │   ├── EditFiltersForm.cs        NEW. WinForms dialog for editing per-schedule cascading import
 │   │                             filter rules (Field/Condition/Value/Action DataGridView).
+│   ├── PendingEditsReviewForm.cs NEW. Review dialog for pending web edits before applying.
+│   │                             DataGridView with checkbox per row, search + status filter,
+│   │                             Select All/None, current vs new value columns, Edited By column.
 │   ├── SyncWarningForm.cs        Moved from forms/. Was at global namespace; now ProjectPerseus.ui.
 │   └── ThemeIconManager.cs
 ├── models/                       DTOs + geometry extractor.

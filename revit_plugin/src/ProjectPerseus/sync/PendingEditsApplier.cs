@@ -12,11 +12,16 @@ namespace ProjectPerseus.sync
 {
     internal class PendingEditItem
     {
-        [JsonProperty("id")]          public int    Id             { get; set; }
-        [JsonProperty("element_unique_id")] public string ElementUniqueId { get; set; }
-        [JsonProperty("param_name")]  public string ParamName      { get; set; }
-        [JsonProperty("new_value")]   public string NewValue       { get; set; }
-        [JsonProperty("status")]      public string Status         { get; set; }
+        [JsonProperty("id")]                 public int    Id               { get; set; }
+        [JsonProperty("element_unique_id")]  public string ElementUniqueId  { get; set; }
+        [JsonProperty("element_name")]       public string ElementName       { get; set; }
+        [JsonProperty("param_name")]         public string ParamName         { get; set; }
+        [JsonProperty("new_value")]          public string NewValue          { get; set; }
+        [JsonProperty("status")]             public string Status            { get; set; }
+        [JsonProperty("edited_by")]          public string EditedBy          { get; set; }
+
+        // Populated locally by PendingEditsApplier.EnrichWithRevitValues — not from JSON.
+        [JsonIgnore] public string CurrentRevitValue { get; set; }
     }
 
     internal class PendingEditsApplierResult
@@ -43,6 +48,34 @@ namespace ProjectPerseus.sync
             {
                 Log.Warn($"PendingEditsApplier.Fetch failed: {ex.Message}");
                 return new List<PendingEditItem>();
+            }
+        }
+
+        // Fills CurrentRevitValue (and corrects ElementName if blank) by reading the
+        // live Revit document. Call this after Fetch, before opening the review dialog.
+        public static void EnrichWithRevitValues(List<PendingEditItem> edits, Document doc)
+        {
+            foreach (var edit in edits)
+            {
+                try
+                {
+                    var element = doc.GetElement(edit.ElementUniqueId);
+                    if (element == null) { edit.CurrentRevitValue = "(not found)"; continue; }
+
+                    if (string.IsNullOrEmpty(edit.ElementName))
+                        edit.ElementName = element.Name;
+
+                    var param = element.LookupParameter(edit.ParamName);
+                    if (param == null) { edit.CurrentRevitValue = "(param not found)"; continue; }
+
+                    edit.CurrentRevitValue = param.StorageType == StorageType.String
+                        ? (param.AsString() ?? "")
+                        : (param.AsValueString() ?? param.AsString() ?? "");
+                }
+                catch
+                {
+                    edit.CurrentRevitValue = "";
+                }
             }
         }
 

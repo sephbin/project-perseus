@@ -5,6 +5,7 @@ using Autodesk.Revit.UI;
 using ProjectPerseus.logging;
 using ProjectPerseus.revit;
 using ProjectPerseus.sync;
+using ProjectPerseus.ui;
 
 namespace ProjectPerseus.commands
 {
@@ -32,13 +33,26 @@ namespace ProjectPerseus.commands
                     return Result.Succeeded;
                 }
 
-                var result  = PendingEditsApplier.Apply(doc, docGuid, edits);
-                string msg  = $"Applied {result.Applied} of {result.Total} pending web edit(s).";
-                if (result.Skipped > 0)
-                    msg += $"\n{result.Skipped} skipped (parameter not found, read-only, or owned by another user).";
+                // Enrich with live Revit values so the review dialog can show current vs new.
+                PendingEditsApplier.EnrichWithRevitValues(edits, doc);
 
-                Log.Info($"PullWebEditsCommand: {msg}");
-                TaskDialog.Show("Perseus — Web Edits", msg);
+                using (var form = new PendingEditsReviewForm(edits))
+                {
+                    if (form.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                        return Result.Cancelled;
+
+                    var selected = form.SelectedEdits;
+                    Log.Info($"PullWebEditsCommand: user selected {selected.Count} of {edits.Count} edits to apply.");
+
+                    var result = PendingEditsApplier.Apply(doc, docGuid, selected);
+                    string msg = $"Applied {result.Applied} of {result.Total} selected edit(s).";
+                    if (result.Skipped > 0)
+                        msg += $"\n{result.Skipped} skipped (parameter not found, read-only, or owned by another user).";
+
+                    Log.Info($"PullWebEditsCommand: {msg}");
+                    TaskDialog.Show("Perseus — Web Edits", msg);
+                }
+
                 return Result.Succeeded;
             }
             catch (Exception ex)
