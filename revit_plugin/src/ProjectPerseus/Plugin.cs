@@ -103,6 +103,15 @@ namespace ProjectPerseus
             PushButton diagBtn = ribbonPanel.AddItem(diagBtnData) as PushButton;
             diagBtn.ToolTip = "Enter element IDs to run a full diagnostic from the plugin's perspective and write results to the log file.";
 
+            PushButtonData pullWebEditsBtnData = new PushButtonData(
+                "Button_PullWebEdits",
+                "Pull Web\nEdits",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.PullWebEditsCommand");
+
+            PushButton pullWebEditsBtn = ribbonPanel.AddItem(pullWebEditsBtnData) as PushButton;
+            pullWebEditsBtn.ToolTip = "Fetch pending parameter edits made in the web editor and apply them to the current model. Skips elements checked out by other users.";
+
             // Key Schedules panel — separate compartment on the same tab
             RibbonPanel schedulesPanel = application.CreateRibbonPanel(tabName, "Key Schedules");
 

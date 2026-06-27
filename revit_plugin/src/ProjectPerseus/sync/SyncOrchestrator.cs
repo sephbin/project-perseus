@@ -386,6 +386,32 @@ namespace ProjectPerseus.sync
                     }
                 }
 
+                // Check for pending web edits and optionally apply them before the sync
+                // so the updated parameters are included in what Revit pushes to Django.
+                try
+                {
+                    var pendingEdits = PendingEditsApplier.Fetch(docGuid);
+                    if (pendingEdits != null && pendingEdits.Count > 0)
+                    {
+                        var dlg = new TaskDialog("Perseus — Pending Web Edits")
+                        {
+                            MainInstruction = $"{pendingEdits.Count} pending web edit(s) found",
+                            MainContent     = "Web users have edited parameters that haven't been applied to this model yet. Apply them now before syncing?",
+                        };
+                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Apply web edits, then sync");
+                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Skip — sync without applying");
+                        if (dlg.Show() == TaskDialogResult.CommandLink1)
+                        {
+                            var applyResult = PendingEditsApplier.Apply(e.Document, docGuid, pendingEdits);
+                            Log.Info($"Pre-sync web edits: applied {applyResult.Applied}, skipped {applyResult.Skipped}.");
+                        }
+                    }
+                }
+                catch (Exception pendingEx)
+                {
+                    Log.Warn($"Pre-sync pending edits check failed (non-fatal): {pendingEx.Message}");
+                }
+
                 // Import key schedules from Excel before the sync so the updated data
                 // is included in what Revit pushes to Django.
                 KeyScheduleAutoImporter.HandleSync(e.Document);

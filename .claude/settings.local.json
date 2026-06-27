@@ -27,7 +27,10 @@
       "Read(//c/venv/COXLABSPUBLIC/Lib/site-packages/background_task/**)",
       "Bash(findstr \"locked\")",
       "Bash(Get-ChildItem -Directory)",
-      "Bash(Select-Object -ExpandProperty Name)"
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(python *)",
+      "Bash(dir C:mydevdjango-perseus *)",
+      "Bash(DJANGO_ENVIRONMENT=DEVELOPMENT /c/Users/Andrew.Butler/pythonenv/COX-LABS-PUBLIC/Scripts/python *)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

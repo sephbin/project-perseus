@@ -141,6 +141,8 @@ ProjectPerseus/
 │   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
 │   ├── OpenSettingsCommand.cs    Ribbon: Button_Settings.
 │   ├── PerformFullUploadCommand.cs  Ribbon: Button_RunFullSync.
+│   ├── PullWebEditsCommand.cs    Ribbon: Button_PullWebEdits. Fetches pending web edits from
+│   │                             Django and applies them to the active model via PendingEditsApplier.
 │   └── ResetModelGuidCommand.cs  Ribbon: Button_ResetGuid.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
@@ -174,11 +176,15 @@ ProjectPerseus/
 ├── sync/                         All sync orchestration + runners (P1, 2026-05-30).
 │   ├── SyncOrchestrator.cs       Instance class owning sync state + DocumentSynchronizing/zed
 │                                 handlers + ProgressChanged. Statics: IsAutoSyncing,
-│                                 AutoSyncExternalEvent.
+│                                 AutoSyncExternalEvent. Pre-sync hook now checks for pending
+│                                 web edits via PendingEditsApplier and prompts the user.
 │   ├── FullSyncRunner.cs         PerformFullSync (Django) + PerformFullSyncToFile (JSON file).
 │   ├── IncrementalSyncRunner.cs  PerformIncrementalSync + PerformIncrementalSyncToFile +
 │                                 private ReadFirstSourceState helper.
 │   ├── CategoryHarvester.cs      GetAllCategories + WalkCategoryMap (3-pass dedup).
+│   ├── PendingEditsApplier.cs    Internal helper: Fetch + Apply + MarkApplied for pending web
+│   │                             parameter edits. Shared by PullWebEditsCommand and
+│   │                             SyncOrchestrator. Respects worksharing checkout status.
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
 │                                 by title and PostMessage(WM_CLOSE).
