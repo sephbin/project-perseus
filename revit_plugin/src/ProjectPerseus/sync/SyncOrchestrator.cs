@@ -289,6 +289,41 @@ namespace ProjectPerseus.sync
                 string windowsUsername = Environment.UserName;
                 string machineName = Environment.MachineName;
 
+                // Check for pending web edits before the queue check so the user can
+                // review and apply them first — baked into the sync, not a separate step.
+                // Skipped automatically when IsAutoSyncing (early return above).
+                try
+                {
+                    var pendingEdits = PendingEditsApplier.Fetch(docGuid);
+                    if (pendingEdits != null && pendingEdits.Count > 0)
+                    {
+                        var dlg = new TaskDialog("Perseus — Pending Web Edits")
+                        {
+                            MainInstruction = $"{pendingEdits.Count} pending web edit(s) found",
+                            MainContent     = "Web users have edited parameters that haven't been applied to this model yet. Review and apply them before syncing?",
+                        };
+                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Review and apply web edits");
+                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Skip — sync without applying");
+                        if (dlg.Show() == TaskDialogResult.CommandLink1)
+                        {
+                            PendingEditsApplier.EnrichWithRevitValues(pendingEdits, e.Document);
+                            using (var form = new PendingEditsReviewForm(pendingEdits))
+                            {
+                                if (form.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                                {
+                                    var selected = form.SelectedEdits;
+                                    var applyResult = PendingEditsApplier.Apply(e.Document, docGuid, selected);
+                                    Log.Info($"Pre-sync web edits: applied {applyResult.Applied}, skipped {applyResult.Skipped}.");
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception pendingEx)
+                {
+                    Log.Warn($"Pre-sync pending edits check failed (non-fatal): {pendingEx.Message}");
+                }
+
                 var serverRoot = new Uri(baseUrl).GetLeftPart(UriPartial.Authority);
                 var queueEndpoint = $"{serverRoot}/syncboat/api/v2/source/{docGuid}/queue/";
 
@@ -384,32 +419,6 @@ namespace ProjectPerseus.sync
                                 return;
                         }
                     }
-                }
-
-                // Check for pending web edits and optionally apply them before the sync
-                // so the updated parameters are included in what Revit pushes to Django.
-                try
-                {
-                    var pendingEdits = PendingEditsApplier.Fetch(docGuid);
-                    if (pendingEdits != null && pendingEdits.Count > 0)
-                    {
-                        var dlg = new TaskDialog("Perseus — Pending Web Edits")
-                        {
-                            MainInstruction = $"{pendingEdits.Count} pending web edit(s) found",
-                            MainContent     = "Web users have edited parameters that haven't been applied to this model yet. Apply them now before syncing?",
-                        };
-                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Apply web edits, then sync");
-                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Skip — sync without applying");
-                        if (dlg.Show() == TaskDialogResult.CommandLink1)
-                        {
-                            var applyResult = PendingEditsApplier.Apply(e.Document, docGuid, pendingEdits);
-                            Log.Info($"Pre-sync web edits: applied {applyResult.Applied}, skipped {applyResult.Skipped}.");
-                        }
-                    }
-                }
-                catch (Exception pendingEx)
-                {
-                    Log.Warn($"Pre-sync pending edits check failed (non-fatal): {pendingEx.Message}");
                 }
 
                 // Import key schedules from Excel before the sync so the updated data
