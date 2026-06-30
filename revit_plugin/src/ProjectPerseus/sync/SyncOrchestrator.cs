@@ -27,6 +27,7 @@ namespace ProjectPerseus.sync
     public class SyncOrchestrator
     {
         public static ExternalEvent AutoSyncExternalEvent { get; private set; }
+        public static ExternalEvent PendingEditsResyncExternalEvent { get; private set; }
         public static bool IsAutoSyncing { get; set; } = false;
 
         private readonly Config _config = Config.Instance;
@@ -58,6 +59,9 @@ namespace ProjectPerseus.sync
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
+
+            var resyncHandler = new PendingEditsResyncEvent();
+            PendingEditsResyncExternalEvent = ExternalEvent.Create(resyncHandler);
         }
 
         public void Unsubscribe(UIControlledApplication application)
@@ -292,6 +296,12 @@ namespace ProjectPerseus.sync
                 // Check for pending web edits before the queue check so the user can
                 // review and apply them first — baked into the sync, not a separate step.
                 // Skipped automatically when IsAutoSyncing (early return above).
+                //
+                // IMPORTANT: We cancel the sync before applying edits. Committing a transaction
+                // or calling WorksharingUtils.CheckoutElements inside DocumentSynchronizingWithCentral
+                // races with Revit's own central-server communication and causes edits to be silently
+                // skipped. Cancelling first guarantees the transaction lands cleanly; the user then
+                // re-syncs so Revit picks up the applied changes.
                 try
                 {
                     var pendingEdits = PendingEditsApplier.Fetch(docGuid);
@@ -302,10 +312,15 @@ namespace ProjectPerseus.sync
                             MainInstruction = $"{pendingEdits.Count} pending web edit(s) found",
                             MainContent     = "Web users have edited parameters that haven't been applied to this model yet. Review and apply them before syncing?",
                         };
-                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Review and apply web edits");
+                        dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Review and apply web edits (sync will be cancelled so edits are applied first)");
                         dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Skip — sync without applying");
                         if (dlg.Show() == TaskDialogResult.CommandLink1)
                         {
+                            // Cancel the sync now — before any model changes — so Revit is in a
+                            // stable, non-syncing state when the transaction runs.
+                            e.Cancel();
+                            System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+
                             PendingEditsApplier.EnrichWithRevitValues(pendingEdits, e.Document);
                             using (var form = new PendingEditsReviewForm(pendingEdits))
                             {
@@ -313,9 +328,15 @@ namespace ProjectPerseus.sync
                                 {
                                     var selected = form.SelectedEdits;
                                     var applyResult = PendingEditsApplier.Apply(e.Document, docGuid, selected);
-                                    Log.Info($"Pre-sync web edits: applied {applyResult.Applied}, skipped {applyResult.Skipped}.");
+                                    Log.Info($"Pre-sync web edits: applied {applyResult.Applied}, skipped {applyResult.Skipped}. Raising re-sync event.");
+
+                                    // Raise the re-sync event so Revit re-triggers SynchronizeWithCentral
+                                    // on the main thread once this event handler returns. The queue check
+                                    // runs normally in doOnPriorToSync (IsAutoSyncing stays false).
+                                    PendingEditsResyncExternalEvent.Raise();
                                 }
                             }
+                            return;
                         }
                     }
                 }

@@ -146,6 +146,9 @@ ProjectPerseus/
 │   └── ResetModelGuidCommand.cs  Ribbon: Button_ResetGuid.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
+│   ├── PendingEditsResyncEvent.cs IExternalEventHandler; re-triggers SynchronizeWithCentral after
+│   │                             pending web edits are applied. IsAutoSyncing stays false so the
+│   │                             queue check runs normally on the follow-up sync.
 │   └── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
 ├── ui/                           ALL WinForms (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
