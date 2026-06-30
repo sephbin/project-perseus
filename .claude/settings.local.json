@@ -32,7 +32,7 @@
       "Bash(dir C:mydevdjango-perseus *)",
       "Bash(DJANGO_ENVIRONMENT=DEVELOPMENT /c/Users/Andrew.Butler/pythonenv/COX-LABS-PUBLIC/Scripts/python *)",
       "PowerShell(git *)",
-      "git add*"
+      "Bash(Get-Content *)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

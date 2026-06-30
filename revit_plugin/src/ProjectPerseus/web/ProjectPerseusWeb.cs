@@ -42,7 +42,10 @@ namespace ProjectPerseus.web
 
         }
 
-        private const int ChunkSize = 500;
+        // Send as a single request if the serialized JSON is under this size (70 MB).
+        // When chunking is required, chunk size is derived from actual element density
+        // so each chunk targets ~90% of this limit.
+        private const int MaxSinglePayloadBytes = 70 * 1024 * 1024;
 
         public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<long> deleted, Document doc, string batchId = null)
         {
@@ -66,20 +69,54 @@ namespace ProjectPerseus.web
             string timestamp = DateTime.UtcNow.ToString("o");
             string sourceState = currentModelVersion.ToString();
 
-            var chunks = Enumerable.Range(0, (int)Math.Ceiling((double)elementDeltas.Count / ChunkSize))
-                .Select(i => elementDeltas.Skip(i * ChunkSize).Take(ChunkSize).ToList())
-                .ToList();
-
-            // If there are no elements at all we still need to send one chunk (for deletions).
-            if (chunks.Count == 0)
-                chunks.Add(new List<models.ElementDelta>());
-
-            int totalChunks = chunks.Count;
-            Log.Info($"[ProjectPerseusWeb] Submitting {elementDeltas.Count} elements in {totalChunks} chunk(s) of {ChunkSize}.");
-
             using (var client = new System.Net.Http.HttpClient())
             {
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(scheme, token);
+
+                // Serialize the full payload first to measure its size.
+                // Newtonsoft escapes non-ASCII as \uXXXX so JSON output is always ASCII
+                // and string.Length equals the byte count exactly.
+                var singlePayload = new
+                {
+                    documentGuid = docGuid,
+                    source_state = sourceState,
+                    timestamp = timestamp,
+                    revitUser = revitUsername,
+                    revitAccountId = revitAccountId,
+                    windowsUser = windowsUsername,
+                    machine = machineName,
+                    batchId = batchId,
+                    chunkIndex = 0,
+                    totalChunks = 1,
+                    elements = elementDeltas,
+                    deletedElements = deleted
+                };
+
+                var singleJson = JsonUtils.SerializeToJson(singlePayload, null);
+                bool mustChunk = singleJson.Length > MaxSinglePayloadBytes;
+
+                Log.Info($"[ProjectPerseusWeb] Payload: {elementDeltas.Count} elements, {singleJson.Length / 1024} KB — {(mustChunk ? "chunking" : "single request")}.");
+
+                if (!mustChunk)
+                {
+                    PostJson(client, singleJson, 1, 1);
+                    return;
+                }
+
+                // Derive chunk size from actual element density so each chunk targets ~90% of the limit.
+                int avgBytesPerElement = elementDeltas.Count > 0 ? singleJson.Length / elementDeltas.Count : singleJson.Length;
+                int chunkSize = Math.Max(1, (int)((MaxSinglePayloadBytes * 0.9) / avgBytesPerElement));
+
+                // Payload too large: split by derived chunk size and re-serialize each chunk.
+                var chunks = Enumerable.Range(0, (int)Math.Ceiling((double)elementDeltas.Count / chunkSize))
+                    .Select(i => elementDeltas.Skip(i * chunkSize).Take(chunkSize).ToList())
+                    .ToList();
+
+                if (chunks.Count == 0)
+                    chunks.Add(new List<models.ElementDelta>());
+
+                int totalChunks = chunks.Count;
+                Log.Info($"[ProjectPerseusWeb] Submitting {elementDeltas.Count} elements in {totalChunks} chunk(s) of ~{chunkSize} (avg {avgBytesPerElement} bytes/element).");
 
                 for (int i = 0; i < totalChunks; i++)
                 {
@@ -102,30 +139,34 @@ namespace ProjectPerseus.web
                     };
 
                     var jsonString = JsonUtils.SerializeToJson(payload, null);
-                    var content = new System.Net.Http.StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
-
-                    try
-                    {
-                        Log.Info($"[ProjectPerseusWeb] POST {ElementsEndpoint} (chunk {i + 1}/{totalChunks}, {chunks[i].Count} elements)");
-                        var responseMessage = client.PostAsync(ElementsEndpoint, content).GetAwaiter().GetResult();
-                        string response = responseMessage.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-
-                        if (responseMessage.IsSuccessStatusCode)
-                        {
-                            Log.Info($"SubmitElementDeltas chunk {i + 1}/{totalChunks} success: {response}");
-                        }
-                        else
-                        {
-                            Log.Info($"SubmitElementDeltas chunk {i + 1}/{totalChunks} failed ({responseMessage.StatusCode}): {response}");
-                            return;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Info($"SubmitElementDeltas chunk {i + 1}/{totalChunks} HTTP error: {ex.Message}");
+                    if (!PostJson(client, jsonString, i + 1, totalChunks))
                         return;
-                    }
                 }
+            }
+        }
+
+        private bool PostJson(System.Net.Http.HttpClient client, string json, int chunkNumber, int totalChunks)
+        {
+            var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            try
+            {
+                Log.Info($"[ProjectPerseusWeb] POST {ElementsEndpoint} (chunk {chunkNumber}/{totalChunks})");
+                var responseMessage = client.PostAsync(ElementsEndpoint, content).GetAwaiter().GetResult();
+                string response = responseMessage.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+                if (responseMessage.IsSuccessStatusCode)
+                {
+                    Log.Info($"SubmitElementDeltas chunk {chunkNumber}/{totalChunks} success: {response}");
+                    return true;
+                }
+
+                Log.Info($"SubmitElementDeltas chunk {chunkNumber}/{totalChunks} failed ({responseMessage.StatusCode}): {response}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"SubmitElementDeltas chunk {chunkNumber}/{totalChunks} HTTP error: {ex.Message}");
+                return false;
             }
         }
 
