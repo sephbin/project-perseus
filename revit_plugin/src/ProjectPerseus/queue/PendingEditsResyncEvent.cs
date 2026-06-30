@@ -2,6 +2,7 @@ using System;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using ProjectPerseus.logging;
+using ProjectPerseus.sync;
 
 namespace ProjectPerseus.queue
 {
@@ -10,9 +11,10 @@ namespace ProjectPerseus.queue
     // immediately re-triggers SynchronizeWithCentral so the applied changes reach central
     // without requiring the user to sync again manually.
     //
-    // IsAutoSyncing is intentionally NOT set here — the full queue check still runs in
-    // doOnPriorToSync so we don't jump the line if someone else started syncing while
-    // the user was reviewing the pending edits dialog.
+    // IsAutoSyncing is intentionally NOT set — the queue check still runs in doOnPriorToSync
+    // so we don't jump the line if someone else started syncing while the user reviewed edits.
+    // IsResyncAfterPendingEdits IS set so the web edits check is skipped on this one pass
+    // (the edits were just applied; re-checking would re-prompt for the same items).
     public class PendingEditsResyncEvent : IExternalEventHandler
     {
         public void Execute(UIApplication app)
@@ -31,6 +33,7 @@ namespace ProjectPerseus.queue
                     SaveLocalAfter = true
                 };
 
+                SyncOrchestrator.IsResyncAfterPendingEdits = true;
                 doc.SynchronizeWithCentral(transOpts, syncOpts);
                 Log.Info("Post-edits re-sync completed.");
             }

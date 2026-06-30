@@ -29,6 +29,11 @@ namespace ProjectPerseus.sync
         public static ExternalEvent AutoSyncExternalEvent { get; private set; }
         public static ExternalEvent PendingEditsResyncExternalEvent { get; private set; }
         public static bool IsAutoSyncing { get; set; } = false;
+        // Set by PendingEditsResyncEvent before raising SynchronizeWithCentral so the
+        // immediately-following doOnPriorToSync skips the web edits check (edits were
+        // just applied; re-checking would re-prompt for the same now-applied items).
+        // Cleared on entry to the check so it only suppresses one pass.
+        public static bool IsResyncAfterPendingEdits { get; set; } = false;
 
         private readonly Config _config = Config.Instance;
         private bool _isSyncing = false;
@@ -295,16 +300,20 @@ namespace ProjectPerseus.sync
 
                 // Check for pending web edits before the queue check so the user can
                 // review and apply them first — baked into the sync, not a separate step.
-                // Skipped automatically when IsAutoSyncing (early return above).
+                // Skipped automatically when IsAutoSyncing (early return above) or when
+                // this is the re-sync that PendingEditsResyncEvent raised right after
+                // applying edits (edits were just committed; re-checking would re-prompt).
                 //
                 // IMPORTANT: We cancel the sync before applying edits. Committing a transaction
                 // or calling WorksharingUtils.CheckoutElements inside DocumentSynchronizingWithCentral
                 // races with Revit's own central-server communication and causes edits to be silently
                 // skipped. Cancelling first guarantees the transaction lands cleanly; the user then
                 // re-syncs so Revit picks up the applied changes.
+                bool skipPendingEditsCheck = IsResyncAfterPendingEdits;
+                IsResyncAfterPendingEdits = false;
                 try
                 {
-                    var pendingEdits = PendingEditsApplier.Fetch(docGuid);
+                    var pendingEdits = skipPendingEditsCheck ? null : PendingEditsApplier.Fetch(docGuid);
                     if (pendingEdits != null && pendingEdits.Count > 0)
                     {
                         var dlg = new TaskDialog("Perseus — Pending Web Edits")
