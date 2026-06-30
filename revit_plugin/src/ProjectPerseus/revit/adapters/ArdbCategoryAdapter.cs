@@ -7,16 +7,18 @@ namespace ProjectPerseus.revit.adapters
     public class ArdbCategoryAdapter : IArdbElement
     {
         private readonly Category _category;
+        private readonly string _docGuid;
 
-        public ArdbCategoryAdapter(Category category)
+        public ArdbCategoryAdapter(Category category, string docGuid)
         {
             _category = category;
+            _docGuid = docGuid;
         }
 
         public IArdbElementId Id => new ArdbElementIdAdapter(_category.Id);
 
-        // Categories don't have a GUID, so we make a stable one using the Integer ID
-        public string UniqueId => $"CATEGORY-{_category.Id.GetIdValue()}";
+        // Scoped to the document so two sources never share the same DB row for the same category.
+        public string UniqueId => $"CATEGORY-{_docGuid}-{_category.Id.GetIdValue()}";
 
         public string Name => _category.Name;
 

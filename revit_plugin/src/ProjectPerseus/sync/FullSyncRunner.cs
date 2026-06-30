@@ -198,7 +198,7 @@ namespace ProjectPerseus.sync
 
                     foreach (Category cat in CategoryHarvester.GetAllCategories(revit.Document))
                     {
-                        var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
+                        var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat, docGuid);
                         var delta = new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, revit.Document, docGuid);
                         categoryDeltas.Add(delta);
                     }
@@ -218,7 +218,7 @@ namespace ProjectPerseus.sync
 
                     foreach (Workset ws in WorksetHarvester.GetAllWorksets(revit.Document))
                     {
-                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws, docGuid);
                         var delta = new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, revit.Document, docGuid);
                         worksetDeltas.Add(delta);
                     }
@@ -387,7 +387,7 @@ namespace ProjectPerseus.sync
                 {
                     foreach (Category cat in CategoryHarvester.GetAllCategories(doc))
                     {
-                        var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat);
+                        var catAdapter = new ProjectPerseus.revit.adapters.ArdbCategoryAdapter(cat, docGuid);
                         elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, catAdapter, doc, docGuid));
                     }
                     Log.Info($"PerformFullSyncToFile: Added categories, total {elementDeltaList.Count} items");
@@ -401,7 +401,7 @@ namespace ProjectPerseus.sync
                 {
                     foreach (Workset ws in WorksetHarvester.GetAllWorksets(doc))
                     {
-                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws, docGuid);
                         elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, doc, docGuid));
                     }
                     Log.Info($"PerformFullSyncToFile: Added worksets, total {elementDeltaList.Count} items");

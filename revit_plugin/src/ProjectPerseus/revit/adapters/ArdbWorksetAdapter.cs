@@ -7,15 +7,18 @@ namespace ProjectPerseus.revit.adapters
     public class ArdbWorksetAdapter : IArdbElement
     {
         private readonly Workset _workset;
+        private readonly string _docGuid;
 
-        public ArdbWorksetAdapter(Workset workset)
+        public ArdbWorksetAdapter(Workset workset, string docGuid)
         {
             _workset = workset;
+            _docGuid = docGuid;
         }
 
         public IArdbElementId Id => new WorksetIdAdapter(_workset.Id.IntegerValue);
 
-        public string UniqueId => $"WORKSET-{_workset.Id.IntegerValue}";
+        // Scoped to the document so two sources never share the same DB row for the same workset.
+        public string UniqueId => $"WORKSET-{_docGuid}-{_workset.Id.IntegerValue}";
 
         public string Name => _workset.Name;
 

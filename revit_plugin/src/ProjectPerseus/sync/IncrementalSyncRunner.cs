@@ -101,7 +101,7 @@ namespace ProjectPerseus.sync
                         Log.Info("Harvesting Worksets...");
                         foreach (Autodesk.Revit.DB.Workset ws in WorksetHarvester.GetAllWorksets(revit.Document))
                         {
-                            var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                            var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws, docGuid);
                             elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, revit.Document, docGuid));
                         }
                         Log.Info($"PerformIncrementalSync: Added worksets, total {elementDeltaList.Count} items");
@@ -239,7 +239,7 @@ namespace ProjectPerseus.sync
                 {
                     foreach (Autodesk.Revit.DB.Workset ws in WorksetHarvester.GetAllWorksets(doc))
                     {
-                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws, docGuid);
                         elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, doc, docGuid));
                     }
                     Log.Info($"PerformIncrementalSyncToFile: Added worksets, total {elementDeltaList.Count} items");
