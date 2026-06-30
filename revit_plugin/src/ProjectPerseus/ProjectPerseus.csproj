@@ -307,6 +307,7 @@
       <DependentUpon>Settings.settings</DependentUpon>
     </Compile>
     <Compile Include="revit\adapters\ArdbCategoryAdapter.cs" />
+    <Compile Include="revit\adapters\ArdbWorksetAdapter.cs" />
     <Compile Include="revit\adapters\ArdbDefinitionAdapter.cs" />
     <Compile Include="revit\adapters\ArdbElementAdapter.cs" />
     <Compile Include="revit\adapters\ArdbElementIdAdapter.cs" />
@@ -327,6 +328,7 @@
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />
     <Compile Include="sync\CategoryHarvester.cs" />
+    <Compile Include="sync\WorksetHarvester.cs" />
     <Compile Include="sync\FullSyncRunner.cs" />
     <Compile Include="sync\IncrementalSyncRunner.cs" />
     <Compile Include="sync\KeyScheduleAutoImporter.cs" />

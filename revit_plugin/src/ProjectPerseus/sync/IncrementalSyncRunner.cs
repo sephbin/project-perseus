@@ -96,6 +96,21 @@ namespace ProjectPerseus.sync
                         Log.Info($"Error in CollectConnectedElements logic: {ex.Message}");
                     }
 
+                    try
+                    {
+                        Log.Info("Harvesting Worksets...");
+                        foreach (Autodesk.Revit.DB.Workset ws in WorksetHarvester.GetAllWorksets(revit.Document))
+                        {
+                            var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                            elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, revit.Document, docGuid));
+                        }
+                        Log.Info($"PerformIncrementalSync: Added worksets, total {elementDeltaList.Count} items");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Info($"Error harvesting worksets: {ex.Message}");
+                    }
+
                     var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
 
                     try
@@ -218,6 +233,20 @@ namespace ProjectPerseus.sync
                     {
                         Log.Info($"PerformIncrementalSyncToFile: Error collecting connected elements: {ex.Message}");
                     }
+                }
+
+                try
+                {
+                    foreach (Autodesk.Revit.DB.Workset ws in WorksetHarvester.GetAllWorksets(doc))
+                    {
+                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                        elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, doc, docGuid));
+                    }
+                    Log.Info($"PerformIncrementalSyncToFile: Added worksets, total {elementDeltaList.Count} items");
+                }
+                catch (Exception ex)
+                {
+                    Log.Info($"PerformIncrementalSyncToFile: Error harvesting worksets: {ex.Message}");
                 }
 
                 var deletedIds = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);

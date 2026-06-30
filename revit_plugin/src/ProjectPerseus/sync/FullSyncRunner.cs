@@ -213,6 +213,26 @@ namespace ProjectPerseus.sync
 
                 try
                 {
+                    Log.Info("Harvesting Worksets...");
+                    var worksetDeltas = new List<ElementDelta>();
+
+                    foreach (Workset ws in WorksetHarvester.GetAllWorksets(revit.Document))
+                    {
+                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                        var delta = new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, revit.Document, docGuid);
+                        worksetDeltas.Add(delta);
+                    }
+
+                    Log.Info($"Added {worksetDeltas.Count} Worksets to the payload.");
+                    filteredElementDeltaList.AddRange(worksetDeltas);
+                }
+                catch (Exception ex)
+                {
+                    Log.Info($"Error harvesting worksets: {ex.Message}");
+                }
+
+                try
+                {
                     bool collectConnected = false;
                     if (json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null)
                     {
@@ -375,6 +395,20 @@ namespace ProjectPerseus.sync
                 catch (Exception ex)
                 {
                     Log.Info($"PerformFullSyncToFile: Error harvesting categories: {ex.Message}");
+                }
+
+                try
+                {
+                    foreach (Workset ws in WorksetHarvester.GetAllWorksets(doc))
+                    {
+                        var wsAdapter = new ProjectPerseus.revit.adapters.ArdbWorksetAdapter(ws);
+                        elementDeltaList.Add(new ElementDelta(ElementDelta.DeltaAction.Update, wsAdapter, doc, docGuid));
+                    }
+                    Log.Info($"PerformFullSyncToFile: Added worksets, total {elementDeltaList.Count} items");
+                }
+                catch (Exception ex)
+                {
+                    Log.Info($"PerformFullSyncToFile: Error harvesting worksets: {ex.Message}");
                 }
 
                 if (collectConnectedElements)
