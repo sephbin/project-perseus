@@ -390,15 +390,7 @@ namespace ProjectPerseus.queue
 
             try
             {
-                string extra = string.Empty;
-                if (e is TaskDialogShowingEventArgs td)
-                {
-                    var parts = new List<string>();
-                    if (!string.IsNullOrWhiteSpace(td.Title))   parts.Add($"Title='{td.Title}'");
-                    if (!string.IsNullOrWhiteSpace(td.Message)) parts.Add($"Message='{td.Message}'");
-                    if (parts.Count > 0) extra = " | " + string.Join(", ", parts);
-                }
-                Log.Info($"[SuppressDialogs] {action} — DialogId='{e.DialogId}', Type={e.GetType().Name}{extra}");
+                Log.Info($"[SuppressDialogs] {action} — DialogId='{e.DialogId}', Type={e.GetType().Name}");
             }
             catch { /* never let the diagnostic itself break dialog handling */ }
 
