@@ -18,6 +18,7 @@
 $RevitExe       = "C:\Program Files\Autodesk\Revit 2026\Revit.exe"
 $MaxRelaunches  = 20                # safety cap so a persistently broken model can't loop forever
 $RelaunchDelaySec = 5               # breathing room between Revit launches
+$SessionIterationCap = $null        # iterations per Revit session: $null=default (50), 0=unlimited, N=custom
 
 # -------------------------------------------------------------------------
 # MODELS TO PROCESS
@@ -111,6 +112,9 @@ if (-not $resumeExisting) {
     $Instruction = [ordered]@{
         models_to_process = $Models
         timestamp         = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
+    }
+    if ($null -ne $SessionIterationCap) {
+        $Instruction.session_iteration_cap = $SessionIterationCap
     }
     $Instruction | ConvertTo-Json -Depth 4 | Set-Content -Path $BatchFile -Encoding UTF8
     Write-Host "Fresh batch_task.json written: $BatchFile ($($Models.Count) model(s))."

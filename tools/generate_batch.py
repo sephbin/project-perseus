@@ -27,6 +27,9 @@ Options:
                         appends to output JSON filenames (case-insensitive).
   --out FILE            Write JSON to FILE instead of stdout
   --timestamp TS        Override ISO timestamp  [default: now]
+  --session-iteration-cap N
+                        Max loop iterations per Revit session.
+                        0 = unlimited, omit = default (50).
 """
 
 import argparse
@@ -98,6 +101,8 @@ def main():
                     help="Write JSON to FILE (default: print to stdout)")
     ap.add_argument("--timestamp", metavar="TS",
                     help="Override ISO timestamp (default: now)")
+    ap.add_argument("--session-iteration-cap", type=int, metavar="N",
+                    help="session_iteration_cap in JSON: 0=unlimited, omit=default (50)")
     args = ap.parse_args()
 
     scan_dir = os.path.abspath(args.dir)
@@ -143,6 +148,8 @@ def main():
             for path in rvt_files
         ],
     }
+    if args.session_iteration_cap is not None:
+        batch["session_iteration_cap"] = args.session_iteration_cap
 
     output = json.dumps(batch, indent=4)
 

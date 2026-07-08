@@ -24,7 +24,7 @@ namespace ProjectPerseus.queue
     {
         private const int MaxAttempts = 3;        // Total attempts per model across all Revit sessions before giving up.
         private const int RecoverDelayMs = 5_000; // Pause between successful model transitions (defensive padding).
-        private const int SessionIterationCap = 50; // Sanity cap to avoid infinite loops within one Revit session.
+        private const int DefaultSessionIterationCap = 50; // Used when batch_task.json omits session_iteration_cap.
 
         private enum ProcessResult
         {
@@ -67,14 +67,20 @@ namespace ProjectPerseus.queue
 
             int exitCode = 0;
 
+            // 0 in JSON → unlimited; null/omitted → DefaultSessionIterationCap.
+            int iterCap = _instruction.SessionIterationCap.HasValue
+                ? (_instruction.SessionIterationCap.Value <= 0 ? int.MaxValue : _instruction.SessionIterationCap.Value)
+                : DefaultSessionIterationCap;
+            Log.Info($"[Loop] Session iteration cap: {(iterCap == int.MaxValue ? "unlimited" : iterCap.ToString())}");
+
             try
             {
                 // No in-memory queue any more — batch_task.json is the source of truth and
                 // is mutated as work progresses. On poison we persist + TerminateProcess(1)
                 // so Task Scheduler relaunches Revit; on success we strip the model from the
-                // file and continue. SessionIterationCap guards against an unexpected loop.
+                // file and continue. iterCap guards against an unexpected loop.
                 int iter = 0;
-                while (_instruction.ModelsToProcess.Count > 0 && iter < SessionIterationCap)
+                while (_instruction.ModelsToProcess.Count > 0 && iter < iterCap)
                 {
                     iter++;
                     if (progressForm.AbortRequested) { Log.Info("[Loop] Aborted by progress form."); break; }
@@ -140,9 +146,9 @@ namespace ProjectPerseus.queue
                     if (_instruction.ModelsToProcess.Count > 0 && !RecoverBetweenModels(progressForm)) break;
                 }
 
-                if (iter >= SessionIterationCap)
+                if (iter >= iterCap)
                 {
-                    Log.Warn($"[Loop] Hit session iteration cap ({SessionIterationCap}). Exiting non-zero so scheduler relaunches.");
+                    Log.Warn($"[Loop] Hit session iteration cap ({(iterCap == int.MaxValue ? "unlimited" : iterCap.ToString())}). Exiting non-zero so scheduler relaunches.");
                     exitCode = 1;
                 }
                 else if (_instruction.ModelsToProcess.Count == 0)

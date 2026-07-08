@@ -26,6 +26,11 @@ namespace ProjectPerseus.models
         [JsonProperty("output_dir")]
         public string OutputDirectory { get; set; }
 
+        // Maximum loop iterations in a single Revit session (guards against infinite loops).
+        // Omit or set to null → default (50). Set to 0 → unlimited.
+        [JsonProperty("session_iteration_cap")]
+        public int? SessionIterationCap { get; set; }
+
         public bool IsValid()
         {
             // Window is generous because batch_task.json is now mutated as work progresses
