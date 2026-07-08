@@ -32,7 +32,13 @@
       "Bash(dir C:mydevdjango-perseus *)",
       "Bash(DJANGO_ENVIRONMENT=DEVELOPMENT /c/Users/Andrew.Butler/pythonenv/COX-LABS-PUBLIC/Scripts/python *)",
       "PowerShell(git *)",
-      "Bash(Get-Content *)"
+      "Bash(Get-Content *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\mydev\\\\COX-LABS-PUBLIC\" -Recurse -Force)",
+      "Bash(Get-ChildItem *)",
+      "Bash(dir \"E:\\\\mydev\\\\redback\\\\Redback.Components\\\\Resources\")",
+      "Bash(powershell *)",
+      "PowerShell(Get-ChildItem \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\bin\\\\x64\\\\Debug 2026\\\\\" | Where-Object { $_.Name -match \"Identity|Msal\" } | Select-Object Name)",
+      "PowerShell(dir \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\bin\\\\x64\\\\Debug 2023\" | Where-Object { $_.Name -match \"Identity|Msal|IdentityModel\" } | Select-Object Name)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

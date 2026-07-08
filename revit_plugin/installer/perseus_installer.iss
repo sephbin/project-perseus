@@ -5,7 +5,7 @@
 ArchitecturesInstallIn64BitMode=x64
 ; --- 1. App Information ---
 AppName=Project Perseus
-AppVersion=1.1.162
+AppVersion=1.1.163
 AppId={{10908502-7BB8-473D-B858-B31591187295}}
 DefaultGroupName=Andrew Butler
 
@@ -34,6 +34,11 @@ Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2023\runtimes\win-x64\native"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Microsoft.Identity.Client.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\Sentry.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2023\EPPlus.dll"; DestDir: "{app}\2023"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "E:\mydev\project-perseus\revit_plugin\manifests\ProjectPerseus_2023.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2023"; Flags: ignoreversion skipifsourcedoesntexist
 
 
@@ -62,6 +67,11 @@ Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2026\runtimes\win-x64\native"; Flags: ignoreversion
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
 Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Identity.Client.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\Sentry.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
+Source: "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug 2026\EPPlus.dll"; DestDir: "{app}\2026"; Flags: ignoreversion
 Source: "E:\mydev\project-perseus\revit_plugin\manifests\ProjectPerseus_2026.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2026"; Flags: ignoreversion
 
 [Code]
