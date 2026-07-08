@@ -486,9 +486,30 @@ namespace ProjectPerseus.queue
                 // Log what we found so the right filter is visible in the log.
                 Log.Info($"[WinClick] Dialog class='{winClass}', buttons: {string.Join(", ", candidates.Select(b => $"'{b.t}'"))}");
 
-                var target = wantCancel
-                    ? candidates.FirstOrDefault(b => b.t.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) >= 0)
-                    : candidates.FirstOrDefault(b => b.t.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) < 0);
+                (IntPtr h, string t) target;
+                if (wantCancel)
+                {
+                    target = candidates.FirstOrDefault(b =>
+                        b.t.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) >= 0);
+                }
+                else
+                {
+                    // Skip expand/arrow controls (">>" in text) and label-length strings (>50 chars).
+                    // Try action keywords in priority order before falling back to anything left.
+                    target = default;
+                    foreach (var kw in new[] { "Delete", "Remove", "Proceed", "Continue", "Accept", "Yes", "OK" })
+                    {
+                        target = candidates.FirstOrDefault(b =>
+                            !b.t.Contains(">>") && b.t.Length <= 50
+                            && b.t.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0
+                            && b.t.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) < 0);
+                        if (target.h != IntPtr.Zero) break;
+                    }
+                    if (target.h == IntPtr.Zero)
+                        target = candidates.FirstOrDefault(b =>
+                            !b.t.Contains(">>") && b.t.Length <= 50
+                            && b.t.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) < 0);
+                }
 
                 if (target.h == IntPtr.Zero) return true;
 
