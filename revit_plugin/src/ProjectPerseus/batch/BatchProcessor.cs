@@ -414,12 +414,25 @@ namespace ProjectPerseus.queue
 
         private void SuppressDialogs(object sender, DialogBoxShowingEventArgs e)
         {
-            // DocWarnDialog is a "model has warnings" advisory shown during open.
-            // Sending Cancel here tells Revit to abort the open, not just dismiss the dialog.
-            // Send OK (1) instead so warnings are acknowledged and the open proceeds.
-            bool useOk = e.DialogId == "Dialog_Revit_DocWarnDialog";
-            int result = useOk ? (int)DialogResult.OK : (int)DialogResult.Cancel;
-            string action = useOk ? "OK" : "Cancel";
+            int result;
+            string action;
+
+            if (e.DialogId == "Dialog_Revit_DocWarnDialog")
+            {
+                // This dialog appears when elements have unresolvable errors during file open
+                // (e.g. "Cannot form radial dimension"). It offers three buttons:
+                //   Delete Element(s)  |  OK (greyed out)  |  Cancel
+                // OK is disabled — sending OK (1) is treated by Revit as an invalid choice
+                // and falls back to Cancel. We must send Yes (6) which maps to "Delete Element(s)"
+                // so the bad elements are removed and the open can proceed.
+                result = (int)DialogResult.Yes;
+                action = "Yes/Delete";
+            }
+            else
+            {
+                result = (int)DialogResult.Cancel;
+                action = "Cancel";
+            }
 
             try
             {
