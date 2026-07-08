@@ -229,9 +229,20 @@ namespace ProjectPerseus.queue
                 {
                     bool workshared = fileInfo?.IsWorkshared ?? true;
                     if (workshared)
-                        openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                    {
+                        // Attempt 0: preserve worksets (preferred — keeps workset structure intact).
+                        // Attempt 1+: discard worksets — skips ownership resolution, which can fail on
+                        // files with stale/unresolvable workset records and surface as DocWarnDialog + cancel.
+                        var detachMode = modelInfo.Attempts == 0
+                            ? DetachFromCentralOption.DetachAndPreserveWorksets
+                            : DetachFromCentralOption.DetachAndDiscardWorksets;
+                        openOptions.DetachFromCentralOption = detachMode;
+                        Log.Info($"[ProcessModel] DetachMode={detachMode} (prior attempts: {modelInfo.Attempts})");
+                    }
                     else
+                    {
                         Log.Info("[FileInfo] File is not workshared — DetachFromCentralOption skipped.");
+                    }
                 }
 
                 WorksetConfiguration worksetConfig = GetWorksetConfig(modelPath, modelInfo, out bool modelReachable);
