@@ -38,7 +38,8 @@
       "Bash(dir \"E:\\\\mydev\\\\redback\\\\Redback.Components\\\\Resources\")",
       "Bash(powershell *)",
       "PowerShell(Get-ChildItem \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\bin\\\\x64\\\\Debug 2026\\\\\" | Where-Object { $_.Name -match \"Identity|Msal\" } | Select-Object Name)",
-      "PowerShell(dir \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\bin\\\\x64\\\\Debug 2023\" | Where-Object { $_.Name -match \"Identity|Msal|IdentityModel\" } | Select-Object Name)"
+      "PowerShell(dir \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\bin\\\\x64\\\\Debug 2023\" | Where-Object { $_.Name -match \"Identity|Msal|IdentityModel\" } | Select-Object Name)",
+      "PowerShell([System.IO.File]::ReadAllText\\(\"E:\\\\mydev\\\\project-perseus\\\\.claude_changes.md\"\\) | Out-String)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

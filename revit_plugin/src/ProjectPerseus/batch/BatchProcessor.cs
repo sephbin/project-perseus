@@ -208,9 +208,31 @@ namespace ProjectPerseus.queue
                     modelPath = ModelPathUtils.ConvertCloudGUIDsToCloudPath(regionCode, projGuid, modGuid);
                 }
 
+                // Read file headers before opening so we know what we're dealing with.
+                // IsWorkshared=False on a file that we try to detach can cause DocWarnDialog + cancel.
+                BasicFileInfo fileInfo = null;
+                if (modelInfo.IsLocalFile)
+                {
+                    try
+                    {
+                        fileInfo = BasicFileInfo.Extract(modelInfo.LocalPath);
+                        Log.Info($"[FileInfo] IsWorkshared={fileInfo.IsWorkshared}, Format='{fileInfo.Format}', SavedBy='{fileInfo.Username}'");
+                    }
+                    catch (Exception fiEx)
+                    {
+                        Log.Warn($"[FileInfo] BasicFileInfo.Extract failed: {fiEx.Message}");
+                    }
+                }
+
                 OpenOptions openOptions = new OpenOptions();
                 if (modelInfo.IsLocalFile)
-                    openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                {
+                    bool workshared = fileInfo?.IsWorkshared ?? true;
+                    if (workshared)
+                        openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                    else
+                        Log.Info("[FileInfo] File is not workshared — DetachFromCentralOption skipped.");
+                }
 
                 WorksetConfiguration worksetConfig = GetWorksetConfig(modelPath, modelInfo, out bool modelReachable);
                 if (!modelReachable)
