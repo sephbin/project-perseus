@@ -381,26 +381,28 @@ namespace ProjectPerseus.queue
 
         private void SuppressDialogs(object sender, DialogBoxShowingEventArgs e)
         {
-            // Diagnostic: log every dialog we cancel so we can spot ones that probably
-            // shouldn't be cancelled (e.g. an ACC auth/sign-in prompt between cloud models).
-            // If a specific DialogId shows up right before a crash, that's our culprit.
-            try
-            {
-                Log.Info($"[SuppressDialogs] DialogId='{e.DialogId}', Type={e.GetType().Name}");
-            }
-            catch { /* never let the diagnostic itself break dialog handling */ }
-
             // DocWarnDialog is a "model has warnings" advisory shown during open.
             // Sending Cancel here tells Revit to abort the open, not just dismiss the dialog.
             // Send OK (1) instead so warnings are acknowledged and the open proceeds.
-            if (e.DialogId == "Dialog_Revit_DocWarnDialog")
-            {
-                e.OverrideResult((int)DialogResult.OK);
-                return;
-            }
+            bool useOk = e.DialogId == "Dialog_Revit_DocWarnDialog";
+            int result = useOk ? (int)DialogResult.OK : (int)DialogResult.Cancel;
+            string action = useOk ? "OK" : "Cancel";
 
-            // For all other popups (Missing Links, Missing Fonts, etc.) Cancel/Close is correct.
-            e.OverrideResult((int)DialogResult.Cancel);
+            try
+            {
+                string extra = string.Empty;
+                if (e is TaskDialogShowingEventArgs td)
+                {
+                    var parts = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(td.Title))   parts.Add($"Title='{td.Title}'");
+                    if (!string.IsNullOrWhiteSpace(td.Message)) parts.Add($"Message='{td.Message}'");
+                    if (parts.Count > 0) extra = " | " + string.Join(", ", parts);
+                }
+                Log.Info($"[SuppressDialogs] {action} — DialogId='{e.DialogId}', Type={e.GetType().Name}{extra}");
+            }
+            catch { /* never let the diagnostic itself break dialog handling */ }
+
+            e.OverrideResult(result);
         }
 
         private bool RecoverBetweenModels(BatchProgressForm progressForm)
