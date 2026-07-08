@@ -390,8 +390,16 @@ namespace ProjectPerseus.queue
             }
             catch { /* never let the diagnostic itself break dialog handling */ }
 
-            // Automatically click "Cancel" or "Close" on all popups to prevent Revit freezing.
-            // This handles "Missing Links", "Missing Fonts", etc.
+            // DocWarnDialog is a "model has warnings" advisory shown during open.
+            // Sending Cancel here tells Revit to abort the open, not just dismiss the dialog.
+            // Send OK (1) instead so warnings are acknowledged and the open proceeds.
+            if (e.DialogId == "Dialog_Revit_DocWarnDialog")
+            {
+                e.OverrideResult((int)DialogResult.OK);
+                return;
+            }
+
+            // For all other popups (Missing Links, Missing Fonts, etc.) Cancel/Close is correct.
             e.OverrideResult((int)DialogResult.Cancel);
         }
 
