@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -414,33 +416,89 @@ namespace ProjectPerseus.queue
 
         private void SuppressDialogs(object sender, DialogBoxShowingEventArgs e)
         {
-            int result;
-            string action;
-
             if (e.DialogId == "Dialog_Revit_DocWarnDialog")
             {
-                // This dialog appears when elements have unresolvable errors during file open
-                // (e.g. "Cannot form radial dimension"). It offers three buttons:
-                //   Delete Element(s)  |  OK (greyed out)  |  Cancel
-                // OK is disabled — sending OK (1) is treated by Revit as an invalid choice
-                // and falls back to Cancel. We must send Yes (6) which maps to "Delete Element(s)"
-                // so the bad elements are removed and the open can proceed.
-                result = (int)DialogResult.Yes;
-                action = "Yes/Delete";
-            }
-            else
-            {
-                result = (int)DialogResult.Cancel;
-                action = "Cancel";
+                // This dialog has element errors (e.g. "Cannot form radial dimension").
+                // Buttons vary — e.g. "Delete Dimension(s)" | OK (greyed) | Cancel — and
+                // the int ID for "proceed" is not knowable at compile time; guessing hasn't worked.
+                // Strategy: don't suppress the dialog; let it appear, then click the right
+                // button via Win32 from a background thread.
+                Log.Info($"[SuppressDialogs] DocWarnDialog — letting dialog render; Win32 clicker thread starting.");
+                Task.Run(() => ClickProceedButton());
+                return; // do NOT call OverrideResult
             }
 
-            try
-            {
-                Log.Info($"[SuppressDialogs] {action} — DialogId='{e.DialogId}', Type={e.GetType().Name}");
-            }
-            catch { /* never let the diagnostic itself break dialog handling */ }
+            try { Log.Info($"[SuppressDialogs] Cancel — DialogId='{e.DialogId}', Type={e.GetType().Name}"); }
+            catch { }
+            e.OverrideResult((int)DialogResult.Cancel);
+        }
 
-            e.OverrideResult(result);
+        // Polls for the DocWarnDialog native window and clicks the first enabled non-Cancel button.
+        // Runs on a background thread while the dialog is blocking the Revit UI thread.
+        private static void ClickProceedButton()
+        {
+            uint pid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+
+            for (int tick = 0; tick < 100; tick++) // up to 10 s
+            {
+                Thread.Sleep(100);
+                if (ClickButtonInDialog(pid, wantCancel: false)) return;
+            }
+
+            Log.Warn("[WinClick] 10 s timeout — clicking Cancel to unblock Revit.");
+            ClickButtonInDialog(pid, wantCancel: true);
+        }
+
+        private static bool ClickButtonInDialog(uint pid, bool wantCancel)
+        {
+            bool clicked = false;
+
+            EnumWindows((hwnd, _) =>
+            {
+                if (!IsWindowVisible(hwnd)) return true;
+                GetWindowThreadProcessId(hwnd, out uint wpid);
+                if (wpid != pid) return true;
+
+                // Skip our own WinForms windows (BatchProgressForm etc.) — they have
+                // class names starting with "WindowsForms".
+                var winClass = new StringBuilder(64);
+                GetClassName(hwnd, winClass, 64);
+                if (winClass.ToString().StartsWith("WindowsForms", StringComparison.OrdinalIgnoreCase)) return true;
+
+                // Collect all enabled, visible child buttons.
+                var candidates = new List<(IntPtr h, string t)>();
+                EnumChildWindows(hwnd, (child, __) =>
+                {
+                    var cc = new StringBuilder(64);
+                    GetClassName(child, cc, 64);
+                    if (!cc.ToString().Equals("Button", StringComparison.OrdinalIgnoreCase)) return true;
+                    if (!IsWindowEnabled(child) || !IsWindowVisible(child)) return true;
+
+                    var txt = new StringBuilder(256);
+                    GetWindowText(child, txt, 256);
+                    string t = txt.ToString().Trim();
+                    if (!string.IsNullOrEmpty(t)) candidates.Add((child, t));
+                    return true;
+                }, IntPtr.Zero);
+
+                if (candidates.Count == 0) return true;
+
+                // Log what we found so the right filter is visible in the log.
+                Log.Info($"[WinClick] Dialog class='{winClass}', buttons: {string.Join(", ", candidates.Select(b => $"'{b.t}'"))}");
+
+                var target = wantCancel
+                    ? candidates.FirstOrDefault(b => b.t.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) >= 0)
+                    : candidates.FirstOrDefault(b => b.t.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) < 0);
+
+                if (target.h == IntPtr.Zero) return true;
+
+                Log.Info($"[WinClick] Clicking '{target.t}'.");
+                SendMessage(target.h, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
+                clicked = true;
+                return false;
+            }, IntPtr.Zero);
+
+            return clicked;
         }
 
         private bool RecoverBetweenModels(BatchProgressForm progressForm)
@@ -474,6 +532,19 @@ namespace ProjectPerseus.queue
             return slept;
         }
 
+        // Win32 — dialog button inspection for ClickProceedButton
+        private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lp);
+        private const uint BM_CLICK = 0x00F5;
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc fn, IntPtr lp);
+        [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr hWnd, EnumWindowsProc fn, IntPtr lp);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int n);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int n);
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        // Win32 — process termination
         // Terminates the current process with a specific exit code, bypassing CLR shutdown
         // hooks entirely. This avoids plugin unload dialogs (e.g. Rhino.Inside) that would
         // block Environment.Exit() or a normal Revit close.
