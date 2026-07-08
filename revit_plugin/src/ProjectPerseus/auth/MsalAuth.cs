@@ -118,9 +118,14 @@ namespace ProjectPerseus.auth
                             .WithSystemWebViewOptions(new SystemWebViewOptions
                             {
                                 HtmlMessageSuccess =
-                                    "<html><head><script>window.onload=function(){window.close();}" +
-                                    "</script></head><body><p>Authentication complete. " +
-                                    "This window will close automatically.</p></body></html>",
+                                    "<html><head><script>window.onload=function(){window.close();}</script>" +
+                                    "<style>body{font-family:sans-serif;display:flex;align-items:center;" +
+                                    "justify-content:center;height:100vh;margin:0;background:#f3f3f3;}" +
+                                    "div{text-align:center;padding:2em;background:#fff;border-radius:8px;" +
+                                    "box-shadow:0 2px 8px rgba(0,0,0,.15);}" +
+                                    "h2{color:#107C10;margin:0 0 .5em;}p{color:#555;margin:0;}</style></head>" +
+                                    "<body><div><h2>&#10003; Authentication complete</h2>" +
+                                    "<p>You may close this window and return to Revit.</p></div></body></html>",
                             })
                             .ExecuteAsync(cts.Token)
                             .ConfigureAwait(false)
