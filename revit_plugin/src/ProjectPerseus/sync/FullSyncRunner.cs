@@ -86,6 +86,18 @@ namespace ProjectPerseus.sync
                     return;
                 }
 
+                // When collecting rooms with connected elements enabled, always include
+                // Room Separation Lines so boundary geometry is captured alongside rooms.
+                bool collectConnectedEarly = json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null
+                    && (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
+                if (collectConnectedEarly
+                    && categories.Any(c => string.Equals(c, "Rooms", StringComparison.OrdinalIgnoreCase))
+                    && !categories.Any(c => string.Equals(c, "Room Separation Lines", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Log.Info("PerformFullSync: Rooms + collectConnectedElements — auto-adding 'Room Separation Lines' to category filter.");
+                    categories.Add("Room Separation Lines");
+                }
+
                 // Pre-fetch Django's current element_ids for this source so we can compute
                 // ghost deletions inline. As we walk every Revit element (and every
                 // synthesized payload entry — categories, connected) we .Remove() its id.

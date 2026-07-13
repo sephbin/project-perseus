@@ -44,6 +44,18 @@ namespace ProjectPerseus.sync
                     return;
                 }
 
+                // When collecting rooms with connected elements enabled, always include
+                // Room Separation Lines so boundary geometry is captured alongside rooms.
+                bool collectConnectedEarly = json["source"]?["parameter_dict"]?["perseusOption_collectConnectedElements"] != null
+                    && (bool)json["source"]["parameter_dict"]["perseusOption_collectConnectedElements"];
+                if (collectConnectedEarly
+                    && categories.Any(c => string.Equals(c, "Rooms", StringComparison.OrdinalIgnoreCase))
+                    && !categories.Any(c => string.Equals(c, "Room Separation Lines", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Log.Info("PerformIncrementalSync: Rooms + collectConnectedElements — auto-adding 'Room Separation Lines' to category filter.");
+                    categories.Add("Room Separation Lines");
+                }
+
                 var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
 
                 if (elementChangeSet.ContainsChanges())
