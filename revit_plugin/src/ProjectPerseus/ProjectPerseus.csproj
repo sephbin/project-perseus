@@ -427,7 +427,9 @@
     <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot;" />
   </Target>
 
-  <Target Name="BuildInstaller" AfterTargets="Build">
+  <Target Name="BuildInstaller" AfterTargets="Build"
+          DependsOnTargets="BuildOtherYears"
+          Condition="'$(IsMultiYearSubBuild)' != 'true'">
     <Exec Command="&quot;$(InnoSetupCompiler)&quot; &quot;$(ProjectDir)..\..\installer\perseus_installer.iss&quot;"
           ContinueOnError="WarnAndContinue" />
   </Target>
@@ -456,6 +458,23 @@
 
   <Target Name="DevInstall" AfterTargets="Build" Condition="'$(RevitVersion)' != ''">
     <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)dev-install.ps1&quot; -TargetPath &quot;$(TargetPath)&quot; -RevitVersion &quot;$(RevitVersion)&quot;" />
+  </Target>
+
+  <!-- ── Multi-year build ───────────────────────────────────────────────────────────────
+       When building any year config (2023/2026) from VS, this target compiles all other
+       viable years as sequential sub-builds so the installer always has both DLLs ready.
+       IsMultiYearSubBuild=true prevents the sub-builds from chaining further.
+       SkipBumpVersion=true prevents double-bumping the version number.
+       BuildInstaller depends on this target so it waits until all DLLs exist.
+  ─────────────────────────────────────────────────────────────────────────────────────── -->
+  <Target Name="BuildOtherYears" AfterTargets="Build"
+          Condition="'$(RevitVersion)' != '' AND '$(IsMultiYearSubBuild)' != 'true'">
+    <MSBuild Projects="$(MSBuildProjectFile)"
+             Properties="Configuration=Debug 2023;Platform=x64;IsMultiYearSubBuild=true;SkipBumpVersion=true"
+             Condition="'$(RevitVersion)' != '2023'" />
+    <MSBuild Projects="$(MSBuildProjectFile)"
+             Properties="Configuration=Debug 2026;Platform=x64;IsMultiYearSubBuild=true;SkipBumpVersion=true"
+             Condition="'$(RevitVersion)' != '2026'" />
   </Target>
 
 </Project>
