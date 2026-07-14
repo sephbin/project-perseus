@@ -112,6 +112,16 @@ namespace ProjectPerseus
             PushButton pullWebEditsBtn = ribbonPanel.AddItem(pullWebEditsBtnData) as PushButton;
             pullWebEditsBtn.ToolTip = "Fetch pending parameter edits made in the web editor and apply them to the current model. Skips elements checked out by other users.";
 
+            string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
+            PushButtonData aboutBtnData = new PushButtonData(
+                "Button_About",
+                "About",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.AboutCommand");
+
+            PushButton aboutBtn = ribbonPanel.AddItem(aboutBtnData) as PushButton;
+            aboutBtn.ToolTip = $"Project Perseus v{version} — click to view version info";
+
             // Key Schedules panel — separate compartment on the same tab
             RibbonPanel schedulesPanel = application.CreateRibbonPanel(tabName, "Key Schedules");
 

@@ -268,6 +268,7 @@
     <Compile Include="auth\PersonalAccessToken.cs" />
     <Compile Include="auth\TokenCache.cs" />
     <Compile Include="batch\BatchProcessor.cs" />
+    <Compile Include="commands\AboutCommand.cs" />
     <Compile Include="commands\DiagnoseElementCommand.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
     <Compile Include="commands\ExportKeyScheduleCommand.cs" />

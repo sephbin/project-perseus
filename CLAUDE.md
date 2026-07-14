@@ -137,6 +137,7 @@ ProjectPerseus/
 │   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
 │   └── UrlUtils.cs               IsValidUrl.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
+│   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── EditSettingsCommand.cs    DUPLICATE of OpenSettingsCommand — unwired, candidate for deletion.
 │   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
 │   ├── OpenSettingsCommand.cs    Ribbon: Button_Settings.

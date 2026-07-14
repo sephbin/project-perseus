@@ -171,6 +171,27 @@ namespace ProjectPerseus.models
                     paramList.Add(new Parameter<bool>("Is ElementType", rawElem is ARDB.ElementType, "Boolean", null, "synthetic"));
                     paramList.Add(new Parameter<bool>("Is ElementType (Subclass)", rawElem.GetType().IsSubclassOf(typeof(ARDB.ElementType)), "Boolean", null, "synthetic"));
                     paramList.Add(new Parameter<long>("Type Id", rawElem.GetTypeId().GetIdValue(), "ElementId", null, "synthetic"));
+
+                    // Phase Created: BuiltInParameter.PHASE_CREATED may be silently omitted from
+                    // ParametersSet in some Revit API versions (2024+). Capture it here as a
+                    // guaranteed synthetic fallback. Django deduplication keeps the authoritative
+                    // builtin version if it was already sent; this only fills the gap when it wasn't.
+                    try
+                    {
+                        var ppPhase = rawElem.get_Parameter(ARDB.BuiltInParameter.PHASE_CREATED);
+                        if (ppPhase != null && ppPhase.StorageType == ARDB.StorageType.ElementId)
+                            paramList.Add(new Parameter<long>("Phase Created", ppPhase.AsElementId().GetIdValue(), "ElementId", null, "synthetic"));
+                    }
+                    catch { }
+
+                    // Design Option: Element.DesignOption is null for main-model elements and
+                    // non-null for any element belonging to a design option.
+                    try
+                    {
+                        if (rawElem.DesignOption != null)
+                            paramList.Add(new Parameter<long>("Design Option", rawElem.DesignOption.Id.GetIdValue(), "ElementId", null, "synthetic"));
+                    }
+                    catch { }
                 }
             }
             catch (Exception ex)
