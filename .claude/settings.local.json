@@ -60,7 +60,13 @@
       "PowerShell($env:DJANGO_SETTINGS_MODULE = \"coxlabs.settings.dev\"; $env:PYTHONPATH = \"C:\\\\mydev\\\\django-perseus;C:\\\\mydev\\\\django-syncboat;C:\\\\mydev\\\\COX-LABS-PUBLIC\"; cd C:\\\\mydev\\\\COX-LABS-PUBLIC; & \"C:\\\\Users\\\\Andrew.Butler\\\\pythonenv\\\\COX-LABS-PUBLIC\\\\Scripts\\\\python.exe\" manage.py migrate --skip-checks 2>&1 | Select-Object -Last 10)",
       "Bash(Select-Object -First 50 FullName)",
       "WebFetch(domain:claude.ai)",
-      "PowerShell(New-Item *)"
+      "PowerShell(New-Item *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(foreach \\($py in @\\(\"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\", \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe\", \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\"\\)\\) { $result = & $py -c \"import django; print\\('$py has django', django.__version__\\)\" 2>$null; if \\($result\\) { Write-Output $result } })",
+      "PowerShell(& \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"import django; print\\(django.__version__\\)\")",
+      "PowerShell(& \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe\" -c \"import django; print\\(django.__version__\\)\")",
+      "PowerShell(& \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" -c \"import django; print\\(django.__version__\\)\")",
+      "Bash(dir C:\\\\mydev\\\\django-perseus *)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
