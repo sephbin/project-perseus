@@ -168,6 +168,7 @@ ProjectPerseus/
 │   ├── SyncWarningForm.cs        Moved from forms/. Was at global namespace; now ProjectPerseus.ui.
 │   └── ThemeIconManager.cs
 ├── models/                       DTOs + geometry extractor.
+│   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── KeyScheduleConfig.cs      Per-schedule mapping: schedule name, Excel path/sheet, Django
 │   │                             endpoint, and Filters list (List<KeyScheduleFilter>).
 │   ├── KeyScheduleData.cs        Schedule rows (ScheduleName, ColumnNames, Rows).
@@ -195,6 +196,12 @@ ProjectPerseus/
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
 │                                 by title and PostMessage(WM_CLOSE).
+├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
+│   └── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
+│                                 via ControlledApplication (called from SyncOrchestrator).
+│                                 Detects: element_deleted, ungroup, unpin, link_unload (provisional),
+│                                 warning_dismissed, sheet_view_edit. Accumulates ActionDto entries
+│                                 in ConcurrentQueue. DrainQueue() called by Step 3 ingest.
 ├── web/
 │   ├── ProjectPerseusWeb.cs      HTTP client for Django: SubmitElementDeltas (HttpClient +
 │                                 AuthService scheme) and SubmitElementState (legacy Token via

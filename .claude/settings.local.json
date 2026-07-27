@@ -66,7 +66,18 @@
       "PowerShell(& \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -c \"import django; print\\(django.__version__\\)\")",
       "PowerShell(& \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe\" -c \"import django; print\\(django.__version__\\)\")",
       "PowerShell(& \"C:\\\\Users\\\\Andrew.Butler\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" -c \"import django; print\\(django.__version__\\)\")",
-      "Bash(dir C:\\\\mydev\\\\django-perseus *)"
+      "Bash(dir C:\\\\mydev\\\\django-perseus *)",
+      "Bash(Select-Object -Property FullName)",
+      "Bash(Sort-Object FullName)",
+      "Bash(grep -E \"\\\\.cs$\")",
+      "PowerShell(& \"$env:USERPROFILE\\\\pythonenv\\\\COX-LABS-PUBLIC\\\\Scripts\\\\python.exe\" \"C:\\\\mydev\\\\COX-LABS-PUBLIC\\\\manage.py\" makemigrations perseus --no-input 2>&1)",
+      "PowerShell(cd C:\\\\mydev\\\\django-perseus; & \"$env:USERPROFILE\\\\pythonenv\\\\COX-LABS-PUBLIC\\\\Scripts\\\\python.exe\" \"C:\\\\mydev\\\\COX-LABS-PUBLIC\\\\manage.py\" makemigrations perseus --no-input 2>&1)",
+      "Bash(msbuild \"ProjectPerseus.sln\" /p:Configuration=Debug /t:Build /v:minimal)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\ProjectPerseus.sln\" /p:Configuration=Debug /t:Build /v:minimal /nologo 2>&1)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln\" /p:Configuration=Debug /t:Build /v:minimal /nologo 2>&1)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln\" \"/p:Configuration=Debug 2026\" /t:Build /v:minimal /nologo 2>&1)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln\" \"/p:Configuration=Debug 2026\" \"/p:Platform=x64\" /t:Build /v:minimal /nologo 2>&1)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

@@ -15,6 +15,7 @@ using ProjectPerseus.web;
 
 using ProjectPerseus.logging;
 using ProjectPerseus.util;
+using ProjectPerseus.violations;
 namespace ProjectPerseus.sync
 {
     // Stateful coordinator for the Revit sync lifecycle. Owns the pre-sync queue check,
@@ -61,6 +62,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
+            ViolationDetector.Subscribe(application);
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
@@ -75,6 +77,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizingWithCentral -= OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
+            ViolationDetector.Unsubscribe(application);
             _queueWebForm?.Close();
         }
 
