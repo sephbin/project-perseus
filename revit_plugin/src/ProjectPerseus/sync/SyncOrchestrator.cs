@@ -575,6 +575,18 @@ namespace ProjectPerseus.sync
                         Log.Info($"Error performing sync: {ex.Message}");
                     }
 
+                    // Drain and ship accumulated violation-tracking actions (fire-and-forget, non-fatal).
+                    try
+                    {
+                        var actions = violations.ViolationDetector.DrainQueue();
+                        if (actions.Count > 0)
+                            web.ProjectPerseusWeb.SubmitActions(_config.BaseUrl, actions);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"SubmitActions failed (non-fatal): {ex.Message}");
+                    }
+
                     // Signal server that all element POSTs for this batch are done.
                     // Server will trigger post-sync validation once all background tasks complete.
                     try
