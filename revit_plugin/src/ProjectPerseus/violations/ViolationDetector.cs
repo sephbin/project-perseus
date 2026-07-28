@@ -120,6 +120,19 @@ namespace ProjectPerseus.violations
                         // ProceedAll: fall through and enqueue everything normally.
                     }
                 }
+
+                // On-edit enforcement for Ungroup — all-or-nothing (no partial undo).
+                if (vsettings != null && isUngroup &&
+                    vsettings.ResolveEditStyle(models.ActionType.Ungroup) == "dialog")
+                {
+                    var groupInfos = BuildUngroupElementInfos(deletedIds, docGuid);
+                    if (ShowUngroupWarningForm(groupInfos))
+                    {
+                        UndoViolationExternalEvent?.Raise();
+                        return;
+                    }
+                    // User confirmed — fall through and enqueue.
+                }
             }
 
             // Track actions for the presync gate (only what actually proceeded — not undone).
@@ -371,6 +384,47 @@ namespace ProjectPerseus.violations
                 queue.UndoViolationEvent.IdsToReDeleteAfterUndo = form.ApprovedElementIds.ToList();
                 return ViolationDialogResult.UndoThenReDelete;
             }
+        }
+
+        // Returns true if the user cancelled (undo should fire), false if they confirmed.
+        private static bool ShowUngroupWarningForm(List<ViolationElementInfo> groupInfos)
+        {
+            using (var form = new ui.ViolationWarningForm(groupInfos, "ungroup"))
+            {
+                return form.ShowDialog() != System.Windows.Forms.DialogResult.OK ||
+                       form.ApprovedElementIds.Count == 0;
+            }
+        }
+
+        private static List<ViolationElementInfo> BuildUngroupElementInfos(
+            ICollection<ElementId> deletedIds, string docGuid)
+        {
+            var result = new List<ViolationElementInfo>();
+            foreach (var id in deletedIds)
+            {
+                long idVal = id.GetIdValue();
+                var info = ElementCategoryCache.Get(docGuid, idVal);
+                if (info == null || info.CategoryName != "Model Groups") continue;
+                result.Add(new ViolationElementInfo
+                {
+                    ElementId      = idVal,
+                    UniqueId       = info.UniqueId,
+                    CategoryName   = info.CategoryName,
+                    FamilyTypeName = info.FamilyTypeName,
+                    ElementName    = info.Name,
+                    IsProtected    = true,
+                });
+            }
+            if (result.Count == 0)
+            {
+                result.Add(new ViolationElementInfo
+                {
+                    CategoryName = "Model Groups",
+                    ElementName  = "(ungrouped)",
+                    IsProtected  = true,
+                });
+            }
+            return result;
         }
 
         private static List<ViolationElementInfo> BuildViolationElementInfos(
