@@ -605,12 +605,13 @@ namespace ProjectPerseus.sync
 
                     // Signal server that all element POSTs for this batch are done.
                     // Server will trigger post-sync validation once all background tasks complete.
+                    string closedDocGuid = null;
                     try
                     {
-                        var docGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                        closedDocGuid = ModelGuidStorage.GetOrCreate(e.Document);
                         var batchCloseEndpoint = $"{_config.BaseUrl}/batchclose/";
                         var batchClosePayload = Newtonsoft.Json.JsonConvert.SerializeObject(
-                            new { batchId = batchId, documentGuid = docGuid });
+                            new { batchId = batchId, documentGuid = closedDocGuid });
                         WebHelper.Post(batchCloseEndpoint, AuthService.GetAuthTokenSafely(), batchClosePayload);
                         Log.Info($"SyncBatch closed: {batchId}");
                     }
@@ -618,6 +619,11 @@ namespace ProjectPerseus.sync
                     {
                         Log.Warn($"batchClose call failed (non-fatal): {ex.Message}");
                     }
+
+                    // Refresh violation settings after every sync so Django-side changes
+                    // take effect without requiring a document close/reopen.
+                    if (closedDocGuid != null)
+                        violations.ViolationSettingsCache.LoadAsync(closedDocGuid, _config.BaseUrl);
 
                     watch.Stop();
                     Log.Info("End Watch");

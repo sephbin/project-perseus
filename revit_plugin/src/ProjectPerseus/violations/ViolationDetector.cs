@@ -264,7 +264,13 @@ namespace ProjectPerseus.violations
             if (string.IsNullOrEmpty(_baseUrl)) return;
             var actions = DrainQueue();
             if (actions.Count == 0) return;
-            try   { ProjectPerseusWeb.SubmitActions(_baseUrl, actions); }
+            try
+            {
+                ProjectPerseusWeb.SubmitActions(_baseUrl, actions);
+                // Piggyback a stale settings refresh for each document in this flush.
+                foreach (var docGuid in actions.Select(a => a.DocGuid).Where(g => g != null).Distinct())
+                    ViolationSettingsCache.LoadAsyncIfStale(docGuid, _baseUrl);
+            }
             catch (Exception ex) { Log.Warn($"[ViolationDetector] real-time flush failed: {ex.Message}"); }
         }
 

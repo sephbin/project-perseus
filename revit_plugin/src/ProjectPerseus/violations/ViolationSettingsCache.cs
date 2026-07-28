@@ -10,13 +10,24 @@ namespace ProjectPerseus.violations
 {
     internal static class ViolationSettingsCache
     {
-        private static readonly ConcurrentDictionary<string, ViolationSettings> _cache
-            = new ConcurrentDictionary<string, ViolationSettings>();
+        private static readonly ConcurrentDictionary<string, (ViolationSettings Settings, DateTime LoadedAt)> _cache
+            = new ConcurrentDictionary<string, (ViolationSettings, DateTime)>();
 
+        // Unconditional async fetch — use on document open and after batchClose.
         internal static void LoadAsync(string docGuid, string baseUrl)
         {
             if (string.IsNullOrEmpty(docGuid) || string.IsNullOrEmpty(baseUrl)) return;
             Task.Run(() => Load(docGuid, baseUrl));
+        }
+
+        // Fetches only when cached value is older than maxAgeMinutes — use when piggybacking
+        // on existing server contacts (e.g. real-time action flush) to avoid excess requests.
+        internal static void LoadAsyncIfStale(string docGuid, string baseUrl, int maxAgeMinutes = 5)
+        {
+            if (string.IsNullOrEmpty(docGuid) || string.IsNullOrEmpty(baseUrl)) return;
+            if (!_cache.TryGetValue(docGuid, out var entry) ||
+                (DateTime.UtcNow - entry.LoadedAt).TotalMinutes >= maxAgeMinutes)
+                Task.Run(() => Load(docGuid, baseUrl));
         }
 
         private static void Load(string docGuid, string baseUrl)
@@ -30,7 +41,7 @@ namespace ProjectPerseus.violations
                 var settings = JsonConvert.DeserializeObject<ViolationSettings>(json);
                 if (settings != null)
                 {
-                    _cache[docGuid] = settings;
+                    _cache[docGuid] = (settings, DateTime.UtcNow);
                     Log.Info($"[ViolationSettingsCache] Loaded for {docGuid}: " +
                              $"{settings.ProtectedCategories.Count} categories, " +
                              $"{settings.ProtectedElementIds.Count} element IDs");
@@ -43,6 +54,6 @@ namespace ProjectPerseus.violations
         }
 
         internal static ViolationSettings Get(string docGuid) =>
-            _cache.TryGetValue(docGuid, out var s) ? s : null;
+            _cache.TryGetValue(docGuid, out var entry) ? entry.Settings : null;
     }
 }
