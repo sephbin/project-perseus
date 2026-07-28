@@ -155,11 +155,14 @@ namespace ProjectPerseus.violations
             }
 
             // Track actions for the presync gate (only what actually proceeded — not undone).
+            // Collect into a local list first so we can warn immediately if any will block sync.
             if (!bypass)
             {
                 var vs = ViolationSettingsCache.Get(docGuid);
                 if (vs != null)
                 {
+                    var newViolations = new List<PresyncViolation>();
+
                     // ElementDeleted
                     if (deletedIds.Count > 0)
                     {
@@ -171,7 +174,7 @@ namespace ProjectPerseus.violations
                                 long idVal = id.GetIdValue();
                                 var info = ElementCategoryCache.Get(docGuid, idVal);
                                 if (info == null || !IsProtectedInSettings(vs, idVal, info)) continue;
-                                AddPendingViolation(new PresyncViolation
+                                newViolations.Add(new PresyncViolation
                                 {
                                     DocGuid = docGuid, ActionType = models.ActionType.ElementDeleted,
                                     ElementId = idVal, CategoryName = info.CategoryName,
@@ -182,8 +185,6 @@ namespace ProjectPerseus.violations
                     }
 
                     // Ungroup — no protection filter; enforce_ungroup_sync is the policy trigger.
-                    // All model groups share the "Model Groups" category, so per-category filtering
-                    // is redundant. Track the group instance element(s) to show meaningful names.
                     if (isUngroup && deletedIds.Count > 0)
                     {
                         string syncStyle = vs.ResolveSyncStyle(models.ActionType.Ungroup);
@@ -196,7 +197,7 @@ namespace ProjectPerseus.violations
                                 var info = ElementCategoryCache.Get(docGuid, idVal);
                                 if (info == null || info.CategoryName != "Model Groups") continue;
                                 trackedAny = true;
-                                AddPendingViolation(new PresyncViolation
+                                newViolations.Add(new PresyncViolation
                                 {
                                     DocGuid = docGuid, ActionType = models.ActionType.Ungroup,
                                     ElementId = idVal, CategoryName = "Model Groups",
@@ -205,8 +206,7 @@ namespace ProjectPerseus.violations
                             }
                             if (!trackedAny)
                             {
-                                // Group instance not in cache (e.g. created and ungrouped in same session).
-                                AddPendingViolation(new PresyncViolation
+                                newViolations.Add(new PresyncViolation
                                 {
                                     DocGuid = docGuid, ActionType = models.ActionType.Ungroup,
                                     ElementId = deletedIds.First().GetIdValue(),
@@ -228,7 +228,7 @@ namespace ProjectPerseus.violations
                                 long idVal = id.GetIdValue();
                                 var info = ElementCategoryCache.Get(docGuid, idVal);
                                 if (info == null || !IsProtectedInSettings(vs, idVal, info)) continue;
-                                AddPendingViolation(new PresyncViolation
+                                newViolations.Add(new PresyncViolation
                                 {
                                     DocGuid = docGuid, ActionType = models.ActionType.Unpin,
                                     ElementId = idVal, CategoryName = info.CategoryName,
@@ -248,7 +248,7 @@ namespace ProjectPerseus.violations
                             {
                                 var el = doc.GetElement(id);
                                 if (!(el is RevitLinkType)) continue;
-                                AddPendingViolation(new PresyncViolation
+                                newViolations.Add(new PresyncViolation
                                 {
                                     DocGuid = docGuid, ActionType = models.ActionType.LinkUnload,
                                     ElementId = id.GetIdValue(), CategoryName = "Revit Links",
@@ -256,6 +256,26 @@ namespace ProjectPerseus.violations
                                 });
                             }
                         }
+                    }
+
+                    foreach (var v in newViolations)
+                        AddPendingViolation(v);
+
+                    // Warn immediately if any action from this transaction will block the next sync.
+                    var blocking = newViolations.Where(v => v.SyncStyle == "block").ToList();
+                    if (blocking.Count > 0)
+                    {
+                        string itemList = string.Join("\n", blocking.Select(v =>
+                            $"• {v.CategoryName}: {(string.IsNullOrEmpty(v.ElementName) ? $"ID {v.ElementId}" : v.ElementName)}"));
+                        var dlg = new TaskDialog("Perseus — Sync Will Be Blocked")
+                        {
+                            MainIcon        = TaskDialogIcon.TaskDialogIconError,
+                            MainInstruction = "Your next sync will be blocked",
+                            MainContent     = $"The following protected element(s) will prevent syncing until this action is undone:\n\n{itemList}",
+                            FooterText      = "Undo this action now to restore your ability to sync.",
+                            CommonButtons   = TaskDialogCommonButtons.Ok,
+                        };
+                        dlg.Show();
                     }
                 }
             }
