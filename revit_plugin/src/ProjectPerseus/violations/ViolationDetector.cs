@@ -122,34 +122,92 @@ namespace ProjectPerseus.violations
                 }
             }
 
-            // Track protected deletions for the presync gate when on_sync_style != "log".
-            if (!bypass && deletedIds.Count > 0)
+            // Track actions for the presync gate (only what actually proceeded — not undone).
+            if (!bypass)
             {
-                var vsettingsSync = ViolationSettingsCache.Get(docGuid);
-                if (vsettingsSync != null)
+                var vs = ViolationSettingsCache.Get(docGuid);
+                if (vs != null)
                 {
-                    string syncStyle = vsettingsSync.ResolveSyncStyle(models.ActionType.ElementDeleted);
-                    if (syncStyle != "log")
+                    // ElementDeleted
+                    if (deletedIds.Count > 0)
                     {
-                        foreach (var id in deletedIds)
+                        string syncStyle = vs.ResolveSyncStyle(models.ActionType.ElementDeleted);
+                        if (syncStyle != "log")
                         {
-                            long idVal = id.GetIdValue();
-                            var info = ElementCategoryCache.Get(docGuid, idVal);
-                            if (info == null) continue;
-                            bool isProtected =
-                                vsettingsSync.ProtectedElementIds.Contains(idVal.ToString()) ||
-                                vsettingsSync.ProtectedElementIds.Contains(info.UniqueId)    ||
-                                vsettingsSync.ProtectedCategories.Contains(info.CategoryName);
-                            if (!isProtected) continue;
-                            AddPendingViolation(new PresyncViolation
+                            foreach (var id in deletedIds)
                             {
-                                DocGuid      = docGuid,
-                                ActionType   = models.ActionType.ElementDeleted,
-                                ElementId    = idVal,
-                                CategoryName = info.CategoryName,
-                                ElementName  = info.Name,
-                                SyncStyle    = syncStyle,
-                            });
+                                long idVal = id.GetIdValue();
+                                var info = ElementCategoryCache.Get(docGuid, idVal);
+                                if (info == null || !IsProtectedInSettings(vs, idVal, info)) continue;
+                                AddPendingViolation(new PresyncViolation
+                                {
+                                    DocGuid = docGuid, ActionType = models.ActionType.ElementDeleted,
+                                    ElementId = idVal, CategoryName = info.CategoryName,
+                                    ElementName = info.Name, SyncStyle = syncStyle,
+                                });
+                            }
+                        }
+                    }
+
+                    // Ungroup — deleted group members
+                    if (isUngroup && deletedIds.Count > 0)
+                    {
+                        string syncStyle = vs.ResolveSyncStyle(models.ActionType.Ungroup);
+                        if (syncStyle != "log")
+                        {
+                            foreach (var id in deletedIds)
+                            {
+                                long idVal = id.GetIdValue();
+                                var info = ElementCategoryCache.Get(docGuid, idVal);
+                                if (info == null || !IsProtectedInSettings(vs, idVal, info)) continue;
+                                AddPendingViolation(new PresyncViolation
+                                {
+                                    DocGuid = docGuid, ActionType = models.ActionType.Ungroup,
+                                    ElementId = idVal, CategoryName = info.CategoryName,
+                                    ElementName = info.Name, SyncStyle = syncStyle,
+                                });
+                            }
+                        }
+                    }
+
+                    // Unpin — modified (now-unpinned) elements
+                    if (isUnpin && modifiedIds.Count > 0)
+                    {
+                        string syncStyle = vs.ResolveSyncStyle(models.ActionType.Unpin);
+                        if (syncStyle != "log")
+                        {
+                            foreach (var id in modifiedIds)
+                            {
+                                long idVal = id.GetIdValue();
+                                var info = ElementCategoryCache.Get(docGuid, idVal);
+                                if (info == null || !IsProtectedInSettings(vs, idVal, info)) continue;
+                                AddPendingViolation(new PresyncViolation
+                                {
+                                    DocGuid = docGuid, ActionType = models.ActionType.Unpin,
+                                    ElementId = idVal, CategoryName = info.CategoryName,
+                                    ElementName = info.Name, SyncStyle = syncStyle,
+                                });
+                            }
+                        }
+                    }
+
+                    // LinkUnload — track all unloaded links; enforcement is at policy level, not per-element
+                    if (isUnload && modifiedIds.Count > 0)
+                    {
+                        string syncStyle = vs.ResolveSyncStyle(models.ActionType.LinkUnload);
+                        if (syncStyle != "log")
+                        {
+                            foreach (var id in modifiedIds)
+                            {
+                                var el = doc.GetElement(id);
+                                if (!(el is RevitLinkType)) continue;
+                                AddPendingViolation(new PresyncViolation
+                                {
+                                    DocGuid = docGuid, ActionType = models.ActionType.LinkUnload,
+                                    ElementId = id.GetIdValue(), CategoryName = "Revit Links",
+                                    ElementName = el.Name, SyncStyle = syncStyle,
+                                });
+                            }
                         }
                     }
                 }
@@ -326,6 +384,13 @@ namespace ProjectPerseus.violations
                 });
             }
             return result;
+        }
+
+        private static bool IsProtectedInSettings(ViolationSettings vs, long idVal, ElementInfo info)
+        {
+            return vs.ProtectedElementIds.Contains(idVal.ToString()) ||
+                   vs.ProtectedElementIds.Contains(info.UniqueId)    ||
+                   vs.ProtectedCategories.Contains(info.CategoryName);
         }
 
         private static void FlushToServer()
