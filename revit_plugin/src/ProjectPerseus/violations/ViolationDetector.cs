@@ -13,22 +13,20 @@ using System.Threading.Tasks;
 
 namespace ProjectPerseus.violations
 {
-    // Subscribes to DocumentChanged and FailuresProcessing to detect all tracked action types.
-    // Accumulates ActionDto entries in a ConcurrentQueue for later ingest (Step 3).
-    // No enforcement — detection and logging only.
     internal static class ViolationDetector
     {
         private static readonly ConcurrentQueue<ActionDto> _queue = new ConcurrentQueue<ActionDto>();
 
-        // Single UUID stamped on all actions from this plugin session.
         internal static readonly string SessionId = Guid.NewGuid().ToString("N");
 
         private static string _baseUrl;
 
         // Set by SyncOrchestrator.Subscribe(); raised when the user cancels a violation dialog.
-        internal static Autodesk.Revit.UI.ExternalEvent UndoViolationExternalEvent { get; set; }
+        internal static ExternalEvent UndoViolationExternalEvent { get; set; }
 
-        // Drains and returns all queued actions; called by the ingest path (Step 3).
+        // Set to true before a programmatic re-delete so OnDocumentChanged skips the dialog for that transaction.
+        internal static bool BypassNextViolationCheck { get; set; }
+
         internal static List<ActionDto> DrainQueue()
         {
             var result = new List<ActionDto>();
@@ -57,11 +55,10 @@ namespace ProjectPerseus.violations
             Document doc = e.GetDocument();
             if (doc == null || !doc.IsWorkshared) return;
 
-            IList<string> txnNames  = e.GetTransactionNames();
+            IList<string> txnNames    = e.GetTransactionNames();
             ICollection<ElementId> deletedIds  = e.GetDeletedElementIds();
             ICollection<ElementId> modifiedIds = e.GetModifiedElementIds();
 
-            // Joined for the audit log; language-pack-dependent strings preserved verbatim.
             string txnJoined = string.Join("|", txnNames);
             string user      = doc.Application.Username;
             string docGuid   = TryGetDocGuid(doc);
@@ -69,9 +66,8 @@ namespace ProjectPerseus.violations
 
             bool isUngroup = txnNames.Any(t => t.IndexOf("Ungroup", StringComparison.OrdinalIgnoreCase) >= 0);
             // CAUTION: "Unpin" and "Ungroup" are language-pack-dependent UI strings.
-            // TransactionName is always logged in full so raw strings can be audited across locales.
             bool isUnpin   = txnNames.Any(t => t.IndexOf("Unpin",   StringComparison.OrdinalIgnoreCase) >= 0);
-            // CAUTION: "Unload" for link unload is a provisional assumption — unverified.
+            // CAUTION: "Unload" for link unload is provisional.
             bool isUnload  = txnNames.Any(t => t.IndexOf("Unload",  StringComparison.OrdinalIgnoreCase) >= 0);
 
             // Update element cache before processing deletions — deleted elements return null after this point.
@@ -80,27 +76,42 @@ namespace ProjectPerseus.violations
             {
                 var el = doc.GetElement(id);
                 if (el?.Category != null)
-                    ElementCategoryCache.Track(docGuid, id.GetIdValue(), el.Category.Name, el.UniqueId, el.Name ?? "");
+                    ElementCategoryCache.Track(docGuid, id.GetIdValue(),
+                        el.Category.Name, el.UniqueId, el.Name ?? "",
+                        ElementCategoryCache.GetFamilyTypeName(el));
             }
 
-            // On-edit enforcement: check before enqueuing so a Cancel/undo discards all actions.
-            if (deletedIds.Count > 0)
+            // On-edit enforcement: check before enqueuing so a Cancel discards all actions.
+            // Bypassed for our own programmatic re-delete transactions.
+            bool bypass = BypassNextViolationCheck;
+            BypassNextViolationCheck = false;
+
+            if (!bypass && deletedIds.Count > 0)
             {
                 var vsettings = ViolationSettingsCache.Get(docGuid);
                 if (vsettings != null && vsettings.ResolveEditStyle(models.ActionType.ElementDeleted) == "dialog")
                 {
-                    var notices = BuildViolationNotices(vsettings, deletedIds, docGuid);
-                    if (notices.Count > 0 && ShowViolationDialog(notices))
+                    var elementInfos = BuildViolationElementInfos(vsettings, deletedIds, docGuid);
+                    if (elementInfos.Any(ei => ei.IsProtected))
                     {
-                        UndoViolationExternalEvent?.Raise();
-                        return;
+                        var result = ShowViolationWarningForm(elementInfos, deletedIds, docGuid);
+                        if (result == ViolationDialogResult.UndoAll)
+                        {
+                            UndoViolationExternalEvent?.Raise();
+                            return;
+                        }
+                        if (result == ViolationDialogResult.UndoThenReDelete)
+                        {
+                            // Raise fires the undo; IdsToReDeleteAfterUndo drives the follow-up re-delete.
+                            UndoViolationExternalEvent?.Raise();
+                            return;
+                        }
+                        // ProceedAll: fall through and enqueue everything normally.
                     }
                 }
             }
 
-            // 1. Element deletions — every deleted element ID is logged.
-            //    When a group is ungrouped this also fires; the Ungroup action below is logged
-            //    in addition (overlap is intentional — Step 4 server re-derivation filters).
+            // 1. Element deletions.
             foreach (var id in deletedIds)
             {
                 Enqueue(new ActionDto
@@ -131,7 +142,7 @@ namespace ProjectPerseus.violations
                 }
             }
 
-            // 3. Unpin — one action per modified element in an Unpin transaction.
+            // 3. Unpin.
             if (isUnpin)
             {
                 foreach (var id in modifiedIds)
@@ -148,7 +159,7 @@ namespace ProjectPerseus.violations
                 }
             }
 
-            // 4. Link unload — provisional: RevitLinkType modified in an Unload transaction.
+            // 4. Link unload — provisional.
             if (isUnload)
             {
                 foreach (var id in modifiedIds)
@@ -170,7 +181,7 @@ namespace ProjectPerseus.violations
                 }
             }
 
-            // 5. Sheet / view edits — always log-only per spec; no enforcement.
+            // 5. Sheet / view edits — always log-only.
             foreach (var id in modifiedIds)
             {
                 var el = doc.GetElement(id);
@@ -222,23 +233,33 @@ namespace ProjectPerseus.violations
             }
         }
 
-        // Returns true if the user clicked Cancel (wants undo), false if they clicked Ok (proceed).
-        private static bool ShowViolationDialog(List<string> notices)
+        private enum ViolationDialogResult { ProceedAll, UndoAll, UndoThenReDelete }
+
+        private static ViolationDialogResult ShowViolationWarningForm(
+            List<ViolationElementInfo> elementInfos,
+            ICollection<ElementId> deletedIds,
+            string docGuid)
         {
-            var dlg = new TaskDialog("Perseus — Protected Element Deletion")
+            using (var form = new ui.ViolationWarningForm(elementInfos, "delete"))
             {
-                MainInstruction = $"You are about to delete {notices.Count} protected element(s)",
-                MainContent     = string.Join("\n", notices),
-                FooterText      = "Click Cancel to undo this deletion.",
-                CommonButtons   = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel,
-            };
-            return dlg.Show() == TaskDialogResult.Cancel;
+                if (form.ShowDialog() != System.Windows.Forms.DialogResult.OK ||
+                    form.ApprovedElementIds.Count == 0)
+                    return ViolationDialogResult.UndoAll;
+
+                var allIds = new HashSet<long>(deletedIds.Select(id => id.GetIdValue()));
+                if (form.ApprovedElementIds.IsSupersetOf(allIds))
+                    return ViolationDialogResult.ProceedAll;
+
+                // Partial approval: undo everything, then re-delete just the approved subset.
+                queue.UndoViolationEvent.IdsToReDeleteAfterUndo = form.ApprovedElementIds.ToList();
+                return ViolationDialogResult.UndoThenReDelete;
+            }
         }
 
-        private static List<string> BuildViolationNotices(ViolationSettings settings,
-            ICollection<ElementId> deletedIds, string docGuid)
+        private static List<ViolationElementInfo> BuildViolationElementInfos(
+            ViolationSettings settings, ICollection<ElementId> deletedIds, string docGuid)
         {
-            var notices = new List<string>();
+            var result = new List<ViolationElementInfo>();
             foreach (var id in deletedIds)
             {
                 long idVal = id.GetIdValue();
@@ -250,13 +271,17 @@ namespace ProjectPerseus.violations
                     settings.ProtectedElementIds.Contains(info.UniqueId)    ||
                     settings.ProtectedCategories.Contains(info.CategoryName);
 
-                if (isProtected)
+                result.Add(new ViolationElementInfo
                 {
-                    string label = string.IsNullOrEmpty(info.Name) ? $"ID {idVal}" : info.Name;
-                    notices.Add($"• {info.CategoryName}: {label}");
-                }
+                    ElementId      = idVal,
+                    UniqueId       = info.UniqueId,
+                    CategoryName   = info.CategoryName,
+                    FamilyTypeName = info.FamilyTypeName,
+                    ElementName    = info.Name,
+                    IsProtected    = isProtected,
+                });
             }
-            return notices;
+            return result;
         }
 
         private static void FlushToServer()
@@ -267,7 +292,6 @@ namespace ProjectPerseus.violations
             try
             {
                 ProjectPerseusWeb.SubmitActions(_baseUrl, actions);
-                // Piggyback a stale settings refresh for each document in this flush.
                 foreach (var docGuid in actions.Select(a => a.DocGuid).Where(g => g != null).Distinct())
                     ViolationSettingsCache.LoadAsyncIfStale(docGuid, _baseUrl);
             }
@@ -287,5 +311,15 @@ namespace ProjectPerseus.violations
             Log.Info($"[ViolationDetector] {dto.ActionType} el={dto.ElementId} txn=\"{dto.TransactionName}\"");
             _queue.Enqueue(dto);
         }
+    }
+
+    internal class ViolationElementInfo
+    {
+        public long   ElementId      { get; set; }
+        public string UniqueId       { get; set; }
+        public string CategoryName   { get; set; }
+        public string FamilyTypeName { get; set; }
+        public string ElementName    { get; set; }
+        public bool   IsProtected    { get; set; }
     }
 }

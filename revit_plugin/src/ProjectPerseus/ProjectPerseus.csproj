@@ -345,6 +345,7 @@
     <Compile Include="sync\StateSubmitter.cs" />
     <Compile Include="sync\SyncOrchestrator.cs" />
     <Compile Include="ui\EditFiltersForm.cs" />
+    <Compile Include="ui\ViolationWarningForm.cs" />
     <Compile Include="ui\ManageSchedulesForm.cs" />
     <Compile Include="ui\PendingEditsReviewForm.cs" />
     <Compile Include="ui\DiagnoseElementForm.cs">
