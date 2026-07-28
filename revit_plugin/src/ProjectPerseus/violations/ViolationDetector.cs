@@ -71,6 +71,15 @@ namespace ProjectPerseus.violations
             // CAUTION: "Unload" for link unload is a provisional assumption — unverified.
             bool isUnload  = txnNames.Any(t => t.IndexOf("Unload",  StringComparison.OrdinalIgnoreCase) >= 0);
 
+            // Update element cache before processing deletions — deleted elements return null after this point.
+            var addedIds = e.GetAddedElementIds();
+            foreach (var id in addedIds.Concat(modifiedIds))
+            {
+                var el = doc.GetElement(id);
+                if (el?.Category != null)
+                    ElementCategoryCache.Track(docGuid, id.GetIdValue(), el.Category.Name, el.UniqueId, el.Name ?? "");
+            }
+
             // 1. Element deletions — every deleted element ID is logged.
             //    When a group is ungrouped this also fires; the Ungroup action below is logged
             //    in addition (overlap is intentional — Step 4 server re-derivation filters).
@@ -164,6 +173,33 @@ namespace ProjectPerseus.violations
                 }
             }
 
+            // Classify deletions for on-edit enforcement (dialog style only).
+            var violationNotices = new List<string>();
+            var vsettings = ViolationSettingsCache.Get(docGuid);
+            if (vsettings != null && deletedIds.Count > 0 &&
+                vsettings.ResolveEditStyle(models.ActionType.ElementDeleted) == "dialog")
+            {
+                foreach (var id in deletedIds)
+                {
+                    long idVal = id.GetIdValue();
+                    var info   = ElementCategoryCache.Get(docGuid, idVal);
+                    if (info == null) continue;
+
+                    bool isProtected =
+                        vsettings.ProtectedElementIds.Contains(idVal.ToString()) ||
+                        vsettings.ProtectedElementIds.Contains(info.UniqueId)    ||
+                        vsettings.ProtectedCategories.Contains(info.CategoryName);
+
+                    if (isProtected)
+                    {
+                        string label = string.IsNullOrEmpty(info.Name) ? $"ID {idVal}" : info.Name;
+                        violationNotices.Add($"• {info.CategoryName}: {label}");
+                    }
+                }
+            }
+            if (violationNotices.Count > 0)
+                ShowViolationDialog(violationNotices);
+
             if (!_queue.IsEmpty)
                 Task.Run(() => FlushToServer());
         }
@@ -193,6 +229,18 @@ namespace ProjectPerseus.violations
                     });
                 }
             }
+        }
+
+        private static void ShowViolationDialog(List<string> notices)
+        {
+            var dlg = new TaskDialog("Perseus — Protected Elements Deleted")
+            {
+                MainInstruction = $"{notices.Count} protected element(s) deleted",
+                MainContent     = string.Join("\n", notices),
+                FooterText      = "Consider undoing (Ctrl+Z) to restore these elements.",
+                CommonButtons   = TaskDialogCommonButtons.Ok,
+            };
+            dlg.Show();
         }
 
         private static void FlushToServer()

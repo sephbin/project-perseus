@@ -293,7 +293,10 @@
     <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
     <Compile Include="models\SyncQueueResponse.cs" />
     <Compile Include="models\ActionDto.cs" />
+    <Compile Include="violations\ElementCategoryCache.cs" />
     <Compile Include="violations\ViolationDetector.cs" />
+    <Compile Include="violations\ViolationSettings.cs" />
+    <Compile Include="violations\ViolationSettingsCache.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="queue\AutoSyncEvent.cs" />
     <Compile Include="queue\PendingEditsResyncEvent.cs" />

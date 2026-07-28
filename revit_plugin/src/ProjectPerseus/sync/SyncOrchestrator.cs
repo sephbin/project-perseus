@@ -83,8 +83,19 @@ namespace ProjectPerseus.sync
 
         private void OnDocumentOpened(object sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs e)
         {
-            if (e.Document != null && !e.Document.IsFamilyDocument)
-                KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
+            if (e.Document == null || e.Document.IsFamilyDocument) return;
+            KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
+            if (!UploadConfigIsValid()) return;
+            try
+            {
+                string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                violations.ElementCategoryCache.Prime(e.Document, docGuid);
+                violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Violation cache init failed (non-fatal): {ex.Message}");
+            }
         }
 
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
