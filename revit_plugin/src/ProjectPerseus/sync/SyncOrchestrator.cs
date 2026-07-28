@@ -575,7 +575,9 @@ namespace ProjectPerseus.sync
                         Log.Info($"Error performing sync: {ex.Message}");
                     }
 
-                    // Drain and ship accumulated violation-tracking actions (fire-and-forget, non-fatal).
+                    // Pre-commit flush: drain any remaining actions so Django has the full set
+                    // before batchClose runs. batchClose stamps all pending actions as committed
+                    // to central — this flush must complete first for that stamp to be accurate.
                     try
                     {
                         var actions = violations.ViolationDetector.DrainQueue();
@@ -584,7 +586,7 @@ namespace ProjectPerseus.sync
                     }
                     catch (Exception ex)
                     {
-                        Log.Warn($"SubmitActions failed (non-fatal): {ex.Message}");
+                        Log.Warn($"SubmitActions pre-commit flush failed (non-fatal): {ex.Message}");
                     }
 
                     // Signal server that all element POSTs for this batch are done.
