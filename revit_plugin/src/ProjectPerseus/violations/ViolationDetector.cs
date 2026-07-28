@@ -8,6 +8,8 @@ using Autodesk.Revit.UI;
 using ProjectPerseus.logging;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
+using ProjectPerseus.web;
+using System.Threading.Tasks;
 
 namespace ProjectPerseus.violations
 {
@@ -21,6 +23,8 @@ namespace ProjectPerseus.violations
         // Single UUID stamped on all actions from this plugin session.
         internal static readonly string SessionId = Guid.NewGuid().ToString("N");
 
+        private static string _baseUrl;
+
         // Drains and returns all queued actions; called by the ingest path (Step 3).
         internal static List<ActionDto> DrainQueue()
         {
@@ -32,8 +36,9 @@ namespace ProjectPerseus.violations
 
         internal static int QueueCount => _queue.Count;
 
-        internal static void Subscribe(UIControlledApplication application)
+        internal static void Subscribe(UIControlledApplication application, string baseUrl)
         {
+            _baseUrl = baseUrl;
             application.ControlledApplication.DocumentChanged    += OnDocumentChanged;
             application.ControlledApplication.FailuresProcessing += OnFailuresProcessing;
         }
@@ -158,6 +163,9 @@ namespace ProjectPerseus.violations
                     });
                 }
             }
+
+            if (!_queue.IsEmpty)
+                Task.Run(() => FlushToServer());
         }
 
         private static void OnFailuresProcessing(object sender, FailuresProcessingEventArgs e)
@@ -185,6 +193,15 @@ namespace ProjectPerseus.violations
                     });
                 }
             }
+        }
+
+        private static void FlushToServer()
+        {
+            if (string.IsNullOrEmpty(_baseUrl)) return;
+            var actions = DrainQueue();
+            if (actions.Count == 0) return;
+            try   { ProjectPerseusWeb.SubmitActions(_baseUrl, actions); }
+            catch (Exception ex) { Log.Warn($"[ViolationDetector] real-time flush failed: {ex.Message}"); }
         }
 
         private static string TryGetDocGuid(Document doc)
