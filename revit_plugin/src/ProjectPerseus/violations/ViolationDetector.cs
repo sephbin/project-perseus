@@ -25,6 +25,9 @@ namespace ProjectPerseus.violations
 
         private static string _baseUrl;
 
+        // Set by SyncOrchestrator.Subscribe(); raised when the user cancels a violation dialog.
+        internal static Autodesk.Revit.UI.ExternalEvent UndoViolationExternalEvent { get; set; }
+
         // Drains and returns all queued actions; called by the ingest path (Step 3).
         internal static List<ActionDto> DrainQueue()
         {
@@ -78,6 +81,21 @@ namespace ProjectPerseus.violations
                 var el = doc.GetElement(id);
                 if (el?.Category != null)
                     ElementCategoryCache.Track(docGuid, id.GetIdValue(), el.Category.Name, el.UniqueId, el.Name ?? "");
+            }
+
+            // On-edit enforcement: check before enqueuing so a Cancel/undo discards all actions.
+            if (deletedIds.Count > 0)
+            {
+                var vsettings = ViolationSettingsCache.Get(docGuid);
+                if (vsettings != null && vsettings.ResolveEditStyle(models.ActionType.ElementDeleted) == "dialog")
+                {
+                    var notices = BuildViolationNotices(vsettings, deletedIds, docGuid);
+                    if (notices.Count > 0 && ShowViolationDialog(notices))
+                    {
+                        UndoViolationExternalEvent?.Raise();
+                        return;
+                    }
+                }
             }
 
             // 1. Element deletions — every deleted element ID is logged.
@@ -173,33 +191,6 @@ namespace ProjectPerseus.violations
                 }
             }
 
-            // Classify deletions for on-edit enforcement (dialog style only).
-            var violationNotices = new List<string>();
-            var vsettings = ViolationSettingsCache.Get(docGuid);
-            if (vsettings != null && deletedIds.Count > 0 &&
-                vsettings.ResolveEditStyle(models.ActionType.ElementDeleted) == "dialog")
-            {
-                foreach (var id in deletedIds)
-                {
-                    long idVal = id.GetIdValue();
-                    var info   = ElementCategoryCache.Get(docGuid, idVal);
-                    if (info == null) continue;
-
-                    bool isProtected =
-                        vsettings.ProtectedElementIds.Contains(idVal.ToString()) ||
-                        vsettings.ProtectedElementIds.Contains(info.UniqueId)    ||
-                        vsettings.ProtectedCategories.Contains(info.CategoryName);
-
-                    if (isProtected)
-                    {
-                        string label = string.IsNullOrEmpty(info.Name) ? $"ID {idVal}" : info.Name;
-                        violationNotices.Add($"• {info.CategoryName}: {label}");
-                    }
-                }
-            }
-            if (violationNotices.Count > 0)
-                ShowViolationDialog(violationNotices);
-
             if (!_queue.IsEmpty)
                 Task.Run(() => FlushToServer());
         }
@@ -231,16 +222,41 @@ namespace ProjectPerseus.violations
             }
         }
 
-        private static void ShowViolationDialog(List<string> notices)
+        // Returns true if the user clicked Cancel (wants undo), false if they clicked Ok (proceed).
+        private static bool ShowViolationDialog(List<string> notices)
         {
-            var dlg = new TaskDialog("Perseus — Protected Elements Deleted")
+            var dlg = new TaskDialog("Perseus — Protected Element Deletion")
             {
-                MainInstruction = $"{notices.Count} protected element(s) deleted",
+                MainInstruction = $"You are about to delete {notices.Count} protected element(s)",
                 MainContent     = string.Join("\n", notices),
-                FooterText      = "Consider undoing (Ctrl+Z) to restore these elements.",
-                CommonButtons   = TaskDialogCommonButtons.Ok,
+                FooterText      = "Click Cancel to undo this deletion.",
+                CommonButtons   = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel,
             };
-            dlg.Show();
+            return dlg.Show() == TaskDialogResult.Cancel;
+        }
+
+        private static List<string> BuildViolationNotices(ViolationSettings settings,
+            ICollection<ElementId> deletedIds, string docGuid)
+        {
+            var notices = new List<string>();
+            foreach (var id in deletedIds)
+            {
+                long idVal = id.GetIdValue();
+                var info   = ElementCategoryCache.Get(docGuid, idVal);
+                if (info == null) continue;
+
+                bool isProtected =
+                    settings.ProtectedElementIds.Contains(idVal.ToString()) ||
+                    settings.ProtectedElementIds.Contains(info.UniqueId)    ||
+                    settings.ProtectedCategories.Contains(info.CategoryName);
+
+                if (isProtected)
+                {
+                    string label = string.IsNullOrEmpty(info.Name) ? $"ID {idVal}" : info.Name;
+                    notices.Add($"• {info.CategoryName}: {label}");
+                }
+            }
+            return notices;
         }
 
         private static void FlushToServer()

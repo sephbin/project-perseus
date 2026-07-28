@@ -69,6 +69,9 @@ namespace ProjectPerseus.sync
 
             var resyncHandler = new PendingEditsResyncEvent();
             PendingEditsResyncExternalEvent = ExternalEvent.Create(resyncHandler);
+
+            var undoViolationHandler = new queue.UndoViolationEvent();
+            ViolationDetector.UndoViolationExternalEvent = ExternalEvent.Create(undoViolationHandler);
         }
 
         public void Unsubscribe(UIControlledApplication application)

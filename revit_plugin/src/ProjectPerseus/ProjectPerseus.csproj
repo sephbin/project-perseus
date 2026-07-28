@@ -299,6 +299,7 @@
     <Compile Include="violations\ViolationSettingsCache.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="queue\AutoSyncEvent.cs" />
+    <Compile Include="queue\UndoViolationEvent.cs" />
     <Compile Include="queue\PendingEditsResyncEvent.cs" />
     <Compile Include="queue\QueuePoller.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
