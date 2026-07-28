@@ -135,6 +135,25 @@ namespace ProjectPerseus.violations
                 }
             }
 
+            // On-edit enforcement for Unpin — all-or-nothing (can't selectively re-pin a subset).
+            if (!bypass && isUnpin && modifiedIds.Count > 0)
+            {
+                var vsettings = ViolationSettingsCache.Get(docGuid);
+                if (vsettings != null && vsettings.ResolveEditStyle(models.ActionType.Unpin) == "dialog")
+                {
+                    var unpinInfos = BuildViolationElementInfos(vsettings, modifiedIds, docGuid);
+                    if (unpinInfos.Any(ei => ei.IsProtected))
+                    {
+                        var result = ShowViolationWarningForm(unpinInfos, modifiedIds, docGuid, "unpin");
+                        if (result != ViolationDialogResult.ProceedAll)
+                        {
+                            UndoViolationExternalEvent?.Raise();
+                            return;
+                        }
+                    }
+                }
+            }
+
             // Track actions for the presync gate (only what actually proceeded — not undone).
             if (!bypass)
             {
@@ -368,9 +387,10 @@ namespace ProjectPerseus.violations
         private static ViolationDialogResult ShowViolationWarningForm(
             List<ViolationElementInfo> elementInfos,
             ICollection<ElementId> deletedIds,
-            string docGuid)
+            string docGuid,
+            string actionVerb = "delete")
         {
-            using (var form = new ui.ViolationWarningForm(elementInfos, "delete"))
+            using (var form = new ui.ViolationWarningForm(elementInfos, actionVerb))
             {
                 if (form.ShowDialog() != System.Windows.Forms.DialogResult.OK ||
                     form.ApprovedElementIds.Count == 0)
