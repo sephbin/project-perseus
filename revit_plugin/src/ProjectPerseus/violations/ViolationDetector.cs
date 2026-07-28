@@ -149,22 +149,37 @@ namespace ProjectPerseus.violations
                         }
                     }
 
-                    // Ungroup — deleted group members
+                    // Ungroup — no protection filter; enforce_ungroup_sync is the policy trigger.
+                    // All model groups share the "Model Groups" category, so per-category filtering
+                    // is redundant. Track the group instance element(s) to show meaningful names.
                     if (isUngroup && deletedIds.Count > 0)
                     {
                         string syncStyle = vs.ResolveSyncStyle(models.ActionType.Ungroup);
                         if (syncStyle != "log")
                         {
+                            bool trackedAny = false;
                             foreach (var id in deletedIds)
                             {
                                 long idVal = id.GetIdValue();
                                 var info = ElementCategoryCache.Get(docGuid, idVal);
-                                if (info == null || !IsProtectedInSettings(vs, idVal, info)) continue;
+                                if (info == null || info.CategoryName != "Model Groups") continue;
+                                trackedAny = true;
                                 AddPendingViolation(new PresyncViolation
                                 {
                                     DocGuid = docGuid, ActionType = models.ActionType.Ungroup,
-                                    ElementId = idVal, CategoryName = info.CategoryName,
+                                    ElementId = idVal, CategoryName = "Model Groups",
                                     ElementName = info.Name, SyncStyle = syncStyle,
+                                });
+                            }
+                            if (!trackedAny)
+                            {
+                                // Group instance not in cache (e.g. created and ungrouped in same session).
+                                AddPendingViolation(new PresyncViolation
+                                {
+                                    DocGuid = docGuid, ActionType = models.ActionType.Ungroup,
+                                    ElementId = deletedIds.First().GetIdValue(),
+                                    CategoryName = "Model Groups", ElementName = "(ungrouped)",
+                                    SyncStyle = syncStyle,
                                 });
                             }
                         }
