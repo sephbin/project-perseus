@@ -36,6 +36,36 @@ namespace ProjectPerseus.violations
         [JsonProperty("enforce_unpin_edit")]
         public string EnforceUnpinEdit { get; set; } = "log";
 
+        [JsonProperty("enforce_element_deletion_sync")]
+        public string EnforceElementDeletionSync { get; set; } = "inherit";
+
+        [JsonProperty("enforce_ungroup_sync")]
+        public string EnforceUngroupSync { get; set; } = "inherit";
+
+        [JsonProperty("enforce_link_unload_sync")]
+        public string EnforceLinkUnloadSync { get; set; } = "log";
+
+        [JsonProperty("enforce_warnings_sync")]
+        public string EnforceWarningsSync { get; set; } = "log";
+
+        [JsonProperty("enforce_unpin_sync")]
+        public string EnforceUnpinSync { get; set; } = "log";
+
+        internal string ResolveSyncStyle(string actionType)
+        {
+            string raw;
+            switch (actionType)
+            {
+                case ActionType.ElementDeleted:   raw = EnforceElementDeletionSync; break;
+                case ActionType.Ungroup:          raw = EnforceUngroupSync;         break;
+                case ActionType.LinkUnload:       raw = EnforceLinkUnloadSync;      break;
+                case ActionType.WarningDismissed: raw = EnforceWarningsSync;        break;
+                case ActionType.Unpin:            raw = EnforceUnpinSync;           break;
+                default:                          raw = "log";                      break;
+            }
+            return raw == "inherit" ? DefaultOnSyncStyle : raw;
+        }
+
         internal string ResolveEditStyle(string actionType)
         {
             string raw;

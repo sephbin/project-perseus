@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
@@ -315,6 +316,58 @@ namespace ProjectPerseus.sync
                 string windowsUsername = Environment.UserName;
                 string machineName = Environment.MachineName;
 
+                // Presync gate: block or warn on protected-element violations from this session.
+                try
+                {
+                    var presyncViolations = violations.ViolationDetector.GetPresyncViolations(docGuid);
+                    if (presyncViolations.Count > 0)
+                    {
+                        var blocking = presyncViolations.Where(v => v.SyncStyle == "block").ToList();
+                        var warning  = presyncViolations.Where(v => v.SyncStyle == "warn").ToList();
+
+                        if (blocking.Count > 0)
+                        {
+                            string itemList = string.Join("\n", blocking.Select(v =>
+                                $"• {v.CategoryName}: {(string.IsNullOrEmpty(v.ElementName) ? $"ID {v.ElementId}" : v.ElementName)}"));
+                            var dlg = new TaskDialog("Perseus — Sync Blocked")
+                            {
+                                MainInstruction = $"{blocking.Count} protected element(s) deleted — sync cannot proceed",
+                                MainContent     = itemList,
+                                FooterText      = "Undo the deletions and try again, or contact your BIM manager.",
+                                CommonButtons   = TaskDialogCommonButtons.Ok,
+                            };
+                            dlg.Show();
+                            e.Cancel();
+                            System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                            return;
+                        }
+
+                        if (warning.Count > 0)
+                        {
+                            string itemList = string.Join("\n", warning.Select(v =>
+                                $"• {v.CategoryName}: {(string.IsNullOrEmpty(v.ElementName) ? $"ID {v.ElementId}" : v.ElementName)}"));
+                            var dlg = new TaskDialog("Perseus — Sync Warning")
+                            {
+                                MainInstruction = $"{warning.Count} protected element(s) deleted since last sync",
+                                MainContent     = itemList,
+                                FooterText      = "Proceed to sync anyway, or cancel to review.",
+                            };
+                            dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Proceed with sync");
+                            dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Cancel sync");
+                            if (dlg.Show() == TaskDialogResult.CommandLink2)
+                            {
+                                e.Cancel();
+                                System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                                return;
+                            }
+                        }
+                    }
+                }
+                catch (Exception presyncEx)
+                {
+                    Log.Warn($"Presync violation gate failed (non-fatal): {presyncEx.Message}");
+                }
+
                 // Check for pending web edits before the queue check so the user can
                 // review and apply them first — baked into the sync, not a separate step.
                 // Skipped automatically when IsAutoSyncing (early return above) or when
@@ -623,7 +676,10 @@ namespace ProjectPerseus.sync
                     // Refresh violation settings after every sync so Django-side changes
                     // take effect without requiring a document close/reopen.
                     if (closedDocGuid != null)
+                    {
                         violations.ViolationSettingsCache.LoadAsync(closedDocGuid, _config.BaseUrl);
+                        violations.ViolationDetector.ClearPendingViolations(closedDocGuid);
+                    }
 
                     watch.Stop();
                     Log.Info("End Watch");

@@ -16,6 +16,8 @@ namespace ProjectPerseus.violations
     internal static class ViolationDetector
     {
         private static readonly ConcurrentQueue<ActionDto> _queue = new ConcurrentQueue<ActionDto>();
+        private static readonly List<PresyncViolation> _pendingViolations = new List<PresyncViolation>();
+        private static readonly object _pendingLock = new object();
 
         internal static readonly string SessionId = Guid.NewGuid().ToString("N");
 
@@ -36,6 +38,15 @@ namespace ProjectPerseus.violations
         }
 
         internal static int QueueCount => _queue.Count;
+
+        internal static void AddPendingViolation(PresyncViolation v)
+            { lock (_pendingLock) _pendingViolations.Add(v); }
+
+        internal static List<PresyncViolation> GetPresyncViolations(string docGuid)
+            { lock (_pendingLock) return _pendingViolations.Where(v => v.DocGuid == docGuid).ToList(); }
+
+        internal static void ClearPendingViolations(string docGuid)
+            { lock (_pendingLock) _pendingViolations.RemoveAll(v => v.DocGuid == docGuid); }
 
         internal static void Subscribe(UIControlledApplication application, string baseUrl)
         {
@@ -107,6 +118,39 @@ namespace ProjectPerseus.violations
                             return;
                         }
                         // ProceedAll: fall through and enqueue everything normally.
+                    }
+                }
+            }
+
+            // Track protected deletions for the presync gate when on_sync_style != "log".
+            if (!bypass && deletedIds.Count > 0)
+            {
+                var vsettingsSync = ViolationSettingsCache.Get(docGuid);
+                if (vsettingsSync != null)
+                {
+                    string syncStyle = vsettingsSync.ResolveSyncStyle(models.ActionType.ElementDeleted);
+                    if (syncStyle != "log")
+                    {
+                        foreach (var id in deletedIds)
+                        {
+                            long idVal = id.GetIdValue();
+                            var info = ElementCategoryCache.Get(docGuid, idVal);
+                            if (info == null) continue;
+                            bool isProtected =
+                                vsettingsSync.ProtectedElementIds.Contains(idVal.ToString()) ||
+                                vsettingsSync.ProtectedElementIds.Contains(info.UniqueId)    ||
+                                vsettingsSync.ProtectedCategories.Contains(info.CategoryName);
+                            if (!isProtected) continue;
+                            AddPendingViolation(new PresyncViolation
+                            {
+                                DocGuid      = docGuid,
+                                ActionType   = models.ActionType.ElementDeleted,
+                                ElementId    = idVal,
+                                CategoryName = info.CategoryName,
+                                ElementName  = info.Name,
+                                SyncStyle    = syncStyle,
+                            });
+                        }
                     }
                 }
             }
@@ -321,5 +365,15 @@ namespace ProjectPerseus.violations
         public string FamilyTypeName { get; set; }
         public string ElementName    { get; set; }
         public bool   IsProtected    { get; set; }
+    }
+
+    internal class PresyncViolation
+    {
+        public string DocGuid      { get; set; }
+        public string ActionType   { get; set; }
+        public long   ElementId    { get; set; }
+        public string CategoryName { get; set; }
+        public string ElementName  { get; set; }
+        public string SyncStyle    { get; set; }
     }
 }
