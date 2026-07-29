@@ -13,16 +13,11 @@ namespace ProjectPerseus.queue
             if (alerts.Count == 0) return;
             AlertPoller.PendingAlerts.Clear();
 
-            // Compile all alerts into one dialog per source (title).
+            // One scrollable form per source (grouped by title).
             foreach (var group in alerts.GroupBy(a => a.Title ?? "Perseus"))
             {
-                var lines = string.Join("\n", group.Select(a => $"• {a.Body}"));
-                new TaskDialog("Perseus")
-                {
-                    MainInstruction = group.Key,
-                    MainContent     = lines,
-                    CommonButtons   = TaskDialogCommonButtons.Ok,
-                }.Show();
+                using (var form = new ui.AlertsReviewForm(group.Key, group.ToList()))
+                    form.ShowDialog();
             }
         }
 

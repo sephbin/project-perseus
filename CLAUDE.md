@@ -164,6 +164,8 @@ ProjectPerseus/
 │   ├── SettingsForm.Designer.cs  Partial; namespace matches SettingsForm.cs.
 │   ├── SettingsForm.resx         Embedded resource; DependentUpon resolves manifest name via
 │                                 typeof(SettingsForm).FullName, so path change is safe.
+│   ├── AlertsReviewForm.cs       NEW. Scrollable WinForms dialog showing compiled Revit alerts
+│   │                             (one per source group). RichTextBox list with user/verb/element/time/status.
 │   ├── EditFiltersForm.cs        NEW. WinForms dialog for editing per-schedule cascading import
 │   │                             filter rules (Field/Condition/Value/Action DataGridView).
 │   ├── PendingEditsReviewForm.cs NEW. Review dialog for pending web edits before applying.

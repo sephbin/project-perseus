@@ -90,7 +90,8 @@
       "PowerShell(pip install *)",
       "PowerShell(python -m py_vapid --gen 2>&1)",
       "PowerShell(cmd /c \"`\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\Tools\\\\VsDevCmd.bat`\" && msbuild `\"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln`\" /p:Configuration=`\"Debug 2026`\" /p:Platform=x64 /t:Build /v:minimal 2>&1\" | Select-Object -Last 20)",
-      "PowerShell(cmd /c \"`\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\Tools\\\\VsDevCmd.bat`\" && msbuild `\"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln`\" /p:Configuration=`\"Debug 2026`\" /p:Platform=x64 /t:Build /v:minimal 2>&1\" | Select-Object -Last 15)"
+      "PowerShell(cmd /c \"`\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\Tools\\\\VsDevCmd.bat`\" && msbuild `\"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln`\" /p:Configuration=`\"Debug 2026`\" /p:Platform=x64 /t:Build /v:minimal 2>&1\" | Select-Object -Last 15)",
+      "PowerShell(cmd /c \"`\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\Tools\\\\VsDevCmd.bat`\" && msbuild `\"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln`\" /p:Configuration=`\"Debug 2026`\" /p:Platform=x64 /t:Build /v:minimal 2>&1\" | Select-Object -Last 10)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
