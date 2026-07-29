@@ -10,9 +10,6 @@ using ProjectPerseus.web;
 
 namespace ProjectPerseus.queue
 {
-    // Polls /api/source/<guid>/pending-revit-alerts/ every 60 seconds in the background.
-    // When undelivered alerts arrive, raises the supplied ExternalEvent so
-    // AlertNotificationEvent can show a TaskDialog on the Revit main thread.
     internal class AlertPoller
     {
         private CancellationTokenSource _cts;
@@ -20,7 +17,33 @@ namespace ProjectPerseus.queue
         private readonly Config _config;
         private readonly Func<string> _getToken;
 
-        public static List<AlertDto> PendingAlerts { get; private set; } = new List<AlertDto>();
+        // Thread-safe alert queue: background poller enqueues; main thread drains.
+        private static readonly object _lock = new object();
+        private static readonly List<AlertDto> _pending = new List<AlertDto>();
+
+        // Set true by AlertNotificationEvent while a dialog is visible so the
+        // poller accumulates without raising a second event unnecessarily.
+        internal static volatile bool IsShowingDialog = false;
+
+        internal static void Enqueue(IEnumerable<AlertDto> alerts)
+        {
+            lock (_lock) { _pending.AddRange(alerts); }
+        }
+
+        internal static List<AlertDto> Drain()
+        {
+            lock (_lock)
+            {
+                var copy = new List<AlertDto>(_pending);
+                _pending.Clear();
+                return copy;
+            }
+        }
+
+        internal static bool HasPending
+        {
+            get { lock (_lock) { return _pending.Count > 0; } }
+        }
 
         public AlertPoller(Autodesk.Revit.UI.ExternalEvent alertEvent, Func<string> getToken)
         {
@@ -50,8 +73,9 @@ namespace ProjectPerseus.queue
                         var alerts = JsonConvert.DeserializeObject<List<AlertDto>>(json);
                         if (alerts != null && alerts.Count > 0)
                         {
-                            PendingAlerts = alerts;
-                            _alertEvent.Raise();
+                            Enqueue(alerts);
+                            if (!IsShowingDialog)
+                                _alertEvent.Raise();
                         }
                     }
                     catch (OperationCanceledException) { break; }

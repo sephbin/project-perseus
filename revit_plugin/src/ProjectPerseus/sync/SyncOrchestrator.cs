@@ -77,6 +77,7 @@ namespace ProjectPerseus.sync
 
             var alertHandler = new AlertNotificationEvent();
             var alertExternalEvent = ExternalEvent.Create(alertHandler);
+            alertHandler.SetEvent(alertExternalEvent);
             _alertPoller = new AlertPoller(alertExternalEvent, () => auth.AuthService.GetAuthTokenSafely());
         }
 

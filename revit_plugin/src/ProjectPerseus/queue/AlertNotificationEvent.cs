@@ -1,23 +1,37 @@
+using System;
 using System.Collections.Generic;
-using System.Linq;
 using Autodesk.Revit.UI;
+using ProjectPerseus.logging;
 using ProjectPerseus.models;
 
 namespace ProjectPerseus.queue
 {
     internal class AlertNotificationEvent : IExternalEventHandler
     {
+        private ExternalEvent _event;
+
+        internal void SetEvent(ExternalEvent ev) { _event = ev; }
+
         public void Execute(UIApplication app)
         {
-            var alerts = new List<AlertDto>(AlertPoller.PendingAlerts);
-            if (alerts.Count == 0) return;
-            AlertPoller.PendingAlerts.Clear();
-
-            // One scrollable form per source (grouped by title).
-            foreach (var group in alerts.GroupBy(a => a.Title ?? "Perseus"))
+            AlertPoller.IsShowingDialog = true;
+            try
             {
-                using (var form = new ui.AlertsReviewForm(group.Key, group.ToList()))
+                var alerts = AlertPoller.Drain();
+                if (alerts.Count == 0) return;
+
+                using (var form = new ui.AlertsReviewForm(alerts))
                     form.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[AlertNotificationEvent] {ex.Message}");
+            }
+            finally
+            {
+                AlertPoller.IsShowingDialog = false;
+                if (AlertPoller.HasPending && _event != null)
+                    _event.Raise();
             }
         }
 

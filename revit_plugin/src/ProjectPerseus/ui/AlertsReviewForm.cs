@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using ProjectPerseus.models;
 
@@ -7,7 +8,7 @@ namespace ProjectPerseus.ui
 {
     internal class AlertsReviewForm : Form
     {
-        internal AlertsReviewForm(string sourceTitle, IList<AlertDto> alerts)
+        internal AlertsReviewForm(IList<AlertDto> alerts)
         {
             Text            = "Perseus Alerts";
             Width           = 600;
@@ -16,9 +17,14 @@ namespace ProjectPerseus.ui
             StartPosition   = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.Sizable;
 
+            bool multiSource = alerts.Select(a => a.Title).Distinct().Count() > 1;
+            string headerText = multiSource
+                ? $"Perseus Alerts  ({alerts.Count} alert{(alerts.Count == 1 ? "" : "s")})"
+                : $"{(alerts.Count > 0 ? alerts[0].Title ?? "Perseus" : "Perseus")}  ({alerts.Count} alert{(alerts.Count == 1 ? "" : "s")})";
+
             var header = new Label
             {
-                Text      = $"{sourceTitle}  ({alerts.Count} alert{(alerts.Count == 1 ? "" : "s")})",
+                Text      = headerText,
                 Font      = new Font("Segoe UI", 11f, FontStyle.Bold),
                 Dock      = DockStyle.Top,
                 Height    = 40,
@@ -38,7 +44,10 @@ namespace ProjectPerseus.ui
             };
 
             foreach (var a in alerts)
-                list.AppendText($"• {a.Body}\n");
+            {
+                string prefix = multiSource && !string.IsNullOrEmpty(a.Title) ? $"{a.Title}: " : "";
+                list.AppendText($"• {prefix}{a.Body}\n");
+            }
 
             var panel = new Panel { Dock = DockStyle.Bottom, Height = 44, Padding = new Padding(8) };
             var ok = new Button
