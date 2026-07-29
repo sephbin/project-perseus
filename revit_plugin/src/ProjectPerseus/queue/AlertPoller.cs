@@ -76,7 +76,14 @@ namespace ProjectPerseus.queue
                 var url = $"{_config.BaseUrl.TrimEnd('/')}/api/source/{docGuid}/pending-revit-alerts/?username={username}";
                 while (!token.IsCancellationRequested)
                 {
-                    await Task.Delay(60000, token);
+                    // Poll every 5s while the alerts dialog is open; every 60s otherwise.
+                    int waited = 0;
+                    while (!token.IsCancellationRequested)
+                    {
+                        await Task.Delay(5000, token);
+                        waited += 5000;
+                        if (IsShowingDialog || waited >= 60000) break;
+                    }
                     if (token.IsCancellationRequested) break;
                     try
                     {
