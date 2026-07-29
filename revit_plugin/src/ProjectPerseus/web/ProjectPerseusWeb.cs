@@ -161,6 +161,7 @@ namespace ProjectPerseus.web
                 element_id        = a.ElementId,
                 element_unique_id = a.ElementUniqueId,
                 element_name      = a.ElementName,
+                element_category  = a.ElementCategory,
                 transaction_name  = a.TransactionName,
                 revit_user        = a.RevitUser,
                 client_timestamp  = a.TimestampUtc,

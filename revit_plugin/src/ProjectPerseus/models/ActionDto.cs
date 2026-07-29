@@ -11,6 +11,7 @@ namespace ProjectPerseus.models
         public long?  ElementId       { get; set; }  // Revit integer element ID
         public string ElementUniqueId { get; set; }  // Revit UniqueId string
         public string ElementName     { get; set; }
+        public string ElementCategory { get; set; }
         public string TransactionName { get; set; }  // raw Revit txn name (language-pack audit)
         public string RevitUser       { get; set; }
         public string TimestampUtc    { get; set; }  // ISO 8601

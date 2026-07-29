@@ -289,10 +289,15 @@ namespace ProjectPerseus.violations
             // 1. Element deletions.
             foreach (var id in deletedIds)
             {
+                long idVal = id.GetIdValue();
+                var cached = ElementCategoryCache.Get(docGuid, idVal);
                 Enqueue(new ActionDto
                 {
                     ActionType      = models.ActionType.ElementDeleted,
-                    ElementId       = id.GetIdValue(),
+                    ElementId       = idVal,
+                    ElementUniqueId = cached?.UniqueId,
+                    ElementName     = cached?.Name,
+                    ElementCategory = cached?.CategoryName,
                     TransactionName = txnJoined,
                     RevitUser       = user,
                     DocGuid         = docGuid,
@@ -322,10 +327,15 @@ namespace ProjectPerseus.violations
             {
                 foreach (var id in modifiedIds)
                 {
+                    long idVal = id.GetIdValue();
+                    var cached = ElementCategoryCache.Get(docGuid, idVal);
                     Enqueue(new ActionDto
                     {
                         ActionType      = models.ActionType.Unpin,
-                        ElementId       = id.GetIdValue(),
+                        ElementId       = idVal,
+                        ElementUniqueId = cached?.UniqueId,
+                        ElementName     = cached?.Name,
+                        ElementCategory = cached?.CategoryName,
                         TransactionName = txnJoined,
                         RevitUser       = user,
                         DocGuid         = docGuid,

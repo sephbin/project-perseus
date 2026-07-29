@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.UI;
 using ProjectPerseus.models;
 
@@ -12,15 +13,16 @@ namespace ProjectPerseus.queue
             if (alerts.Count == 0) return;
             AlertPoller.PendingAlerts.Clear();
 
-            foreach (var alert in alerts)
+            // Compile all alerts into one dialog per source (title).
+            foreach (var group in alerts.GroupBy(a => a.Title ?? "Perseus"))
             {
-                var dlg = new TaskDialog("Perseus Alert")
+                var lines = string.Join("\n", group.Select(a => $"• {a.Body}"));
+                new TaskDialog("Perseus")
                 {
-                    MainInstruction = alert.Title,
-                    MainContent     = alert.Body,
+                    MainInstruction = group.Key,
+                    MainContent     = lines,
                     CommonButtons   = TaskDialogCommonButtons.Ok,
-                };
-                dlg.Show();
+                }.Show();
             }
         }
 
