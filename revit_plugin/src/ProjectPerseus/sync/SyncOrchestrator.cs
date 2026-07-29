@@ -44,6 +44,7 @@ namespace ProjectPerseus.sync
         private Document _currentSyncDoc = null;
         private string _currentSynCaption = "";
         private QueuePoller _autoSyncPoller;
+        private AlertPoller _alertPoller;
 
         // Stage timing — reset at the start of each sync in doOnPriorToSync.
         // _stageTimeStart is set on the first ProgressChanged event (i.e. when Revit
@@ -73,6 +74,10 @@ namespace ProjectPerseus.sync
 
             var undoViolationHandler = new queue.UndoViolationEvent();
             ViolationDetector.UndoViolationExternalEvent = ExternalEvent.Create(undoViolationHandler);
+
+            var alertHandler = new AlertNotificationEvent();
+            var alertExternalEvent = ExternalEvent.Create(alertHandler);
+            _alertPoller = new AlertPoller(alertExternalEvent, () => auth.AuthService.GetAuthTokenSafely());
         }
 
         public void Unsubscribe(UIControlledApplication application)
@@ -82,6 +87,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
             ViolationDetector.Unsubscribe(application);
+            _alertPoller?.Stop();
             _queueWebForm?.Close();
         }
 
@@ -95,10 +101,11 @@ namespace ProjectPerseus.sync
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
+                _alertPoller?.StartPolling(docGuid);
             }
             catch (Exception ex)
             {
-                Log.Warn($"Violation cache init failed (non-fatal): {ex.Message}");
+                Log.Warn($"Document open init failed (non-fatal): {ex.Message}");
             }
         }
 
@@ -329,11 +336,17 @@ namespace ProjectPerseus.sync
                         {
                             string itemList = string.Join("\n", blocking.Select(v =>
                                 $"• {v.CategoryName}: {(string.IsNullOrEmpty(v.ElementName) ? $"ID {v.ElementId}" : v.ElementName)}"));
+                            bool hasLinkUnload = blocking.Any(v => v.ActionType == models.ActionType.LinkUnload);
+                            bool hasOthers     = blocking.Any(v => v.ActionType != models.ActionType.LinkUnload);
+                            string footer =
+                                hasLinkUnload && hasOthers ? "Some actions can be undone. Link unload cannot be undone in Revit — contact your BIM manager." :
+                                hasLinkUnload              ? "Link unload cannot be undone in Revit. Contact your BIM manager." :
+                                                             "Undo these actions and try again, or contact your BIM manager.";
                             var dlg = new TaskDialog("Perseus — Sync Blocked")
                             {
-                                MainInstruction = $"{blocking.Count} protected element(s) deleted — sync cannot proceed",
+                                MainInstruction = $"{blocking.Count} protected element action(s) — sync cannot proceed",
                                 MainContent     = itemList,
-                                FooterText      = "Undo the deletions and try again, or contact your BIM manager.",
+                                FooterText      = footer,
                                 CommonButtons   = TaskDialogCommonButtons.Ok,
                             };
                             dlg.Show();

@@ -150,7 +150,11 @@ ProjectPerseus/
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; re-triggers SynchronizeWithCentral after
 │   │                             pending web edits are applied. IsAutoSyncing stays false so the
 │   │                             queue check runs normally on the follow-up sync.
-│   └── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
+│   ├── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
+│   ├── AlertPoller.cs            NEW. Background Task polling /api/source/<guid>/pending-revit-alerts/
+│   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
+│   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
+│   └── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
 ├── ui/                           ALL WinForms (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
 │   ├── BatchProgressForm.cs
@@ -169,6 +173,7 @@ ProjectPerseus/
 │   └── ThemeIconManager.cs
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
+│   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── KeyScheduleConfig.cs      Per-schedule mapping: schedule name, Excel path/sheet, Django
 │   │                             endpoint, and Filters list (List<KeyScheduleFilter>).
 │   ├── KeyScheduleData.cs        Schedule rows (ScheduleName, ColumnNames, Rows).

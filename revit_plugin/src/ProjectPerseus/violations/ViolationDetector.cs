@@ -267,12 +267,18 @@ namespace ProjectPerseus.violations
                     {
                         string itemList = string.Join("\n", blocking.Select(v =>
                             $"• {v.CategoryName}: {(string.IsNullOrEmpty(v.ElementName) ? $"ID {v.ElementId}" : v.ElementName)}"));
+                        bool hasLinkUnload = blocking.Any(v => v.ActionType == models.ActionType.LinkUnload);
+                        bool hasOthers     = blocking.Any(v => v.ActionType != models.ActionType.LinkUnload);
+                        string footer =
+                            hasLinkUnload && hasOthers ? "Other actions can be undone now. Link unload cannot be undone in Revit — contact your BIM manager." :
+                            hasLinkUnload              ? "Link unload cannot be undone in Revit. Contact your BIM manager." :
+                                                         "Undo this action now to restore your ability to sync.";
                         var dlg = new TaskDialog("Perseus — Sync Will Be Blocked")
                         {
                             MainIcon        = TaskDialogIcon.TaskDialogIconError,
                             MainInstruction = "Your next sync will be blocked",
-                            MainContent     = $"The following protected element(s) will prevent syncing until this action is undone:\n\n{itemList}",
-                            FooterText      = "Undo this action now to restore your ability to sync.",
+                            MainContent     = $"The following protected element(s) will prevent syncing:\n\n{itemList}",
+                            FooterText      = footer,
                             CommonButtons   = TaskDialogCommonButtons.Ok,
                         };
                         dlg.Show();

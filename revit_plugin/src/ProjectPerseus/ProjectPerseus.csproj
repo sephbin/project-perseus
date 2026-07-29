@@ -293,6 +293,7 @@
     <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
     <Compile Include="models\SyncQueueResponse.cs" />
     <Compile Include="models\ActionDto.cs" />
+    <Compile Include="models\AlertDto.cs" />
     <Compile Include="violations\ElementCategoryCache.cs" />
     <Compile Include="violations\ViolationDetector.cs" />
     <Compile Include="violations\ViolationSettings.cs" />
@@ -302,6 +303,8 @@
     <Compile Include="queue\UndoViolationEvent.cs" />
     <Compile Include="queue\PendingEditsResyncEvent.cs" />
     <Compile Include="queue\QueuePoller.cs" />
+    <Compile Include="queue\AlertPoller.cs" />
+    <Compile Include="queue\AlertNotificationEvent.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>

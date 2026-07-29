@@ -82,7 +82,13 @@
       "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln\" \"/p:Configuration=Debug 2026\" \"/p:Platform=x64\" \"/p:BuildProjectReferences=false\" \"/t:ProjectPerseus\" \"/v:quiet\" 2>&1 | Select-Object -Last 10)",
       "Bash(msbuild ProjectPerseus.sln \"/p:Configuration=Debug 2026\" \"/p:Platform=x64\" -nologo -verbosity:minimal)",
       "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" ProjectPerseus.sln /p:Configuration=\"Debug 2026\" /p:Platform=x64 /t:Build /m /nologo /v:minimal)",
-      "Bash(curl -s \"http://localhost:8000/api/source/a1782606-7c8b-48da-b347-aa80a8e3a569/violation-settings/\")"
+      "Bash(curl -s \"http://localhost:8000/api/source/a1782606-7c8b-48da-b347-aa80a8e3a569/violation-settings/\")",
+      "Bash(Select-Object Name)",
+      "Bash(xargs grep -l \"INSTALLED_APPS\")",
+      "PowerShell(Get-ChildItem \"C:\\\\mydev\\\\muninn_dev\" -File | Where-Object { $_.Name -match \"require\" } | Select-Object FullName; Get-ChildItem \"C:\\\\mydev\\\\fenir\" -File | Where-Object { $_.Name -match \"require\" } | Select-Object FullName; Get-ChildItem \"C:\\\\mydev\\\\ghoul\" -File | Where-Object { $_.Name -match \"require\" } | Select-Object FullName)",
+      "PowerShell(python -c \"from py_vapid import Vapid; print\\('ok'\\)\" 2>&1)",
+      "PowerShell(pip install *)",
+      "PowerShell(python -m py_vapid --gen 2>&1)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
