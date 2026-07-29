@@ -25,9 +25,21 @@ namespace ProjectPerseus.queue
         // poller accumulates without raising a second event unnecessarily.
         internal static volatile bool IsShowingDialog = false;
 
+        // Live form reference — set by AlertNotificationEvent while dialog is open.
+        // Used by Enqueue to inject alerts directly rather than waiting for re-raise.
+        internal static ui.AlertsReviewForm ActiveForm = null;
+
         internal static void Enqueue(IEnumerable<AlertDto> alerts)
         {
             lock (_lock) { _pending.AddRange(alerts); }
+
+            // If a dialog is already open, push new alerts directly into it.
+            var form = ActiveForm;
+            if (IsShowingDialog && form != null)
+            {
+                try { form.BeginInvoke(new Action(form.DrainAndAppend)); }
+                catch { /* form was disposed between check and BeginInvoke */ }
+            }
         }
 
         internal static List<AlertDto> Drain()
@@ -74,6 +86,8 @@ namespace ProjectPerseus.queue
                         if (alerts != null && alerts.Count > 0)
                         {
                             Enqueue(alerts);
+                            // Raise the ExternalEvent only when no dialog is currently open.
+                            // If a dialog IS open, Enqueue() already pushed via BeginInvoke.
                             if (!IsShowingDialog)
                                 _alertEvent.Raise();
                         }

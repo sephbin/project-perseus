@@ -21,7 +21,10 @@ namespace ProjectPerseus.queue
                 if (alerts.Count == 0) return;
 
                 using (var form = new ui.AlertsReviewForm(alerts))
+                {
+                    AlertPoller.ActiveForm = form;
                     form.ShowDialog();
+                }
             }
             catch (Exception ex)
             {
@@ -29,7 +32,11 @@ namespace ProjectPerseus.queue
             }
             finally
             {
+                // Clear ActiveForm before clearing IsShowingDialog so a racing poller
+                // thread that sees IsShowingDialog=true doesn't BeginInvoke a disposed form.
+                AlertPoller.ActiveForm = null;
                 AlertPoller.IsShowingDialog = false;
+                // Re-raise for any alerts that slipped in between form.Close() and ActiveForm=null.
                 if (AlertPoller.HasPending && _event != null)
                     _event.Raise();
             }
