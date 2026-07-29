@@ -292,10 +292,19 @@
     <Compile Include="models\geometry\GeoJsonGeometry.cs" />
     <Compile Include="models\geometry\ElementGeometryExtractor.cs" />
     <Compile Include="models\SyncQueueResponse.cs" />
+    <Compile Include="models\ActionDto.cs" />
+    <Compile Include="models\AlertDto.cs" />
+    <Compile Include="violations\ElementCategoryCache.cs" />
+    <Compile Include="violations\ViolationDetector.cs" />
+    <Compile Include="violations\ViolationSettings.cs" />
+    <Compile Include="violations\ViolationSettingsCache.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="queue\AutoSyncEvent.cs" />
+    <Compile Include="queue\UndoViolationEvent.cs" />
     <Compile Include="queue\PendingEditsResyncEvent.cs" />
     <Compile Include="queue\QueuePoller.cs" />
+    <Compile Include="queue\AlertPoller.cs" />
+    <Compile Include="queue\AlertNotificationEvent.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -338,7 +347,9 @@
     <Compile Include="sync\RevitSyncDialogCloser.cs" />
     <Compile Include="sync\StateSubmitter.cs" />
     <Compile Include="sync\SyncOrchestrator.cs" />
+    <Compile Include="ui\AlertsReviewForm.cs" />
     <Compile Include="ui\EditFiltersForm.cs" />
+    <Compile Include="ui\ViolationWarningForm.cs" />
     <Compile Include="ui\ManageSchedulesForm.cs" />
     <Compile Include="ui\PendingEditsReviewForm.cs" />
     <Compile Include="ui\DiagnoseElementForm.cs">

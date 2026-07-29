@@ -150,7 +150,11 @@ ProjectPerseus/
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; re-triggers SynchronizeWithCentral after
 │   │                             pending web edits are applied. IsAutoSyncing stays false so the
 │   │                             queue check runs normally on the follow-up sync.
-│   └── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
+│   ├── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
+│   ├── AlertPoller.cs            NEW. Background Task polling /api/source/<guid>/pending-revit-alerts/
+│   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
+│   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
+│   └── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
 ├── ui/                           ALL WinForms (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
 │   ├── BatchProgressForm.cs
@@ -160,6 +164,8 @@ ProjectPerseus/
 │   ├── SettingsForm.Designer.cs  Partial; namespace matches SettingsForm.cs.
 │   ├── SettingsForm.resx         Embedded resource; DependentUpon resolves manifest name via
 │                                 typeof(SettingsForm).FullName, so path change is safe.
+│   ├── AlertsReviewForm.cs       NEW. Scrollable WinForms dialog showing compiled Revit alerts
+│   │                             (one per source group). RichTextBox list with user/verb/element/time/status.
 │   ├── EditFiltersForm.cs        NEW. WinForms dialog for editing per-schedule cascading import
 │   │                             filter rules (Field/Condition/Value/Action DataGridView).
 │   ├── PendingEditsReviewForm.cs NEW. Review dialog for pending web edits before applying.
@@ -168,6 +174,8 @@ ProjectPerseus/
 │   ├── SyncWarningForm.cs        Moved from forms/. Was at global namespace; now ProjectPerseus.ui.
 │   └── ThemeIconManager.cs
 ├── models/                       DTOs + geometry extractor.
+│   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
+│   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── KeyScheduleConfig.cs      Per-schedule mapping: schedule name, Excel path/sheet, Django
 │   │                             endpoint, and Filters list (List<KeyScheduleFilter>).
 │   ├── KeyScheduleData.cs        Schedule rows (ScheduleName, ColumnNames, Rows).
@@ -195,6 +203,12 @@ ProjectPerseus/
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
 │                                 by title and PostMessage(WM_CLOSE).
+├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
+│   └── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
+│                                 via ControlledApplication (called from SyncOrchestrator).
+│                                 Detects: element_deleted, ungroup, unpin, link_unload (provisional),
+│                                 warning_dismissed, sheet_view_edit. Accumulates ActionDto entries
+│                                 in ConcurrentQueue. DrainQueue() called by Step 3 ingest.
 ├── web/
 │   ├── ProjectPerseusWeb.cs      HTTP client for Django: SubmitElementDeltas (HttpClient +
 │                                 AuthService scheme) and SubmitElementState (legacy Token via

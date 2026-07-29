@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
@@ -15,6 +16,7 @@ using ProjectPerseus.web;
 
 using ProjectPerseus.logging;
 using ProjectPerseus.util;
+using ProjectPerseus.violations;
 namespace ProjectPerseus.sync
 {
     // Stateful coordinator for the Revit sync lifecycle. Owns the pre-sync queue check,
@@ -42,6 +44,7 @@ namespace ProjectPerseus.sync
         private Document _currentSyncDoc = null;
         private string _currentSynCaption = "";
         private QueuePoller _autoSyncPoller;
+        private AlertPoller _alertPoller;
 
         // Stage timing — reset at the start of each sync in doOnPriorToSync.
         // _stageTimeStart is set on the first ProgressChanged event (i.e. when Revit
@@ -61,12 +64,21 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
+            ViolationDetector.Subscribe(application, _config.BaseUrl);
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
 
             var resyncHandler = new PendingEditsResyncEvent();
             PendingEditsResyncExternalEvent = ExternalEvent.Create(resyncHandler);
+
+            var undoViolationHandler = new queue.UndoViolationEvent();
+            ViolationDetector.UndoViolationExternalEvent = ExternalEvent.Create(undoViolationHandler);
+
+            var alertHandler = new AlertNotificationEvent();
+            var alertExternalEvent = ExternalEvent.Create(alertHandler);
+            alertHandler.SetEvent(alertExternalEvent);
+            _alertPoller = new AlertPoller(alertExternalEvent, () => auth.AuthService.GetAuthTokenSafely());
         }
 
         public void Unsubscribe(UIControlledApplication application)
@@ -75,13 +87,27 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizingWithCentral -= OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
+            ViolationDetector.Unsubscribe(application);
+            _alertPoller?.Stop();
             _queueWebForm?.Close();
         }
 
         private void OnDocumentOpened(object sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs e)
         {
-            if (e.Document != null && !e.Document.IsFamilyDocument)
-                KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
+            if (e.Document == null || e.Document.IsFamilyDocument) return;
+            KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
+            if (!UploadConfigIsValid()) return;
+            try
+            {
+                string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                violations.ElementCategoryCache.Prime(e.Document, docGuid);
+                violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
+                _alertPoller?.StartPolling(docGuid);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Document open init failed (non-fatal): {ex.Message}");
+            }
         }
 
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
@@ -297,6 +323,64 @@ namespace ProjectPerseus.sync
                 string revitAccountId = app.LoginUserId;
                 string windowsUsername = Environment.UserName;
                 string machineName = Environment.MachineName;
+
+                // Presync gate: block or warn on protected-element violations from this session.
+                try
+                {
+                    var presyncViolations = violations.ViolationDetector.GetPresyncViolations(docGuid);
+                    if (presyncViolations.Count > 0)
+                    {
+                        var blocking = presyncViolations.Where(v => v.SyncStyle == "block").ToList();
+                        var warning  = presyncViolations.Where(v => v.SyncStyle == "warn").ToList();
+
+                        if (blocking.Count > 0)
+                        {
+                            string itemList = string.Join("\n", blocking.Select(v =>
+                                $"• {v.CategoryName}: {(string.IsNullOrEmpty(v.ElementName) ? $"ID {v.ElementId}" : v.ElementName)}"));
+                            bool hasLinkUnload = blocking.Any(v => v.ActionType == models.ActionType.LinkUnload);
+                            bool hasOthers     = blocking.Any(v => v.ActionType != models.ActionType.LinkUnload);
+                            string footer =
+                                hasLinkUnload && hasOthers ? "Some actions can be undone. Link unload cannot be undone in Revit — contact your BIM manager." :
+                                hasLinkUnload              ? "Link unload cannot be undone in Revit. Contact your BIM manager." :
+                                                             "Undo these actions and try again, or contact your BIM manager.";
+                            var dlg = new TaskDialog("Perseus — Sync Blocked")
+                            {
+                                MainInstruction = $"{blocking.Count} protected element action(s) — sync cannot proceed",
+                                MainContent     = itemList,
+                                FooterText      = footer,
+                                CommonButtons   = TaskDialogCommonButtons.Ok,
+                            };
+                            dlg.Show();
+                            e.Cancel();
+                            System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                            return;
+                        }
+
+                        if (warning.Count > 0)
+                        {
+                            string itemList = string.Join("\n", warning.Select(v =>
+                                $"• {v.CategoryName}: {(string.IsNullOrEmpty(v.ElementName) ? $"ID {v.ElementId}" : v.ElementName)}"));
+                            var dlg = new TaskDialog("Perseus — Sync Warning")
+                            {
+                                MainInstruction = $"{warning.Count} protected element(s) deleted since last sync",
+                                MainContent     = itemList,
+                                FooterText      = "Proceed to sync anyway, or cancel to review.",
+                            };
+                            dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Proceed with sync");
+                            dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Cancel sync");
+                            if (dlg.Show() == TaskDialogResult.CommandLink2)
+                            {
+                                e.Cancel();
+                                System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                                return;
+                            }
+                        }
+                    }
+                }
+                catch (Exception presyncEx)
+                {
+                    Log.Warn($"Presync violation gate failed (non-fatal): {presyncEx.Message}");
+                }
 
                 // Check for pending web edits before the queue check so the user can
                 // review and apply them first — baked into the sync, not a separate step.
@@ -572,20 +656,43 @@ namespace ProjectPerseus.sync
                         Log.Info($"Error performing sync: {ex.Message}");
                     }
 
-                    // Signal server that all element POSTs for this batch are done.
-                    // Server will trigger post-sync validation once all background tasks complete.
+                    // Pre-commit flush: drain any remaining actions so Django has the full set
+                    // before batchClose runs. batchClose stamps all pending actions as committed
+                    // to central — this flush must complete first for that stamp to be accurate.
                     try
                     {
-                        var docGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                        var actions = violations.ViolationDetector.DrainQueue();
+                        if (actions.Count > 0)
+                            web.ProjectPerseusWeb.SubmitActions(_config.BaseUrl, actions);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"SubmitActions pre-commit flush failed (non-fatal): {ex.Message}");
+                    }
+
+                    // Signal server that all element POSTs for this batch are done.
+                    // Server will trigger post-sync validation once all background tasks complete.
+                    string closedDocGuid = null;
+                    try
+                    {
+                        closedDocGuid = ModelGuidStorage.GetOrCreate(e.Document);
                         var batchCloseEndpoint = $"{_config.BaseUrl}/batchclose/";
                         var batchClosePayload = Newtonsoft.Json.JsonConvert.SerializeObject(
-                            new { batchId = batchId, documentGuid = docGuid });
+                            new { batchId = batchId, documentGuid = closedDocGuid });
                         WebHelper.Post(batchCloseEndpoint, AuthService.GetAuthTokenSafely(), batchClosePayload);
                         Log.Info($"SyncBatch closed: {batchId}");
                     }
                     catch (Exception ex)
                     {
                         Log.Warn($"batchClose call failed (non-fatal): {ex.Message}");
+                    }
+
+                    // Refresh violation settings after every sync so Django-side changes
+                    // take effect without requiring a document close/reopen.
+                    if (closedDocGuid != null)
+                    {
+                        violations.ViolationSettingsCache.LoadAsync(closedDocGuid, _config.BaseUrl);
+                        violations.ViolationDetector.ClearPendingViolations(closedDocGuid);
                     }
 
                     watch.Stop();

@@ -145,6 +145,35 @@ namespace ProjectPerseus.web
             }
         }
 
+        public static void SubmitActions(string baseUrl, List<models.ActionDto> actions)
+        {
+            if (actions == null || actions.Count == 0) return;
+
+            string token  = auth.AuthService.GetAuthTokenSafely();
+            string scheme = auth.AuthService.GetAuthSchemeSafely();
+
+            var payload = actions.Select(a => new
+            {
+                correlation_id    = a.CorrelationId,
+                session_id        = a.SessionId,
+                doc_guid          = a.DocGuid,
+                action_type       = a.ActionType,
+                element_id        = a.ElementId,
+                element_unique_id = a.ElementUniqueId,
+                element_name      = a.ElementName,
+                element_category  = a.ElementCategory,
+                transaction_name  = a.TransactionName,
+                revit_user        = a.RevitUser,
+                client_timestamp  = a.TimestampUtc,
+                description       = a.Description,
+            }).ToList();
+
+            var json = util.JsonUtils.SerializeToJson(payload, null);
+            var endpoint = $"{baseUrl}/ingest_actions/";
+            Log.Info($"[ProjectPerseusWeb] SubmitActions: {actions.Count} action(s) → {endpoint}");
+            WebHelper.Post(endpoint, token, json, scheme);
+        }
+
         private bool PostJson(System.Net.Http.HttpClient client, string json, int chunkNumber, int totalChunks)
         {
             var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
