@@ -79,6 +79,7 @@ namespace ProjectPerseus.sync
             var alertExternalEvent = ExternalEvent.Create(alertHandler);
             alertHandler.SetEvent(alertExternalEvent);
             _alertPoller = new AlertPoller(alertExternalEvent, () => auth.AuthService.GetAuthTokenSafely());
+            _alertPoller.StartPolling();
         }
 
         public void Unsubscribe(UIControlledApplication application)
@@ -102,7 +103,15 @@ namespace ProjectPerseus.sync
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
-                _alertPoller?.StartPolling(docGuid);
+
+                // Warm up auth when a document opens so any expired-token login prompt
+                // (JwtLoginForm / MSAL) appears immediately, on a dedicated STA thread,
+                // rather than surfacing unexpectedly from the background alert poller.
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try { auth.AuthService.GetAuthTokenSafely(); }
+                    catch (Exception ex2) { Log.Warn($"[OnDocumentOpened] Auth warm-up failed: {ex2.Message}"); }
+                });
             }
             catch (Exception ex)
             {

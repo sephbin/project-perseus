@@ -64,16 +64,16 @@ namespace ProjectPerseus.queue
             _getToken   = getToken;
         }
 
-        public void StartPolling(string docGuid)
+        public void StartPolling()
         {
             Stop();
             _cts = new CancellationTokenSource();
             var token = _cts.Token;
-            Log.Info($"[AlertPoller] Starting for {docGuid}");
+            Log.Info($"[AlertPoller] Starting for user {Environment.UserName}");
             Task.Run(async () =>
             {
                 var username = Uri.EscapeDataString(Environment.UserName.ToLower());
-                var url = $"{_config.BaseUrl.TrimEnd('/')}/api/source/{docGuid}/pending-revit-alerts/?username={username}";
+                var url = $"{_config.BaseUrl.TrimEnd('/')}/api/pending-revit-alerts/?username={username}";
                 while (!token.IsCancellationRequested)
                 {
                     // Poll every 5s while the alerts dialog is open; every 60s otherwise.

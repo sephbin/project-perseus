@@ -92,7 +92,11 @@
       "PowerShell(cmd /c \"`\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\Tools\\\\VsDevCmd.bat`\" && msbuild `\"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln`\" /p:Configuration=`\"Debug 2026`\" /p:Platform=x64 /t:Build /v:minimal 2>&1\" | Select-Object -Last 20)",
       "PowerShell(cmd /c \"`\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\Tools\\\\VsDevCmd.bat`\" && msbuild `\"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln`\" /p:Configuration=`\"Debug 2026`\" /p:Platform=x64 /t:Build /v:minimal 2>&1\" | Select-Object -Last 15)",
       "PowerShell(cmd /c \"`\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\Tools\\\\VsDevCmd.bat`\" && msbuild `\"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln`\" /p:Configuration=`\"Debug 2026`\" /p:Platform=x64 /t:Build /v:minimal 2>&1\" | Select-Object -Last 10)",
-      "Bash(cmd *)"
+      "Bash(cmd *)",
+      "Read(//mnt/e/mydev/**)",
+      "Bash(echo \"- SyncOrchestrator.cs: warm up auth token on document open so expired-token login prompt appears immediately rather than from background alert poller\")",
+      "PowerShell(msbuild *)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" -t:Build -p:Configuration=Debug -v:minimal 2>&1 | Select-Object -Last 20)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
