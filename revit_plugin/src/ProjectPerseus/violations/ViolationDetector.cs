@@ -526,8 +526,13 @@ namespace ProjectPerseus.violations
                    vs.ProtectedCategories.Contains(info.CategoryName);
         }
 
-        private static void RefreshOverlay()
+        internal static void RefreshOverlay()
         {
+            if (FreefallMode.IsActive)
+            {
+                ui.ViolationOverlayController.Update(0);
+                return;
+            }
             int count;
             lock (_pendingLock)
                 count = _pendingViolations.Count(v => v.SyncStyle == "block");

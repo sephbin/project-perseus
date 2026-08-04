@@ -11,17 +11,20 @@ namespace ProjectPerseus.ui
     // Topmost, click-through WPF overlay that covers the Revit canvas when sync-blocking
     // violations are pending. All methods must be called via this window's own Dispatcher
     // (see ViolationOverlayController). The window is created hidden; Show() is called only
-    // when there are active blocking violations.
+    // when violations exist AND Revit is the foreground application.
     internal sealed class ViolationOverlay : Window
     {
         private readonly IntPtr _revitHwnd;
+        private readonly uint   _revitProcessId;
         private IntPtr _hwnd;
+        private bool   _hasBlockingViolations;
         private readonly TextBlock _statusText;
         private readonly DispatcherTimer _positionTimer;
 
         internal ViolationOverlay(IntPtr revitHwnd)
         {
             _revitHwnd = revitHwnd;
+            NativeMethods.GetWindowThreadProcessId(revitHwnd, out _revitProcessId);
 
             WindowStyle        = WindowStyle.None;
             AllowsTransparency = true;
@@ -77,13 +80,12 @@ namespace ProjectPerseus.ui
         // Called from ViolationOverlayController via BeginInvoke — runs on this window's Dispatcher.
         internal void SetBlockingCount(int count)
         {
-            if (count <= 0)
+            _hasBlockingViolations = count > 0;
+
+            if (!_hasBlockingViolations)
             {
-                if (IsVisible)
-                {
-                    _positionTimer.Stop();
-                    Hide();
-                }
+                _positionTimer.Stop();
+                if (IsVisible) Hide();
                 return;
             }
 
@@ -91,18 +93,28 @@ namespace ProjectPerseus.ui
                 ? "⚠  1 sync-blocking violation — sync is blocked"
                 : $"⚠  {count} sync-blocking violations — sync is blocked";
 
-            SyncPosition();
-
-            if (!IsVisible)
-            {
-                Show();
+            if (!_positionTimer.IsEnabled)
                 _positionTimer.Start();
-            }
+
+            SyncPosition(); // Immediate update before the next timer tick.
         }
 
         private void SyncPosition()
         {
-            if (_revitHwnd == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
+            if (!_hasBlockingViolations || _revitHwnd == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
+
+            // Only render while Revit is the active application. Compare process IDs so that
+            // all Revit-owned windows (dialogs, child windows) count as "Revit is active".
+            IntPtr fg = NativeMethods.GetForegroundWindow();
+            uint fgPid;
+            NativeMethods.GetWindowThreadProcessId(fg, out fgPid);
+            bool revitIsActive = fgPid == _revitProcessId;
+
+            if (!revitIsActive)
+            {
+                if (IsVisible) Hide();
+                return;
+            }
 
             NativeMethods.RECT cr;
             if (!NativeMethods.GetClientRect(_revitHwnd, out cr)) return;
@@ -114,8 +126,8 @@ namespace ProjectPerseus.ui
             if (physW <= 0 || physH <= 0) return;
 
             // Convert physical pixels to WPF logical pixels using this window's own DPI transform.
-            // Reads TransformFromDevice from the overlay's HwndSource, which is correct even when
-            // Revit and the overlay are on different monitors with different DPI scaling.
+            // Reading TransformFromDevice from the overlay's HwndSource is correct even when
+            // Revit and the overlay sit on different monitors with different DPI scaling.
             double scaleX = 1.0, scaleY = 1.0;
             var hsrc = HwndSource.FromHwnd(_hwnd);
             if (hsrc?.CompositionTarget != null)
@@ -129,6 +141,8 @@ namespace ProjectPerseus.ui
             Top    = pt.Y  * scaleY;
             Width  = physW * scaleX;
             Height = physH * scaleY;
+
+            if (!IsVisible) Show();
         }
 
         private static class NativeMethods
@@ -138,10 +152,12 @@ namespace ProjectPerseus.ui
             public const int WS_EX_LAYERED     = 0x00080000;
             public const int WS_EX_NOACTIVATE  = 0x08000000;
 
-            [DllImport("user32.dll")] public static extern int  GetWindowLong(IntPtr hwnd, int nIndex);
-            [DllImport("user32.dll")] public static extern int  SetWindowLong(IntPtr hwnd, int nIndex, int dwNewLong);
-            [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hwnd, out RECT lpRect);
-            [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT lpPoint);
+            [DllImport("user32.dll")] public static extern int    GetWindowLong(IntPtr hwnd, int nIndex);
+            [DllImport("user32.dll")] public static extern int    SetWindowLong(IntPtr hwnd, int nIndex, int dwNewLong);
+            [DllImport("user32.dll")] public static extern bool   GetClientRect(IntPtr hwnd, out RECT lpRect);
+            [DllImport("user32.dll")] public static extern bool   ClientToScreen(IntPtr hwnd, ref POINT lpPoint);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] public static extern uint   GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
 
             [StructLayout(LayoutKind.Sequential)] public struct RECT  { public int Left, Top, Right, Bottom; }
             [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }

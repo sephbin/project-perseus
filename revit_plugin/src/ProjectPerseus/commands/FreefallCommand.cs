@@ -25,6 +25,7 @@ namespace ProjectPerseus.commands
                 {
                     FreefallMode.IsActive = false;
                     Log.Info("[FreefallMode] Disabled manually by user.");
+                    ViolationDetector.RefreshOverlay(); // Re-evaluate overlay — violations may still be pending.
                 }
                 return Result.Succeeded;
             }
@@ -55,6 +56,11 @@ namespace ProjectPerseus.commands
                 CommonButtons   = TaskDialogCommonButtons.Ok,
             };
             infoDialog.Show();
+
+            // Refresh after the user clicks OK — hides the overlay now that they have acknowledged
+            // Freefall is on. Doing this post-dialog avoids a race between the async BeginInvoke
+            // and the overlay's 150ms position timer that was still running during the dialog.
+            ViolationDetector.RefreshOverlay();
 
             return Result.Succeeded;
         }
