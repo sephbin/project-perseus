@@ -80,6 +80,9 @@ namespace ProjectPerseus.sync
             alertHandler.SetEvent(alertExternalEvent);
             _alertPoller = new AlertPoller(alertExternalEvent, () => auth.AuthService.GetAuthTokenSafely());
             _alertPoller.StartPolling();
+
+            ui.ViolationOverlayController.Start(
+                System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
         }
 
         public void Unsubscribe(UIControlledApplication application)
@@ -91,6 +94,7 @@ namespace ProjectPerseus.sync
             ViolationDetector.Unsubscribe(application);
             _alertPoller?.Stop();
             _queueWebForm?.Close();
+            ui.ViolationOverlayController.Stop();
         }
 
         private void OnDocumentOpened(object sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs e)
@@ -334,6 +338,14 @@ namespace ProjectPerseus.sync
                 string machineName = Environment.MachineName;
 
                 // Presync gate: block or warn on protected-element violations from this session.
+                // Freefall mode bypasses this entirely and clears accumulated violations so they
+                // don't linger to block the next non-Freefall sync.
+                if (violations.FreefallMode.IsActive)
+                {
+                    Log.Warn("[FreefallMode] Presync gate bypassed — Freefall mode is active.");
+                    violations.ViolationDetector.ClearPendingViolations(docGuid);
+                }
+                else
                 try
                 {
                     var presyncViolations = violations.ViolationDetector.GetPresyncViolations(docGuid);
@@ -702,6 +714,13 @@ namespace ProjectPerseus.sync
                     {
                         violations.ViolationSettingsCache.LoadAsync(closedDocGuid, _config.BaseUrl);
                         violations.ViolationDetector.ClearPendingViolations(closedDocGuid);
+                    }
+
+                    // Freefall mode is a single-use bypass — always off after each sync.
+                    if (violations.FreefallMode.IsActive)
+                    {
+                        violations.FreefallMode.IsActive = false;
+                        Log.Warn("[FreefallMode] Automatically disabled after sync completed.");
                     }
 
                     watch.Stop();

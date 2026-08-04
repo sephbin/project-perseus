@@ -46,7 +46,10 @@ namespace ProjectPerseus.violations
             { lock (_pendingLock) return _pendingViolations.Where(v => v.DocGuid == docGuid).ToList(); }
 
         internal static void ClearPendingViolations(string docGuid)
-            { lock (_pendingLock) _pendingViolations.RemoveAll(v => v.DocGuid == docGuid); }
+        {
+            lock (_pendingLock) _pendingViolations.RemoveAll(v => v.DocGuid == docGuid);
+            RefreshOverlay();
+        }
 
         internal static void Subscribe(UIControlledApplication application, string baseUrl)
         {
@@ -94,10 +97,11 @@ namespace ProjectPerseus.violations
 
             // On-edit enforcement: check before enqueuing so a Cancel discards all actions.
             // Bypassed for our own programmatic re-delete transactions.
-            bool bypass = BypassNextViolationCheck;
+            bool bypass   = BypassNextViolationCheck;
+            bool freefall = FreefallMode.IsActive;
             BypassNextViolationCheck = false;
 
-            if (!bypass && deletedIds.Count > 0)
+            if (!bypass && !freefall && deletedIds.Count > 0)
             {
                 var vsettings = ViolationSettingsCache.Get(docGuid);
                 if (vsettings != null && vsettings.ResolveEditStyle(models.ActionType.ElementDeleted) == "dialog")
@@ -136,7 +140,7 @@ namespace ProjectPerseus.violations
             }
 
             // On-edit enforcement for Unpin — all-or-nothing (can't selectively re-pin a subset).
-            if (!bypass && isUnpin && modifiedIds.Count > 0)
+            if (!bypass && !freefall && isUnpin && modifiedIds.Count > 0)
             {
                 var vsettings = ViolationSettingsCache.Get(docGuid);
                 if (vsettings != null && vsettings.ResolveEditStyle(models.ActionType.Unpin) == "dialog")
@@ -156,7 +160,8 @@ namespace ProjectPerseus.violations
 
             // Track actions for the presync gate (only what actually proceeded — not undone).
             // Collect into a local list first so we can warn immediately if any will block sync.
-            if (!bypass)
+            // Skipped in Freefall mode — violations still enqueue for the audit trail but won't gate sync.
+            if (!bypass && !freefall)
             {
                 var vs = ViolationSettingsCache.Get(docGuid);
                 if (vs != null)
@@ -260,6 +265,9 @@ namespace ProjectPerseus.violations
 
                     foreach (var v in newViolations)
                         AddPendingViolation(v);
+
+                    if (newViolations.Count > 0)
+                        RefreshOverlay();
 
                     // Warn immediately if any action from this transaction will block the next sync.
                     var blocking = newViolations.Where(v => v.SyncStyle == "block").ToList();
@@ -516,6 +524,14 @@ namespace ProjectPerseus.violations
             return vs.ProtectedElementIds.Contains(idVal.ToString()) ||
                    vs.ProtectedElementIds.Contains(info.UniqueId)    ||
                    vs.ProtectedCategories.Contains(info.CategoryName);
+        }
+
+        private static void RefreshOverlay()
+        {
+            int count;
+            lock (_pendingLock)
+                count = _pendingViolations.Count(v => v.SyncStyle == "block");
+            ui.ViolationOverlayController.Update(count);
         }
 
         private static void FlushToServer()

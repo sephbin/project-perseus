@@ -192,6 +192,7 @@
       <HintPath>..\..\..\Json120r3\Bin\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
     <Reference Include="WindowsBase" />
     <Reference Include="Sentry, Version=3.41.3.0, Culture=neutral, PublicKeyToken=fba2ec45388e2af0, processorArchitecture=MSIL">
       <HintPath>..\packages\Sentry.3.41.3\lib\net461\Sentry.dll</HintPath>
@@ -269,6 +270,7 @@
     <Compile Include="auth\TokenCache.cs" />
     <Compile Include="batch\BatchProcessor.cs" />
     <Compile Include="commands\AboutCommand.cs" />
+    <Compile Include="commands\FreefallCommand.cs" />
     <Compile Include="commands\DiagnoseElementCommand.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
     <Compile Include="commands\ExportKeyScheduleCommand.cs" />
@@ -294,6 +296,7 @@
     <Compile Include="models\SyncQueueResponse.cs" />
     <Compile Include="models\ActionDto.cs" />
     <Compile Include="models\AlertDto.cs" />
+    <Compile Include="violations\FreefallMode.cs" />
     <Compile Include="violations\ElementCategoryCache.cs" />
     <Compile Include="violations\ViolationDetector.cs" />
     <Compile Include="violations\ViolationSettings.cs" />
@@ -347,6 +350,8 @@
     <Compile Include="sync\RevitSyncDialogCloser.cs" />
     <Compile Include="sync\StateSubmitter.cs" />
     <Compile Include="sync\SyncOrchestrator.cs" />
+    <Compile Include="ui\ViolationOverlay.cs" />
+    <Compile Include="ui\ViolationOverlayController.cs" />
     <Compile Include="ui\AlertsReviewForm.cs" />
     <Compile Include="ui\EditFiltersForm.cs" />
     <Compile Include="ui\ViolationWarningForm.cs" />

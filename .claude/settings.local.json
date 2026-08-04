@@ -96,7 +96,10 @@
       "Read(//mnt/e/mydev/**)",
       "Bash(echo \"- SyncOrchestrator.cs: warm up auth token on document open so expired-token login prompt appears immediately rather than from background alert poller\")",
       "PowerShell(msbuild *)",
-      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" -t:Build -p:Configuration=Debug -v:minimal 2>&1 | Select-Object -Last 20)"
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" -t:Build -p:Configuration=Debug -v:minimal 2>&1 | Select-Object -Last 20)",
+      "Bash(grep -E \"\\\\.py$|^d\")",
+      "Bash(MSBuild \"revit_plugin/src/ProjectPerseus/ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 30)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

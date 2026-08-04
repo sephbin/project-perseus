@@ -155,7 +155,7 @@ ProjectPerseus/
 │   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
 │   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
 │   └── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
-├── ui/                           ALL WinForms (P3, 2026-05-30). forms/ folder deleted.
+├── ui/                           WinForms + WPF UI (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
 │   ├── BatchProgressForm.cs
 │   ├── JwtLoginForm.cs           Moved from forms/, namespace ProjectPerseus.forms → .ui.
@@ -172,7 +172,18 @@ ProjectPerseus/
 │   │                             DataGridView with checkbox per row, search + status filter,
 │   │                             Select All/None, current vs new value columns, Edited By column.
 │   ├── SyncWarningForm.cs        Moved from forms/. Was at global namespace; now ProjectPerseus.ui.
-│   └── ThemeIconManager.cs
+│   ├── ThemeIconManager.cs
+│   ├── ViolationOverlay.cs       NEW (2026-08-04). Topmost, click-through WPF Window covering the
+│   │                             Revit canvas. WS_EX_TRANSPARENT|LAYERED|NOACTIVATE set in
+│   │                             SourceInitialized. 150ms DispatcherTimer syncs position against
+│   │                             Revit MainWindowHandle client rect. DPI-correct via
+│   │                             HwndSource.CompositionTarget.TransformFromDevice. Runs on
+│   │                             ViolationOverlayController's dedicated STA thread.
+│   └── ViolationOverlayController.cs NEW (2026-08-04). Static controller. Owns a dedicated STA
+│                                 thread running Dispatcher.Run(). EnsureHandle() creates the HWND
+│                                 without showing the window. Volatile publish pattern: _overlay
+│                                 written before _dispatcher so Update() callers see both or neither.
+│                                 BeginInvoke drives all show/hide/update calls to the overlay.
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
@@ -325,7 +336,7 @@ Each priority should be its own commit/build so any breakage is localised. Updat
   `revit_plugin/src/ProjectPerseus/auth/X.cs` ⇒ `namespace ProjectPerseus.auth`.
 - One public class per file; filename matches the class.
 - IExternalCommand implementations belong in `commands/`, nowhere else.
-- WinForms (and form designers) belong in `ui/`, nowhere else.
+- WinForms (and form designers) and WPF Windows belong in `ui/`, nowhere else.
 - Models/DTOs (no behaviour beyond serialisation) belong in `models/`.
 - Revit API wrappers/adapters belong in `revit/` (Ardb* adapters in `revit/adapters/`).
 - Sync orchestration logic (anything called from a Document* event) belongs in `sync/`.

@@ -122,6 +122,18 @@ namespace ProjectPerseus
             PushButton aboutBtn = ribbonPanel.AddItem(aboutBtnData) as PushButton;
             aboutBtn.ToolTip = $"Project Perseus v{version} — click to view version info";
 
+            // Safety panel — emergency bypass for violation blocks
+            RibbonPanel safetyPanel = application.CreateRibbonPanel(tabName, "Safety");
+
+            PushButtonData freefallBtnData = new PushButtonData(
+                "Button_Freefall",
+                "Freefall\nMode",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.FreefallCommand");
+
+            PushButton freefallBtn = safetyPanel.AddItem(freefallBtnData) as PushButton;
+            freefallBtn.ToolTip = "Enable Freefall mode to bypass violation blocks for one sync. Requires confirmation. Turns off automatically after sync.";
+
             // Key Schedules panel — separate compartment on the same tab
             RibbonPanel schedulesPanel = application.CreateRibbonPanel(tabName, "Key Schedules");
 
