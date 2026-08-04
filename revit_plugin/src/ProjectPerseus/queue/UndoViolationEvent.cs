@@ -28,12 +28,34 @@ namespace ProjectPerseus.queue
 
             if (idsToReDelete != null && idsToReDelete.Count > 0)
             {
-                // Register a one-shot Idling handler. Idling fires AFTER PostCommand(Undo)
-                // has been processed, so elements will be restored by the time we re-delete.
-                var captured = idsToReDelete.ToList();
+                var captured   = idsToReDelete.ToList();
+                int waitCycles = 0;
+
+                // Idling can fire before PostCommand(Undo) is fully processed, so we cannot
+                // unregister on the first fire unconditionally. Instead, check whether the
+                // undo has settled by testing whether any approved element has been restored
+                // to the document. If not yet, stay registered and retry next idle cycle.
                 EventHandler<IdlingEventArgs> handler = null;
                 handler = (s, e) =>
                 {
+                    var doc = app.ActiveUIDocument?.Document;
+                    if (doc == null)
+                    {
+                        app.Idling -= handler;
+                        return;
+                    }
+
+                    bool undoSettled = captured.Any(id => doc.GetElement(RevitExtensions.CreateId(id)) != null);
+                    if (!undoSettled)
+                    {
+                        if (++waitCycles >= 10)
+                        {
+                            app.Idling -= handler;
+                            Log.Warn("[UndoViolationEvent] Undo did not restore approved elements within 10 idle cycles; re-delete aborted.");
+                        }
+                        return;
+                    }
+
                     app.Idling -= handler;
                     ReDeleteAfterUndo(app, captured);
                 };
