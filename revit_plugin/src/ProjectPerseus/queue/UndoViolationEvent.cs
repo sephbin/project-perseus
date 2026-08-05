@@ -67,24 +67,39 @@ namespace ProjectPerseus.queue
 
         private static void ReDeleteAfterUndo(UIApplication app, List<long> idsToDelete)
         {
-            var doc = app.ActiveUIDocument?.Document;
-            if (doc == null) return;
+            var uidoc = app.ActiveUIDocument;
+            var doc   = uidoc?.Document;
+            if (uidoc == null || doc == null) return;
             try
             {
-                // Suppress the violation dialog for this programmatic re-delete.
-                ViolationDetector.BypassNextViolationCheck = true;
-                using (var txn = new Transaction(doc, "Perseus: Delete approved elements"))
+                var validIds = idsToDelete
+                    .Select(id => RevitExtensions.CreateId(id))
+                    .Where(eid => doc.GetElement(eid) != null)
+                    .ToList();
+
+                if (validIds.Count == 0)
                 {
-                    txn.Start();
-                    foreach (var idVal in idsToDelete)
-                    {
-                        var eid = RevitExtensions.CreateId(idVal);
-                        if (doc.GetElement(eid) != null)
-                            doc.Delete(eid);
-                    }
-                    txn.Commit();
+                    Log.Warn("[UndoViolationEvent] No approved elements found in document after undo; re-delete skipped.");
+                    return;
                 }
-                Log.Info($"[UndoViolationEvent] Re-deleted {idsToDelete.Count} approved element(s) after undo.");
+
+                // Select the approved elements and post Revit's native Delete command so that
+                // worksharing checkout, dependent-element warnings, and all other edge cases
+                // are handled exactly as they would be if the user performed the action manually.
+                uidoc.Selection.SetElementIds(validIds);
+                ViolationDetector.BypassNextViolationCheck = true;
+
+                var deleteCmd = RevitCommandId.LookupPostableCommandId(PostableCommand.Delete);
+                if (app.CanPostCommand(deleteCmd))
+                {
+                    app.PostCommand(deleteCmd);
+                    Log.Info($"[UndoViolationEvent] Queued Delete for {validIds.Count} approved element(s) via selection after undo.");
+                }
+                else
+                {
+                    ViolationDetector.BypassNextViolationCheck = false;
+                    Log.Warn("[UndoViolationEvent] Cannot post Delete command; re-delete aborted.");
+                }
             }
             catch (Exception ex)
             {

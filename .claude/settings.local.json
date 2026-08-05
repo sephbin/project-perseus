@@ -101,7 +101,8 @@
       "Bash(MSBuild \"revit_plugin/src/ProjectPerseus/ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal)",
       "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 30)",
       "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 15)",
-      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 8)"
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 8)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" ProjectPerseus.csproj /p:Configuration=Debug /p:Platform=x64 /t:Build /v:minimal)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

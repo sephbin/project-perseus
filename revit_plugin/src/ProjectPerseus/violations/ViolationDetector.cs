@@ -95,21 +95,34 @@ namespace ProjectPerseus.violations
                         ElementCategoryCache.GetFamilyTypeName(el));
             }
 
+            // Rooms are "deleted" by Revit by becoming unplaced (Area == 0) rather than truly
+            // deleted — they appear in modifiedIds, not deletedIds. Merge them in so enforcement
+            // and tracking treat them identically to genuinely deleted elements.
+            var effectiveDeletedIds = new List<ElementId>(deletedIds);
+            foreach (var id in modifiedIds)
+            {
+                var el = doc.GetElement(id);
+                if (el?.Category?.Id?.GetIdValue() != (long)BuiltInCategory.OST_Rooms) continue;
+                var areaParam = el.get_Parameter(BuiltInParameter.ROOM_AREA);
+                if (areaParam == null || areaParam.AsDouble() < 1e-6)
+                    effectiveDeletedIds.Add(id);
+            }
+
             // On-edit enforcement: check before enqueuing so a Cancel discards all actions.
             // Bypassed for our own programmatic re-delete transactions.
             bool bypass   = BypassNextViolationCheck;
             bool freefall = FreefallMode.IsActive;
             BypassNextViolationCheck = false;
 
-            if (!bypass && !freefall && deletedIds.Count > 0)
+            if (!bypass && !freefall && effectiveDeletedIds.Count > 0)
             {
                 var vsettings = ViolationSettingsCache.Get(docGuid);
                 if (vsettings != null && vsettings.ResolveEditStyle(models.ActionType.ElementDeleted) == "dialog")
                 {
-                    var elementInfos = BuildViolationElementInfos(vsettings, deletedIds, docGuid);
+                    var elementInfos = BuildViolationElementInfos(vsettings, effectiveDeletedIds, docGuid);
                     if (elementInfos.Any(ei => ei.IsProtected))
                     {
-                        var result = ShowViolationWarningForm(elementInfos, deletedIds, docGuid);
+                        var result = ShowViolationWarningForm(elementInfos, effectiveDeletedIds, docGuid);
                         if (result == ViolationDialogResult.UndoAll)
                         {
                             UndoViolationExternalEvent?.Raise();
@@ -168,13 +181,13 @@ namespace ProjectPerseus.violations
                 {
                     var newViolations = new List<PresyncViolation>();
 
-                    // ElementDeleted
-                    if (deletedIds.Count > 0)
+                    // ElementDeleted (includes rooms that became unplaced)
+                    if (effectiveDeletedIds.Count > 0)
                     {
                         string syncStyle = vs.ResolveSyncStyle(models.ActionType.ElementDeleted);
                         if (syncStyle != "log")
                         {
-                            foreach (var id in deletedIds)
+                            foreach (var id in effectiveDeletedIds)
                             {
                                 long idVal = id.GetIdValue();
                                 var info = ElementCategoryCache.Get(docGuid, idVal);
@@ -294,8 +307,8 @@ namespace ProjectPerseus.violations
                 }
             }
 
-            // 1. Element deletions.
-            foreach (var id in deletedIds)
+            // 1. Element deletions (includes rooms that became unplaced).
+            foreach (var id in effectiveDeletedIds)
             {
                 long idVal = id.GetIdValue();
                 var cached = ElementCategoryCache.Get(docGuid, idVal);
