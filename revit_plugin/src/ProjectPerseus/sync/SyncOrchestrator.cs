@@ -61,6 +61,7 @@ namespace ProjectPerseus.sync
         public void Subscribe(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentOpened += OnDocumentOpened;
+            application.ControlledApplication.DocumentClosing += OnDocumentClosing;
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
@@ -88,6 +89,7 @@ namespace ProjectPerseus.sync
         public void Unsubscribe(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentOpened -= OnDocumentOpened;
+            application.ControlledApplication.DocumentClosing -= OnDocumentClosing;
             application.ControlledApplication.DocumentSynchronizingWithCentral -= OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
@@ -121,6 +123,12 @@ namespace ProjectPerseus.sync
             {
                 Log.Warn($"Document open init failed (non-fatal): {ex.Message}");
             }
+        }
+
+        private void OnDocumentClosing(object sender, Autodesk.Revit.DB.Events.DocumentClosingEventArgs e)
+        {
+            if (e.Document != null)
+                revit.ModelGuidStorage.ClearCache(e.Document);
         }
 
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using ProjectPerseus;
@@ -8,9 +9,13 @@ namespace ProjectPerseus.revit
 {
     public static class ModelGuidStorage
     {
-        // 🔸 Use a fixed GUID that identifies *your add-in’s schema*
         private static readonly Guid SchemaGuid = new Guid("E0E8F560-8A87-4E0D-B4AB-ABCF01B222EE");
         private const string FieldName = "PersistentModelGuid";
+
+        // Keyed by doc.PathName so Extensible Storage is only read once per open document.
+        // Eliminates read-only-window errors from ProgressChanged / DocumentChanged callers.
+        private static readonly ConcurrentDictionary<string, string> _cache
+            = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Retrieves or creates a permanent GUID for the Revit document.
@@ -18,18 +23,18 @@ namespace ProjectPerseus.revit
         /// </summary>
         public static string GetOrCreate(Document doc)
         {
+            string key = doc?.PathName;
+            if (!string.IsNullOrEmpty(key) && _cache.TryGetValue(key, out string cached))
+                return cached;
+
             try
             {
                 Schema schema = Schema.Lookup(SchemaGuid) ?? CreateSchema();
                 DataStorage storage = GetOrCreateStorage(doc, schema);
                 Entity entity = storage.GetEntity(schema);
 
-                // Retrieve current GUID (if present)
                 string storedGuid = entity.IsValid() ? entity.Get<string>(schema.GetField(FieldName)) : null;
 
-                Log.Info($"[ModelGuidStorage] Stored GUID: {storedGuid}");
-
-                // If detached or invalid, regenerate
                 if (IsDetachedFromCentral(doc) || string.IsNullOrEmpty(storedGuid))
                 {
                     string newGuid = Guid.NewGuid().ToString();
@@ -42,9 +47,12 @@ namespace ProjectPerseus.revit
                     }
 
                     Log.Info($"[ModelGuidStorage] New GUID assigned: {newGuid}");
+                    if (!string.IsNullOrEmpty(key)) _cache[key] = newGuid;
                     return newGuid;
                 }
 
+                Log.Info($"[ModelGuidStorage] Stored GUID: {storedGuid}");
+                if (!string.IsNullOrEmpty(key)) _cache[key] = storedGuid;
                 return storedGuid;
             }
             catch (Exception ex)
@@ -52,6 +60,16 @@ namespace ProjectPerseus.revit
                 Log.Info($"Error in ModelGuidStorage.GetOrCreate: {ex.Message}");
                 return "ErrorModelGuid";
             }
+        }
+
+        /// <summary>
+        /// Removes the cached GUID for a document. Call from DocumentClosed so the
+        /// next open of the same path re-reads from Extensible Storage.
+        /// </summary>
+        public static void ClearCache(Document doc)
+        {
+            string key = doc?.PathName;
+            if (!string.IsNullOrEmpty(key)) _cache.TryRemove(key, out _);
         }
 
         /// <summary>
