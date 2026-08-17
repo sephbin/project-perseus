@@ -102,13 +102,46 @@
       "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 30)",
       "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 15)",
       "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 8)",
-      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" ProjectPerseus.csproj /p:Configuration=Debug /p:Platform=x64 /t:Build /v:minimal)"
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" ProjectPerseus.csproj /p:Configuration=Debug /p:Platform=x64 /t:Build /v:minimal)",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /p:Platform=\"Any CPU\" /t:Build /v:minimal 2>&1 | Select-Object -Last 20)",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.sln\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 20)",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 25)",
+      "PowerShell(echo '{}' | powershell -File \"E:\\\\mydev\\\\project-perseus\\\\.claude\\\\commit-hook.ps1\"; echo \"Exit: $LASTEXITCODE\")"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
       "C:\\mydev\\django-syncboat",
       "C:\\mydev\\django-perseus",
       "C:\\mydev\\stranger-perseus"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -File 'E:\\mydev\\project-perseus\\.claude\\commit-hook.ps1'",
+            "shell": "powershell",
+            "timeout": 60,
+            "statusMessage": "Committing plugin changes..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -File 'E:\\mydev\\project-perseus\\.claude\\build-hook.ps1'",
+            "shell": "powershell",
+            "timeout": 120,
+            "statusMessage": "Building ProjectPerseus..."
+          }
+        ]
+      }
     ]
   }
 }

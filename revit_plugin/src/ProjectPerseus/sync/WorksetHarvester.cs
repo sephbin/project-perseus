@@ -11,7 +11,7 @@ namespace ProjectPerseus.sync
         {
             if (!doc.IsWorkshared) yield break;
 
-            foreach (Workset ws in new FilteredWorksetCollector(doc))
+            foreach (Workset ws in new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset))
                 yield return ws;
         }
     }
