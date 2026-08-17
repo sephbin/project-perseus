@@ -5,6 +5,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
+using Autodesk.Revit.UI.Events;
 using ProjectPerseus.logging;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
@@ -18,6 +19,10 @@ namespace ProjectPerseus.violations
         private static readonly ConcurrentQueue<ActionDto> _queue = new ConcurrentQueue<ActionDto>();
         private static readonly List<PresyncViolation> _pendingViolations = new List<PresyncViolation>();
         private static readonly object _pendingLock = new object();
+
+        // DocGuid of the currently active Revit document. Updated by OnViewActivated.
+        // Overlay only shows violations belonging to this document.
+        private static volatile string _activeDocGuid;
 
         internal static readonly string SessionId = Guid.NewGuid().ToString("N");
 
@@ -56,12 +61,30 @@ namespace ProjectPerseus.violations
             _baseUrl = baseUrl;
             application.ControlledApplication.DocumentChanged    += OnDocumentChanged;
             application.ControlledApplication.FailuresProcessing += OnFailuresProcessing;
+            application.ViewActivated += OnViewActivated;
         }
 
         internal static void Unsubscribe(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentChanged    -= OnDocumentChanged;
             application.ControlledApplication.FailuresProcessing -= OnFailuresProcessing;
+            application.ViewActivated -= OnViewActivated;
+        }
+
+        private static void OnViewActivated(object sender, ViewActivatedEventArgs e)
+        {
+            _activeDocGuid = TryGetDocGuid(e.Document);
+            RefreshOverlay();
+        }
+
+        // Called from SyncOrchestrator.OnDocumentClosing. Clears violations for the closed
+        // document and resets the active-doc tracker if it was the document being closed.
+        internal static void HandleDocumentClosing(string docGuid)
+        {
+            lock (_pendingLock) _pendingViolations.RemoveAll(v => v.DocGuid == docGuid);
+            if (_activeDocGuid == docGuid)
+                _activeDocGuid = null;
+            RefreshOverlay();
         }
 
         private static void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
@@ -541,14 +564,15 @@ namespace ProjectPerseus.violations
 
         internal static void RefreshOverlay()
         {
-            if (FreefallMode.IsActive)
+            string activeGuid = _activeDocGuid;
+            if (FreefallMode.IsActive || activeGuid == null)
             {
                 ui.ViolationOverlayController.Update(0);
                 return;
             }
             int count;
             lock (_pendingLock)
-                count = _pendingViolations.Count(v => v.SyncStyle == "block");
+                count = _pendingViolations.Count(v => v.SyncStyle == "block" && v.DocGuid == activeGuid);
             ui.ViolationOverlayController.Update(count);
         }
 

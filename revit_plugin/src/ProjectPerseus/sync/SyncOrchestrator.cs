@@ -127,8 +127,12 @@ namespace ProjectPerseus.sync
 
         private void OnDocumentClosing(object sender, Autodesk.Revit.DB.Events.DocumentClosingEventArgs e)
         {
-            if (e.Document != null)
-                revit.ModelGuidStorage.ClearCache(e.Document);
+            if (e.Document == null) return;
+            string closingGuid = null;
+            try { closingGuid = revit.ModelGuidStorage.GetOrCreate(e.Document); } catch { }
+            revit.ModelGuidStorage.ClearCache(e.Document);
+            if (closingGuid != null)
+                violations.ViolationDetector.HandleDocumentClosing(closingGuid);
         }
 
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
