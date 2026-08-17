@@ -112,6 +112,15 @@ namespace ProjectPerseus
             PushButton pullWebEditsBtn = ribbonPanel.AddItem(pullWebEditsBtnData) as PushButton;
             pullWebEditsBtn.ToolTip = "Fetch pending parameter edits made in the web editor and apply them to the current model. Skips elements checked out by other users.";
 
+            PushButtonData projectRulesBtnData = new PushButtonData(
+                "Button_ProjectRules",
+                "Project\nRules",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.ProjectRulesCommand");
+
+            PushButton projectRulesBtn = ribbonPanel.AddItem(projectRulesBtnData) as PushButton;
+            projectRulesBtn.ToolTip = "View and edit this model's violation enforcement rules and source settings. Refresh to pull the latest configuration from the server.";
+
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             PushButtonData aboutBtnData = new PushButtonData(
                 "Button_About",

@@ -23,6 +23,11 @@ namespace ProjectPerseus.web
             return PerformRequest(endpoint, apiToken, null, "GET", scheme);
         }
 
+        public static string Put(string endpoint, string apiToken, string json, string scheme = "Bearer")
+        {
+            return PerformRequest(endpoint, apiToken, json, "PUT", scheme);
+        }
+
         private static string PerformRequest(string endpoint, string apiToken, string json, string method, string scheme)
         {
             Log.Info($"[WebHelper] {method} {endpoint}");
@@ -38,7 +43,7 @@ namespace ProjectPerseus.web
                     httpWebRequest.Headers["Authorization"] = $"{scheme} {apiToken}";
                 }
 
-                if (method == "POST" && !string.IsNullOrEmpty(json))
+                if ((method == "POST" || method == "PUT") && !string.IsNullOrEmpty(json))
                 {
                     using (var streamWriter = new StreamWriter(httpWebRequest.GetRequestStream()))
                     {

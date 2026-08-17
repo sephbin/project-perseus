@@ -142,6 +142,8 @@ ProjectPerseus/
 │   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
 │   ├── OpenSettingsCommand.cs    Ribbon: Button_Settings.
 │   ├── PerformFullUploadCommand.cs  Ribbon: Button_RunFullSync.
+│   ├── ProjectRulesCommand.cs    Ribbon: Button_ProjectRules. Opens ProjectRulesForm to view/edit
+│   │                             source info and violation settings for the active model.
 │   ├── PullWebEditsCommand.cs    Ribbon: Button_PullWebEdits. Fetches pending web edits from
 │   │                             Django and applies them to the active model via PendingEditsApplier.
 │   └── ResetModelGuidCommand.cs  Ribbon: Button_ResetGuid.
@@ -171,6 +173,13 @@ ProjectPerseus/
 │   ├── PendingEditsReviewForm.cs NEW. Review dialog for pending web edits before applying.
 │   │                             DataGridView with checkbox per row, search + status filter,
 │   │                             Select All/None, current vs new value columns, Edited By column.
+│   ├── ProjectRulesForm.cs       NEW (2026-08-17). Tabbed WinForms dialog: "Source Info" tab shows
+│   │                             source name/GUID/medium + parameters DataGridView; "Violation Rules"
+│   │                             tab shows all SourceViolationSettings fields (defaults, per-action
+│   │                             enforcement, protected IDs/categories, bypass approval). Refresh
+│   │                             re-fetches from server; Save initiates browser pairing flow
+│   │                             (POST auth/pair/initiate → poll auth/pair/{code}/status →
+│   │                             PerseusSession token) then PUTs violation-settings API.
 │   ├── SyncWarningForm.cs        Moved from forms/. Was at global namespace; now ProjectPerseus.ui.
 │   ├── ThemeIconManager.cs
 │   ├── ViolationOverlay.cs       NEW (2026-08-04). Topmost, click-through WPF Window covering the

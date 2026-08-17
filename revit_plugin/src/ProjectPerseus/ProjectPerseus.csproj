@@ -279,6 +279,7 @@
     <Compile Include="commands\InitialiseProjectCommand.cs" />
     <Compile Include="commands\OpenSettingsCommand.cs" />
     <Compile Include="commands\PerformFullUploadCommand.cs" />
+    <Compile Include="commands\ProjectRulesCommand.cs" />
     <Compile Include="commands\PullWebEditsCommand.cs" />
     <Compile Include="commands\ResetModelGuidCommand.cs" />
     <Compile Include="config\Config.cs" />
@@ -357,6 +358,7 @@
     <Compile Include="ui\ViolationWarningForm.cs" />
     <Compile Include="ui\ManageSchedulesForm.cs" />
     <Compile Include="ui\PendingEditsReviewForm.cs" />
+    <Compile Include="ui\ProjectRulesForm.cs" />
     <Compile Include="ui\DiagnoseElementForm.cs">
       <SubType>Form</SubType>
     </Compile>
