@@ -5,7 +5,7 @@
 ArchitecturesInstallIn64BitMode=x64
 ; --- 1. App Information ---
 AppName=Project Perseus
-AppVersion=1.1.226
+AppVersion=1.2.1
 AppId={{10908502-7BB8-473D-B858-B31591187295}}
 DefaultGroupName=Andrew Butler
 
@@ -98,7 +98,7 @@ begin
 
   // Read the command line parameter (e.g., /SERVERURL="https://sync.cox.com")
   // If the parameter doesn't exist, it falls back to the default URL provided after the pipe (|)
-  DefaultUrl := ExpandConstant('{param:SERVERURL|https://perseus.coxarchitecture.com}');
+  DefaultUrl := ExpandConstant('{param:SERVERURL|https://labs.cox.com.au/perseus}');
 
   // Pre-fill the text box with the result
   ServerUrlPage.Values[0] := DefaultUrl;
