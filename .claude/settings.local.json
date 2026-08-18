@@ -106,7 +106,10 @@
       "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /p:Platform=\"Any CPU\" /t:Build /v:minimal 2>&1 | Select-Object -Last 20)",
       "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.sln\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 20)",
       "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus.sln\" /p:Configuration=Debug /t:Build /v:minimal 2>&1 | Select-Object -Last 25)",
-      "PowerShell(echo '{}' | powershell -File \"E:\\\\mydev\\\\project-perseus\\\\.claude\\\\commit-hook.ps1\"; echo \"Exit: $LASTEXITCODE\")"
+      "PowerShell(echo '{}' | powershell -File \"E:\\\\mydev\\\\project-perseus\\\\.claude\\\\commit-hook.ps1\"; echo \"Exit: $LASTEXITCODE\")",
+      "Bash(msbuild \"revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal /nologo)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Professional\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal /nologo 2>&1 | Select-Object -Last 25)",
+      "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal /nologo 2>&1 | Select-Object -Last 30)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
