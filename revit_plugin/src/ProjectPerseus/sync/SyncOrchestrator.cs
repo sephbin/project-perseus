@@ -329,6 +329,24 @@ namespace ProjectPerseus.sync
                 if (IsAutoSyncing)
                 {
                     Log.Info("Auto-Sync in progress – skipping queue check.");
+                    try
+                    {
+                        var autoGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                        var autoUser = Environment.UserName.ToLower();
+                        var autoServerRoot = new Uri(_config.BaseUrl).GetLeftPart(UriPartial.Authority);
+                        var markEndpoint = $"{autoServerRoot}/syncboat/api/v2/source/{autoGuid}/syncing/";
+                        var markPayload = JsonConvert.SerializeObject(new { username = autoUser });
+                        System.Threading.Tasks.Task.Run(() =>
+                        {
+                            try { WebHelper.Post(markEndpoint, null, markPayload); }
+                            catch (Exception markEx) { Log.Warn($"[QueuePoller] Mark-syncing call failed: {markEx.Message}"); }
+                        });
+                        Log.Info($"[QueuePoller] Marking as actively syncing for {autoGuid}.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"[QueuePoller] Mark-syncing setup failed (non-fatal): {ex.Message}");
+                    }
                     return;
                 }
 
