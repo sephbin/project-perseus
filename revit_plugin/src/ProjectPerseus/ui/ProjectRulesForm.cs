@@ -313,7 +313,10 @@ namespace ProjectPerseus.ui
                 {
                     string src = WebHelper.Get(
                         $"{_baseUrl}/rapi/sources/?unique_id={_sourceGuid}", token, null, scheme);
-                    if (JObject.Parse(src)["results"] is JArray arr && arr.Count > 0)
+                    var parsed = JToken.Parse(src);
+                    JArray arr = parsed as JArray
+                              ?? (parsed is JObject o ? o["results"] as JArray : null);
+                    if (arr != null && arr.Count > 0)
                         sourceData = arr[0] as JObject;
                 }
                 catch (Exception ex)
