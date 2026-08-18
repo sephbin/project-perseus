@@ -472,7 +472,8 @@
   </PropertyGroup>
 
   <Target Name="KillRevit" BeforeTargets="Build" Condition="'$(RevitVersion)' != ''">
-    <Exec Command="taskkill /f /im Revit.exe" ContinueOnError="WarnAndContinue" />
+    <Exec Command="taskkill /f /im Revit.exe"       ContinueOnError="WarnAndContinue" />
+    <Exec Command="taskkill /f /im RevitWorker.exe"  ContinueOnError="WarnAndContinue" />
   </Target>
 
   <Target Name="DevInstall" AfterTargets="Build" Condition="'$(RevitVersion)' != ''">
