@@ -107,6 +107,7 @@ namespace ProjectPerseus.sync
             try
             {
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                queue.PresencePoller.AddSource(docGuid);
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
 
@@ -132,7 +133,10 @@ namespace ProjectPerseus.sync
             try { closingGuid = revit.ModelGuidStorage.GetOrCreate(e.Document); } catch { }
             revit.ModelGuidStorage.ClearCache(e.Document);
             if (closingGuid != null)
+            {
+                queue.PresencePoller.RemoveSource(closingGuid);
                 violations.ViolationDetector.HandleDocumentClosing(closingGuid);
+            }
         }
 
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
