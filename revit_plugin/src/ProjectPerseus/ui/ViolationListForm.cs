@@ -20,8 +20,8 @@ namespace ProjectPerseus.ui
 
         private DataGridView _allGrid;
         private DataGridView _typeGrid;
+        private TabPage      _typeTab;
         private DataGridView _selGrid;
-        private Label        _typeLabel;
         private Label        _selLabel;
 
         public ViolationListForm(UIDocument uidoc)
@@ -35,7 +35,7 @@ namespace ProjectPerseus.ui
         private void BuildUI()
         {
             Text            = "Perseus — Violation List";
-            Size            = new Size(860, 700);
+            Size            = new Size(860, 680);
             MinimumSize     = new Size(600, 480);
             StartPosition   = FormStartPosition.Manual;
             Location        = new System.Drawing.Point(100, 100);
@@ -44,35 +44,41 @@ namespace ProjectPerseus.ui
             var layout = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
-                RowCount    = 6,
+                RowCount    = 3,
                 ColumnCount = 1,
                 Padding     = new Padding(6),
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // "Element Violations" label
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  50));   // instance violations grid
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // "Family / Type Violations" label
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  22));   // type violations grid
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  65));   // tab control
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // selected label
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  28));   // selection grid
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  35));   // selection grid
             Controls.Add(layout);
 
-            var allLabel = new Label { Text = "Element Violations", Dock = DockStyle.Fill, Font = new Font(Font, FontStyle.Bold) };
-            layout.Controls.Add(allLabel, 0, 0);
+            // ── Tab control ────────────────────────────────────────────────────
+            var tabs = new TabControl { Dock = DockStyle.Fill };
 
+            var elemTab = new TabPage("Element Violations");
             _allGrid = CreateGrid();
-            layout.Controls.Add(_allGrid, 0, 1);
+            elemTab.Controls.Add(_allGrid);
+            tabs.TabPages.Add(elemTab);
 
-            _typeLabel = new Label { Text = "Family / Type Violations", Dock = DockStyle.Fill, Font = new Font(Font, FontStyle.Bold) };
-            layout.Controls.Add(_typeLabel, 0, 2);
-
+            _typeTab = new TabPage("Family / Type Violations");
             _typeGrid = CreateGrid();
-            layout.Controls.Add(_typeGrid, 0, 3);
+            _typeTab.Controls.Add(_typeGrid);
+            tabs.TabPages.Add(_typeTab);
 
-            _selLabel = new Label { Text = "Selected Element Violations", Dock = DockStyle.Fill, Font = new Font(Font, FontStyle.Bold) };
-            layout.Controls.Add(_selLabel, 0, 4);
+            layout.Controls.Add(tabs, 0, 0);
+
+            // ── Selection panel ────────────────────────────────────────────────
+            _selLabel = new Label
+            {
+                Text      = "Selected Element Violations",
+                Dock      = DockStyle.Fill,
+                Font      = new Font(Font, FontStyle.Bold),
+            };
+            layout.Controls.Add(_selLabel, 0, 1);
 
             _selGrid = CreateGrid();
-            layout.Controls.Add(_selGrid, 0, 5);
+            layout.Controls.Add(_selGrid, 0, 2);
 
             _allGrid.CellDoubleClick  += OnInstanceGridDoubleClick;
             _typeGrid.CellDoubleClick += OnTypeGridDoubleClick;
@@ -133,13 +139,9 @@ namespace ProjectPerseus.ui
             foreach (var v in typeViolations)
                 AddRow(_typeGrid, v);
 
-            // Dim the label when empty so it doesn't draw attention unnecessarily.
-            _typeLabel.Text = typeViolations.Count > 0
+            _typeTab.Text = typeViolations.Count > 0
                 ? $"Family / Type Violations ({typeViolations.Count})"
                 : "Family / Type Violations";
-            _typeLabel.ForeColor = typeViolations.Count > 0
-                ? SystemColors.ControlText
-                : SystemColors.GrayText;
         }
 
         private static void AddRow(DataGridView grid, ViolationHighlightDto v)
