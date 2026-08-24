@@ -15,6 +15,11 @@ namespace ProjectPerseus.ui
     //   (1) _blockingLabel  — dark pill shown when sync-blocking violations exist
     //   (2) _markerCanvas   — coloured circles at projected element positions (always in front)
     // All methods must be called via this window's own Dispatcher (see ViolationOverlayController).
+    //
+    // Marker positioning note: NormX/NormY are normalised coordinates within the Revit VIEW
+    // viewport (from UIView.GetZoomCorners projection), NOT the Revit main window.  The overlay
+    // covers the full main window client rect, so SyncPosition() walks Win32 child windows to
+    // find the actual view panel and computes _vpLeft/_vpTop/_vpWidth/_vpHeight within the canvas.
     internal sealed class ViolationOverlay : Window
     {
         private readonly IntPtr _revitHwnd;
@@ -24,6 +29,9 @@ namespace ProjectPerseus.ui
         private bool _hasBlockingViolations;
         private bool _hasMarkers;
         private List<OverlayMarker> _currentMarkers = new List<OverlayMarker>();
+
+        // Viewport sub-rect within the overlay canvas (WPF units).  Updated each SyncPosition tick.
+        private double _vpLeft, _vpTop, _vpWidth, _vpHeight;
 
         private readonly TextBlock       _statusText;
         private readonly Border          _blockingLabel;
@@ -153,17 +161,15 @@ namespace ProjectPerseus.ui
         private void PositionMarkers()
         {
             if (!_hasMarkers) return;
-            double w = Width;
-            double h = Height;
-            if (double.IsNaN(w) || w <= 0 || double.IsNaN(h) || h <= 0) return;
+            if (_vpWidth <= 0 || _vpHeight <= 0) return;
 
             const double radius = 10;
             foreach (UIElement child in _markerCanvas.Children)
             {
                 if (child is Ellipse e && e.Tag is OverlayMarker m)
                 {
-                    Canvas.SetLeft(e, m.NormX * w - radius);
-                    Canvas.SetTop(e,  m.NormY * h - radius);
+                    Canvas.SetLeft(e, _vpLeft + m.NormX * _vpWidth  - radius);
+                    Canvas.SetTop( e, _vpTop  + m.NormY * _vpHeight - radius);
                 }
             }
         }
@@ -205,22 +211,81 @@ namespace ProjectPerseus.ui
             Width  = physW * scaleX;
             Height = physH * scaleY;
 
+            // Find the actual Revit view viewport within the main window by walking
+            // Win32 child windows from the centre of the client area.
+            int screenCx = pt.X + physW / 2;
+            int screenCy = pt.Y + physH / 2;
+            NativeMethods.RECT vp = FindViewportScreenRect(_revitHwnd, screenCx, screenCy,
+                                                            pt.X, pt.Y, physW, physH);
+
+            _vpLeft   = (vp.Left   - pt.X) * scaleX;
+            _vpTop    = (vp.Top    - pt.Y) * scaleY;
+            _vpWidth  = (vp.Right  - vp.Left) * scaleX;
+            _vpHeight = (vp.Bottom - vp.Top)  * scaleY;
+
+            // Sanity-clamp: if lookup failed, fall back to full overlay area.
+            if (_vpWidth  < 100) { _vpLeft = 0; _vpWidth  = Width;  }
+            if (_vpHeight < 100) { _vpTop  = 0; _vpHeight = Height; }
+
             PositionMarkers();
 
             if (!IsVisible) Show();
         }
 
+        // Walk the Win32 child window tree from (screenCx, screenCy) down to the deepest
+        // visible child — that's the Revit view render panel.  Falls back to the full main
+        // window rect if nothing useful is found.
+        private static NativeMethods.RECT FindViewportScreenRect(
+            IntPtr revitHwnd, int screenCx, int screenCy,
+            int fallbackLeft, int fallbackTop, int fallbackW, int fallbackH)
+        {
+            IntPtr current = revitHwnd;
+
+            for (int depth = 0; depth < 12; depth++)
+            {
+                var clientPt = new NativeMethods.POINT { X = screenCx, Y = screenCy };
+                if (!NativeMethods.ScreenToClient(current, ref clientPt)) break;
+
+                IntPtr child = NativeMethods.ChildWindowFromPointEx(
+                    current, clientPt,
+                    NativeMethods.CWP_SKIPINVISIBLE | NativeMethods.CWP_SKIPDISABLED);
+
+                if (child == IntPtr.Zero || child == current) break;
+                current = child;
+            }
+
+            if (current == revitHwnd)
+            {
+                return new NativeMethods.RECT
+                {
+                    Left   = fallbackLeft,
+                    Top    = fallbackTop,
+                    Right  = fallbackLeft + fallbackW,
+                    Bottom = fallbackTop  + fallbackH,
+                };
+            }
+
+            NativeMethods.RECT rect;
+            NativeMethods.GetWindowRect(current, out rect);
+            return rect;
+        }
+
         private static class NativeMethods
         {
-            public const int GWL_EXSTYLE       = -20;
-            public const int WS_EX_TRANSPARENT = 0x00000020;
-            public const int WS_EX_LAYERED     = 0x00080000;
-            public const int WS_EX_NOACTIVATE  = 0x08000000;
+            public const int GWL_EXSTYLE        = -20;
+            public const int WS_EX_TRANSPARENT  = 0x00000020;
+            public const int WS_EX_LAYERED      = 0x00080000;
+            public const int WS_EX_NOACTIVATE   = 0x08000000;
+            public const int CWP_SKIPINVISIBLE  = 0x0001;
+            public const int CWP_SKIPDISABLED   = 0x0002;
 
             [DllImport("user32.dll")] public static extern int    GetWindowLong(IntPtr hwnd, int nIndex);
             [DllImport("user32.dll")] public static extern int    SetWindowLong(IntPtr hwnd, int nIndex, int dwNewLong);
             [DllImport("user32.dll")] public static extern bool   GetClientRect(IntPtr hwnd, out RECT lpRect);
+            [DllImport("user32.dll")] public static extern bool   GetWindowRect(IntPtr hwnd, out RECT lpRect);
             [DllImport("user32.dll")] public static extern bool   ClientToScreen(IntPtr hwnd, ref POINT lpPoint);
+            [DllImport("user32.dll")] public static extern bool   ScreenToClient(IntPtr hwnd, ref POINT lpPoint);
+            [DllImport("user32.dll")] public static extern IntPtr ChildWindowFromPointEx(IntPtr hwnd, POINT pt, int uFlags);
             [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
             [DllImport("user32.dll")] public static extern uint   GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
 
