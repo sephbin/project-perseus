@@ -114,7 +114,8 @@
       "PowerShell(foreach \\($venv in @\\(\"clp\", \"fenrir\", \"prism\", \"sc\"\\)\\) { $py = \"C:\\\\mydev\\\\venv\\\\$venv\\\\Scripts\\\\python.exe\"; $v = & $py -c \"import django; print\\(django.__version__\\)\" 2>$null; if \\($v\\) { Write-Host \"$venv`: $v\" } })",
       "PowerShell(C:\\\\mydev\\\\venv\\\\sc\\\\Scripts\\\\python.exe -c \"import django; print\\(django.__version__\\)\" 2>&1)",
       "Bash(xargs grep -l \"Type Id\\\\|Type.*parameter\")",
-      "Bash(grep -E '\\\\.\\(html|py|js\\)$')"
+      "Bash(grep -E '\\\\.\\(html|py|js\\)$')",
+      "WebFetch(domain:localhost)"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",

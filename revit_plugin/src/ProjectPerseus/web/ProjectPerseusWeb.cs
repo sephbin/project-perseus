@@ -180,9 +180,11 @@ namespace ProjectPerseus.web
             string scheme = auth.AuthService.GetAuthSchemeSafely();
             string url    = $"{baseUrl.TrimEnd('/')}/source/{sourceGuid}/violations/";
             string json   = WebHelper.Get(url, token, null, scheme);
-            var raw = Newtonsoft.Json.JsonConvert.DeserializeObject<
-                List<Newtonsoft.Json.Linq.JObject>>(json);
-            return (raw ?? new List<Newtonsoft.Json.Linq.JObject>())
+            var wrapper = Newtonsoft.Json.JsonConvert.DeserializeObject<
+                Newtonsoft.Json.Linq.JObject>(json);
+            var raw = wrapper?["violations"] as Newtonsoft.Json.Linq.JArray
+                      ?? new Newtonsoft.Json.Linq.JArray();
+            return raw.Cast<Newtonsoft.Json.Linq.JObject>()
                 .Select(o => new models.ViolationHighlightDto
                 {
                     ElementUniqueId = o["element"]?["unique_id"]?.ToString(),
