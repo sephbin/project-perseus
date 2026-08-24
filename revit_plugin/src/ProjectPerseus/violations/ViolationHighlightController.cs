@@ -12,12 +12,14 @@ namespace ProjectPerseus.violations
 {
     internal static class ViolationHighlightController
     {
-        private static List<ViolationHighlightDto> _currentViolations = new List<ViolationHighlightDto>();
+        private static List<ViolationHighlightDto> _currentViolations     = new List<ViolationHighlightDto>();
+        private static List<ViolationHighlightDto> _currentTypeViolations = new List<ViolationHighlightDto>();
 
         private static ExternalEvent _positionEvent;
         private static Timer        _positionTimer;
 
-        internal static List<ViolationHighlightDto> CurrentViolations => _currentViolations;
+        internal static List<ViolationHighlightDto> CurrentViolations     => _currentViolations;
+        internal static List<ViolationHighlightDto> CurrentTypeViolations => _currentTypeViolations;
 
         internal static bool IsEnabled => ViolationHighlightServer.Instance.IsEnabled;
 
@@ -46,15 +48,27 @@ namespace ProjectPerseus.violations
 
         internal static void Update(List<ViolationHighlightDto> dtos, Document doc)
         {
-            _currentViolations = dtos ?? new List<ViolationHighlightDto>();
+            var all        = dtos ?? new List<ViolationHighlightDto>();
+            var instances  = new List<ViolationHighlightDto>();
+            var types      = new List<ViolationHighlightDto>();
             var highlights = new List<ViolationHighlight>();
 
-            foreach (var dto in _currentViolations)
+            foreach (var dto in all)
             {
                 try
                 {
                     var el = doc.GetElement(dto.ElementUniqueId);
                     if (el == null) continue;
+
+                    // Types and families have no placement in any view — keep them in a
+                    // separate list and never add geometry for them.
+                    if (el is ElementType || el is Family)
+                    {
+                        types.Add(dto);
+                        continue;
+                    }
+
+                    instances.Add(dto);
 
                     var bbox = el.get_BoundingBox(null);
 
@@ -79,6 +93,8 @@ namespace ProjectPerseus.violations
                 }
             }
 
+            _currentViolations     = instances;
+            _currentTypeViolations = types;
             ViolationHighlightServer.Instance.SetHighlights(highlights);
         }
 

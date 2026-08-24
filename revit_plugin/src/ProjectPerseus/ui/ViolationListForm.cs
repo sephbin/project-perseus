@@ -19,22 +19,24 @@ namespace ProjectPerseus.ui
         private readonly Document   _doc;
 
         private DataGridView _allGrid;
+        private DataGridView _typeGrid;
         private DataGridView _selGrid;
+        private Label        _typeLabel;
         private Label        _selLabel;
 
         public ViolationListForm(UIDocument uidoc)
         {
-            _uidoc    = uidoc;
-            _doc      = uidoc.Document;
-            Instance  = this;
+            _uidoc   = uidoc;
+            _doc     = uidoc.Document;
+            Instance = this;
             BuildUI();
         }
 
         private void BuildUI()
         {
             Text            = "Perseus — Violation List";
-            Size            = new Size(860, 620);
-            MinimumSize     = new Size(600, 400);
+            Size            = new Size(860, 700);
+            MinimumSize     = new Size(600, 480);
             StartPosition   = FormStartPosition.Manual;
             Location        = new System.Drawing.Point(100, 100);
             FormBorderStyle = FormBorderStyle.SizableToolWindow;
@@ -42,30 +44,39 @@ namespace ProjectPerseus.ui
             var layout = new TableLayoutPanel
             {
                 Dock        = DockStyle.Fill,
-                RowCount    = 4,
+                RowCount    = 6,
                 ColumnCount = 1,
                 Padding     = new Padding(6),
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // "All violations" label
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  60));   // all-violations grid
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // "Element Violations" label
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  50));   // instance violations grid
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // "Family / Type Violations" label
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  22));   // type violations grid
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // selected label
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  40));   // selection grid
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent,  28));   // selection grid
             Controls.Add(layout);
 
-            var allLabel = new Label { Text = "All Violations", Dock = DockStyle.Fill, Font = new Font(Font, FontStyle.Bold) };
+            var allLabel = new Label { Text = "Element Violations", Dock = DockStyle.Fill, Font = new Font(Font, FontStyle.Bold) };
             layout.Controls.Add(allLabel, 0, 0);
 
             _allGrid = CreateGrid();
             layout.Controls.Add(_allGrid, 0, 1);
 
+            _typeLabel = new Label { Text = "Family / Type Violations", Dock = DockStyle.Fill, Font = new Font(Font, FontStyle.Bold) };
+            layout.Controls.Add(_typeLabel, 0, 2);
+
+            _typeGrid = CreateGrid();
+            layout.Controls.Add(_typeGrid, 0, 3);
+
             _selLabel = new Label { Text = "Selected Element Violations", Dock = DockStyle.Fill, Font = new Font(Font, FontStyle.Bold) };
-            layout.Controls.Add(_selLabel, 0, 2);
+            layout.Controls.Add(_selLabel, 0, 4);
 
             _selGrid = CreateGrid();
-            layout.Controls.Add(_selGrid, 0, 3);
+            layout.Controls.Add(_selGrid, 0, 5);
 
-            _allGrid.CellDoubleClick += OnGridDoubleClick;
-            _selGrid.CellDoubleClick += OnGridDoubleClick;
+            _allGrid.CellDoubleClick  += OnInstanceGridDoubleClick;
+            _typeGrid.CellDoubleClick += OnTypeGridDoubleClick;
+            _selGrid.CellDoubleClick  += OnInstanceGridDoubleClick;
 
             FormClosed += OnFormClosed;
         }
@@ -89,7 +100,6 @@ namespace ProjectPerseus.ui
             grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Element",  HeaderText = "Element",  FillWeight = 20 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Message",  HeaderText = "Message",  FillWeight = 48 });
 
-            // Tag each column with the DTO field index for easy population.
             return grid;
         }
 
@@ -97,6 +107,7 @@ namespace ProjectPerseus.ui
         {
             base.OnLoad(e);
             PopulateAllGrid();
+            PopulateTypeGrid();
             try { _uidoc.Application.SelectionChanged += OnSelectionChanged; }
             catch (Exception ex) { Log.Warn($"[ViolationListForm] SelectionChanged subscribe failed: {ex.Message}"); }
         }
@@ -115,6 +126,22 @@ namespace ProjectPerseus.ui
                 AddRow(_allGrid, v);
         }
 
+        private void PopulateTypeGrid()
+        {
+            _typeGrid.Rows.Clear();
+            var typeViolations = ViolationHighlightController.CurrentTypeViolations;
+            foreach (var v in typeViolations)
+                AddRow(_typeGrid, v);
+
+            // Dim the label when empty so it doesn't draw attention unnecessarily.
+            _typeLabel.Text = typeViolations.Count > 0
+                ? $"Family / Type Violations ({typeViolations.Count})"
+                : "Family / Type Violations";
+            _typeLabel.ForeColor = typeViolations.Count > 0
+                ? SystemColors.ControlText
+                : SystemColors.GrayText;
+        }
+
         private static void AddRow(DataGridView grid, ViolationHighlightDto v)
         {
             int idx = grid.Rows.Add();
@@ -125,7 +152,6 @@ namespace ProjectPerseus.ui
             row.Cells["Message"].Value  = v.Message;
             row.Tag = v;
 
-            // Colour the severity cell
             System.Drawing.Color bg = System.Drawing.Color.Transparent;
             switch (v.Severity?.ToLower())
             {
@@ -170,7 +196,8 @@ namespace ProjectPerseus.ui
                 AddRow(_selGrid, v);
         }
 
-        private void OnGridDoubleClick(object sender, DataGridViewCellEventArgs e)
+        // Double-click on an instance violation: select + zoom to element in Revit.
+        private void OnInstanceGridDoubleClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0) return;
             var grid = (DataGridView)sender;
@@ -186,6 +213,20 @@ namespace ProjectPerseus.ui
 
             try { _uidoc.ShowElements(ids); }
             catch { /* no suitable view — selection still set above */ }
+        }
+
+        // Double-click on a family/type violation: selection only — types have no view location.
+        private void OnTypeGridDoubleClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0) return;
+            var dto = _typeGrid.Rows[e.RowIndex].Tag as ViolationHighlightDto;
+            if (dto == null) return;
+
+            var el = _doc.GetElement(dto.ElementUniqueId);
+            if (el == null) return;
+
+            try { _uidoc.Selection.SetElementIds(new List<ElementId> { el.Id }); }
+            catch { /* types may not be selectable in the active view */ }
         }
     }
 }
