@@ -24,8 +24,8 @@ namespace ProjectPerseus.violations
         // Hardcoded GUID — must never change once deployed; identifies this server across sessions.
         private static readonly Guid _serverId = new Guid("A8B2C3D4-E5F6-7890-ABCD-EF1234567890");
 
-        // 100 mm expressed in Revit decimal feet (= 1 / 304.8 × 100).
-        private const double _SYMBOL_FT = 100.0 / 304.8;
+        // 1500 mm expressed in Revit decimal feet — large enough to extend beyond most building elements.
+        private const double _SYMBOL_FT = 1500.0 / 304.8;
 
         private readonly object _lock = new object();
         private List<ViolationHighlight> _highlights = new List<ViolationHighlight>();

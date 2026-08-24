@@ -1,4 +1,5 @@
 using System;
+using System.Windows.Forms;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -23,8 +24,9 @@ namespace ProjectPerseus.commands
                     return Result.Succeeded;
                 }
 
+                var owner = new RevitWindowWrapper(commandData.Application.MainWindowHandle);
                 var form = new ui.ViolationListForm(uidoc);
-                form.Show();
+                form.Show(owner);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -33,6 +35,12 @@ namespace ProjectPerseus.commands
                 message = ex.Message;
                 return Result.Failed;
             }
+        }
+
+        private sealed class RevitWindowWrapper : IWin32Window
+        {
+            public RevitWindowWrapper(IntPtr hwnd) { Handle = hwnd; }
+            public IntPtr Handle { get; }
         }
     }
 }

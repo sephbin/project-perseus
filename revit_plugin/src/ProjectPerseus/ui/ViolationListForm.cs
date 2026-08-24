@@ -177,18 +177,15 @@ namespace ProjectPerseus.ui
             var dto  = grid.Rows[e.RowIndex].Tag as ViolationHighlightDto;
             if (dto == null) return;
 
-            try
-            {
-                var el = _doc.GetElement(dto.ElementUniqueId);
-                if (el == null) return;
-                var ids = new List<ElementId> { el.Id };
-                _uidoc.Selection.SetElementIds(ids);
-                _uidoc.ShowElements(ids);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"[ViolationListForm] Navigate to element failed: {ex.Message}");
-            }
+            var el = _doc.GetElement(dto.ElementUniqueId);
+            if (el == null) return;
+            var ids = new List<ElementId> { el.Id };
+
+            try { _uidoc.Selection.SetElementIds(ids); }
+            catch (Exception ex) { Log.Warn($"[ViolationListForm] Select failed: {ex.Message}"); }
+
+            try { _uidoc.ShowElements(ids); }
+            catch { /* no suitable view — selection still set above */ }
         }
     }
 }
