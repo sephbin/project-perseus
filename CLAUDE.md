@@ -99,12 +99,14 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-05-30, after P1–P7 — refactor plan complete)
+6.1 Current Layout (snapshot 2026-08-24, after P1–P7 + violation highlight layer)
 
 ProjectPerseus/
-├── Plugin.cs                     ~130 lines — IExternalApplication lifecycle, AddRibbonPanel,
+├── Plugin.cs                     ~250 lines — IExternalApplication lifecycle, AddRibbonPanel,
 │                                 batch trigger (Idling event → BatchProcessor handoff). Owns
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
+│                                 Calls ViolationHighlightController.Initialize() at startup.
+│                                 Ribbon panels: Tools, Safety, Key Schedules, Violations.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
 ├── auth/                         Split in P6 (2026-05-30).
@@ -146,7 +148,13 @@ ProjectPerseus/
 │   │                             source info and violation settings for the active model.
 │   ├── PullWebEditsCommand.cs    Ribbon: Button_PullWebEdits. Fetches pending web edits from
 │   │                             Django and applies them to the active model via PendingEditsApplier.
-│   └── ResetModelGuidCommand.cs  Ribbon: Button_ResetGuid.
+│   ├── ResetModelGuidCommand.cs  Ribbon: Button_ResetGuid.
+│   ├── ToggleViolationHighlightCommand.cs  NEW (2026-08-24). Ribbon: Button_ToggleViolations.
+│   │                             Calls ViolationHighlightController.Toggle(uidoc).
+│   ├── SwitchViolationModeCommand.cs  NEW (2026-08-24). Ribbon: Button_SwitchMode.
+│   │                             Calls ViolationHighlightController.CycleMode(uidoc).
+│   └── ShowViolationListCommand.cs  NEW (2026-08-24). Ribbon: Button_ViolationList.
+│                                 Opens modeless ViolationListForm; brings to front if already open.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; re-triggers SynchronizeWithCentral after
@@ -156,13 +164,15 @@ ProjectPerseus/
 │   ├── AlertPoller.cs            NEW. Background Task polling /api/source/<guid>/pending-revit-alerts/
 │   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
 │   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
-│   └── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
+│   ├── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
+│   ├── PresencePoller.cs         Static heartbeat sending /syncboat/api/v2/source/<guid>/heartbeat/
+│   │                             every 60 s. AddSource/RemoveSource from OnDocumentOpened/Closing.
 │   ├── ViolationPoller.cs        NEW (2026-08-24). Static heartbeat poller (mirrors PresencePoller).
 │   │                             Polls /source/<guid>/violations/ every 60 s per active source GUID.
-│   │                             AddSource called from OnDocumentOpened; RemoveSource from OnDocumentClosing.
-│   │                             Raises ViolationPoller.HighlightEvent (ExternalEvent set at Subscribe).
-│   └── ViolationHighlightEvent.cs NEW (2026-08-24). IExternalEventHandler; marshals violation list from
-│                                 background poller to main Revit thread; calls ViolationHighlightController.Update().
+│   │                             AddSource/RemoveSource from OnDocumentOpened/Closing.
+│   │                             HighlightEvent (ExternalEvent) set once at Subscribe() time.
+│   └── ViolationHighlightEvent.cs NEW (2026-08-24). IExternalEventHandler; marshals violation list
+│                                 to main Revit thread; calls ViolationHighlightController.Update().
 ├── ui/                           WinForms + WPF UI (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
 │   ├── BatchProgressForm.cs
@@ -194,14 +204,22 @@ ProjectPerseus/
 │   │                             Revit MainWindowHandle client rect. DPI-correct via
 │   │                             HwndSource.CompositionTarget.TransformFromDevice. Runs on
 │   │                             ViolationOverlayController's dedicated STA thread.
-│   └── ViolationOverlayController.cs NEW (2026-08-04). Static controller. Owns a dedicated STA
-│                                 thread running Dispatcher.Run(). EnsureHandle() creates the HWND
-│                                 without showing the window. Volatile publish pattern: _overlay
-│                                 written before _dispatcher so Update() callers see both or neither.
-│                                 BeginInvoke drives all show/hide/update calls to the overlay.
+│   ├── ViolationOverlayController.cs NEW (2026-08-04). Static controller. Owns a dedicated STA
+│   │                             thread running Dispatcher.Run(). EnsureHandle() creates the HWND
+│   │                             without showing the window. Volatile publish pattern: _overlay
+│   │                             written before _dispatcher so Update() callers see both or neither.
+│   │                             BeginInvoke drives all show/hide/update calls to the overlay.
+│   └── ViolationListForm.cs      NEW (2026-08-24). Modeless WinForms form (System.Windows.Forms.Form).
+│                                 Top panel: DataGridView of all current violations (Severity|Rule|
+│                                 Element|Message). Bottom panel: violations for the selected element(s),
+│                                 updated live via UIApplication.SelectionChanged. Double-click any row
+│                                 to select + zoom to the element in Revit. Static Instance prevents
+│                                 multiple open instances.
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
+│   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:
+│   │                             ElementUniqueId, RuleName, Severity, Message, ElementName.
 │   ├── KeyScheduleConfig.cs      Per-schedule mapping: schedule name, Excel path/sheet, Django
 │   │                             endpoint, and Filters list (List<KeyScheduleFilter>).
 │   ├── KeyScheduleData.cs        Schedule rows (ScheduleName, ColumnNames, Rows).
@@ -230,15 +248,29 @@ ProjectPerseus/
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
 │                                 by title and PostMessage(WM_CLOSE).
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
-│   └── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
-│                                 via ControlledApplication (called from SyncOrchestrator).
-│                                 Detects: element_deleted, ungroup, unpin, link_unload (provisional),
-│                                 warning_dismissed, sheet_view_edit. Accumulates ActionDto entries
-│                                 in ConcurrentQueue. DrainQueue() called by Step 3 ingest.
+│   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
+│   │                             via ControlledApplication (called from SyncOrchestrator).
+│   │                             Detects: element_deleted, ungroup, unpin, link_unload (provisional),
+│   │                             warning_dismissed, sheet_view_edit. Accumulates ActionDto entries
+│   │                             in ConcurrentQueue. DrainQueue() called by Step 3 ingest.
+│   ├── ViolationHighlightServer.cs NEW (2026-08-24). IDirectContext3DServer singleton. Registered
+│   │                             with DirectContext3DService in ViolationHighlightController.Initialize().
+│   │                             Two draw modes — BoundingBox (8-vertex wireframe, 12 edges) and
+│   │                             Symbol (6-vertex XYZ crosshair, ±100mm arms). Uses VertexBuffer +
+│   │                             IndexBuffer + DrawContext.FlushBuffer. SeverityColor() maps
+│   │                             error/warning/info → ColorWithTransparency.
+│   └── ViolationHighlightController.cs NEW (2026-08-24). Static façade over ViolationHighlightServer.
+│                                 Initialize(): registers server with ExternalServiceRegistry.
+│                                 Update(dtos, doc): resolves UniqueId→Element→BBox+Location on
+│                                 main thread; builds ViolationHighlight list; stores CurrentViolations.
+│                                 Toggle(uidoc): flips IsEnabled + RefreshActiveView.
+│                                 CycleMode(uidoc): swaps BoundingBox ↔ Symbol + RefreshActiveView.
 ├── web/
 │   ├── ProjectPerseusWeb.cs      HTTP client for Django: SubmitElementDeltas (HttpClient +
-│                                 AuthService scheme) and SubmitElementState (legacy Token via
-│                                 shared WebHelper with scheme="Token").
+│   │                             AuthService scheme) and SubmitElementState (legacy Token via
+│   │                             shared WebHelper with scheme="Token"). +GetViolations() (2026-08-24):
+│   │                             fetches /source/<guid>/violations/ and deserialises to
+│   │                             List<ViolationHighlightDto>. Called by ViolationPoller.PollAll().
 │   └── WebHelper.cs              NEW (P5). Single static WebHelper. Optional scheme param
 │                                 (defaults "Bearer") so legacy "Token" call still works.
 ├── Properties/                   AssemblyInfo + designer files (do not touch).

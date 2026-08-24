@@ -44,10 +44,12 @@ namespace ProjectPerseus.violations
         public Guid GetServerId() => _serverId;
         public ExternalServiceId GetServiceId() =>
             ExternalServices.BuiltInExternalServices.DirectContext3DService;
-        public string GetName()        => "Perseus Violation Highlight";
-        public string GetVendorId()    => "Perseus";
-        public string GetDescription() => "Draws coloured wireframes / symbols around elements with rule violations.";
-        public bool UsesHandles()      => false;
+        public string GetName()          => "Perseus Violation Highlight";
+        public string GetVendorId()      => "Perseus";
+        public string GetDescription()   => "Draws coloured wireframes / symbols around elements with rule violations.";
+        public string GetApplicationId() => _serverId.ToString();
+        public string GetSourceId()      => string.Empty;
+        public bool UsesHandles()        => false;
 
         // ── IDirectContext3DServer ───────────────────────────────────────────────
         public bool CanExecute(View view)

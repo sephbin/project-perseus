@@ -11,7 +11,7 @@ using ProjectPerseus.violations;
 
 namespace ProjectPerseus.ui
 {
-    public class ViolationListForm : Form
+    public class ViolationListForm : System.Windows.Forms.Form
     {
         public static ViolationListForm Instance { get; private set; }
 
