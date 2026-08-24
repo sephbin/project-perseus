@@ -9,7 +9,6 @@ namespace ProjectPerseus.violations
 {
     public enum ViolationDisplayMode { BoundingBox, Symbol }
 
-    // Shared data struct — internal so ViolationHighlightController can build the list.
     internal struct ViolationHighlight
     {
         internal BoundingBoxXYZ BBox;
@@ -21,11 +20,11 @@ namespace ProjectPerseus.violations
     {
         internal static readonly ViolationHighlightServer Instance = new ViolationHighlightServer();
 
-        // Hardcoded GUID — must never change once deployed; identifies this server across sessions.
         private static readonly Guid _serverId = new Guid("A8B2C3D4-E5F6-7890-ABCD-EF1234567890");
 
-        // 1500 mm expressed in Revit decimal feet — large enough to extend beyond most building elements.
-        private const double _SYMBOL_FT = 1500.0 / 304.8;
+        // Half-width of each bounding-box edge quad in Revit feet (~75 mm).
+        // Increase to make boxes thicker; decrease to thin them.
+        private const double _EDGE_HALF_FT = 0.25;
 
         private readonly object _lock = new object();
         private List<ViolationHighlight> _highlights = new List<ViolationHighlight>();
@@ -51,7 +50,7 @@ namespace ProjectPerseus.violations
             ExternalServices.BuiltInExternalServices.DirectContext3DService;
         public string GetName()          => "Perseus Violation Highlight";
         public string GetVendorId()      => "Perseus";
-        public string GetDescription()   => "Draws coloured wireframes / symbols around elements with rule violations.";
+        public string GetDescription()   => "Draws coloured wireframe boxes around elements with rule violations.";
         public string GetApplicationId() => _serverId.ToString();
         public string GetSourceId()      => string.Empty;
         public bool UsesHandles()        => false;
@@ -78,90 +77,101 @@ namespace ProjectPerseus.violations
             List<ViolationHighlight> snapshot;
             lock (_lock) { snapshot = new List<ViolationHighlight>(_highlights); }
 
-            var mode = CurrentMode;
+            // Symbol mode is handled by the WPF screen-space overlay.
+            if (CurrentMode != ViolationDisplayMode.BoundingBox) return;
+
+            XYZ viewDir = view.ViewDirection;
+
             foreach (var h in snapshot)
             {
-                try
-                {
-                    // Symbol mode is handled by the WPF screen-space overlay (ViolationScreenPositionEvent).
-                    if (mode == ViolationDisplayMode.BoundingBox && h.BBox != null)
-                        DrawBoundingBox(h.BBox, h.Color);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"[ViolationHighlightServer] draw failed: {ex.Message}");
-                }
+                if (h.BBox == null) continue;
+                try   { DrawBoundingBox(h.BBox, h.Color, viewDir); }
+                catch (Exception ex) { Log.Warn($"[ViolationHighlightServer] draw failed: {ex.Message}"); }
             }
         }
 
-        private static void DrawBoundingBox(BoundingBoxXYZ bbox, Color color)
+        // Each of the 12 bounding-box edges is rendered as a view-facing quad (pair of
+        // triangles) rather than a line primitive, because DirectContext3D line primitives
+        // are fixed at 1 px regardless of any API calls.  Both faces of each quad are
+        // emitted so the boxes are visible from any viewing angle.
+        private static void DrawBoundingBox(BoundingBoxXYZ bbox, Color color, XYZ viewDir)
         {
             var mn = bbox.Min;
             var mx = bbox.Max;
 
-            int nVerts = 8;
+            XYZ[] c =
+            {
+                new XYZ(mn.X, mn.Y, mn.Z), // 0
+                new XYZ(mx.X, mn.Y, mn.Z), // 1
+                new XYZ(mx.X, mx.Y, mn.Z), // 2
+                new XYZ(mn.X, mx.Y, mn.Z), // 3
+                new XYZ(mn.X, mn.Y, mx.Z), // 4
+                new XYZ(mx.X, mn.Y, mx.Z), // 5
+                new XYZ(mx.X, mx.Y, mx.Z), // 6
+                new XYZ(mn.X, mx.Y, mx.Z), // 7
+            };
+
+            // 12 edges as (start, end) corner-index pairs.
+            int[] s = { 0, 1, 2, 3,  4, 5, 6, 7,  0, 1, 2, 3 };
+            int[] e = { 1, 2, 3, 0,  5, 6, 7, 4,  4, 5, 6, 7 };
+
+            const int nEdges = 12;
+            const int nVerts = nEdges * 4;       // 4 verts per quad
+            const int nTris  = nEdges * 4;       // 2 front + 2 back triangles per quad
+            const int nIdx   = nTris  * 3;
+
             var vb = new VertexBuffer(nVerts * VertexPosition.GetSizeInFloats());
             vb.Map(nVerts * VertexPosition.GetSizeInFloats());
             var vs = vb.GetVertexStreamPosition();
-            vs.AddVertex(new VertexPosition(new XYZ(mn.X, mn.Y, mn.Z))); // 0
-            vs.AddVertex(new VertexPosition(new XYZ(mx.X, mn.Y, mn.Z))); // 1
-            vs.AddVertex(new VertexPosition(new XYZ(mx.X, mx.Y, mn.Z))); // 2
-            vs.AddVertex(new VertexPosition(new XYZ(mn.X, mx.Y, mn.Z))); // 3
-            vs.AddVertex(new VertexPosition(new XYZ(mn.X, mn.Y, mx.Z))); // 4
-            vs.AddVertex(new VertexPosition(new XYZ(mx.X, mn.Y, mx.Z))); // 5
-            vs.AddVertex(new VertexPosition(new XYZ(mx.X, mx.Y, mx.Z))); // 6
-            vs.AddVertex(new VertexPosition(new XYZ(mn.X, mx.Y, mx.Z))); // 7
-            vb.Unmap();
 
-            int nIndices = 24; // 12 edges × 2 indices each
-            var ib = new IndexBuffer(nIndices);
-            ib.Map(nIndices);
-            var ist = ib.GetIndexStreamLine();
-            // bottom face
-            ist.AddLine(new IndexLine(0, 1)); ist.AddLine(new IndexLine(1, 2));
-            ist.AddLine(new IndexLine(2, 3)); ist.AddLine(new IndexLine(3, 0));
-            // top face
-            ist.AddLine(new IndexLine(4, 5)); ist.AddLine(new IndexLine(5, 6));
-            ist.AddLine(new IndexLine(6, 7)); ist.AddLine(new IndexLine(7, 4));
-            // vertical edges
-            ist.AddLine(new IndexLine(0, 4)); ist.AddLine(new IndexLine(1, 5));
-            ist.AddLine(new IndexLine(2, 6)); ist.AddLine(new IndexLine(3, 7));
+            var ib = new IndexBuffer(nIdx);
+            ib.Map(nIdx);
+            var ist = ib.GetIndexStreamTriangle();
+
+            for (int i = 0; i < nEdges; i++)
+            {
+                XYZ a = c[s[i]];
+                XYZ b = c[e[i]];
+
+                XYZ edgeVec = b.Subtract(a);
+                double len  = edgeVec.GetLength();
+                if (len < 1e-9) continue;
+                XYZ edgeDir = edgeVec.Multiply(1.0 / len);
+
+                // Perpendicular in the plane of (edgeDir, viewDir), scaled to half-width.
+                XYZ perp = edgeDir.CrossProduct(viewDir);
+                if (perp.GetLength() < 1e-6)
+                {
+                    // Edge nearly parallel to view — use any perpendicular to edgeDir.
+                    XYZ fallback = Math.Abs(edgeDir.X) < 0.9 ? new XYZ(1, 0, 0) : new XYZ(0, 1, 0);
+                    perp = edgeDir.CrossProduct(fallback);
+                }
+                double pLen = perp.GetLength();
+                if (pLen < 1e-9) continue;
+                perp = perp.Multiply(_EDGE_HALF_FT / pLen);
+
+                // Quad vertices:  v0 = a+perp,  v1 = a-perp,  v2 = b+perp,  v3 = b-perp
+                vs.AddVertex(new VertexPosition(a.Add(perp)));      // 4i+0
+                vs.AddVertex(new VertexPosition(a.Subtract(perp))); // 4i+1
+                vs.AddVertex(new VertexPosition(b.Add(perp)));      // 4i+2
+                vs.AddVertex(new VertexPosition(b.Subtract(perp))); // 4i+3
+
+                int v = i * 4;
+                // Front face (normal toward viewer)
+                ist.AddTriangle(new IndexTriangle(v,   v+2, v+1));
+                ist.AddTriangle(new IndexTriangle(v+1, v+2, v+3));
+                // Back face (normal away from viewer — ensures visibility from all angles)
+                ist.AddTriangle(new IndexTriangle(v,   v+1, v+2));
+                ist.AddTriangle(new IndexTriangle(v+1, v+3, v+2));
+            }
+
+            vb.Unmap();
             ib.Unmap();
 
             var fmt    = new VertexFormat(VertexFormatBits.Position);
             var effect = new EffectInstance(VertexFormatBits.Position);
             effect.SetColor(color);
-            DrawContext.FlushBuffer(vb, nVerts, ib, nIndices, fmt, effect, PrimitiveType.LineList, 0, 12);
-        }
-
-        private static void DrawSymbol(XYZ center, Color color)
-        {
-            double arm = _SYMBOL_FT;
-            int nVerts = 6;
-            var vb = new VertexBuffer(nVerts * VertexPosition.GetSizeInFloats());
-            vb.Map(nVerts * VertexPosition.GetSizeInFloats());
-            var vs = vb.GetVertexStreamPosition();
-            vs.AddVertex(new VertexPosition(new XYZ(center.X - arm, center.Y,        center.Z)));       // 0
-            vs.AddVertex(new VertexPosition(new XYZ(center.X + arm, center.Y,        center.Z)));       // 1
-            vs.AddVertex(new VertexPosition(new XYZ(center.X,        center.Y - arm, center.Z)));       // 2
-            vs.AddVertex(new VertexPosition(new XYZ(center.X,        center.Y + arm, center.Z)));       // 3
-            vs.AddVertex(new VertexPosition(new XYZ(center.X,        center.Y,        center.Z - arm))); // 4
-            vs.AddVertex(new VertexPosition(new XYZ(center.X,        center.Y,        center.Z + arm))); // 5
-            vb.Unmap();
-
-            int nIndices = 6; // 3 lines × 2 indices each
-            var ib = new IndexBuffer(nIndices);
-            ib.Map(nIndices);
-            var ist = ib.GetIndexStreamLine();
-            ist.AddLine(new IndexLine(0, 1)); // X axis
-            ist.AddLine(new IndexLine(2, 3)); // Y axis
-            ist.AddLine(new IndexLine(4, 5)); // Z axis
-            ib.Unmap();
-
-            var fmt    = new VertexFormat(VertexFormatBits.Position);
-            var effect = new EffectInstance(VertexFormatBits.Position);
-            effect.SetColor(color);
-            DrawContext.FlushBuffer(vb, nVerts, ib, nIndices, fmt, effect, PrimitiveType.LineList, 0, 3);
+            DrawContext.FlushBuffer(vb, nVerts, ib, nIdx, fmt, effect, PrimitiveType.TriangleList, 0, nTris);
         }
 
         internal static Color SeverityColor(string severity)
