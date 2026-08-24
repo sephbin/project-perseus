@@ -36,7 +36,7 @@ namespace ProjectPerseus.ui
             Size            = new Size(860, 620);
             MinimumSize     = new Size(600, 400);
             StartPosition   = FormStartPosition.Manual;
-            Location        = new Point(100, 100);
+            Location        = new System.Drawing.Point(100, 100);
             FormBorderStyle = FormBorderStyle.SizableToolWindow;
 
             var layout = new TableLayoutPanel
@@ -126,13 +126,13 @@ namespace ProjectPerseus.ui
             row.Tag = v;
 
             // Colour the severity cell
-            Color bg = Color.Transparent;
+            System.Drawing.Color bg = System.Drawing.Color.Transparent;
             switch (v.Severity?.ToLower())
             {
-                case "error":   bg = Color.FromArgb(255, 220, 220); break;
-                case "warning": bg = Color.FromArgb(255, 240, 200); break;
+                case "error":   bg = System.Drawing.Color.FromArgb(255, 220, 220); break;
+                case "warning": bg = System.Drawing.Color.FromArgb(255, 240, 200); break;
             }
-            if (bg != Color.Transparent)
+            if (bg != System.Drawing.Color.Transparent)
                 row.Cells["Severity"].Style.BackColor = bg;
         }
 

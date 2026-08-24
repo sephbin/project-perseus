@@ -51,7 +51,7 @@ namespace ProjectPerseus.violations
                     var el = doc.GetElement(dto.ElementUniqueId);
                     if (el == null) continue;
 
-                    var bbox = el.GetBoundingBox(null);
+                    var bbox = el.get_BoundingBox(null);
 
                     XYZ location = null;
                     if (el.Location is LocationPoint lp)

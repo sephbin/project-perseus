@@ -14,7 +14,7 @@ namespace ProjectPerseus.violations
     {
         internal BoundingBoxXYZ BBox;
         internal XYZ Location;
-        internal ColorWithTransparency Color;
+        internal Color Color;
     }
 
     internal class ViolationHighlightServer : IDirectContext3DServer
@@ -92,7 +92,7 @@ namespace ProjectPerseus.violations
             }
         }
 
-        private static void DrawBoundingBox(BoundingBoxXYZ bbox, ColorWithTransparency color)
+        private static void DrawBoundingBox(BoundingBoxXYZ bbox, Color color)
         {
             var mn = bbox.Min;
             var mx = bbox.Max;
@@ -132,7 +132,7 @@ namespace ProjectPerseus.violations
             DrawContext.FlushBuffer(vb, nVerts, ib, nIndices, fmt, effect, PrimitiveType.LineList, 0, 12);
         }
 
-        private static void DrawSymbol(XYZ center, ColorWithTransparency color)
+        private static void DrawSymbol(XYZ center, Color color)
         {
             double arm = _SYMBOL_FT;
             int nVerts = 6;
@@ -162,13 +162,13 @@ namespace ProjectPerseus.violations
             DrawContext.FlushBuffer(vb, nVerts, ib, nIndices, fmt, effect, PrimitiveType.LineList, 0, 3);
         }
 
-        internal static ColorWithTransparency SeverityColor(string severity)
+        internal static Color SeverityColor(string severity)
         {
             switch (severity?.ToLower())
             {
-                case "error":   return new ColorWithTransparency(220, 60,  60,  0);
-                case "warning": return new ColorWithTransparency(230, 150, 30,  0);
-                default:        return new ColorWithTransparency(80,  160, 220, 0);
+                case "error":   return new Color(220, 60,  60);
+                case "warning": return new Color(230, 150, 30);
+                default:        return new Color(80,  160, 220);
             }
         }
     }
