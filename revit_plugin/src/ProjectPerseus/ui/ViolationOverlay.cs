@@ -1,24 +1,33 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 
 namespace ProjectPerseus.ui
 {
-    // Topmost, click-through WPF overlay that covers the Revit canvas when sync-blocking
-    // violations are pending. All methods must be called via this window's own Dispatcher
-    // (see ViolationOverlayController). The window is created hidden; Show() is called only
-    // when violations exist AND Revit is the foreground application.
+    // Topmost, click-through WPF overlay covering the Revit canvas.
+    // Two independent layers:
+    //   (1) _blockingLabel  — dark pill shown when sync-blocking violations exist
+    //   (2) _markerCanvas   — coloured circles at projected element positions (always in front)
+    // All methods must be called via this window's own Dispatcher (see ViolationOverlayController).
     internal sealed class ViolationOverlay : Window
     {
         private readonly IntPtr _revitHwnd;
         private readonly uint   _revitProcessId;
         private IntPtr _hwnd;
-        private bool   _hasBlockingViolations;
-        private readonly TextBlock _statusText;
+
+        private bool _hasBlockingViolations;
+        private bool _hasMarkers;
+        private List<OverlayMarker> _currentMarkers = new List<OverlayMarker>();
+
+        private readonly TextBlock       _statusText;
+        private readonly Border          _blockingLabel;
+        private readonly Canvas          _markerCanvas;
         private readonly DispatcherTimer _positionTimer;
 
         internal ViolationOverlay(IntPtr revitHwnd)
@@ -28,7 +37,7 @@ namespace ProjectPerseus.ui
 
             WindowStyle        = WindowStyle.None;
             AllowsTransparency = true;
-            Background         = new SolidColorBrush(Color.FromArgb(0x55, 0x30, 0x30, 0x30));
+            Background         = Brushes.Transparent;
             ShowInTaskbar      = false;
             ShowActivated      = false;
             Topmost            = true;
@@ -48,8 +57,7 @@ namespace ProjectPerseus.ui
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
 
-            // Dark pill behind the text for legibility over any canvas colour.
-            var label = new Border
+            _blockingLabel = new Border
             {
                 Background          = new SolidColorBrush(Color.FromArgb(0xCC, 0x18, 0x18, 0x18)),
                 CornerRadius        = new CornerRadius(4),
@@ -57,10 +65,14 @@ namespace ProjectPerseus.ui
                 VerticalAlignment   = VerticalAlignment.Bottom,
                 Margin              = new Thickness(16),
                 Child               = _statusText,
+                Visibility          = Visibility.Collapsed,
             };
 
+            _markerCanvas = new Canvas { IsHitTestVisible = false };
+
             var grid = new Grid();
-            grid.Children.Add(label);
+            grid.Children.Add(_markerCanvas);   // bottom layer: element markers
+            grid.Children.Add(_blockingLabel);  // top layer: blocking count pill
             Content = grid;
 
             _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -77,40 +89,94 @@ namespace ProjectPerseus.ui
                 exStyle | NativeMethods.WS_EX_TRANSPARENT | NativeMethods.WS_EX_LAYERED | NativeMethods.WS_EX_NOACTIVATE);
         }
 
-        // Called from ViolationOverlayController via BeginInvoke — runs on this window's Dispatcher.
+        // ── Public API (called from ViolationOverlayController via BeginInvoke) ──
+
         internal void SetBlockingCount(int count)
         {
             _hasBlockingViolations = count > 0;
+            Background = _hasBlockingViolations
+                ? new SolidColorBrush(Color.FromArgb(0x55, 0x30, 0x30, 0x30))
+                : Brushes.Transparent;
 
-            if (!_hasBlockingViolations)
+            _blockingLabel.Visibility = _hasBlockingViolations ? Visibility.Visible : Visibility.Collapsed;
+            if (_hasBlockingViolations)
+                _statusText.Text = count == 1
+                    ? "⚠  1 sync-blocking violation — sync is blocked"
+                    : $"⚠  {count} sync-blocking violations — sync is blocked";
+
+            ManageTimer();
+        }
+
+        internal void SetMarkers(List<OverlayMarker> markers)
+        {
+            _currentMarkers = markers ?? new List<OverlayMarker>();
+            _hasMarkers     = _currentMarkers.Count > 0;
+            RebuildMarkerCanvas();
+            ManageTimer();
+        }
+
+        // ── Private helpers ──
+
+        private void ManageTimer()
+        {
+            if (!_hasBlockingViolations && !_hasMarkers)
             {
                 _positionTimer.Stop();
                 if (IsVisible) Hide();
                 return;
             }
+            if (!_positionTimer.IsEnabled) _positionTimer.Start();
+            SyncPosition();
+        }
 
-            _statusText.Text = count == 1
-                ? "⚠  1 sync-blocking violation — sync is blocked"
-                : $"⚠  {count} sync-blocking violations — sync is blocked";
+        private void RebuildMarkerCanvas()
+        {
+            _markerCanvas.Children.Clear();
+            const double diameter = 20;
+            foreach (var m in _currentMarkers)
+            {
+                var ellipse = new Ellipse
+                {
+                    Width            = diameter,
+                    Height           = diameter,
+                    Fill             = new SolidColorBrush(Color.FromRgb(m.R, m.G, m.B)),
+                    Stroke           = Brushes.White,
+                    StrokeThickness  = 2,
+                    IsHitTestVisible = false,
+                    Tag              = m,
+                };
+                _markerCanvas.Children.Add(ellipse);
+            }
+            PositionMarkers();
+        }
 
-            if (!_positionTimer.IsEnabled)
-                _positionTimer.Start();
+        private void PositionMarkers()
+        {
+            if (!_hasMarkers) return;
+            double w = Width;
+            double h = Height;
+            if (double.IsNaN(w) || w <= 0 || double.IsNaN(h) || h <= 0) return;
 
-            SyncPosition(); // Immediate update before the next timer tick.
+            const double radius = 10;
+            foreach (UIElement child in _markerCanvas.Children)
+            {
+                if (child is Ellipse e && e.Tag is OverlayMarker m)
+                {
+                    Canvas.SetLeft(e, m.NormX * w - radius);
+                    Canvas.SetTop(e,  m.NormY * h - radius);
+                }
+            }
         }
 
         private void SyncPosition()
         {
-            if (!_hasBlockingViolations || _revitHwnd == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
+            if (!_hasBlockingViolations && !_hasMarkers) return;
+            if (_revitHwnd == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
 
-            // Only render while Revit is the active application. Compare process IDs so that
-            // all Revit-owned windows (dialogs, child windows) count as "Revit is active".
             IntPtr fg = NativeMethods.GetForegroundWindow();
             uint fgPid;
             NativeMethods.GetWindowThreadProcessId(fg, out fgPid);
-            bool revitIsActive = fgPid == _revitProcessId;
-
-            if (!revitIsActive)
+            if (fgPid != _revitProcessId)
             {
                 if (IsVisible) Hide();
                 return;
@@ -125,9 +191,6 @@ namespace ProjectPerseus.ui
             int physH = cr.Bottom - cr.Top;
             if (physW <= 0 || physH <= 0) return;
 
-            // Convert physical pixels to WPF logical pixels using this window's own DPI transform.
-            // Reading TransformFromDevice from the overlay's HwndSource is correct even when
-            // Revit and the overlay sit on different monitors with different DPI scaling.
             double scaleX = 1.0, scaleY = 1.0;
             var hsrc = HwndSource.FromHwnd(_hwnd);
             if (hsrc?.CompositionTarget != null)
@@ -141,6 +204,8 @@ namespace ProjectPerseus.ui
             Top    = pt.Y  * scaleY;
             Width  = physW * scaleX;
             Height = physH * scaleY;
+
+            PositionMarkers();
 
             if (!IsVisible) Show();
         }

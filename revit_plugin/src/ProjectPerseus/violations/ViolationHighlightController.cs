@@ -1,16 +1,21 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExternalService;
 using Autodesk.Revit.UI;
 using ProjectPerseus.logging;
 using ProjectPerseus.models;
+using ProjectPerseus.ui;
 
 namespace ProjectPerseus.violations
 {
     internal static class ViolationHighlightController
     {
         private static List<ViolationHighlightDto> _currentViolations = new List<ViolationHighlightDto>();
+
+        private static ExternalEvent _positionEvent;
+        private static Timer        _positionTimer;
 
         internal static List<ViolationHighlightDto> CurrentViolations => _currentViolations;
 
@@ -77,9 +82,18 @@ namespace ProjectPerseus.violations
             ViolationHighlightServer.Instance.SetHighlights(highlights);
         }
 
+        internal static void SetPositionEvent(ExternalEvent ev)
+        {
+            _positionEvent = ev;
+            _positionTimer?.Dispose();
+            _positionTimer = new Timer(_ => _positionEvent?.Raise(), null, 0, 500);
+        }
+
         internal static void Toggle(UIDocument uidoc)
         {
             ViolationHighlightServer.Instance.IsEnabled = !ViolationHighlightServer.Instance.IsEnabled;
+            if (!ViolationHighlightServer.Instance.IsEnabled)
+                ViolationOverlayController.UpdateMarkers(null);
             try { uidoc.RefreshActiveView(); }
             catch (Exception ex) { Log.Warn($"[ViolationHighlightController] Toggle refresh failed: {ex.Message}"); }
         }
@@ -90,6 +104,8 @@ namespace ProjectPerseus.violations
             server.CurrentMode = server.CurrentMode == ViolationDisplayMode.BoundingBox
                 ? ViolationDisplayMode.Symbol
                 : ViolationDisplayMode.BoundingBox;
+            if (server.CurrentMode == ViolationDisplayMode.BoundingBox)
+                ViolationOverlayController.UpdateMarkers(null);
             try { uidoc.RefreshActiveView(); }
             catch (Exception ex) { Log.Warn($"[ViolationHighlightController] CycleMode refresh failed: {ex.Message}"); }
         }

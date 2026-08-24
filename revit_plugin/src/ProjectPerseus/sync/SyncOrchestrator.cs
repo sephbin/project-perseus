@@ -83,6 +83,8 @@ namespace ProjectPerseus.sync
             _alertPoller.StartPolling();
 
             queue.ViolationPoller.HighlightEvent = ExternalEvent.Create(new queue.ViolationHighlightEvent());
+            violations.ViolationHighlightController.SetPositionEvent(
+                ExternalEvent.Create(new queue.ViolationScreenPositionEvent()));
 
             ui.ViolationOverlayController.Start(
                 System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);

@@ -171,8 +171,14 @@ ProjectPerseus/
 │   │                             Polls /source/<guid>/violations/ every 60 s per active source GUID.
 │   │                             AddSource/RemoveSource from OnDocumentOpened/Closing.
 │   │                             HighlightEvent (ExternalEvent) set once at Subscribe() time.
-│   └── ViolationHighlightEvent.cs NEW (2026-08-24). IExternalEventHandler; marshals violation list
-│                                 to main Revit thread; calls ViolationHighlightController.Update().
+│   ├── ViolationHighlightEvent.cs NEW (2026-08-24). IExternalEventHandler; marshals violation list
+│   │                             to main Revit thread; calls ViolationHighlightController.Update().
+│   └── ViolationScreenPositionEvent.cs NEW (2026-08-24). IExternalEventHandler; raised every 500ms
+│                                 by ViolationHighlightController's System.Threading.Timer. Projects
+│                                 each ViolationHighlight.Location to normalised [0,1] screen coords
+│                                 via UIView.GetZoomCorners() + View.RightDirection/UpDirection.
+│                                 Pushes OverlayMarker list to ViolationOverlayController for WPF
+│                                 canvas rendering. Only active in Symbol mode when overlay is enabled.
 ├── ui/                           WinForms + WPF UI (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
 │   ├── BatchProgressForm.cs

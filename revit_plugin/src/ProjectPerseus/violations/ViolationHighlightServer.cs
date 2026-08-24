@@ -40,6 +40,11 @@ namespace ProjectPerseus.violations
             lock (_lock) { _highlights = items ?? new List<ViolationHighlight>(); }
         }
 
+        internal List<ViolationHighlight> GetHighlightsSnapshot()
+        {
+            lock (_lock) { return new List<ViolationHighlight>(_highlights); }
+        }
+
         // ── IExternalServer ──────────────────────────────────────────────────────
         public Guid GetServerId() => _serverId;
         public ExternalServiceId GetServiceId() =>
@@ -78,11 +83,8 @@ namespace ProjectPerseus.violations
             {
                 try
                 {
+                    // Symbol mode is handled by the WPF screen-space overlay (ViolationScreenPositionEvent).
                     if (mode == ViolationDisplayMode.BoundingBox && h.BBox != null)
-                        DrawBoundingBox(h.BBox, h.Color);
-                    else if (mode == ViolationDisplayMode.Symbol && h.Location != null)
-                        DrawSymbol(h.Location, h.Color);
-                    else if (h.BBox != null)
                         DrawBoundingBox(h.BBox, h.Color);
                 }
                 catch (Exception ex)

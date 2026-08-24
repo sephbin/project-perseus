@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -6,6 +7,13 @@ using ProjectPerseus.logging;
 
 namespace ProjectPerseus.ui
 {
+    internal struct OverlayMarker
+    {
+        internal double NormX;  // 0 = left edge, 1 = right edge of Revit viewport
+        internal double NormY;  // 0 = top edge,  1 = bottom edge
+        internal byte R, G, B;
+    }
+
     // Owns the dedicated STA thread and Dispatcher for ViolationOverlay.
     // Thread safety: _overlay is written before _dispatcher (volatile publish pattern),
     // so a non-null _dispatcher read on any thread implies _overlay is also non-null.
@@ -56,6 +64,22 @@ namespace ProjectPerseus.ui
             {
                 Log.Warn($"[ViolationOverlay] BeginInvoke failed: {ex.Message}");
             }
+        }
+
+        internal static void UpdateMarkers(List<OverlayMarker> markers)
+        {
+            var disp = _dispatcher;
+            var ov   = _overlay;
+            if (disp == null || ov == null) return;
+            try
+            {
+                disp.BeginInvoke(new Action(() =>
+                {
+                    try   { ov.SetMarkers(markers); }
+                    catch (Exception ex) { Log.Warn($"[ViolationOverlay] SetMarkers failed: {ex.Message}"); }
+                }));
+            }
+            catch { /* dispatcher shut down */ }
         }
 
         internal static void Stop()
