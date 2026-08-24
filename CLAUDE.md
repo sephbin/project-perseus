@@ -157,6 +157,12 @@ ProjectPerseus/
 │   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
 │   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
 │   └── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
+│   ├── ViolationPoller.cs        NEW (2026-08-24). Static heartbeat poller (mirrors PresencePoller).
+│   │                             Polls /source/<guid>/violations/ every 60 s per active source GUID.
+│   │                             AddSource called from OnDocumentOpened; RemoveSource from OnDocumentClosing.
+│   │                             Raises ViolationPoller.HighlightEvent (ExternalEvent set at Subscribe).
+│   └── ViolationHighlightEvent.cs NEW (2026-08-24). IExternalEventHandler; marshals violation list from
+│                                 background poller to main Revit thread; calls ViolationHighlightController.Update().
 ├── ui/                           WinForms + WPF UI (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
 │   ├── BatchProgressForm.cs

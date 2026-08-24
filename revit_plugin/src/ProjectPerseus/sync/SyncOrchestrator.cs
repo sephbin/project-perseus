@@ -82,6 +82,8 @@ namespace ProjectPerseus.sync
             _alertPoller = new AlertPoller(alertExternalEvent, () => auth.AuthService.GetAuthTokenSafely());
             _alertPoller.StartPolling();
 
+            queue.ViolationPoller.HighlightEvent = ExternalEvent.Create(new queue.ViolationHighlightEvent());
+
             ui.ViolationOverlayController.Start(
                 System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
         }
@@ -108,6 +110,7 @@ namespace ProjectPerseus.sync
             {
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
                 queue.PresencePoller.AddSource(docGuid);
+                queue.ViolationPoller.AddSource(docGuid);
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
 
@@ -135,6 +138,7 @@ namespace ProjectPerseus.sync
             if (closingGuid != null)
             {
                 queue.PresencePoller.RemoveSource(closingGuid);
+                queue.ViolationPoller.RemoveSource(closingGuid);
                 violations.ViolationDetector.HandleDocumentClosing(closingGuid);
             }
         }

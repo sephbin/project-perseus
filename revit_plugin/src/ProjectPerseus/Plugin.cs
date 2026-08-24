@@ -22,6 +22,7 @@ namespace ProjectPerseus
         public Result OnStartup(UIControlledApplication application)
         {
             _orchestrator.Subscribe(application);
+            violations.ViolationHighlightController.Initialize();
             AddRibbonPanel(application);
             ThemeIconManager.Initialize(application);
 
@@ -172,6 +173,33 @@ namespace ProjectPerseus
 
             PushButton importSchedulesBtn = schedulesPanel.AddItem(importSchedulesBtnData) as PushButton;
             importSchedulesBtn.ToolTip = "Import key schedule data from Excel into all open Revit models that have mappings configured.";
+
+            // Violations panel — DirectContext3D overlay + list form
+            RibbonPanel violationsPanel = application.CreateRibbonPanel(tabName, "Violations");
+
+            PushButtonData toggleViolationsBtnData = new PushButtonData(
+                "Button_ToggleViolations",
+                "Toggle\nViolations",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.ToggleViolationHighlightCommand");
+            PushButton toggleViolationsBtn = violationsPanel.AddItem(toggleViolationsBtnData) as PushButton;
+            toggleViolationsBtn.ToolTip = "Show or hide the violation highlight layer (bounding boxes or symbols) in the active view.";
+
+            PushButtonData switchModeBtnData = new PushButtonData(
+                "Button_SwitchMode",
+                "Switch\nMode",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.SwitchViolationModeCommand");
+            PushButton switchModeBtn = violationsPanel.AddItem(switchModeBtnData) as PushButton;
+            switchModeBtn.ToolTip = "Switch the violation highlight layer between bounding-box wireframes and 3-axis symbol markers.";
+
+            PushButtonData violationListBtnData = new PushButtonData(
+                "Button_ViolationList",
+                "Violation\nList",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.ShowViolationListCommand");
+            PushButton violationListBtn = violationsPanel.AddItem(violationListBtnData) as PushButton;
+            violationListBtn.ToolTip = "Open the violation list. Select an element in Revit to see its violations in the bottom panel.";
         }
 
         private void OnKeyScheduleIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)

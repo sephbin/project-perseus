@@ -282,6 +282,9 @@
     <Compile Include="commands\ProjectRulesCommand.cs" />
     <Compile Include="commands\PullWebEditsCommand.cs" />
     <Compile Include="commands\ResetModelGuidCommand.cs" />
+    <Compile Include="commands\ToggleViolationHighlightCommand.cs" />
+    <Compile Include="commands\SwitchViolationModeCommand.cs" />
+    <Compile Include="commands\ShowViolationListCommand.cs" />
     <Compile Include="config\Config.cs" />
     <Compile Include="logging\Log.cs" />
     <Compile Include="logging\SentryContext.cs" />
@@ -297,11 +300,14 @@
     <Compile Include="models\SyncQueueResponse.cs" />
     <Compile Include="models\ActionDto.cs" />
     <Compile Include="models\AlertDto.cs" />
+    <Compile Include="models\ViolationHighlightDto.cs" />
     <Compile Include="violations\FreefallMode.cs" />
     <Compile Include="violations\ElementCategoryCache.cs" />
     <Compile Include="violations\ViolationDetector.cs" />
     <Compile Include="violations\ViolationSettings.cs" />
     <Compile Include="violations\ViolationSettingsCache.cs" />
+    <Compile Include="violations\ViolationHighlightServer.cs" />
+    <Compile Include="violations\ViolationHighlightController.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="queue\AutoSyncEvent.cs" />
     <Compile Include="queue\UndoViolationEvent.cs" />
@@ -310,6 +316,8 @@
     <Compile Include="queue\AlertPoller.cs" />
     <Compile Include="queue\AlertNotificationEvent.cs" />
     <Compile Include="queue\PresencePoller.cs" />
+    <Compile Include="queue\ViolationPoller.cs" />
+    <Compile Include="queue\ViolationHighlightEvent.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -385,6 +393,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="ui\ThemeIconManager.cs" />
+    <Compile Include="ui\ViolationListForm.cs" />
     <Compile Include="util\ElementWatchList.cs" />
     <Compile Include="util\FilterEvaluator.cs" />
     <Compile Include="util\JsonUtils.cs" />

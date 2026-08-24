@@ -174,6 +174,27 @@ namespace ProjectPerseus.web
             WebHelper.Post(endpoint, token, json, scheme);
         }
 
+        public static List<models.ViolationHighlightDto> GetViolations(string baseUrl, string sourceGuid)
+        {
+            string token  = auth.AuthService.GetAuthTokenSafely();
+            string scheme = auth.AuthService.GetAuthSchemeSafely();
+            string url    = $"{baseUrl.TrimEnd('/')}/source/{sourceGuid}/violations/";
+            string json   = WebHelper.Get(url, token, null, scheme);
+            var raw = Newtonsoft.Json.JsonConvert.DeserializeObject<
+                List<Newtonsoft.Json.Linq.JObject>>(json);
+            return (raw ?? new List<Newtonsoft.Json.Linq.JObject>())
+                .Select(o => new models.ViolationHighlightDto
+                {
+                    ElementUniqueId = o["element"]?["unique_id"]?.ToString(),
+                    ElementName     = o["element"]?["name"]?.ToString(),
+                    RuleName        = o["rule_name"]?.ToString(),
+                    Severity        = o["severity"]?.ToString(),
+                    Message         = o["message"]?.ToString(),
+                })
+                .Where(d => d.ElementUniqueId != null)
+                .ToList();
+        }
+
         private bool PostJson(System.Net.Http.HttpClient client, string json, int chunkNumber, int totalChunks)
         {
             var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");

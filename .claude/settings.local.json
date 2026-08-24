@@ -112,7 +112,9 @@
       "PowerShell(& \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"E:\\\\mydev\\\\project-perseus\\\\revit_plugin\\\\src\\\\ProjectPerseus\\\\ProjectPerseus.csproj\" /p:Configuration=Debug /t:Build /v:minimal /nologo 2>&1 | Select-Object -Last 30)",
       "PowerShell(C:\\\\mydev\\\\venv\\\\clp\\\\Scripts\\\\python.exe -c \"import django; print\\(django.__version__\\)\")",
       "PowerShell(foreach \\($venv in @\\(\"clp\", \"fenrir\", \"prism\", \"sc\"\\)\\) { $py = \"C:\\\\mydev\\\\venv\\\\$venv\\\\Scripts\\\\python.exe\"; $v = & $py -c \"import django; print\\(django.__version__\\)\" 2>$null; if \\($v\\) { Write-Host \"$venv`: $v\" } })",
-      "PowerShell(C:\\\\mydev\\\\venv\\\\sc\\\\Scripts\\\\python.exe -c \"import django; print\\(django.__version__\\)\" 2>&1)"
+      "PowerShell(C:\\\\mydev\\\\venv\\\\sc\\\\Scripts\\\\python.exe -c \"import django; print\\(django.__version__\\)\" 2>&1)",
+      "Bash(xargs grep -l \"Type Id\\\\|Type.*parameter\")",
+      "Bash(grep -E '\\\\.\\(html|py|js\\)$')"
     ],
     "additionalDirectories": [
       "C:\\mydev\\COX-LABS-PUBLIC",
