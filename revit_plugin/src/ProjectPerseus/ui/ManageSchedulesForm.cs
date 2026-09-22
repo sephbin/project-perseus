@@ -76,7 +76,7 @@ namespace ProjectPerseus.ui
                 Name = "Source",
                 HeaderText = "Source (Path or URL)",
                 FillWeight = 42,
-                ToolTipText = "Full path to an .xlsx file, or a URL (Django endpoint / SharePoint). If a URL, Sheet Name is not required."
+                ToolTipText = "Full path to an .xlsx file, or a URL (Django endpoint / SharePoint). Env vars like %USERPROFILE% and %ONEDRIVE% are supported so paths work for all users."
             });
 
             // Col 2 — browse button (narrow)
@@ -248,9 +248,10 @@ namespace ProjectPerseus.ui
             string current = cell.Value?.ToString() ?? "";
             cell.Items.Clear();
 
-            if (!IsUrl(source) && File.Exists(source))
+            string expandedSource = ExpandPath(source);
+            if (!IsUrl(source) && File.Exists(expandedSource))
             {
-                List<string> sheets = GetSheetNames(source);
+                List<string> sheets = GetSheetNames(expandedSource);
                 foreach (string s in sheets)
                     cell.Items.Add(s);
 
@@ -289,16 +290,17 @@ namespace ProjectPerseus.ui
                 string current = _grid.Rows[e.RowIndex].Cells[ColSource].Value?.ToString() ?? "";
                 if (IsUrl(current)) return;
 
+                string expanded = ExpandPath(current);
                 using (var dlg = new OpenFileDialog
                 {
                     Title  = "Select Excel File",
                     Filter = "Excel Files (*.xlsx)|*.xlsx|All Files (*.*)|*.*",
-                    FileName = File.Exists(current) ? current : ""
+                    FileName = File.Exists(expanded) ? expanded : ""
                 })
                 {
                     if (dlg.ShowDialog(this) == DialogResult.OK)
                     {
-                        _grid.Rows[e.RowIndex].Cells[ColSource].Value = dlg.FileName;
+                        _grid.Rows[e.RowIndex].Cells[ColSource].Value = NormalizePath(dlg.FileName);
                         PopulateSheetNames(e.RowIndex);
                     }
                 }
@@ -367,7 +369,7 @@ namespace ProjectPerseus.ui
                 {
                     if (string.IsNullOrEmpty(sheet))
                         warnings.Add($"Row {rowNum} ({name}): Sheet Name is required when Source is a file path.");
-                    if (!File.Exists(source))
+                    if (!File.Exists(ExpandPath(source)))
                         warnings.Add($"Row {rowNum} ({name}): File not found — {source}");
                 }
             }
@@ -437,5 +439,28 @@ namespace ProjectPerseus.ui
             (value.StartsWith("http://",  StringComparison.OrdinalIgnoreCase) ||
              value.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
              value.StartsWith("ftp://",   StringComparison.OrdinalIgnoreCase));
+
+        // Replace a leading well-known env-var path with its placeholder so the stored
+        // path is portable across user accounts (e.g. OneDrive-synced SharePoint folders).
+        // Candidates are checked longest-value-first so a nested variable (e.g. ONEDRIVE
+        // sitting inside USERPROFILE) gets the more specific substitution.
+        private static string NormalizePath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            var candidates = new[] { "ONEDRIVECOMMERCIAL", "ONEDRIVE", "USERPROFILE", "APPDATA", "LOCALAPPDATA" };
+            var ordered = candidates
+                .Select(v => (var: v, value: Environment.GetEnvironmentVariable(v) ?? ""))
+                .Where(t => !string.IsNullOrEmpty(t.value))
+                .OrderByDescending(t => t.value.Length);
+            foreach (var (var, value) in ordered)
+            {
+                if (path.StartsWith(value, StringComparison.OrdinalIgnoreCase))
+                    return $"%{var}%" + path.Substring(value.Length);
+            }
+            return path;
+        }
+
+        private static string ExpandPath(string path) =>
+            string.IsNullOrEmpty(path) ? path : Environment.ExpandEnvironmentVariables(path);
     }
 }

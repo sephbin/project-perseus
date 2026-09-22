@@ -91,7 +91,8 @@ namespace ProjectPerseus.sync
                         continue;
                     }
 
-                    if (!File.Exists(cfg.ExcelFilePath))
+                    string excelPath = Environment.ExpandEnvironmentVariables(cfg.ExcelFilePath);
+                    if (!File.Exists(excelPath))
                     {
                         Log.Warn($"[KeyScheduleAutoImporter]   '{cfg.RevitScheduleName}': file not found — {cfg.ExcelFilePath}");
                         continue;

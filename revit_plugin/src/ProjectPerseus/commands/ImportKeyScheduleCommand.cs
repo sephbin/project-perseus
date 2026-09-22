@@ -55,7 +55,8 @@ namespace ProjectPerseus.commands
                 foreach (var cfg in configs)
                 {
                     Log.Info($"[ImportKeySchedule]   '{cfg.RevitScheduleName}' ← {cfg.ExcelFilePath} [{cfg.ExcelSheetName}]");
-                    if (!File.Exists(cfg.ExcelFilePath))
+                    string excelPath = Environment.ExpandEnvironmentVariables(cfg.ExcelFilePath);
+                    if (!File.Exists(excelPath))
                     {
                         readErrors.Add($"[{doc.Title}] '{cfg.RevitScheduleName}': file not found at {cfg.ExcelFilePath}");
                         Log.Warn($"[ImportKeySchedule]   File not found: {cfg.ExcelFilePath}");

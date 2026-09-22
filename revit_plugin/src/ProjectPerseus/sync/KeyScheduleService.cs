@@ -169,6 +169,7 @@ namespace ProjectPerseus.sync
 
         public KeyScheduleData ReadFromExcel(string filePath, string sheetName)
         {
+            filePath = Environment.ExpandEnvironmentVariables(filePath);
             try
             {
                 return ReadFromExcelEpPlus(filePath, sheetName);
@@ -336,6 +337,7 @@ namespace ProjectPerseus.sync
 
         public void WriteToExcel(KeyScheduleData data, string filePath, string sheetName)
         {
+            filePath = Environment.ExpandEnvironmentVariables(filePath);
             string dir = Path.GetDirectoryName(filePath);
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
