@@ -147,11 +147,13 @@ namespace ProjectPerseus.sync
 
         private void OnDocumentSynchronizingWithCentral(object sender, DocumentSynchronizingWithCentralEventArgs e)
         {
+            violations.ViolationDetector.IsSyncInProgress = true;
             doOnPriorToSync(e);
         }
 
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
         {
+            violations.ViolationDetector.IsSyncInProgress = false;
             if (e.Status == RevitAPIEventStatus.Succeeded)
             {
                 _stageTimeRevitComplete = DateTime.UtcNow;

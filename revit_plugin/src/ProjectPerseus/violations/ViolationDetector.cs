@@ -34,6 +34,10 @@ namespace ProjectPerseus.violations
         // Set to true before a programmatic re-delete so OnDocumentChanged skips the dialog for that transaction.
         internal static bool BypassNextViolationCheck { get; set; }
 
+        // True between DocumentSynchronizingWithCentral and DocumentSynchronizedWithCentral
+        // (set by SyncOrchestrator). Suppresses violation handling for the Reload Latest phase.
+        internal static volatile bool IsSyncInProgress;
+
         internal static List<ActionDto> DrainQueue()
         {
             var result = new List<ActionDto>();
@@ -117,6 +121,10 @@ namespace ProjectPerseus.violations
                         el.Category.Name, el.UniqueId, el.Name ?? "",
                         ElementCategoryCache.GetFamilyTypeName(el));
             }
+
+            // Changes arriving via Reload Latest during Sync with Central are other users' edits,
+            // not this user's actions — no dialogs, no tracking.
+            if (IsSyncInProgress) return;
 
             // Rooms are "deleted" by Revit by becoming unplaced (Area == 0) rather than truly
             // deleted — they appear in modifiedIds, not deletedIds. Merge them in so enforcement
