@@ -96,11 +96,11 @@ namespace ProjectPerseus.ids
         {
             var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
             var result = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-            var it = doc.ParameterBindings.ForwardIterator();
-            while (it.MoveNext())
+            // Shared parameters are identified by SharedParameterElement; the binding map's keys are not
+            // reliably ExternalDefinition once bound to a project, so don't depend on that.
+            foreach (SharedParameterElement spe in new FilteredElementCollector(doc).OfClass(typeof(SharedParameterElement)))
             {
-                if (it.Key is ExternalDefinition ext && wanted.Contains(ext.Name))
-                    result[ext.Name] = ext.GUID;
+                if (wanted.Contains(spe.Name)) result[spe.Name] = spe.GuidValue;
             }
             return result;
         }

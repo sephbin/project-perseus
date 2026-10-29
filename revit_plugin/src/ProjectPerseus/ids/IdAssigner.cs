@@ -18,6 +18,11 @@ namespace ProjectPerseus.ids
         public int Reassigned;    // subset of Assigned that replaced a duplicate or mismatched value
         public int SkippedNotOwned;
         public int Errors;
+        public int ElementsChecked;
+        public int ActiveRules;
+        public int ParametersFound;     // Perseus_ID + rule parameters actually bound in this model
+        public int MissingOnElement;    // element did not carry the parameter (not bound to its category)
+        public readonly SortedSet<string> NoPrefixCategories = new SortedSet<string>();
 
         public int TotalChanges => PerseusIdSet + Assigned;
 
@@ -25,7 +30,13 @@ namespace ProjectPerseus.ids
             $"Perseus_ID written: {PerseusIdSet}\n" +
             $"Architectural IDs assigned: {Assigned} (of which {Reassigned} replaced duplicates or invalid values)\n" +
             $"Skipped (checked out by another user): {SkippedNotOwned}\n" +
-            $"Errors: {Errors}";
+            $"Errors: {Errors}\n" +
+            $"Checked {ElementsChecked} elements against {ActiveRules} active rule(s); {ParametersFound} parameter(s) found in the model." +
+            (MissingOnElement > 0 ? $"\n{MissingOnElement} element/parameter pairs had no such parameter." : "") +
+            (NoPrefixCategories.Count > 0
+                ? "\nNo category prefix configured for: " + string.Join(", ", NoPrefixCategories.Take(12)) +
+                  (NoPrefixCategories.Count > 12 ? ", ..." : "")
+                : "");
     }
 
     /// <summary>
@@ -134,6 +145,8 @@ namespace ProjectPerseus.ids
                 active.Add(new ActiveRule { Dto = r, Pattern = pattern, ParamGuid = g });
             }
             bool hasPerseusId = guids.TryGetValue(SharedParameterManager.PerseusIdName, out var perseusIdGuid);
+            result.ActiveRules = active.Count;
+            result.ParametersFound = guids.Count;
             if (!hasPerseusId && active.Count == 0) return result;
 
             bool full = onlyIds == null;
@@ -141,6 +154,7 @@ namespace ProjectPerseus.ids
                 ? Collect(doc)
                 : onlyIds.Select(id => doc.GetElement(RevitExtensions.CreateId(id))).Where(IsEligible);
             var ordered = candidates.OrderBy(e => e.Id.GetIdValue()).ToList();
+            result.ElementsChecked = ordered.Count;
 
             IdIndex index = GetIndex(doc, docGuid, rules, active, rebuild: full);
 
@@ -152,6 +166,7 @@ namespace ProjectPerseus.ids
                 if (hasPerseusId)
                 {
                     var p = el.get_Parameter(perseusIdGuid);
+                    if (p == null) result.MissingOnElement++;
                     if (p != null && !p.IsReadOnly && p.AsString() != el.UniqueId)
                         changes.Add(new Change { Element = el, Param = p, NewValue = el.UniqueId, IsPerseusId = true });
                 }
@@ -160,13 +175,14 @@ namespace ProjectPerseus.ids
                 {
                     if (!Applies(rule.Dto, el)) continue;
                     var p = el.get_Parameter(rule.ParamGuid);
+                    if (p == null) result.MissingOnElement++;
                     if (p == null || p.IsReadOnly) continue;
 
                     string prefix = "";
                     if (rule.Pattern.UsesCategoryPrefix)
                     {
                         prefix = rules.PrefixFor(el.Category.Name);
-                        if (string.IsNullOrEmpty(prefix)) continue; // no prefix configured for this category
+                        if (string.IsNullOrEmpty(prefix)) { result.NoPrefixCategories.Add(el.Category.Name); continue; } // no prefix configured
                     }
 
                     string name = rule.Dto.ParameterName.Trim();
@@ -191,7 +207,11 @@ namespace ProjectPerseus.ids
                 }
             }
 
-            if (changes.Count == 0) return result;
+            if (changes.Count == 0)
+            {
+                Log.Info($"[IdAssigner] nothing to change | {result.Summary().Replace("\n", " | ")}");
+                return result;
+            }
             Apply(doc, docGuid, changes, result);
             return result;
         }
