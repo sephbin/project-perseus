@@ -24,6 +24,7 @@ namespace ProjectPerseus.ids
         public int ParametersFound;     // Perseus_ID + rule parameters actually bound in this model
         public int MissingOnElement;    // element did not carry the parameter (not bound to its category)
         public readonly SortedSet<string> NoPrefixCategories = new SortedSet<string>();
+        public readonly SortedSet<string> UnresolvedTokens = new SortedSet<string>(); // e.g. Level.Name with no level
 
         public int TotalChanges => PerseusIdSet + Assigned;
 
@@ -35,6 +36,9 @@ namespace ProjectPerseus.ids
             $"Errors: {Errors}\n" +
             $"Checked {ElementsChecked} elements against {ActiveRules} active rule(s); {ParametersFound} parameter(s) found in the model." +
             (MissingOnElement > 0 ? $"\n{MissingOnElement} element/parameter pairs had no such parameter." : "") +
+            (UnresolvedTokens.Count > 0
+                ? "\nSome elements were skipped because these template values were empty: " + string.Join(", ", UnresolvedTokens)
+                : "") +
             (NoPrefixCategories.Count > 0
                 ? "\nNo category prefix configured for: " + string.Join(", ", NoPrefixCategories.Take(12)) +
                   (NoPrefixCategories.Count > 12 ? ", ..." : "")
@@ -165,6 +169,7 @@ namespace ProjectPerseus.ids
             long indexMs = clock.ElapsedMilliseconds - collectMs;
 
             var changes = new List<Change>();
+            var resolver = new RelatedValueResolver(doc, rules);
             foreach (var el in ordered)
             {
                 long id = el.Id.GetIdValue();
@@ -188,26 +193,25 @@ namespace ProjectPerseus.ids
                     if (p == null) result.MissingOnElement++;
                     if (p == null || p.IsReadOnly) continue;
 
-                    string prefix = "";
-                    if (rule.Pattern.UsesCategoryPrefix)
-                    {
-                        prefix = rules.PrefixFor(el.Category.Name);
-                        if (string.IsNullOrEmpty(prefix)) { result.NoPrefixCategories.Add(el.Category.Name); continue; } // no prefix configured
-                    }
+                    // Every token must resolve (category prefix, level, host...). The resolved values also
+                    // define which counter the element belongs to, e.g. "walls on Level 02".
+                    var resolve = resolver.For(el);
+                    string scope = rule.Pattern.ScopeKey(resolve);
+                    if (scope == null) { NoteUnresolved(result, rule.Pattern, resolve, el); continue; }
 
                     string name = rule.Dto.ParameterName.Trim();
                     string current = p.AsString();
                     index.Set(name, id, current); // sync index with what is actually in the model right now
 
-                    bool valid = rule.Pattern.TryExtractNumber(current, prefix, out long n);
+                    bool valid = rule.Pattern.TryExtractNumber(current, resolve, out long n);
                     if (valid)
                     {
-                        index.NoteNumber(name, prefix, n);
+                        index.NoteNumber(name, scope, n);
                         if (index.LowestHolder(name, current) == id) continue; // keep
                     }
 
-                    long next = index.Allocate(name, prefix);
-                    string value = rule.Pattern.Render(prefix, next);
+                    long next = index.Allocate(name, scope);
+                    string value = rule.Pattern.Render(resolve, next);
                     index.Set(name, id, value);
                     changes.Add(new Change
                     {
@@ -250,6 +254,17 @@ namespace ProjectPerseus.ids
                 }
                 catch (Exception ex) { Log.Warn($"[IdAssigner] Could not read Revit warnings: {ex.Message}"); }
                 return FailureProcessingResult.Continue;
+            }
+        }
+
+        // Records which token stopped an element getting an ID, so the audit summary can say what to configure.
+        private static void NoteUnresolved(IdAssignResult result, IdPattern pattern, Func<string, string> resolve, Element el)
+        {
+            foreach (var t in pattern.Tokens)
+            {
+                if (!string.IsNullOrEmpty(resolve(t))) continue;
+                if (t == "CategoryPrefix") result.NoPrefixCategories.Add(el.Category.Name);
+                else result.UnresolvedTokens.Add(t);
             }
         }
 
@@ -352,6 +367,7 @@ namespace ProjectPerseus.ids
                 return existing;
 
             var index = new IdIndex { Signature = rules.Signature };
+            var resolver = new RelatedValueResolver(doc, rules);
             if (active.Count > 0)
             {
                 foreach (var el in all ?? Collect(doc))
@@ -367,9 +383,10 @@ namespace ProjectPerseus.ids
 
                         string name = rule.Dto.ParameterName.Trim();
                         index.Set(name, id, value);
-                        string prefix = rule.Pattern.UsesCategoryPrefix ? (rules.PrefixFor(el.Category.Name) ?? "") : "";
-                        if (rule.Pattern.TryExtractNumber(value, prefix, out long n))
-                            index.NoteNumber(name, prefix, n);
+                        var resolve = resolver.For(el);
+                        string scope = rule.Pattern.ScopeKey(resolve);
+                        if (scope != null && rule.Pattern.TryExtractNumber(value, resolve, out long n))
+                            index.NoteNumber(name, scope, n);
                     }
                 }
             }

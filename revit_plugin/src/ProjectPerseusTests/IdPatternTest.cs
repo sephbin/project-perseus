@@ -55,6 +55,56 @@ namespace ProjectPerseusTests
             Assert.AreEqual(9, n);
         }
 
+        private static System.Func<string, string> Values(string level, string prefix) =>
+            t => t == "Level.Name" ? level : t == "CategoryPrefix" ? prefix : null;
+
+        [TestMethod]
+        public void Parse_AcceptsRelatedObjectTokens()
+        {
+            Assert.IsNotNull(IdPattern.Parse("{Host.Mark}.{Increment|2}"));
+            Assert.IsNotNull(IdPattern.Parse("{Level.Level Number}-{Increment|2}"));   // parameter names may contain spaces
+            Assert.IsNotNull(IdPattern.Parse("{Workset}-{Increment|2}"));
+            Assert.IsNull(IdPattern.Parse("{Foo.Name}{Increment|2}"));                 // unknown related kind
+            Assert.IsNull(IdPattern.Parse("{Level.}{Increment|2}"));                   // no parameter name
+            Assert.IsNull(IdPattern.Parse("{Level.A|B}{Increment|2}"));
+        }
+
+        [TestMethod]
+        public void Render_ResolvesRelatedTokens()
+        {
+            var p = IdPattern.Parse("{Level.Name}-{CategoryPrefix}-{Increment|3}");
+            CollectionAssert.AreEqual(new[] { "Level.Name", "CategoryPrefix" }, new System.Collections.Generic.List<string>(p.Tokens));
+            Assert.AreEqual("Level 02-W-001", p.Render(Values("Level 02", "W"), 1));
+        }
+
+        [TestMethod]
+        public void TryExtractNumber_ChecksRelatedValues()
+        {
+            var p = IdPattern.Parse("{Level.Name}-{CategoryPrefix}-{Increment|3}");
+            Assert.IsTrue(p.TryExtractNumber("Level 02-W-007", Values("Level 02", "W"), out long n));
+            Assert.AreEqual(7, n);
+            Assert.IsFalse(p.TryExtractNumber("Level 02-W-007", Values("Level 03", "W"), out _));  // element moved level
+            Assert.IsFalse(p.TryExtractNumber("Level 02-W-007", Values("Level 02", "D"), out _));
+        }
+
+        [TestMethod]
+        public void ScopeKey_SeparatesCountersAndRejectsUnresolvedValues()
+        {
+            var p = IdPattern.Parse("{Level.Name}-{CategoryPrefix}-{Increment|3}");
+            Assert.AreNotEqual(p.ScopeKey(Values("Level 02", "W")), p.ScopeKey(Values("Level 03", "W")));
+            Assert.AreEqual(p.ScopeKey(Values("Level 02", "W")), p.ScopeKey(Values("Level 02", "W")));
+            Assert.IsNull(p.ScopeKey(Values(null, "W")));    // no level -> element is skipped
+            Assert.IsNull(p.ScopeKey(Values("Level 02", "")));
+        }
+
+        [TestMethod]
+        public void TryExtractNumber_EscapesRegexCharactersInRelatedValues()
+        {
+            var p = IdPattern.Parse("{Level.Name}-{Increment|2}");
+            Assert.IsTrue(p.TryExtractNumber("L(2)+-05", t => "L(2)+", out _));
+            Assert.IsFalse(p.TryExtractNumber("LL2-05", t => "L(2)+", out _));
+        }
+
         [TestMethod]
         public void TryExtractNumber_EscapesRegexCharactersInPrefix()
         {

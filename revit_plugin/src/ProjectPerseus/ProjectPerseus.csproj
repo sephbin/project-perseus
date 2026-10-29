@@ -282,6 +282,7 @@
     <Compile Include="commands\AuditIdsCommand.cs" />
     <Compile Include="commands\ProjectRulesCommand.cs" />
     <Compile Include="ids\IdAssigner.cs" />
+    <Compile Include="ids\RelatedValueResolver.cs" />
     <Compile Include="ids\IdAutoAssignController.cs" />
     <Compile Include="ids\IdRulesCache.cs" />
     <Compile Include="ids\SharedParameterManager.cs" />

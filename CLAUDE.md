@@ -137,8 +137,10 @@ ProjectPerseus/
 │   │                             string methods, comparisons, and/or/not, len/float/int/str.
 │   │                             No external dependencies — pure C# recursive-descent evaluator.
 │   ├── IdPattern.cs              NEW. Pure parser/renderer for ID patterns such as
-│   │                             "{CategoryPrefix}{Increment|4}" (Render, TryExtractNumber). Unit-tested
-│   │                             in ProjectPerseusTests/IdPatternTest.cs.
+│   │                             "{Level.Name}-{CategoryPrefix}-{Increment|4}" (Render, TryExtractNumber, ScopeKey).
+│   │                             Tokens resolve through a callback: {CategoryPrefix}, {Workset}, and
+│   │                             {Level|Host|Room|Space|Type|Group.Param}. Unit-tested in
+│   │                             ProjectPerseusTests/IdPatternTest.cs.
 │   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
 │   └── UrlUtils.cs               IsValidUrl.
 ├── ids/                          NEW. Element ID rules (Perseus_ID + Django-configured architectural IDs).
@@ -149,7 +151,10 @@ ProjectPerseus/
 │   │                             the user's shared parameter file path. Run lazily, never on document open.
 │   ├── IdAssigner.cs             Core logic. Sets Perseus_ID = UniqueId; per rule keeps a value if it matches
 │   │                             the pattern and is held by the lowest ElementId, else allocates next number
-│   │                             (max in local model + 1). Per-document index; checkout-aware.
+│   │                             (max in local model + 1) within the counter scope (resolved template values,
+│   │                             e.g. walls on one level). Per-document index; checkout-aware.
+│   ├── RelatedValueResolver.cs   NEW. Resolves template tokens for an element: category prefix, workset,
+│   │                             and a parameter of its Level / Host / Room / Space / Type / Group.
 │   └── IdAutoAssignController.cs DocumentChanged hook -> queues added/modified ids -> raises
 │                                 queue/AssignIdsEvent. IsAssigning flag stops re-entry.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
