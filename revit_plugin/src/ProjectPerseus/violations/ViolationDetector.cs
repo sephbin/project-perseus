@@ -102,7 +102,12 @@ namespace ProjectPerseus.violations
 
             // Perseus's own ID write touches every element but is not a user action; walking tens of
             // thousands of modified elements here is what made large audits slow.
-            if (txnNames.Count > 0 && txnNames.All(n => n == ids.IdAssigner.TransactionName)) return;
+            if (txnNames.Count > 0 && txnNames.All(n => n == ids.IdAssigner.TransactionName))
+            {
+                if (deletedIds.Count > 0)
+                    Log.Warn($"[ViolationDetector] The Perseus ID write deleted {deletedIds.Count} element(s) as a side effect; not treated as a user violation.");
+                return;
+            }
 
             string txnJoined = string.Join("|", txnNames);
             string user      = doc.Application.Username;

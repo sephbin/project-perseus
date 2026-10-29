@@ -17,6 +17,7 @@ namespace ProjectPerseus.ids
         public int Assigned;      // architectural IDs written to elements that had none / an invalid one
         public int Reassigned;    // subset of Assigned that replaced a duplicate or mismatched value
         public int SkippedNotOwned;
+        public int SkippedInGroups;     // members of model/detail groups; writing them re-resolves the group and can delete dimensions
         public int Errors;
         public int ElementsChecked;
         public int ActiveRules;
@@ -30,6 +31,7 @@ namespace ProjectPerseus.ids
             $"Perseus_ID written: {PerseusIdSet}\n" +
             $"Architectural IDs assigned: {Assigned} (of which {Reassigned} replaced duplicates or invalid values)\n" +
             $"Skipped (checked out by another user): {SkippedNotOwned}\n" +
+            (SkippedInGroups > 0 ? $"Skipped (members of groups): {SkippedInGroups}\n" : "") +
             $"Errors: {Errors}\n" +
             $"Checked {ElementsChecked} elements against {ActiveRules} active rule(s); {ParametersFound} parameter(s) found in the model." +
             (MissingOnElement > 0 ? $"\n{MissingOnElement} element/parameter pairs had no such parameter." : "") +
@@ -167,6 +169,10 @@ namespace ProjectPerseus.ids
             {
                 long id = el.Id.GetIdValue();
 
+                // Editing members of group instances makes Revit re-resolve the group, which deletes dimensions
+                // that reference them. The group itself still gets its ID; its members are left alone.
+                if (el.GroupId != ElementId.InvalidElementId) { result.SkippedInGroups++; continue; }
+
                 if (hasPerseusId)
                 {
                     var p = el.get_Parameter(perseusIdGuid);
@@ -224,6 +230,29 @@ namespace ProjectPerseus.ids
             return result;
         }
 
+        // Records the text of every warning Revit raises while the IDs are committed (counted per message) so
+        // unexpected side effects can be diagnosed from the log. Does not resolve or hide anything.
+        private class WarningLogger : IFailuresPreprocessor
+        {
+            public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
+            {
+                try
+                {
+                    var counts = new Dictionary<string, int>();
+                    foreach (var m in accessor.GetFailureMessages())
+                    {
+                        string d = m.GetDescriptionText();
+                        counts.TryGetValue(d, out int n);
+                        counts[d] = n + 1;
+                    }
+                    foreach (var kv in counts)
+                        Log.Warn($"[IdAssigner] Revit reported {kv.Value}x: {kv.Key}");
+                }
+                catch (Exception ex) { Log.Warn($"[IdAssigner] Could not read Revit warnings: {ex.Message}"); }
+                return FailureProcessingResult.Continue;
+            }
+        }
+
         // Name of the write transaction; ViolationDetector ignores it (it is not a user action).
         internal const string TransactionName = "Perseus: Assign IDs";
 
@@ -273,6 +302,9 @@ namespace ProjectPerseus.ids
                 using (var tx = new Transaction(doc, TransactionName))
                 {
                     tx.Start();
+                    var fho = tx.GetFailureHandlingOptions();
+                    fho.SetFailuresPreprocessor(new WarningLogger());
+                    tx.SetFailureHandlingOptions(fho);
                     foreach (var c in changes)
                     {
                         try
