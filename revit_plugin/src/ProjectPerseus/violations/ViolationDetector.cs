@@ -100,6 +100,10 @@ namespace ProjectPerseus.violations
             ICollection<ElementId> deletedIds  = e.GetDeletedElementIds();
             ICollection<ElementId> modifiedIds = e.GetModifiedElementIds();
 
+            // Perseus's own ID write touches every element but is not a user action; walking tens of
+            // thousands of modified elements here is what made large audits slow.
+            if (txnNames.Count > 0 && txnNames.All(n => n == ids.IdAssigner.TransactionName)) return;
+
             string txnJoined = string.Join("|", txnNames);
             string user      = doc.Application.Username;
             string docGuid   = TryGetDocGuid(doc);

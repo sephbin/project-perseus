@@ -149,14 +149,18 @@ namespace ProjectPerseus.ids
             result.ParametersFound = guids.Count;
             if (!hasPerseusId && active.Count == 0) return result;
 
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             bool full = onlyIds == null;
             IEnumerable<Element> candidates = full
                 ? Collect(doc)
                 : onlyIds.Select(id => doc.GetElement(RevitExtensions.CreateId(id))).Where(IsEligible);
             var ordered = candidates.OrderBy(e => e.Id.GetIdValue()).ToList();
             result.ElementsChecked = ordered.Count;
+            long collectMs = clock.ElapsedMilliseconds;
 
-            IdIndex index = GetIndex(doc, docGuid, rules, active, rebuild: full);
+            // A full run already holds every eligible element, so the index reuses that list.
+            IdIndex index = GetIndex(doc, docGuid, rules, active, rebuild: full, all: full ? ordered : null);
+            long indexMs = clock.ElapsedMilliseconds - collectMs;
 
             var changes = new List<Change>();
             foreach (var el in ordered)
@@ -207,6 +211,10 @@ namespace ProjectPerseus.ids
                 }
             }
 
+            long planMs = clock.ElapsedMilliseconds - collectMs - indexMs;
+            Log.Info($"[IdAssigner] timing: collect {collectMs} ms, index {indexMs} ms, plan {planMs} ms " +
+                     $"({ordered.Count} elements, {changes.Count} writes planned)");
+
             if (changes.Count == 0)
             {
                 Log.Info($"[IdAssigner] nothing to change | {result.Summary().Replace("\n", " | ")}");
@@ -216,12 +224,29 @@ namespace ProjectPerseus.ids
             return result;
         }
 
+        // Name of the write transaction; ViolationDetector ignores it (it is not a user action).
+        internal const string TransactionName = "Perseus: Assign IDs";
+
         private static void Apply(Document doc, string docGuid, List<Change> changes, IdAssignResult result)
         {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var editable = new Dictionary<ElementId, bool>();
             if (doc.IsWorkshared)
             {
-                var needCheckout = changes.Select(c => c.Element.Id).Distinct()
-                    .Where(id => WorksharingUtils.GetCheckoutStatus(doc, id) == CheckoutStatus.NotOwned).ToList();
+                // One pass over the distinct elements: classify each (owned by me / by someone else / unowned and
+                // current / stale vs central) so the write loop below needs no further worksharing calls.
+                var needCheckout = new List<ElementId>();
+                foreach (var id in changes.Select(c => c.Element.Id).Distinct())
+                {
+                    var owner = WorksharingUtils.GetCheckoutStatus(doc, id);
+                    if (owner == CheckoutStatus.OwnedByCurrentUser) { editable[id] = true; continue; }
+                    if (owner == CheckoutStatus.OwnedByOtherUser) { editable[id] = false; continue; }
+
+                    var updates = WorksharingUtils.GetModelUpdatesStatus(doc, id);
+                    bool ok = updates != ModelUpdatesStatus.UpdatedInCentral && updates != ModelUpdatesStatus.DeletedInCentral;
+                    editable[id] = ok;
+                    if (ok) needCheckout.Add(id);
+                }
 
                 // A single request for tens of thousands of elements is rejected by the central model, so ask in
                 // chunks. A failed chunk isn't fatal: Revit borrows an unowned element when it is edited.
@@ -236,14 +261,16 @@ namespace ProjectPerseus.ids
                     }
                 }
                 if (failedChunks > 0) Log.Warn($"[IdAssigner] {failedChunks} checkout chunk(s) failed; editing will borrow elements instead.");
+                Log.Info($"[IdAssigner] timing: worksharing prep {clock.ElapsedMilliseconds} ms " +
+                         $"({editable.Count} elements, {needCheckout.Count} to check out)");
             }
 
             bool skippedAny = false;
-            var editable = new Dictionary<ElementId, bool>();
+            long writeStart = clock.ElapsedMilliseconds;
             IdAutoAssignController.IsAssigning = true;
             try
             {
-                using (var tx = new Transaction(doc, "Perseus: Assign IDs"))
+                using (var tx = new Transaction(doc, TransactionName))
                 {
                     tx.Start();
                     foreach (var c in changes)
@@ -252,7 +279,7 @@ namespace ProjectPerseus.ids
                         {
                             // Only skip what genuinely can't be edited: owned by someone else, or stale vs central.
                             // Unowned elements are fine - Revit borrows them on edit.
-                            if (doc.IsWorkshared && !CanEdit(doc, c.Element.Id, editable))
+                            if (doc.IsWorkshared && !(editable.TryGetValue(c.Element.Id, out bool canEdit) && canEdit))
                             {
                                 result.SkippedNotOwned++;
                                 skippedAny = true;
@@ -270,7 +297,9 @@ namespace ProjectPerseus.ids
                             Log.Warn($"[IdAssigner] Could not write {c.Param?.Definition?.Name} on {c.Element.UniqueId}: {ex.Message}");
                         }
                     }
+                    long setMs = clock.ElapsedMilliseconds - writeStart;
                     tx.Commit();
+                    Log.Info($"[IdAssigner] timing: set parameters {setMs} ms, commit {clock.ElapsedMilliseconds - writeStart - setMs} ms");
                 }
             }
             finally
@@ -283,20 +312,8 @@ namespace ProjectPerseus.ids
             Log.Info($"[IdAssigner] {result.Summary().Replace("\n", " | ")}");
         }
 
-        private static bool CanEdit(Document doc, ElementId id, Dictionary<ElementId, bool> cache)
-        {
-            if (cache.TryGetValue(id, out bool ok)) return ok;
-            ok = WorksharingUtils.GetCheckoutStatus(doc, id) != CheckoutStatus.OwnedByOtherUser;
-            if (ok)
-            {
-                var status = WorksharingUtils.GetModelUpdatesStatus(doc, id);
-                ok = status != ModelUpdatesStatus.UpdatedInCentral && status != ModelUpdatesStatus.DeletedInCentral;
-            }
-            cache[id] = ok;
-            return ok;
-        }
-
-        private static IdIndex GetIndex(Document doc, string docGuid, IdRulesDto rules, List<ActiveRule> active, bool rebuild)
+        private static IdIndex GetIndex(Document doc, string docGuid, IdRulesDto rules, List<ActiveRule> active, bool rebuild,
+                                        IEnumerable<Element> all = null)
         {
             string key = docGuid ?? doc.PathName;
             if (!rebuild && _indexes.TryGetValue(key, out var existing) && existing.Signature == rules.Signature)
@@ -305,7 +322,7 @@ namespace ProjectPerseus.ids
             var index = new IdIndex { Signature = rules.Signature };
             if (active.Count > 0)
             {
-                foreach (var el in Collect(doc))
+                foreach (var el in all ?? Collect(doc))
                 {
                     long id = el.Id.GetIdValue();
                     foreach (var rule in active)
