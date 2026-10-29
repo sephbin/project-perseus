@@ -147,6 +147,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ElementTest.cs" />
+    <Compile Include="IdPatternTest.cs" />
     <Compile Include="mocks\MockArdbDefinition.cs" />
     <Compile Include="mocks\MockArdbElement.cs" />
     <Compile Include="mocks\MockArdbElementId.cs" />

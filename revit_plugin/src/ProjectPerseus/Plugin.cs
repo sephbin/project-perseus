@@ -122,6 +122,15 @@ namespace ProjectPerseus
             PushButton projectRulesBtn = ribbonPanel.AddItem(projectRulesBtnData) as PushButton;
             projectRulesBtn.ToolTip = "View and edit this model's violation enforcement rules and source settings. Refresh to pull the latest configuration from the server.";
 
+            PushButtonData auditIdsBtnData = new PushButtonData(
+                "Button_AuditIds",
+                "Audit\nIDs",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.AuditIdsCommand");
+
+            PushButton auditIdsBtn = ribbonPanel.AddItem(auditIdsBtnData) as PushButton;
+            auditIdsBtn.ToolTip = "Check every element against this project's ID rules and fix missing, duplicate or invalid IDs (e.g. after copying elements outside Perseus). Also fills Perseus_ID.";
+
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             PushButtonData aboutBtnData = new PushButtonData(
                 "Button_About",

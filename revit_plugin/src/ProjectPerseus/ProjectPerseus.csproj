@@ -279,7 +279,15 @@
     <Compile Include="commands\InitialiseProjectCommand.cs" />
     <Compile Include="commands\OpenSettingsCommand.cs" />
     <Compile Include="commands\PerformFullUploadCommand.cs" />
+    <Compile Include="commands\AuditIdsCommand.cs" />
     <Compile Include="commands\ProjectRulesCommand.cs" />
+    <Compile Include="ids\IdAssigner.cs" />
+    <Compile Include="ids\IdAutoAssignController.cs" />
+    <Compile Include="ids\IdRulesCache.cs" />
+    <Compile Include="ids\SharedParameterManager.cs" />
+    <Compile Include="models\IdRulesDto.cs" />
+    <Compile Include="queue\AssignIdsEvent.cs" />
+    <Compile Include="util\IdPattern.cs" />
     <Compile Include="commands\PullWebEditsCommand.cs" />
     <Compile Include="commands\ResetModelGuidCommand.cs" />
     <Compile Include="commands\ToggleViolationHighlightCommand.cs" />

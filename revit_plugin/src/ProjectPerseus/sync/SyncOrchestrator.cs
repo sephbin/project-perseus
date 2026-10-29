@@ -66,6 +66,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
             ViolationDetector.Subscribe(application, _config.BaseUrl);
+            ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
@@ -98,6 +99,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
             ViolationDetector.Unsubscribe(application);
+            ids.IdAutoAssignController.Unsubscribe(application);
             _alertPoller?.Stop();
             _queueWebForm?.Close();
             ui.ViolationOverlayController.Stop();
@@ -115,6 +117,7 @@ namespace ProjectPerseus.sync
                 queue.ViolationPoller.AddSource(docGuid);
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
+                ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
 
                 // Warm up auth when a document opens so any expired-token login prompt
                 // (JwtLoginForm / MSAL) appears immediately, on a dedicated STA thread,
@@ -142,6 +145,8 @@ namespace ProjectPerseus.sync
                 queue.PresencePoller.RemoveSource(closingGuid);
                 queue.ViolationPoller.RemoveSource(closingGuid);
                 violations.ViolationDetector.HandleDocumentClosing(closingGuid);
+                ids.IdAutoAssignController.Reset(closingGuid);
+                ids.IdRulesCache.Remove(closingGuid);
             }
         }
 
@@ -156,6 +161,9 @@ namespace ProjectPerseus.sync
             violations.ViolationDetector.IsSyncInProgress = false;
             if (e.Status == RevitAPIEventStatus.Succeeded)
             {
+                // Reload Latest may have brought in other users' IDs; drop the cached ID index.
+                try { ids.IdAutoAssignController.Reset(revit.ModelGuidStorage.GetOrCreate(e.Document)); } catch { }
+
                 _stageTimeRevitComplete = DateTime.UtcNow;
 
                 // Log the post-sync gap so it is visible in the log bracket.

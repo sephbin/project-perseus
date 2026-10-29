@@ -136,10 +136,26 @@ ProjectPerseus/
 │   │                             Supports row["Col"] access, re.search/match/findall, math.*,
 │   │                             string methods, comparisons, and/or/not, len/float/int/str.
 │   │                             No external dependencies — pure C# recursive-descent evaluator.
+│   ├── IdPattern.cs              NEW. Pure parser/renderer for ID patterns such as
+│   │                             "{CategoryPrefix}{Increment|4}" (Render, TryExtractNumber). Unit-tested
+│   │                             in ProjectPerseusTests/IdPatternTest.cs.
 │   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
 │   └── UrlUtils.cs               IsValidUrl.
+├── ids/                          NEW. Element ID rules (Perseus_ID + Django-configured architectural IDs).
+│   ├── IdRulesCache.cs           Per-source cache of GET /api/source/<guid>/id-rules/ (LoadAsync/LoadNow/Get).
+│   ├── SharedParameterManager.cs Perseus-managed shared parameter file (%AppData%\ProjectPerseus\
+│   │                             Perseus_SharedParams.txt, deterministic GUIDs from the name); creates and
+│   │                             binds Perseus_ID + rule parameters as instance params. Swaps then restores
+│   │                             the user's shared parameter file path. Run lazily, never on document open.
+│   ├── IdAssigner.cs             Core logic. Sets Perseus_ID = UniqueId; per rule keeps a value if it matches
+│   │                             the pattern and is held by the lowest ElementId, else allocates next number
+│   │                             (max in local model + 1). Per-document index; checkout-aware.
+│   └── IdAutoAssignController.cs DocumentChanged hook -> queues added/modified ids -> raises
+│                                 queue/AssignIdsEvent. IsAssigning flag stops re-entry.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
+│   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds. Fetches fresh ID rules, ensures parameters,
+│   │                             runs IdAssigner over the whole model, shows a summary TaskDialog.
 │   ├── EditSettingsCommand.cs    DUPLICATE of OpenSettingsCommand — unwired, candidate for deletion.
 │   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
 │   ├── OpenSettingsCommand.cs    Ribbon: Button_Settings.
@@ -165,6 +181,7 @@ ProjectPerseus/
 │   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
 │   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
 │   ├── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
+│   ├── AssignIdsEvent.cs         NEW. IExternalEventHandler; calls IdAutoAssignController.ProcessPending.
 │   ├── PresencePoller.cs         Static heartbeat sending /syncboat/api/v2/source/<guid>/heartbeat/
 │   │                             every 60 s. AddSource/RemoveSource from OnDocumentOpened/Closing.
 │   ├── ViolationPoller.cs        NEW (2026-08-24). Static heartbeat poller (mirrors PresencePoller).
@@ -224,6 +241,7 @@ ProjectPerseus/
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
+│   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:
 │   │                             ElementUniqueId, RuleName, Severity, Message, ElementName.
 │   ├── KeyScheduleConfig.cs      Per-schedule mapping: schedule name, Excel path/sheet, Django
