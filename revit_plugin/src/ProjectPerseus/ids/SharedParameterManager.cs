@@ -162,10 +162,14 @@ namespace ProjectPerseus.ids
                                 UserModifiable = true,
                             });
 
+                        // Perseus_ID is automatic, so it sits in "Other"; rule parameters go under Identity Data.
+                        bool isPerseusId = string.Equals(item.Req.Name, PerseusIdName, StringComparison.OrdinalIgnoreCase);
 #if REVIT2024_OR_GREATER
-                        doc.ParameterBindings.Insert(def, binding, GroupTypeId.IdentityData);
+                        // An empty ForgeTypeId is the "Other" group (GroupTypeId has no member for it).
+                        doc.ParameterBindings.Insert(def, binding, isPerseusId ? new ForgeTypeId() : GroupTypeId.IdentityData);
 #else
-                        doc.ParameterBindings.Insert(def, binding, BuiltInParameterGroup.PG_IDENTITY_DATA);
+                        doc.ParameterBindings.Insert(def, binding,
+                            isPerseusId ? BuiltInParameterGroup.INVALID : BuiltInParameterGroup.PG_IDENTITY_DATA);
 #endif
                         Log.Info($"[SharedParameterManager] Created '{item.Req.Name}' bound to {item.Target.Count} categories.");
                     }
