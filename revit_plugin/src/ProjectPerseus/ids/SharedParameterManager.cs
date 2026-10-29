@@ -170,7 +170,7 @@ namespace ProjectPerseus.ids
                 }
             }
 
-            if (work.Count == 0) return 0;
+            if (work.Count == 0) return EnsureVaryByGroup(doc, requirements.Select(r => r.Name));
 
             var app = doc.Application;
             string previousFile = app.SharedParametersFilename;
@@ -219,7 +219,40 @@ namespace ProjectPerseus.ids
                 catch (Exception ex) { Log.Warn($"[SharedParameterManager] Could not restore shared parameter file path: {ex.Message}"); }
             }
 
-            return work.Count;
+            return work.Count + EnsureVaryByGroup(doc, requirements.Select(r => r.Name));
+        }
+
+        /// <summary>
+        /// Turns on "Values can vary by group instance" for the ID parameters. Without it, elements inside Revit
+        /// groups must share one value across every instance of the group, so writing a unique ID to each member
+        /// clashes. Also fixes parameters created before this was set. Returns how many were changed.
+        /// </summary>
+        private static int EnsureVaryByGroup(Document doc, IEnumerable<string> names)
+        {
+            var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+            var todo = new List<InternalDefinition>();
+            var it = doc.ParameterBindings.ForwardIterator();
+            while (it.MoveNext())
+            {
+                if (it.Key is InternalDefinition def && wanted.Contains(def.Name) && it.Current is InstanceBinding &&
+                    !def.VariesAcrossGroups)
+                    todo.Add(def);
+            }
+            if (todo.Count == 0) return 0;
+
+            int changed = 0;
+            using (var tx = new Transaction(doc, "Perseus: ID Parameters Vary By Group"))
+            {
+                tx.Start();
+                foreach (var def in todo)
+                {
+                    try { def.SetAllowVaryBetweenGroups(doc, true); changed++; }
+                    catch (Exception ex) { Log.Warn($"[SharedParameterManager] Could not set vary-by-group on '{def.Name}': {ex.Message}"); }
+                }
+                tx.Commit();
+            }
+            Log.Info($"[SharedParameterManager] Enabled 'values can vary by group instance' on {changed} parameter(s).");
+            return changed;
         }
 
         private static void EnsureFileExists()
