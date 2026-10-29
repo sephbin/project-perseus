@@ -7,6 +7,7 @@ using ProjectPerseus.logging;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
 using ProjectPerseus.util;
+using Element = Autodesk.Revit.DB.Element;
 
 namespace ProjectPerseus.ids
 {
