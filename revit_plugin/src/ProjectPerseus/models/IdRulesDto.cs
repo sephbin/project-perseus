@@ -16,7 +16,7 @@ namespace ProjectPerseus.models
         // Changes whenever anything that affects ID generation changes (ignores updated_at).
         [JsonIgnore]
         public string Signature =>
-            string.Join("|", Rules.Select(r => $"{r.ParameterName}={r.Pattern}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}")) + "#" +
+            string.Join("|", Rules.Select(r => $"{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}")) + "#" +
             string.Join("|", CategoryPrefixes.Select(p => $"{p.Category}={p.Prefix}"));
 
         // Prefix for a Revit category name, or null when the category has no prefix configured.
@@ -35,6 +35,10 @@ namespace ProjectPerseus.models
 
         [JsonProperty("pattern")]
         public string Pattern { get; set; }
+
+        // Key such as "identity_data" or "other"; see ID_PARAMETER_GROUPS in Django views.py.
+        [JsonProperty("parameter_group")]
+        public string ParameterGroup { get; set; } = "identity_data";
 
         [JsonProperty("apply_to_all")]
         public bool ApplyToAll { get; set; } = true;

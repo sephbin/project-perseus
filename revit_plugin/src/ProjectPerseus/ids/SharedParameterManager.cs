@@ -29,7 +29,50 @@ namespace ProjectPerseus.ids
         {
             public string Name;
             public HashSet<string> Categories; // null = every model category that accepts parameters
+            public string Group = "identity_data"; // key from Django's ID_PARAMETER_GROUPS
         }
+
+#if REVIT2024_OR_GREATER
+        private static ForgeTypeId GroupFor(string key)
+        {
+            switch ((key ?? "").ToLowerInvariant())
+            {
+                case "other": return new ForgeTypeId(); // empty id is the "Other" group
+                case "general": return GroupTypeId.General;
+                case "data": return GroupTypeId.Data;
+                case "text": return GroupTypeId.Text;
+                case "construction": return GroupTypeId.Construction;
+                case "graphics": return GroupTypeId.Graphics;
+                case "constraints": return GroupTypeId.Constraints;
+                case "phasing": return GroupTypeId.Phasing;
+                case "materials": return GroupTypeId.Materials;
+                case "visibility": return GroupTypeId.Visibility;
+                case "geometry": return GroupTypeId.Geometry;
+                case "ifc": return GroupTypeId.Ifc;
+                default: return GroupTypeId.IdentityData;
+            }
+        }
+#else
+        private static BuiltInParameterGroup GroupFor(string key)
+        {
+            switch ((key ?? "").ToLowerInvariant())
+            {
+                case "other": return BuiltInParameterGroup.INVALID;
+                case "general": return BuiltInParameterGroup.PG_GENERAL;
+                case "data": return BuiltInParameterGroup.PG_DATA;
+                case "text": return BuiltInParameterGroup.PG_TEXT;
+                case "construction": return BuiltInParameterGroup.PG_CONSTRUCTION;
+                case "graphics": return BuiltInParameterGroup.PG_GRAPHICS;
+                case "constraints": return BuiltInParameterGroup.PG_CONSTRAINTS;
+                case "phasing": return BuiltInParameterGroup.PG_PHASING;
+                case "materials": return BuiltInParameterGroup.PG_MATERIALS;
+                case "visibility": return BuiltInParameterGroup.PG_VISIBILITY;
+                case "geometry": return BuiltInParameterGroup.PG_GEOMETRY;
+                case "ifc": return BuiltInParameterGroup.PG_IFC;
+                default: return BuiltInParameterGroup.PG_IDENTITY_DATA;
+            }
+        }
+#endif
 
         internal static string FilePath =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -69,13 +112,14 @@ namespace ProjectPerseus.ids
         /// </summary>
         internal static int Ensure(Document doc, IdRulesDto rules)
         {
-            var requirements = new List<Requirement> { new Requirement { Name = PerseusIdName } };
+            var requirements = new List<Requirement> { new Requirement { Name = PerseusIdName, Group = "other" } };
             foreach (var r in rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName) &&
                                                       IdPattern.Parse(r.Pattern) != null))
             {
                 requirements.Add(new Requirement
                 {
                     Name = r.ParameterName.Trim(),
+                    Group = r.ParameterGroup,
                     Categories = r.ApplyToAll
                         ? null
                         : new HashSet<string>(r.Categories, StringComparer.OrdinalIgnoreCase),
@@ -162,15 +206,8 @@ namespace ProjectPerseus.ids
                                 UserModifiable = true,
                             });
 
-                        // Perseus_ID is automatic, so it sits in "Other"; rule parameters go under Identity Data.
-                        bool isPerseusId = string.Equals(item.Req.Name, PerseusIdName, StringComparison.OrdinalIgnoreCase);
-#if REVIT2024_OR_GREATER
-                        // An empty ForgeTypeId is the "Other" group (GroupTypeId has no member for it).
-                        doc.ParameterBindings.Insert(def, binding, isPerseusId ? new ForgeTypeId() : GroupTypeId.IdentityData);
-#else
-                        doc.ParameterBindings.Insert(def, binding,
-                            isPerseusId ? BuiltInParameterGroup.INVALID : BuiltInParameterGroup.PG_IDENTITY_DATA);
-#endif
+                        // Group applies on creation only; Perseus_ID is automatic so it sits in "Other".
+                        doc.ParameterBindings.Insert(def, binding, GroupFor(item.Req.Group));
                         Log.Info($"[SharedParameterManager] Created '{item.Req.Name}' bound to {item.Target.Count} categories.");
                     }
                     tx.Commit();
