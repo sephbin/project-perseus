@@ -222,14 +222,24 @@ namespace ProjectPerseus.ids
             {
                 var needCheckout = changes.Select(c => c.Element.Id).Distinct()
                     .Where(id => WorksharingUtils.GetCheckoutStatus(doc, id) == CheckoutStatus.NotOwned).ToList();
-                if (needCheckout.Count > 0)
+
+                // A single request for tens of thousands of elements is rejected by the central model, so ask in
+                // chunks. A failed chunk isn't fatal: Revit borrows an unowned element when it is edited.
+                const int chunk = 500;
+                int failedChunks = 0;
+                for (int i = 0; i < needCheckout.Count; i += chunk)
                 {
-                    try { WorksharingUtils.CheckoutElements(doc, needCheckout); }
-                    catch (Exception ex) { Log.Warn($"[IdAssigner] Checkout failed: {ex.Message}"); }
+                    try { WorksharingUtils.CheckoutElements(doc, needCheckout.Skip(i).Take(chunk).ToList()); }
+                    catch (Exception ex)
+                    {
+                        if (++failedChunks == 1) Log.Warn($"[IdAssigner] Checkout chunk failed: {ex.Message}");
+                    }
                 }
+                if (failedChunks > 0) Log.Warn($"[IdAssigner] {failedChunks} checkout chunk(s) failed; editing will borrow elements instead.");
             }
 
             bool skippedAny = false;
+            var editable = new Dictionary<ElementId, bool>();
             IdAutoAssignController.IsAssigning = true;
             try
             {
@@ -240,8 +250,9 @@ namespace ProjectPerseus.ids
                     {
                         try
                         {
-                            if (doc.IsWorkshared &&
-                                WorksharingUtils.GetCheckoutStatus(doc, c.Element.Id) != CheckoutStatus.OwnedByCurrentUser)
+                            // Only skip what genuinely can't be edited: owned by someone else, or stale vs central.
+                            // Unowned elements are fine - Revit borrows them on edit.
+                            if (doc.IsWorkshared && !CanEdit(doc, c.Element.Id, editable))
                             {
                                 result.SkippedNotOwned++;
                                 skippedAny = true;
@@ -270,6 +281,19 @@ namespace ProjectPerseus.ids
             // The index assumed every planned write succeeded; if any didn't, rebuild next time.
             if (skippedAny) InvalidateIndex(docGuid);
             Log.Info($"[IdAssigner] {result.Summary().Replace("\n", " | ")}");
+        }
+
+        private static bool CanEdit(Document doc, ElementId id, Dictionary<ElementId, bool> cache)
+        {
+            if (cache.TryGetValue(id, out bool ok)) return ok;
+            ok = WorksharingUtils.GetCheckoutStatus(doc, id) != CheckoutStatus.OwnedByOtherUser;
+            if (ok)
+            {
+                var status = WorksharingUtils.GetModelUpdatesStatus(doc, id);
+                ok = status != ModelUpdatesStatus.UpdatedInCentral && status != ModelUpdatesStatus.DeletedInCentral;
+            }
+            cache[id] = ok;
+            return ok;
         }
 
         private static IdIndex GetIndex(Document doc, string docGuid, IdRulesDto rules, List<ActiveRule> active, bool rebuild)
