@@ -139,7 +139,7 @@ namespace ProjectPerseus.ids
         /// Opens its own transaction; must not be called while the document is modifiable.
         /// </summary>
         internal static IdAssignResult Run(Document doc, string docGuid, IdRulesDto rules, ICollection<long> onlyIds,
-                                           bool renumber = false)
+                                           bool renumber = false, IdClashFix fix = null)
         {
             var result = new IdAssignResult();
             if (doc == null || doc.IsReadOnly || doc.IsModifiable) return result;
@@ -231,15 +231,21 @@ namespace ProjectPerseus.ids
                     string current = p.AsString();
                     index.Set(name, id, current); // sync index with what is actually in the model right now
 
+                    // A value the server's registry says another element holds (see IdClaims) must be replaced even
+                    // though it is unique within this local model.
+                    bool forced = fix != null && fix.Force.Contains(IdClashFix.ForceKey(name, id));
                     bool valid = rule.Pattern.TryExtractNumber(current, resolve, out long n);
                     if (valid)
                     {
                         index.NoteNumber(name, scope, n);
-                        if (index.LowestHolder(name, current) == id) continue; // keep
+                        if (!forced && index.LowestHolder(name, current) == id) continue; // keep
                     }
 
-                    long next = index.Allocate(name, scope);
-                    string value = rule.Pattern.Render(resolve, next);
+                    string value;
+                    do
+                    {
+                        value = rule.Pattern.Render(resolve, index.Allocate(name, scope));
+                    } while (fix != null && fix.Taken.Contains(IdClashFix.TakenKey(name, value)));
                     index.Set(name, id, value);
                     changes.Add(new Change
                     {
@@ -263,6 +269,32 @@ namespace ProjectPerseus.ids
             Apply(doc, docGuid, changes, result);
             if (renumber) InvalidateIndex(docGuid); // every number changed; rebuild from the model next time
             return result;
+        }
+
+        /// <summary>Every non-empty rule-parameter value in the model, for the pre-sync claims check (read-only).</summary>
+        internal static List<IdClaimItem> Snapshot(Document doc, IdRulesDto rules)
+        {
+            var items = new List<IdClaimItem>();
+            if (doc == null || rules == null) return items;
+
+            var enabled = rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName)).ToList();
+            if (enabled.Count == 0) return items;
+            var guids = SharedParameterManager.ResolveGuids(doc, enabled.Select(r => r.ParameterName.Trim()).ToList());
+
+            var elements = Collect(doc).ToList();
+            foreach (var rule in enabled)
+            {
+                string name = rule.ParameterName.Trim();
+                if (!guids.TryGetValue(name, out var guid)) continue;
+                foreach (var el in elements)
+                {
+                    if (!Applies(rule, el)) continue;
+                    string value = el.get_Parameter(guid)?.AsString();
+                    if (string.IsNullOrEmpty(value)) continue;
+                    items.Add(new IdClaimItem { Parameter = name, Uid = el.UniqueId, ElementId = el.Id.GetIdValue(), Value = value });
+                }
+            }
+            return items;
         }
 
         private class RenumberItem

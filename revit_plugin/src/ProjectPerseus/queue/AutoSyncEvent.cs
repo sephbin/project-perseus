@@ -32,6 +32,21 @@ namespace ProjectPerseus.queue
                     }
                 }
 
+                // Auto-sync skips the pre-sync gate, so clear ID clashes here (outside any sync event).
+                try
+                {
+                    if (!ProjectPerseus.ids.IdClaims.EnsureNoClashes(doc, out string idClash))
+                    {
+                        TaskDialog.Show("Perseus — ID clash", idClash + "\n\nAuto-sync was cancelled so the clash is not pushed to the other users.");
+                        return;
+                    }
+                    if (!string.IsNullOrEmpty(idClash)) Log.Info("[IdClaims] " + idClash);
+                }
+                catch (Exception idEx)
+                {
+                    Log.Warn($"[IdClaims] auto-sync clash check failed (non-fatal): {idEx.Message}");
+                }
+
                 Log.Info("Auto-Sync Event Triggered! Starting SynchronizeWithCentral...");
 
                 var transOpts = new TransactWithCentralOptions();

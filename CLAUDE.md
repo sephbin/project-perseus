@@ -157,6 +157,10 @@ ProjectPerseus/
 │   │                             the pattern and is held by the lowest ElementId, else allocates next number
 │   │                             (max in local model + 1) within the counter scope (resolved template values,
 │   │                             e.g. walls on one level). Per-document index; checkout-aware.
+│   ├── IdClaims.cs               NEW. Pre-sync clash check. Posts the model's rule-parameter values to Django
+│   │                             (POST /api/source/<guid>/id-claims/; only changes after the first call). A value held by
+│   │                             another element is a clash; the lower ElementId keeps it. Resolve() renumbers this user's
+│   │                             clashing elements via IdAssigner.Run(fix:) and re-checks. Snapshot() lives in IdAssigner.
 │   ├── ElementPosition.cs        NEW. Element position in mm (location point, wall/line midpoint, else bbox
 │   │                             centre) as a util.PositionSample, used for numbering by position.
 │   ├── RelatedValueResolver.cs   NEW. Resolves template tokens for an element: category prefix, workset,
@@ -194,6 +198,9 @@ ProjectPerseus/
 │   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
 │   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
 │   ├── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
+│   ├── IdClashFixEvent.cs        NEW. IExternalEventHandler raised by SyncOrchestrator when the pre-sync ID check finds
+│   │                             clashes: sync is cancelled, IdClaims.EnsureNoClashes renumbers, then the sync is re-triggered
+│   │                             (SyncOrchestrator.IsResyncAfterIdFix skips the check on that pass). AutoSyncEvent runs the same check.
 │   ├── AssignIdsEvent.cs         NEW. IExternalEventHandler; calls IdAutoAssignController.ProcessPending.
 │   ├── PresencePoller.cs         Static heartbeat sending /syncboat/api/v2/source/<guid>/heartbeat/
 │   │                             every 60 s. AddSource/RemoveSource from OnDocumentOpened/Closing.

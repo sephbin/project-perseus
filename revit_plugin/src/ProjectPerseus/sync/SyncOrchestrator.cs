@@ -37,6 +37,10 @@ namespace ProjectPerseus.sync
         // Cleared on entry to the check so it only suppresses one pass.
         public static bool IsResyncAfterPendingEdits { get; set; } = false;
 
+        // Raised by IdClashFixEvent's re-sync so the ID clash check is skipped on that one pass.
+        public static ExternalEvent IdClashFixExternalEvent { get; private set; }
+        public static bool IsResyncAfterIdFix { get; set; } = false;
+
         private readonly Config _config = Config.Instance;
         private bool _isSyncing = false;
         private bool _queueReleasedEarly = false;
@@ -73,6 +77,7 @@ namespace ProjectPerseus.sync
 
             var resyncHandler = new PendingEditsResyncEvent();
             PendingEditsResyncExternalEvent = ExternalEvent.Create(resyncHandler);
+            IdClashFixExternalEvent = ExternalEvent.Create(new IdClashFixEvent());
 
             var undoViolationHandler = new queue.UndoViolationEvent();
             ViolationDetector.UndoViolationExternalEvent = ExternalEvent.Create(undoViolationHandler);
@@ -451,6 +456,38 @@ namespace ProjectPerseus.sync
                 catch (Exception presyncEx)
                 {
                     Log.Warn($"Presync violation gate failed (non-fatal): {presyncEx.Message}");
+                }
+
+                // ID clash check: another user may have allocated the same ID numbers. The registry on the server
+                // says who holds what; clashes are fixed here, before the sync, while the elements are still this
+                // user's to edit. The sync is cancelled so the renumbering transaction lands cleanly (same reason
+                // as the pending web edits below), then IdClashFixEvent re-triggers it.
+                bool skipIdCheck = IsResyncAfterIdFix;
+                IsResyncAfterIdFix = false;
+                if (!skipIdCheck)
+                {
+                    try
+                    {
+                        var idRules = ids.IdRulesCache.Get(docGuid);
+                        if (idRules != null && idRules.Rules.Any(r => r.Enabled))
+                        {
+                            var clock = System.Diagnostics.Stopwatch.StartNew();
+                            var idCheck = ids.IdClaims.Check(docGuid, baseUrl, ids.IdAssigner.Snapshot(e.Document, idRules));
+                            Log.Info($"[IdClaims] pre-sync check took {clock.ElapsedMilliseconds} ms");
+                            if (idCheck != null && idCheck.Conflicts.Count > 0)
+                            {
+                                Log.Info($"[IdClaims] {idCheck.Conflicts.Count} ID clash(es) with other users — cancelling sync to renumber.");
+                                e.Cancel();
+                                System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                                IdClashFixExternalEvent.Raise();
+                                return;
+                            }
+                        }
+                    }
+                    catch (Exception idEx)
+                    {
+                        Log.Warn($"Pre-sync ID clash check failed (non-fatal): {idEx.Message}");
+                    }
                 }
 
                 // Check for pending web edits before the queue check so the user can
