@@ -64,7 +64,8 @@ namespace ProjectPerseus.ids
                 if (!_pending.TryGetValue(doc, out var set)) _pending[doc] = set = new HashSet<long>();
                 foreach (var id in ids) set.Add(id);
             }
-            _event?.Raise();
+            var raised = _event?.Raise();
+            Log.Info($"[IdAutoAssign] queued {ids.Count} changed element(s) from \"{string.Join("|", e.GetTransactionNames())}\"; event {raised}");
         }
 
         // Called by AssignIdsEvent on the main Revit thread.
@@ -82,11 +83,20 @@ namespace ProjectPerseus.ids
                 Document doc = kv.Key;
                 try
                 {
-                    if (!doc.IsValidObject || doc.IsReadOnly || doc.IsModifiable) continue;
+                    if (!doc.IsValidObject || doc.IsReadOnly || doc.IsModifiable)
+                    {
+                        Log.Info($"[IdAutoAssign] skipped {kv.Value.Count} element(s): document not writable right now (modifiable={doc.IsModifiable}).");
+                        continue;
+                    }
 
                     string docGuid = ModelGuidStorage.GetOrCreate(doc);
                     IdRulesDto rules = IdRulesCache.Get(docGuid);
-                    if (rules == null) continue;
+                    if (rules == null)
+                    {
+                        Log.Info($"[IdAutoAssign] skipped {kv.Value.Count} element(s): no ID rules cached for {docGuid}.");
+                        continue;
+                    }
+                    Log.Info($"[IdAutoAssign] processing {kv.Value.Count} element(s).");
 
                     EnsureParametersOnce(doc, docGuid, rules);
                     IdAssigner.Run(doc, docGuid, rules, kv.Value);

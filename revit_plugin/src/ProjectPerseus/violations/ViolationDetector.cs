@@ -102,10 +102,12 @@ namespace ProjectPerseus.violations
 
             // Perseus's own ID write touches every element but is not a user action; walking tens of
             // thousands of modified elements here is what made large audits slow.
-            if (txnNames.Count > 0 && txnNames.All(n => n == ids.IdAssigner.TransactionName))
+            // The same goes for Perseus's parameter setup ("Perseus: Add ID Parameters" replaces the shared
+            // parameter elements, which Revit reports as deletions).
+            if (txnNames.Count > 0 && txnNames.All(n => n.StartsWith("Perseus:", StringComparison.Ordinal)))
             {
                 if (deletedIds.Count > 0)
-                    Log.Warn($"[ViolationDetector] The Perseus ID write deleted {deletedIds.Count} element(s) as a side effect; not treated as a user violation.");
+                    Log.Warn($"[ViolationDetector] A Perseus transaction ({string.Join("|", txnNames)}) deleted {deletedIds.Count} element(s) as a side effect; not treated as a user violation.");
                 return;
             }
 
