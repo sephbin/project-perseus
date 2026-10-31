@@ -53,7 +53,9 @@ namespace ProjectPerseus.ids
             if (e.Operation != UndoOperation.TransactionCommitted) return;
 
             Document doc = e.GetDocument();
-            if (doc == null || doc.IsFamilyDocument || doc.IsLinked || doc.IsReadOnly) return;
+            // Revit marks the document read-only for the duration of DocumentChanged, so IsReadOnly is always true
+            // here; writability is checked in ProcessPending, once the ExternalEvent runs outside the event.
+            if (doc == null || doc.IsFamilyDocument || doc.IsLinked) return;
             if (e.GetTransactionNames().Any(n => n.StartsWith("Perseus:", StringComparison.Ordinal))) return;
 
             var ids = e.GetAddedElementIds().Concat(e.GetModifiedElementIds()).Select(i => i.GetIdValue()).ToList();

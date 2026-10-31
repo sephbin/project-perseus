@@ -107,7 +107,8 @@ namespace ProjectPerseus.violations
             if (txnNames.Count > 0 && txnNames.All(n => n.StartsWith("Perseus:", StringComparison.Ordinal)))
             {
                 if (deletedIds.Count > 0)
-                    Log.Warn($"[ViolationDetector] A Perseus transaction ({string.Join("|", txnNames)}) deleted {deletedIds.Count} element(s) as a side effect; not treated as a user violation.");
+                    Log.Warn($"[ViolationDetector] A Perseus transaction ({string.Join("|", txnNames)}) deleted {deletedIds.Count} element(s) as a side effect " +
+                             $"(ids {string.Join(", ", deletedIds.Take(10).Select(i => i.GetIdValue()))}); not treated as a user violation.");
                 return;
             }
 
