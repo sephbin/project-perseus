@@ -25,10 +25,16 @@ namespace ProjectPerseus.ids
         public int MissingOnElement;    // element did not carry the parameter (not bound to its category)
         public readonly SortedSet<string> NoPrefixCategories = new SortedSet<string>();
         public readonly SortedSet<string> UnresolvedTokens = new SortedSet<string>(); // e.g. Level.Name with no level
+        public bool RolledBack;         // Revit tried to delete/remove other elements, so the write was cancelled
+        public readonly SortedSet<string> BlockedBy = new SortedSet<string>(); // families Revit reported errors in
 
         public int TotalChanges => PerseusIdSet + Assigned;
 
         public string Summary() =>
+            (RolledBack
+                ? "NOTHING WAS WRITTEN. Revit tried to delete or remove other elements while updating these IDs, so the " +
+                  "change was cancelled. Problem families: " + string.Join(", ", BlockedBy) + "\n"
+                : "") +
             $"Perseus_ID written: {PerseusIdSet}\n" +
             $"Architectural IDs assigned: {Assigned} (of which {Reassigned} replaced duplicates or invalid values)\n" +
             $"Skipped (checked out by another user): {SkippedNotOwned}\n" +
@@ -235,9 +241,17 @@ namespace ProjectPerseus.ids
         }
 
         // Records the text of every warning Revit raises while the IDs are committed (counted per message) so
-        // unexpected side effects can be diagnosed from the log. Does not resolve or hide anything.
+        // unexpected side effects can be diagnosed from the log. If Revit reports that it automatically resolved
+        // an error by deleting or removing something (e.g. a family that regenerates badly), the whole write is
+        // rolled back: an ID audit must never change the model in any other way.
         private class WarningLogger : IFailuresPreprocessor
         {
+            private static readonly System.Text.RegularExpressions.Regex FamilyName =
+                new System.Text.RegularExpressions.Regex("family \"([^\"]+)\"");
+
+            public bool Blocked;
+            public readonly SortedSet<string> Culprits = new SortedSet<string>();
+
             public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
             {
                 try
@@ -248,13 +262,40 @@ namespace ProjectPerseus.ids
                         string d = m.GetDescriptionText();
                         counts.TryGetValue(d, out int n);
                         counts[d] = n + 1;
+
+                        // Revit's "...was automatically resolved" family errors apply fixes such as Delete Type,
+                        // Delete Element(s) or Remove Reference; a default resolution that deletes is also destructive.
+                        bool autoResolved = d.IndexOf("automatically resolved", StringComparison.OrdinalIgnoreCase) >= 0;
+                        bool deletes = false;
+                        try { deletes = m.HasResolutions() && m.GetCurrentResolutionType() == FailureResolutionType.DeleteElements; }
+                        catch { /* not every message exposes a resolution type */ }
+                        if (!autoResolved && !deletes) continue;
+
+                        Blocked = true;
+                        var fam = FamilyName.Match(d);
+                        Culprits.Add(fam.Success ? fam.Groups[1].Value : (d.Length > 80 ? d.Substring(0, 80) : d));
                     }
                     foreach (var kv in counts)
                         Log.Warn($"[IdAssigner] Revit reported {kv.Value}x: {kv.Key}");
                 }
                 catch (Exception ex) { Log.Warn($"[IdAssigner] Could not read Revit warnings: {ex.Message}"); }
+
+                if (Blocked)
+                {
+                    Log.Warn($"[IdAssigner] Rolling back: Revit auto-resolved errors by changing other elements ({string.Join("; ", Culprits)}).");
+                    return FailureProcessingResult.ProceedWithRollBack;
+                }
                 return FailureProcessingResult.Continue;
             }
+        }
+
+        // Element and dimension totals, logged before and after the write so unintended deletions show up.
+        private static string CountSnapshot(Document doc)
+        {
+            int all = new FilteredElementCollector(doc).WhereElementIsNotElementType().GetElementCount();
+            int dims = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Dimensions)
+                .WhereElementIsNotElementType().GetElementCount();
+            return $"{all} elements, {dims} dimensions";
         }
 
         // Records which token stopped an element getting an ID, so the audit summary can say what to configure.
@@ -311,14 +352,16 @@ namespace ProjectPerseus.ids
 
             bool skippedAny = false;
             long writeStart = clock.ElapsedMilliseconds;
+            Log.Info($"[IdAssigner] before write: {CountSnapshot(doc)}");
             IdAutoAssignController.IsAssigning = true;
             try
             {
                 using (var tx = new Transaction(doc, TransactionName))
                 {
                     tx.Start();
+                    var guard = new WarningLogger();
                     var fho = tx.GetFailureHandlingOptions();
-                    fho.SetFailuresPreprocessor(new WarningLogger());
+                    fho.SetFailuresPreprocessor(guard);
                     tx.SetFailureHandlingOptions(fho);
                     foreach (var c in changes)
                     {
@@ -345,8 +388,19 @@ namespace ProjectPerseus.ids
                         }
                     }
                     long setMs = clock.ElapsedMilliseconds - writeStart;
-                    tx.Commit();
-                    Log.Info($"[IdAssigner] timing: set parameters {setMs} ms, commit {clock.ElapsedMilliseconds - writeStart - setMs} ms");
+                    var status = tx.Commit();
+                    Log.Info($"[IdAssigner] timing: set parameters {setMs} ms, commit {clock.ElapsedMilliseconds - writeStart - setMs} ms ({status})");
+                    if (status != TransactionStatus.Committed)
+                    {
+                        // Nothing was written: report that instead of the planned counts.
+                        result.RolledBack = true;
+                        result.BlockedBy.UnionWith(guard.Culprits);
+                        result.PerseusIdSet = 0;
+                        result.Assigned = 0;
+                        result.Reassigned = 0;
+                        skippedAny = true;
+                    }
+                    Log.Info($"[IdAssigner] after write: {CountSnapshot(doc)}");
                 }
             }
             finally
