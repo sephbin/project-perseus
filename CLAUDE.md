@@ -141,6 +141,9 @@ ProjectPerseus/
 │   │                             Tokens resolve through a callback: {CategoryPrefix}, {Workset}, and
 │   │                             {Level|Host|Room|Space|Type|Group.Param}. Unit-tested in
 │   │                             ProjectPerseusTests/IdPatternTest.cs.
+│   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or
+│   │                             "-Y~500, X" (keys X/Y/Z/Id, '-' descending, '~N' mm buckets; ElementId breaks ties).
+│   │                             Unit-tested in ProjectPerseusTests/PositionOrderTest.cs.
 │   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
 │   └── UrlUtils.cs               IsValidUrl.
 ├── ids/                          NEW. Element ID rules (Perseus_ID + Django-configured architectural IDs).
@@ -154,6 +157,8 @@ ProjectPerseus/
 │   │                             the pattern and is held by the lowest ElementId, else allocates next number
 │   │                             (max in local model + 1) within the counter scope (resolved template values,
 │   │                             e.g. walls on one level). Per-document index; checkout-aware.
+│   ├── ElementPosition.cs        NEW. Element position in mm (location point, wall/line midpoint, else bbox
+│   │                             centre) as a util.PositionSample, used for numbering by position.
 │   ├── RelatedValueResolver.cs   NEW. Resolves template tokens for an element: category prefix, workset,
 │   │                             and a parameter of its Level / Host / Room / Space / Type / Group.
 │   └── IdAutoAssignController.cs DocumentChanged hook -> queues added/modified ids -> raises
@@ -162,6 +167,8 @@ ProjectPerseus/
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds. Fetches fresh ID rules, ensures parameters,
 │   │                             runs IdAssigner over the whole model, shows a summary TaskDialog.
+│   ├── RenumberIdsCommand.cs     NEW. Ribbon: Button_RenumberIds. After a Yes/No confirmation, renumbers every ID rule
+│   │                             from 1 within each counter group in the rule's numbering order (IdAssigner.Run renumber:true).
 │   ├── EditSettingsCommand.cs    DUPLICATE of OpenSettingsCommand — unwired, candidate for deletion.
 │   ├── InitialiseProjectCommand.cs  Body is `// todo` — unwired, candidate for deletion.
 │   ├── OpenSettingsCommand.cs    Ribbon: Button_Settings.

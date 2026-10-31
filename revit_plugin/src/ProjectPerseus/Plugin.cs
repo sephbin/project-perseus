@@ -131,6 +131,15 @@ namespace ProjectPerseus
             PushButton auditIdsBtn = ribbonPanel.AddItem(auditIdsBtnData) as PushButton;
             auditIdsBtn.ToolTip = "Check every element against this project's ID rules and fix missing, duplicate or invalid IDs (e.g. after copying elements outside Perseus). Also fills Perseus_ID.";
 
+            PushButtonData renumberIdsBtnData = new PushButtonData(
+                "Button_RenumberIds",
+                "Renumber\nIDs",
+                thisAssemblyPath,
+                "ProjectPerseus.commands.RenumberIdsCommand");
+
+            PushButton renumberIdsBtn = ribbonPanel.AddItem(renumberIdsBtnData) as PushButton;
+            renumberIdsBtn.ToolTip = "Renumber every ID from 1 within each counter group (e.g. each level), in the numbering order set for the rule on the server, such as left to right then top to bottom. Replaces existing numbers; use at a deliberate milestone.";
+
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             PushButtonData aboutBtnData = new PushButtonData(
                 "Button_About",

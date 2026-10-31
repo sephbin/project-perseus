@@ -20,7 +20,7 @@ namespace ProjectPerseus.models
         // Changes whenever anything that affects ID generation changes (ignores updated_at).
         [JsonIgnore]
         public string Signature =>
-            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}")) + "#" +
+            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}")) + "#" +
             string.Join("|", CategoryPrefixes.Select(p => $"{p.Category}={p.Prefix}"));
 
         // Prefix for a Revit category name, or null when the category has no prefix configured.
@@ -64,6 +64,10 @@ namespace ProjectPerseus.models
 
         [JsonProperty("enabled")]
         public bool Enabled { get; set; } = true;
+
+        // Sort keys for Renumber IDs, e.g. "X, -Y"; blank = ElementId order. See util/PositionOrder.cs.
+        [JsonProperty("numbering_order")]
+        public string NumberingOrder { get; set; } = "";
     }
 
     public class IdCategoryPrefixDto

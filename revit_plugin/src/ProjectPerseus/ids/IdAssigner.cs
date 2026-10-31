@@ -138,7 +138,8 @@ namespace ProjectPerseus.ids
         /// Runs the rules over <paramref name="onlyIds"/>, or the whole model when null (audit).
         /// Opens its own transaction; must not be called while the document is modifiable.
         /// </summary>
-        internal static IdAssignResult Run(Document doc, string docGuid, IdRulesDto rules, ICollection<long> onlyIds)
+        internal static IdAssignResult Run(Document doc, string docGuid, IdRulesDto rules, ICollection<long> onlyIds,
+                                           bool renumber = false)
         {
             var result = new IdAssignResult();
             if (doc == null || doc.IsReadOnly || doc.IsModifiable) return result;
@@ -175,6 +176,7 @@ namespace ProjectPerseus.ids
             long indexMs = clock.ElapsedMilliseconds - collectMs;
 
             var changes = new List<Change>();
+            var renumberGroups = new Dictionary<ActiveRule, Dictionary<string, List<RenumberItem>>>();
             var resolver = new RelatedValueResolver(doc, rules);
             foreach (var el in ordered)
             {
@@ -214,6 +216,17 @@ namespace ProjectPerseus.ids
                     string scope = rule.Pattern.ScopeKey(resolve);
                     if (scope == null) { NoteUnresolved(result, rule.Pattern, resolve, el); continue; }
 
+                    // Renumber mode: just collect the element under its counter scope; numbers are assigned in
+                    // positional order once every element has been seen.
+                    if (renumber)
+                    {
+                        if (!renumberGroups.TryGetValue(rule, out var byScope))
+                            renumberGroups[rule] = byScope = new Dictionary<string, List<RenumberItem>>();
+                        if (!byScope.TryGetValue(scope, out var items)) byScope[scope] = items = new List<RenumberItem>();
+                        items.Add(new RenumberItem { Element = el, Param = p, Resolve = resolve });
+                        continue;
+                    }
+
                     string name = rule.Dto.ParameterName.Trim();
                     string current = p.AsString();
                     index.Set(name, id, current); // sync index with what is actually in the model right now
@@ -236,6 +249,8 @@ namespace ProjectPerseus.ids
                 }
             }
 
+            if (renumber) PlanRenumber(renumberGroups, changes);
+
             long planMs = clock.ElapsedMilliseconds - collectMs - indexMs;
             Log.Info($"[IdAssigner] timing: collect {collectMs} ms, index {indexMs} ms, plan {planMs} ms " +
                      $"({ordered.Count} elements, {changes.Count} writes planned)");
@@ -246,7 +261,48 @@ namespace ProjectPerseus.ids
                 return result;
             }
             Apply(doc, docGuid, changes, result);
+            if (renumber) InvalidateIndex(docGuid); // every number changed; rebuild from the model next time
             return result;
+        }
+
+        private class RenumberItem
+        {
+            public Element Element;
+            public Parameter Param;
+            public Func<string, string> Resolve;
+        }
+
+        // Within each counter scope, orders the elements by the rule's numbering order and numbers them 1..N.
+        private static void PlanRenumber(Dictionary<ActiveRule, Dictionary<string, List<RenumberItem>>> groups, List<Change> changes)
+        {
+            foreach (var rg in groups)
+            {
+                var rule = rg.Key;
+                var order = PositionOrder.Parse(rule.Dto.NumberingOrder);
+                if (order == null)
+                {
+                    Log.Warn($"[IdAssigner] Invalid numbering order '{rule.Dto.NumberingOrder}' for '{rule.Dto.ParameterName}'; using ElementId order.");
+                    order = PositionOrder.Parse("");
+                }
+
+                foreach (var items in rg.Value.Values)
+                {
+                    var sorted = items.Select(i => new { Item = i, Pos = ElementPosition.Of(i.Element) }).ToList();
+                    sorted.Sort((a, b) => order.Compare(a.Pos, b.Pos));
+                    for (int n = 0; n < sorted.Count; n++)
+                    {
+                        var item = sorted[n].Item;
+                        string value = rule.Pattern.Render(item.Resolve, n + 1);
+                        string current = item.Param.AsString();
+                        if (current == value) continue;
+                        changes.Add(new Change
+                        {
+                            Element = item.Element, Param = item.Param, NewValue = value,
+                            IsReassign = !string.IsNullOrEmpty(current),
+                        });
+                    }
+                }
+            }
         }
 
         // Records the text of every warning Revit raises while the IDs are committed (counted per message) so
