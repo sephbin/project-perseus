@@ -112,7 +112,17 @@ namespace ProjectPerseus.ids
         /// </summary>
         internal static int Ensure(Document doc, IdRulesDto rules)
         {
-            var requirements = new List<Requirement> { new Requirement { Name = PerseusIdName, Group = "other" } };
+            var requirements = new List<Requirement>
+            {
+                new Requirement
+                {
+                    Name = PerseusIdName,
+                    Group = "other",
+                    Categories = rules.PerseusId.ApplyToAll
+                        ? null
+                        : new HashSet<string>(rules.PerseusId.Categories, StringComparer.OrdinalIgnoreCase),
+                },
+            };
             foreach (var r in rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName) &&
                                                       IdPattern.Parse(r.Pattern) != null))
             {

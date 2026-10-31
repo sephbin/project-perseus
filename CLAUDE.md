@@ -149,7 +149,8 @@ ProjectPerseus/
 │   │                             Perseus_SharedParams.txt, deterministic GUIDs from the name); creates and
 │   │                             binds Perseus_ID + rule parameters as instance params. Swaps then restores
 │   │                             the user's shared parameter file path. Run lazily, never on document open.
-│   ├── IdAssigner.cs             Core logic. Sets Perseus_ID = UniqueId; per rule keeps a value if it matches
+│   ├── IdAssigner.cs             Core logic. Sets Perseus_ID = UniqueId on the categories chosen in Django
+│   │                             (IdRulesDto.PerseusId; default all); per rule keeps a value if it matches
 │   │                             the pattern and is held by the lowest ElementId, else allocates next number
 │   │                             (max in local model + 1) within the counter scope (resolved template values,
 │   │                             e.g. walls on one level). Per-document index; checkout-aware.

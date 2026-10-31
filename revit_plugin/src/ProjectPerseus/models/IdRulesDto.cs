@@ -13,10 +13,14 @@ namespace ProjectPerseus.models
         [JsonProperty("category_prefixes")]
         public List<IdCategoryPrefixDto> CategoryPrefixes { get; set; } = new List<IdCategoryPrefixDto>();
 
+        // Which categories receive the built-in Perseus_ID parameter (default: all).
+        [JsonProperty("perseus_id")]
+        public PerseusIdDto PerseusId { get; set; } = new PerseusIdDto();
+
         // Changes whenever anything that affects ID generation changes (ignores updated_at).
         [JsonIgnore]
         public string Signature =>
-            string.Join("|", Rules.Select(r => $"{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}")) + "#" +
+            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}")) + "#" +
             string.Join("|", CategoryPrefixes.Select(p => $"{p.Category}={p.Prefix}"));
 
         // Prefix for a Revit category name, or null when the category has no prefix configured.
@@ -26,6 +30,18 @@ namespace ProjectPerseus.models
                 string.Equals(p.Category, categoryName, System.StringComparison.OrdinalIgnoreCase));
             return hit?.Prefix;
         }
+    }
+
+    public class PerseusIdDto
+    {
+        [JsonProperty("apply_to_all")]
+        public bool ApplyToAll { get; set; } = true;
+
+        [JsonProperty("categories")]
+        public List<string> Categories { get; set; } = new List<string>();
+
+        public bool AppliesTo(string categoryName) =>
+            ApplyToAll || Categories.Any(c => string.Equals(c, categoryName, System.StringComparison.OrdinalIgnoreCase));
     }
 
     public class IdRuleDto

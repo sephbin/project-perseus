@@ -178,7 +178,7 @@ namespace ProjectPerseus.ids
                 // that reference them. The group itself still gets its ID; its members are left alone.
                 if (el.GroupId != ElementId.InvalidElementId) { result.SkippedInGroups++; continue; }
 
-                if (hasPerseusId)
+                if (hasPerseusId && rules.PerseusId.AppliesTo(el.Category.Name))
                 {
                     var p = el.get_Parameter(perseusIdGuid);
                     if (p == null) result.MissingOnElement++;
