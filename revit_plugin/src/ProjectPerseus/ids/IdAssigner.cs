@@ -180,15 +180,19 @@ namespace ProjectPerseus.ids
             {
                 long id = el.Id.GetIdValue();
 
-                // Editing members of group instances makes Revit re-resolve the group, which deletes dimensions
-                // that reference them. The group itself still gets its ID; its members are left alone.
-                if (el.GroupId != ElementId.InvalidElementId) { result.SkippedInGroups++; continue; }
+                // Members of group instances share their values across the group's instances unless the parameter
+                // is set to "values can vary by group instance" (Ensure sets that on our parameters). Only then
+                // are they written; otherwise Revit re-resolves the group and can delete dimensions. Any such
+                // deletion is still caught by the commit guard, which cancels the write.
+                bool inGroup = el.GroupId != ElementId.InvalidElementId;
+                bool countedGroupSkip = false;
 
                 if (hasPerseusId && rules.PerseusId.AppliesTo(el.Category.Name))
                 {
                     var p = el.get_Parameter(perseusIdGuid);
                     if (p == null) result.MissingOnElement++;
-                    if (p != null && !p.IsReadOnly && p.AsString() != el.UniqueId)
+                    else if (inGroup && !VariesAcrossGroups(p)) { result.SkippedInGroups++; countedGroupSkip = true; }
+                    else if (!p.IsReadOnly && p.AsString() != el.UniqueId)
                         changes.Add(new Change { Element = el, Param = p, NewValue = el.UniqueId, IsPerseusId = true });
                 }
 
@@ -198,6 +202,11 @@ namespace ProjectPerseus.ids
                     var p = el.get_Parameter(rule.ParamGuid);
                     if (p == null) result.MissingOnElement++;
                     if (p == null || p.IsReadOnly) continue;
+                    if (inGroup && !VariesAcrossGroups(p))
+                    {
+                        if (!countedGroupSkip) { result.SkippedInGroups++; countedGroupSkip = true; }
+                        continue;
+                    }
 
                     // Every token must resolve (category prefix, level, host...). The resolved values also
                     // define which counter the element belongs to, e.g. "walls on Level 02".
@@ -288,6 +297,9 @@ namespace ProjectPerseus.ids
                 return FailureProcessingResult.Continue;
             }
         }
+
+        private static bool VariesAcrossGroups(Parameter p) =>
+            p.Definition is InternalDefinition d && d.VariesAcrossGroups;
 
         // Element and dimension totals, logged before and after the write so unintended deletions show up.
         private static string CountSnapshot(Document doc)
