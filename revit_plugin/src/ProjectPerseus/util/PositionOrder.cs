@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace ProjectPerseus.util
 {
     /// <summary>Where an element is, in millimetres in project coordinates, plus its ElementId (final tie-break).</summary>
-    internal struct PositionSample
+    public struct PositionSample
     {
         public double X, Y, Z;
         public long Id;
@@ -18,7 +18,7 @@ namespace ProjectPerseus.util
     /// down to a multiple of N mm so near-equal values count as a tie. ElementId always breaks remaining ties,
     /// so the order is deterministic. Pure logic (no Revit types) so it can be unit-tested.
     /// </summary>
-    internal sealed class PositionOrder : IComparer<PositionSample>
+    public sealed class PositionOrder : IComparer<PositionSample>
     {
         private static readonly Regex KeyRe = new Regex(@"^(-?)(X|Y|Z|Id)(?:~([1-9][0-9]{0,5}))?$", RegexOptions.Compiled);
 

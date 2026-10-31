@@ -51,7 +51,7 @@ namespace ProjectPerseusTests
         {
             var p = IdPattern.Parse("ID-{Increment|5}");
             Assert.IsFalse(p.UsesCategoryPrefix);
-            Assert.IsTrue(p.TryExtractNumber("ID-00009", null, out long n));
+            Assert.IsTrue(p.TryExtractNumber("ID-00009", (string)null, out long n));
             Assert.AreEqual(9, n);
         }
 
