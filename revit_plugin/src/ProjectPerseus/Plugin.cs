@@ -61,163 +61,79 @@ namespace ProjectPerseus
             const string tabName = "Perseus";
             application.CreateRibbonTab(tabName);
 
-            RibbonPanel ribbonPanel = application.CreateRibbonPanel(tabName, "Tools");
-
-            string thisAssemblyPath = Assembly.GetExecutingAssembly().Location;
-
-            PushButtonData b1Data = new PushButtonData(
-                "Button_RunFullSync",
-                "Upload",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.PerformFullUploadCommand");
-
-            PushButton pb1 = ribbonPanel.AddItem(b1Data) as PushButton;
-            pb1.ToolTip = "Upload all elements to external database";
-            ThemeIconManager.Register(pb1, "perseus");
-
-            PushButtonData settingsBtnData = new PushButtonData(
-                "Button_Settings",
-                "Settings",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.OpenSettingsCommand");
-
-            PushButton settingsBtn = ribbonPanel.AddItem(settingsBtnData) as PushButton;
-            settingsBtn.ToolTip = "Change Perseus Settings like: API Token and Upload URL";
-            ThemeIconManager.Register(settingsBtn, "settings");
-
-            PushButtonData resetBtnData = new PushButtonData(
-                "Button_ResetGuid",
-                "Reset Identity",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.ResetModelGuidCommand");
-
-            PushButton resetBtn = ribbonPanel.AddItem(resetBtnData) as PushButton;
-            resetBtn.ToolTip = "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.";
-            ThemeIconManager.Register(resetBtn, "reset");
-
-            PushButtonData diagBtnData = new PushButtonData(
-                "Button_DiagnoseElement",
-                "Diagnose\nElements",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.DiagnoseElementCommand");
-
-            PushButton diagBtn = ribbonPanel.AddItem(diagBtnData) as PushButton;
-            diagBtn.ToolTip = "Enter element IDs to run a full diagnostic from the plugin's perspective and write results to the log file.";
-
-            PushButtonData pullWebEditsBtnData = new PushButtonData(
-                "Button_PullWebEdits",
-                "Pull Web\nEdits",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.PullWebEditsCommand");
-
-            PushButton pullWebEditsBtn = ribbonPanel.AddItem(pullWebEditsBtnData) as PushButton;
-            pullWebEditsBtn.ToolTip = "Fetch pending parameter edits made in the web editor and apply them to the current model. Skips elements checked out by other users.";
-
-            PushButtonData projectRulesBtnData = new PushButtonData(
-                "Button_ProjectRules",
-                "Project\nRules",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.ProjectRulesCommand");
-
-            PushButton projectRulesBtn = ribbonPanel.AddItem(projectRulesBtnData) as PushButton;
-            projectRulesBtn.ToolTip = "View and edit this model's violation enforcement rules and source settings. Refresh to pull the latest configuration from the server.";
-
-            PushButtonData auditIdsBtnData = new PushButtonData(
-                "Button_AuditIds",
-                "Audit\nIDs",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.AuditIdsCommand");
-
-            PushButton auditIdsBtn = ribbonPanel.AddItem(auditIdsBtnData) as PushButton;
-            auditIdsBtn.ToolTip = "Check every element against this project's ID rules and fix missing, duplicate or invalid IDs (e.g. after copying elements outside Perseus). Also fills Perseus_ID.";
-
-            PushButtonData renumberIdsBtnData = new PushButtonData(
-                "Button_RenumberIds",
-                "Renumber\nIDs",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.RenumberIdsCommand");
-
-            PushButton renumberIdsBtn = ribbonPanel.AddItem(renumberIdsBtnData) as PushButton;
-            renumberIdsBtn.ToolTip = "Renumber every ID from 1 within each counter group (e.g. each level), in the numbering order set for the rule on the server, such as left to right then top to bottom. Replaces existing numbers; use at a deliberate milestone.";
-
+            string asm = Assembly.GetExecutingAssembly().Location;
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
-            PushButtonData aboutBtnData = new PushButtonData(
-                "Button_About",
-                "About",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.AboutCommand");
 
-            PushButton aboutBtn = ribbonPanel.AddItem(aboutBtnData) as PushButton;
-            aboutBtn.ToolTip = $"Project Perseus v{version} — click to view version info";
+            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Setup.
+            // Icon base names map to resources/<name>.png (+ <name>_dark.png); see revit_plugin/tools/generate_icons.py.
 
-            // Safety panel — emergency bypass for violation blocks
-            RibbonPanel safetyPanel = application.CreateRibbonPanel(tabName, "Safety");
+            // ---- Sync: moving data between the model and the Perseus server
+            RibbonPanel syncPanel = application.CreateRibbonPanel(tabName, "Sync");
+            AddButton(syncPanel, asm, "Button_RunFullSync", "Upload", "PerformFullUploadCommand", "upload",
+                "Upload all elements to external database");
+            AddButton(syncPanel, asm, "Button_PullWebEdits", "Pull Web\nEdits", "PullWebEditsCommand", "pull_edits",
+                "Fetch pending parameter edits made in the web editor and apply them to the current model. Skips elements checked out by other users.");
 
-            PushButtonData freefallBtnData = new PushButtonData(
-                "Button_Freefall",
-                "Freefall\nMode",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.FreefallCommand");
+            // ---- Element IDs
+            RibbonPanel idsPanel = application.CreateRibbonPanel(tabName, "Element IDs");
+            AddButton(idsPanel, asm, "Button_AuditIds", "Audit\nIDs", "AuditIdsCommand", "audit_ids",
+                "Check every element against this project's ID rules and fix missing, duplicate or invalid IDs (e.g. after copying elements outside Perseus). Also fills Perseus_ID.");
+            AddButton(idsPanel, asm, "Button_RenumberIds", "Renumber\nIDs", "RenumberIdsCommand", "renumber_ids",
+                "Renumber every ID from 1 within each counter group (e.g. each level), in the numbering order set for the rule on the server, such as left to right then top to bottom. Replaces existing numbers; use at a deliberate milestone.");
 
-            PushButton freefallBtn = safetyPanel.AddItem(freefallBtnData) as PushButton;
-            freefallBtn.ToolTip = "Enable Freefall mode to bypass violation blocks for one sync. Requires confirmation. Turns off automatically after sync.";
-
-            // Key Schedules panel — separate compartment on the same tab
+            // ---- Key Schedules
             RibbonPanel schedulesPanel = application.CreateRibbonPanel(tabName, "Key Schedules");
+            AddButton(schedulesPanel, asm, "Button_ManageSchedules", "Manage\nSchedules", "ManageSchedulesCommand", "schedule_manage",
+                "Add, edit, or remove key schedule ↔ Excel mappings stored in this project file (active document only).");
+            AddButton(schedulesPanel, asm, "Button_ExportSchedules", "Export\nSchedules", "ExportKeyScheduleCommand", "schedule_export",
+                "Export key schedules to Excel for all open Revit models that have mappings configured.");
+            AddButton(schedulesPanel, asm, "Button_ImportSchedules", "Import\nSchedules", "ImportKeyScheduleCommand", "schedule_import",
+                "Import key schedule data from Excel into all open Revit models that have mappings configured.");
 
-            PushButtonData manageSchedulesBtnData = new PushButtonData(
-                "Button_ManageSchedules",
-                "Manage\nSchedules",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.ManageSchedulesCommand");
-
-            PushButton manageSchedulesBtn = schedulesPanel.AddItem(manageSchedulesBtnData) as PushButton;
-            manageSchedulesBtn.ToolTip = "Add, edit, or remove key schedule ↔ Excel mappings stored in this project file (active document only).";
-
-            PushButtonData exportSchedulesBtnData = new PushButtonData(
-                "Button_ExportSchedules",
-                "Export\nSchedules",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.ExportKeyScheduleCommand");
-
-            PushButton exportSchedulesBtn = schedulesPanel.AddItem(exportSchedulesBtnData) as PushButton;
-            exportSchedulesBtn.ToolTip = "Export key schedules to Excel for all open Revit models that have mappings configured.";
-
-            PushButtonData importSchedulesBtnData = new PushButtonData(
-                "Button_ImportSchedules",
-                "Import\nSchedules",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.ImportKeyScheduleCommand");
-
-            PushButton importSchedulesBtn = schedulesPanel.AddItem(importSchedulesBtnData) as PushButton;
-            importSchedulesBtn.ToolTip = "Import key schedule data from Excel into all open Revit models that have mappings configured.";
-
-            // Violations panel — DirectContext3D overlay + list form
+            // ---- Violations: highlight layer, list, and the emergency bypass
             RibbonPanel violationsPanel = application.CreateRibbonPanel(tabName, "Violations");
+            AddButton(violationsPanel, asm, "Button_ToggleViolations", "Toggle\nViolations", "ToggleViolationHighlightCommand", "violations_toggle",
+                "Show or hide the violation highlight layer (bounding boxes or symbols) in the active view.");
+            AddButton(violationsPanel, asm, "Button_SwitchMode", "Switch\nMode", "SwitchViolationModeCommand", "violations_mode",
+                "Switch the violation highlight layer between bounding-box wireframes and 3-axis symbol markers.");
+            AddButton(violationsPanel, asm, "Button_ViolationList", "Violation\nList", "ShowViolationListCommand", "violations_list",
+                "Open the violation list. Select an element in Revit to see its violations in the bottom panel.");
+            AddButton(violationsPanel, asm, "Button_Freefall", "Freefall\nMode", "FreefallCommand", "freefall",
+                "Enable Freefall mode to bypass violation blocks for one sync. Requires confirmation. Turns off automatically after sync.");
 
-            PushButtonData toggleViolationsBtnData = new PushButtonData(
-                "Button_ToggleViolations",
-                "Toggle\nViolations",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.ToggleViolationHighlightCommand");
-            PushButton toggleViolationsBtn = violationsPanel.AddItem(toggleViolationsBtnData) as PushButton;
-            toggleViolationsBtn.ToolTip = "Show or hide the violation highlight layer (bounding boxes or symbols) in the active view.";
+            // ---- Setup: configuration up front, rarely used tools stacked small
+            RibbonPanel setupPanel = application.CreateRibbonPanel(tabName, "Setup");
+            AddButton(setupPanel, asm, "Button_ProjectRules", "Project\nRules", "ProjectRulesCommand", "project_rules",
+                "View and edit this model's violation enforcement rules and source settings. Refresh to pull the latest configuration from the server.");
+            AddButton(setupPanel, asm, "Button_Settings", "Settings", "OpenSettingsCommand", "settings",
+                "Change Perseus Settings like: API Token and Upload URL");
 
-            PushButtonData switchModeBtnData = new PushButtonData(
-                "Button_SwitchMode",
-                "Switch\nMode",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.SwitchViolationModeCommand");
-            PushButton switchModeBtn = violationsPanel.AddItem(switchModeBtnData) as PushButton;
-            switchModeBtn.ToolTip = "Switch the violation highlight layer between bounding-box wireframes and 3-axis symbol markers.";
+            var stacked = setupPanel.AddStackedItems(
+                MakeData(asm, "Button_ResetGuid", "Reset Identity", "ResetModelGuidCommand"),
+                MakeData(asm, "Button_DiagnoseElement", "Diagnose Elements", "DiagnoseElementCommand"),
+                MakeData(asm, "Button_About", "About", "AboutCommand"));
+            StyleButton(stacked[0] as PushButton, "reset_identity",
+                "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.");
+            StyleButton(stacked[1] as PushButton, "diagnose",
+                "Enter element IDs to run a full diagnostic from the plugin's perspective and write results to the log file.");
+            StyleButton(stacked[2] as PushButton, "about", $"Project Perseus v{version} — click to view version info");
+        }
 
-            PushButtonData violationListBtnData = new PushButtonData(
-                "Button_ViolationList",
-                "Violation\nList",
-                thisAssemblyPath,
-                "ProjectPerseus.commands.ShowViolationListCommand");
-            PushButton violationListBtn = violationsPanel.AddItem(violationListBtnData) as PushButton;
-            violationListBtn.ToolTip = "Open the violation list. Select an element in Revit to see its violations in the bottom panel.";
+        private static PushButtonData MakeData(string asm, string name, string text, string command)
+        {
+            return new PushButtonData(name, text, asm, "ProjectPerseus.commands." + command);
+        }
+
+        private static void StyleButton(PushButton button, string icon, string tooltip)
+        {
+            if (button == null) return;
+            button.ToolTip = tooltip;
+            ThemeIconManager.Register(button, icon);
+        }
+
+        private static void AddButton(RibbonPanel panel, string asm, string name, string text, string command, string icon, string tooltip)
+        {
+            StyleButton(panel.AddItem(MakeData(asm, name, text, command)) as PushButton, icon, tooltip);
         }
 
         private void OnKeyScheduleIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)

@@ -54,23 +54,30 @@ namespace ProjectPerseus.ui
             bool isDark = UIThemeManager.CurrentTheme == UITheme.Dark;
             foreach (var entry in _entries)
             {
-                var icon = LoadIcon(entry.BaseName, isDark);
+                var icon = LoadIcon(entry.BaseName, isDark, LargeDecodeWidth);
                 if (icon != null)
                 {
                     entry.Button.LargeImage = icon;
+                    // Stacked (small) buttons only show Image; decode a separate 32px copy so Revit scales crisply.
+                    entry.Button.Image = LoadIcon(entry.BaseName, isDark, SmallDecodeWidth) ?? icon;
                 }
             }
         }
 
-        private static BitmapImage LoadIcon(string baseName, bool isDark)
+        // Source PNGs are 128px. Decoding at 64/32px gives high-quality downsampling instead of
+        // WPF's default bilinear scaling, and still leaves headroom for 200% display scaling.
+        private const int LargeDecodeWidth = 64;
+        private const int SmallDecodeWidth = 32;
+
+        private static BitmapImage LoadIcon(string baseName, bool isDark, int decodeWidth)
         {
             if (isDark)
             {
-                var darkImg = TryLoad(BuildUri(baseName + "_dark"));
+                var darkImg = TryLoad(BuildUri(baseName + "_dark"), decodeWidth);
                 if (darkImg != null) return darkImg;
                 Log.Info($"ThemeIconManager: dark variant for '{baseName}' not found, falling back to base icon.");
             }
-            return TryLoad(BuildUri(baseName));
+            return TryLoad(BuildUri(baseName), decodeWidth);
         }
 
         private static Uri BuildUri(string name)
@@ -78,13 +85,14 @@ namespace ProjectPerseus.ui
             return new Uri($"pack://application:,,,/ProjectPerseus;component/resources/{name}.png");
         }
 
-        private static BitmapImage TryLoad(Uri uri)
+        private static BitmapImage TryLoad(Uri uri, int decodeWidth)
         {
             try
             {
                 var img = new BitmapImage();
                 img.BeginInit();
                 img.UriSource = uri;
+                img.DecodePixelWidth = decodeWidth;
                 img.CacheOption = BitmapCacheOption.OnLoad;
                 img.EndInit();
                 return img;
@@ -111,9 +119,11 @@ namespace ProjectPerseus.ui
                 var img = new BitmapImage();
                 img.BeginInit();
                 img.UriSource = uri;
+                img.DecodePixelWidth = 64;
                 img.CacheOption = BitmapCacheOption.OnLoad;
                 img.EndInit();
                 button.LargeImage = img;
+                button.Image = img;
             }
             catch (Exception ex)
             {

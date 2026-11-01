@@ -435,19 +435,38 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
-    <Resource Include="resources\perseus.png" />
-  </ItemGroup>
-  <ItemGroup>
+    <Resource Include="resources\upload.png" />
+    <Resource Include="resources\upload_dark.png" />
+    <Resource Include="resources\pull_edits.png" />
+    <Resource Include="resources\pull_edits_dark.png" />
+    <Resource Include="resources\audit_ids.png" />
+    <Resource Include="resources\audit_ids_dark.png" />
+    <Resource Include="resources\renumber_ids.png" />
+    <Resource Include="resources\renumber_ids_dark.png" />
+    <Resource Include="resources\schedule_manage.png" />
+    <Resource Include="resources\schedule_manage_dark.png" />
+    <Resource Include="resources\schedule_export.png" />
+    <Resource Include="resources\schedule_export_dark.png" />
+    <Resource Include="resources\schedule_import.png" />
+    <Resource Include="resources\schedule_import_dark.png" />
+    <Resource Include="resources\violations_toggle.png" />
+    <Resource Include="resources\violations_toggle_dark.png" />
+    <Resource Include="resources\violations_mode.png" />
+    <Resource Include="resources\violations_mode_dark.png" />
+    <Resource Include="resources\violations_list.png" />
+    <Resource Include="resources\violations_list_dark.png" />
+    <Resource Include="resources\freefall.png" />
+    <Resource Include="resources\freefall_dark.png" />
+    <Resource Include="resources\project_rules.png" />
+    <Resource Include="resources\project_rules_dark.png" />
     <Resource Include="resources\settings.png" />
-  </ItemGroup>
-  <ItemGroup>
-    <Resource Include="resources\reset.png" />
-  </ItemGroup>
-  <ItemGroup>
-    <Resource Include="resources\reset_dark.png" />
-  </ItemGroup>
-  <ItemGroup>
-    <Resource Include="resources\perseus_dark.png" />
+    <Resource Include="resources\settings_dark.png" />
+    <Resource Include="resources\reset_identity.png" />
+    <Resource Include="resources\reset_identity_dark.png" />
+    <Resource Include="resources\diagnose.png" />
+    <Resource Include="resources\diagnose_dark.png" />
+    <Resource Include="resources\about.png" />
+    <Resource Include="resources\about_dark.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="..\packages\Sentry.3.41.3\build\Sentry.targets" Condition="Exists('..\packages\Sentry.3.41.3\build\Sentry.targets')" />
