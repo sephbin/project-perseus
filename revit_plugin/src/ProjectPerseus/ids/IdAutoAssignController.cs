@@ -27,6 +27,8 @@ namespace ProjectPerseus.ids
         private static readonly object _lock = new object();
         private static readonly Dictionary<Document, HashSet<long>> _pending = new Dictionary<Document, HashSet<long>>();
         private static readonly HashSet<string> _ensured = new HashSet<string>();
+        // Documents that asked for Django's "assign_id" requests to be fulfilled on the next ProcessPending.
+        private static readonly HashSet<Document> _fulfil = new HashSet<Document>();
 
         internal static void Subscribe(UIControlledApplication application, string baseUrl)
         {
@@ -38,6 +40,26 @@ namespace ProjectPerseus.ids
         internal static void Unsubscribe(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentChanged -= OnDocumentChanged;
+        }
+
+        /// <summary>
+        /// Called by incremental sync with the elements other users created or changed since the last sync. Those
+        /// never pass through DocumentChanged on this machine, so a colleague without Perseus leaves them without
+        /// IDs. Also asks Django for elements it has seen without an ID (IdGapFiller), covering ones that were
+        /// checked out by someone else the first time round.
+        /// </summary>
+        internal static void QueueFromSync(Document doc, IEnumerable<long> ids)
+        {
+            if (doc == null || doc.IsFamilyDocument || doc.IsLinked || !IdRulesCache.HasAny) return;
+            int n = 0;
+            lock (_lock)
+            {
+                if (!_pending.TryGetValue(doc, out var set)) _pending[doc] = set = new HashSet<long>();
+                foreach (var id in ids) { set.Add(id); n++; }
+                _fulfil.Add(doc);
+            }
+            var raised = _event?.Raise();
+            Log.Info($"[IdAutoAssign] incremental sync queued {n} changed element(s) for gap-fill; event {raised}");
         }
 
         // Forget cached state for a document (closing, or Reload Latest brought in other users' edits).
@@ -74,11 +96,15 @@ namespace ProjectPerseus.ids
         internal static void ProcessPending(UIApplication app)
         {
             Dictionary<Document, HashSet<long>> batch;
+            HashSet<Document> fulfil;
             lock (_lock)
             {
                 batch = new Dictionary<Document, HashSet<long>>(_pending);
                 _pending.Clear();
+                fulfil = new HashSet<Document>(_fulfil);
+                _fulfil.Clear();
             }
+            foreach (var d in fulfil) if (!batch.ContainsKey(d)) batch[d] = new HashSet<long>();
 
             foreach (var kv in batch)
             {
@@ -98,10 +124,11 @@ namespace ProjectPerseus.ids
                         Log.Info($"[IdAutoAssign] skipped {kv.Value.Count} element(s): no ID rules cached for {docGuid}.");
                         continue;
                     }
-                    Log.Info($"[IdAutoAssign] processing {kv.Value.Count} element(s).");
+                    Log.Info($"[IdAutoAssign] processing {kv.Value.Count} element(s){(fulfil.Contains(doc) ? " + server gap-fill requests" : "")}.");
 
                     EnsureParametersOnce(doc, docGuid, rules);
-                    IdAssigner.Run(doc, docGuid, rules, kv.Value);
+                    if (kv.Value.Count > 0) IdAssigner.Run(doc, docGuid, rules, kv.Value);
+                    if (fulfil.Contains(doc)) IdGapFiller.Fulfil(doc, docGuid, rules);
                 }
                 catch (Exception ex)
                 {

@@ -161,12 +161,17 @@ ProjectPerseus/
 │   │                             (POST /api/source/<guid>/id-claims/; only changes after the first call). A value held by
 │   │                             another element is a clash; the lower ElementId keeps it. Resolve() renumbers this user's
 │   │                             clashing elements via IdAssigner.Run(fix:) and re-checks. Snapshot() lives in IdAssigner.
+│   ├── IdGapFiller.cs            NEW. Fallback for elements Django saw without an ID (made by a user without Perseus, or
+│   │                             checked out when first seen). Fetches kind='assign_id' pending edits, runs IdAssigner on the
+│   │                             ones in this model, marks done those this user now holds; the rest stay queued.
 │   ├── ElementPosition.cs        NEW. Element position in mm (location point, wall/line midpoint, else bbox
 │   │                             centre) as a util.PositionSample, used for numbering by position.
 │   ├── RelatedValueResolver.cs   NEW. Resolves template tokens for an element: category prefix, workset,
 │   │                             and a parameter of its Level / Host / Room / Space / Type / Group.
 │   └── IdAutoAssignController.cs DocumentChanged hook -> queues added/modified ids -> raises
-│                                 queue/AssignIdsEvent. IsAssigning flag stops re-entry.
+│                                 queue/AssignIdsEvent. IsAssigning flag stops re-entry. QueueFromSync() is called by
+│                                 IncrementalSyncRunner with the change set (other users' elements) and also triggers
+│                                 IdGapFiller.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds. Fetches fresh ID rules, ensures parameters,

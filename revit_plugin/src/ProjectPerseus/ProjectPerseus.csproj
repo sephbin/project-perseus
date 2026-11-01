@@ -283,6 +283,7 @@
     <Compile Include="commands\ProjectRulesCommand.cs" />
     <Compile Include="ids\IdAssigner.cs" />
     <Compile Include="ids\IdClaims.cs" />
+    <Compile Include="ids\IdGapFiller.cs" />
     <Compile Include="queue\IdClashFixEvent.cs" />
     <Compile Include="ids\RelatedValueResolver.cs" />
     <Compile Include="ids\IdAutoAssignController.cs" />

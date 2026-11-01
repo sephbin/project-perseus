@@ -62,6 +62,19 @@ namespace ProjectPerseus.sync
                 {
                     var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
 
+                    // Elements other users created or edited since the last sync may have no architectural ID (their
+                    // Revit has no Perseus). Queue them for gap-filling on the main thread; the fill is a local edit
+                    // that reaches central and Django on this user's next sync.
+                    try
+                    {
+                        var changedIds = elementChangeSet.CreatedElements.Concat(elementChangeSet.ModifiedElements).Select(x => x.Id.Value).ToList();
+                        ProjectPerseus.ids.IdAutoAssignController.QueueFromSync(revit.Document, changedIds);
+                    }
+                    catch (Exception idEx)
+                    {
+                        Log.Warn($"PerformIncrementalSync: ID gap-fill queueing failed (non-fatal): {idEx.Message}");
+                    }
+
                     var elementDeltaList = ElementDelta.CreateListFromChangeSet(elementChangeSet, revit.Document, docGuid);
                     elementDeltaList = elementDeltaList.FilterByCategoryName(categories);
 

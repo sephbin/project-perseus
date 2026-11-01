@@ -19,6 +19,9 @@ namespace ProjectPerseus.sync
         [JsonProperty("new_value")]          public string NewValue          { get; set; }
         [JsonProperty("status")]             public string Status            { get; set; }
         [JsonProperty("edited_by")]          public string EditedBy          { get; set; }
+        [JsonProperty("kind")]               public string Kind              { get; set; }   // "value" (default) or "assign_id"
+
+        public bool IsAssignId => string.Equals(Kind, "assign_id", StringComparison.OrdinalIgnoreCase);
 
         // Populated locally by PendingEditsApplier.EnrichWithRevitValues — not from JSON.
         [JsonIgnore] public string CurrentRevitValue { get; set; }
@@ -36,7 +39,12 @@ namespace ProjectPerseus.sync
     // Used by PullWebEditsCommand (manual ribbon) and SyncOrchestrator (pre-sync prompt).
     internal static class PendingEditsApplier
     {
-        public static List<PendingEditItem> Fetch(string docGuid)
+        // Web parameter edits for the review dialog. "assign_id" requests are handled silently by IdGapFiller.
+        public static List<PendingEditItem> Fetch(string docGuid) => FetchAll(docGuid).Where(e => !e.IsAssignId).ToList();
+
+        internal static List<PendingEditItem> FetchAssignIdRequests(string docGuid) => FetchAll(docGuid).Where(e => e.IsAssignId).ToList();
+
+        private static List<PendingEditItem> FetchAll(string docGuid)
         {
             try
             {
@@ -155,7 +163,7 @@ namespace ProjectPerseus.sync
             return result;
         }
 
-        private static void MarkApplied(string docGuid, List<int> ids)
+        internal static void MarkApplied(string docGuid, List<int> ids)
         {
             try
             {
