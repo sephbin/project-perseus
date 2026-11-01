@@ -101,7 +101,7 @@ namespace ProjectPerseus
             AddButton(violationsPanel, asm, "Button_Freefall", "Freefall\nMode", "FreefallCommand", "freefall",
                 "Enable Freefall mode to bypass violation blocks for one sync. Requires confirmation. Turns off automatically after sync.");
 
-            // ---- Setup: configuration up front, rarely used tools stacked small
+            // ---- Setup: configuration up front, rarely used tools stacked small, About standalone
             RibbonPanel setupPanel = application.CreateRibbonPanel(tabName, "Setup");
             AddButton(setupPanel, asm, "Button_ProjectRules", "Project\nRules", "ProjectRulesCommand", "project_rules",
                 "View and edit this model's violation enforcement rules and source settings. Refresh to pull the latest configuration from the server.");
@@ -110,13 +110,14 @@ namespace ProjectPerseus
 
             var stacked = setupPanel.AddStackedItems(
                 MakeData(asm, "Button_ResetGuid", "Reset Identity", "ResetModelGuidCommand"),
-                MakeData(asm, "Button_DiagnoseElement", "Diagnose Elements", "DiagnoseElementCommand"),
-                MakeData(asm, "Button_About", "About", "AboutCommand"));
+                MakeData(asm, "Button_DiagnoseElement", "Diagnose Elements", "DiagnoseElementCommand"));
             StyleButton(stacked[0] as PushButton, "reset_identity",
                 "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.");
             StyleButton(stacked[1] as PushButton, "diagnose",
                 "Enter element IDs to run a full diagnostic from the plugin's perspective and write results to the log file.");
-            StyleButton(stacked[2] as PushButton, "about", $"Project Perseus v{version} — click to view version info");
+
+            AddButton(setupPanel, asm, "Button_About", "About\nPerseus", "AboutCommand", "about",
+                $"Project Perseus v{version} — click to view version info");
         }
 
         private static PushButtonData MakeData(string asm, string name, string text, string command)
