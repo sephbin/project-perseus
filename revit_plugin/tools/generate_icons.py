@@ -152,38 +152,6 @@ def _diag():
             + _tongue(tip, tg, 0.8))
 ICONS["diagnose"] = _diag()
 
-def _medusa():
-    cx, cy, rx, ry = 16, 19.5, 6.4, 7.6          # face
-    out = []
-    # (angle on scalp deg, length, wiggle amplitude, curl)  angles: screen coords, -90 = straight up
-    hair = [(-90, 9.0, 1.5, 0.0), (-118, 9.5, 1.5, 0.0), (-62, 9.5, -1.5, 0.0),
-            (-146, 9.0, 1.4, 0.0), (-34, 9.0, -1.4, 0.0), (180, 6.5, 1.0, 3.5), (0, 6.5, -1.0, -3.5)]
-    for ang, L, amp, curl in hair:
-        a = math.radians(ang)
-        bx, by = cx + (rx-1.0)*math.cos(a), cy + (ry-1.0)*math.sin(a)
-        dx, dy = math.cos(a), math.sin(a); nx, ny = -dy, dx
-        N = 40
-        pts = []
-        for k in range(N+1):
-            u = k/N
-            off = amp*math.sin(2*math.pi*1.5*u)*min(1, u*3) + curl*u*u
-            pts.append((bx + dx*L*u + nx*off, by + dy*L*u + ny*off))
-        d, tip, tg, last, nr, h = _snake(pts, lambda t: 0.1 + 0.55*_sm(t/0.25), cap=1.1)
-        out.append('<path d="%s" fill="{a}" stroke="{a}" stroke-width=".3"/>' % d)
-        out.append(_tongue(tip, tg, 0.6, 1.0, 0.9))
-    out.append('<path d="M%.1f %.1fC%.1f %.1f %.1f %.1f %.1f %.1f C%.1f %.1f %.1f %.1f %.1f %.1f" fill="{bg}" stroke="{i}" stroke-width="1.8"/>'
-               % (cx-rx, cy-1, cx-rx, cy+ry*0.7, cx-2.5, cy+ry, cx, cy+ry,
-                  cx+2.5, cy+ry, cx+rx, cy+ry*0.7, cx+rx, cy-1))
-    out.append('<path d="M%.1f %.1fC%.1f %.1f %.1f %.1f %.1f %.1f" fill="{bg}" stroke="{i}" stroke-width="2"/>'
-               % (cx+rx, cy-1, cx+rx, cy-ry*0.9, cx-rx, cy-ry*0.9, cx-rx, cy-1))
-    out.append('<path d="M11.6 17.2l3.2 1M20.4 17.2l-3.2 1" fill="none" stroke="{w}" stroke-width="1.5"/>')   # stern eyes
-    out.append('<path d="M16 19.5v3.200" fill="none" stroke="{i}" stroke-width="1.3"/>')       # nose
-    out.append('<path d="M14 24.500h4" fill="none" stroke="{i}" stroke-width="1.4"/>')                 # mouth
-    return "".join(out)
-ICONS["about"] = _medusa()
-
-ICONS["about"] = _medusa()
-
 GROUPS = [
     ("Sync",         ["upload", "pull_edits"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
