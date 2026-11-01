@@ -9,6 +9,30 @@ namespace ProjectPerseus.ui
 {
     internal static class ThemeIconManager
     {
+        // Revit does not scale ribbon images: it shows them at their natural size in device-independent
+        // pixels and crops anything larger than 32x32 (large) / 16x16 (small). The source PNGs carry no
+        // DPI, so a 64px decode would read as 64 DIP and be cropped. Stamping 192 DPI makes 64px read as
+        // 32 DIP (and 32px as 16 DIP) while keeping 2x pixels for crisp high-DPI rendering.
+        private const double RibbonImageDpi = 192.0;
+
+        private static BitmapSource DecodeAtDpi(Uri uri, int decodeWidth)
+        {
+            var img = new BitmapImage();
+            img.BeginInit();
+            img.UriSource = uri;
+            img.DecodePixelWidth = decodeWidth;
+            img.CacheOption = BitmapCacheOption.OnLoad;
+            img.EndInit();
+
+            int stride = (img.PixelWidth * img.Format.BitsPerPixel + 7) / 8;
+            var pixels = new byte[stride * img.PixelHeight];
+            img.CopyPixels(pixels, stride, 0);
+            var result = BitmapSource.Create(img.PixelWidth, img.PixelHeight, RibbonImageDpi, RibbonImageDpi,
+                img.Format, img.Palette, pixels, stride);
+            result.Freeze();
+            return result;
+        }
+
 #if REVIT2024_OR_GREATER
         private class IconEntry
         {
@@ -69,7 +93,7 @@ namespace ProjectPerseus.ui
         private const int LargeDecodeWidth = 64;
         private const int SmallDecodeWidth = 32;
 
-        private static BitmapImage LoadIcon(string baseName, bool isDark, int decodeWidth)
+        private static BitmapSource LoadIcon(string baseName, bool isDark, int decodeWidth)
         {
             if (isDark)
             {
@@ -85,17 +109,11 @@ namespace ProjectPerseus.ui
             return new Uri($"pack://application:,,,/ProjectPerseus;component/resources/{name}.png");
         }
 
-        private static BitmapImage TryLoad(Uri uri, int decodeWidth)
+        private static BitmapSource TryLoad(Uri uri, int decodeWidth)
         {
             try
             {
-                var img = new BitmapImage();
-                img.BeginInit();
-                img.UriSource = uri;
-                img.DecodePixelWidth = decodeWidth;
-                img.CacheOption = BitmapCacheOption.OnLoad;
-                img.EndInit();
-                return img;
+                return DecodeAtDpi(uri, decodeWidth);
             }
             catch (IOException)
             {
@@ -116,14 +134,8 @@ namespace ProjectPerseus.ui
             try
             {
                 var uri = new Uri($"pack://application:,,,/ProjectPerseus;component/resources/{baseName}.png");
-                var img = new BitmapImage();
-                img.BeginInit();
-                img.UriSource = uri;
-                img.DecodePixelWidth = 64;
-                img.CacheOption = BitmapCacheOption.OnLoad;
-                img.EndInit();
-                button.LargeImage = img;
-                button.Image = img;
+                button.LargeImage = DecodeAtDpi(uri, 64);
+                button.Image = DecodeAtDpi(uri, 32);
             }
             catch (Exception ex)
             {
