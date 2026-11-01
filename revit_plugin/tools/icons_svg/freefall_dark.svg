@@ -7,5 +7,6 @@
 <path d="M9.200 10v5c0 3 1.200 5.500 3 7.500" fill="none" stroke="#fff" stroke-width="1.500" opacity=".8"/>
 <path d="M16 9.5v7" fill="none" stroke="#ff4fae" stroke-width="2.4"/>
 <circle cx="16" cy="21" r="1.4" fill="#ff4fae" stroke="none"/>
+<!-- crack --><path d="M24 6.4L20.6 11.2L22.8 14.2L19.4 19L21 22L17.6 26.4" fill="none" stroke="#e3e9f5" stroke-width="1.5"/><path d="M24.6 7.2L21.4 11.6L23.6 14.4L20.2 19.2L21.8 22.2" fill="none" stroke="#ffffff" stroke-width=".7" opacity=".85"/><path d="M20.6 11.2L24.6 11.6M19.4 19L17.8 19.6" fill="none" stroke="#e3e9f5" stroke-width="1.1"/>
 <path d="M26 1.5c.3 3 1.2 3.9 4.2 4.2-3 .3-3.9 1.2-4.2 4.2-.3-3-1.2-3.9-4.2-4.2 3-.3 3.9-1.2 4.2-4.2z" fill="#ffffff" stroke="#3cc8ff" stroke-width="1"/>
 <path d="M5 22c.2 1.6.7 2.1 2.3 2.3-1.6.2-2.1.7-2.3 2.3-.2-1.6-.7-2.1-2.3-2.3 1.6-.2 2.1-.7 2.3-2.3z" fill="#ffffff" stroke="#3cc8ff" stroke-width=".8"/></svg>
