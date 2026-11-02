@@ -21,16 +21,22 @@ namespace ProjectPerseus.ids
             var requests = PendingEditsApplier.FetchAssignIdRequests(docGuid);
             if (requests.Count == 0) return;
 
+            // Django queues anything its rules cover, but only model elements the rules apply to can ever take an
+            // ID (annotations, worksets, deleted elements, other categories never can). Those are dismissed so
+            // they stop coming back; the rest are attempted.
             var byId = new Dictionary<long, PendingEditItem>();
+            var dismiss = new List<int>();
             foreach (var req in requests)
             {
                 var el = doc.GetElement(req.ElementUniqueId);
-                if (el != null) byId[el.Id.GetIdValue()] = req; // not in this local model yet -> stays queued
+                if (el == null || !IdAssigner.IsEligible(el) || !IdAssigner.IsApplicable(rules, el)) dismiss.Add(req.Id);
+                else byId[el.Id.GetIdValue()] = req;
             }
+            if (dismiss.Count > 0) PendingEditsApplier.MarkApplied(docGuid, dismiss, "dismissed");
             if (byId.Count == 0) return;
 
             var run = IdAssigner.Run(doc, docGuid, rules, byId.Keys.ToList());
-            Log.Info($"[IdGapFiller] {requests.Count} server request(s), {byId.Count} in model, assigned {run.Assigned}, not owned {run.SkippedNotOwned}");
+            Log.Info($"[IdGapFiller] {requests.Count} server request(s), {dismiss.Count} dismissed (not fillable), {byId.Count} attempted, assigned {run.Assigned}, not owned {run.SkippedNotOwned}");
             if (run.RolledBack || run.Errors > 0) return;
 
             // Done once this user holds the element (we wrote it) or the model isn't workshared. Anything else is

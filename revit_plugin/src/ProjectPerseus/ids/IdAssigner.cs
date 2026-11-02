@@ -554,7 +554,12 @@ namespace ProjectPerseus.ids
         private static IEnumerable<Element> Collect(Document doc) =>
             new FilteredElementCollector(doc).WhereElementIsNotElementType().ToElements().Where(IsEligible);
 
-        private static bool IsEligible(Element e) =>
+        /// <summary>True when at least one of the Perseus_ID / ID rules covers this element's category.</summary>
+        internal static bool IsApplicable(IdRulesDto rules, Element el) =>
+            el.Category != null &&
+            (rules.PerseusId.AppliesTo(el.Category.Name) || rules.Rules.Any(r => r.Enabled && Applies(r, el)));
+
+        internal static bool IsEligible(Element e) =>
             e != null && e.IsValidObject && !(e is ElementType) &&
             e.Category != null && e.Category.CategoryType == CategoryType.Model && e.Category.AllowsBoundParameters;
     }

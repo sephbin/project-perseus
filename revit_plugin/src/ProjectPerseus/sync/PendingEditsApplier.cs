@@ -163,14 +163,14 @@ namespace ProjectPerseus.sync
             return result;
         }
 
-        internal static void MarkApplied(string docGuid, List<int> ids)
+        internal static void MarkApplied(string docGuid, List<int> ids, string status = "applied")
         {
             try
             {
                 var endpoint = $"{Config.Instance.BaseUrl.TrimEnd('/')}/source/{docGuid}/pending-edits/mark-applied/";
-                var payload  = JsonConvert.SerializeObject(new { ids });
+                var payload  = JsonConvert.SerializeObject(new { ids, status });
                 WebHelper.Post(endpoint, AuthService.GetAuthTokenSafely(), payload);
-                Log.Info($"PendingEditsApplier: marked {ids.Count} edit(s) applied.");
+                Log.Info($"PendingEditsApplier: marked {ids.Count} edit(s) {status}.");
             }
             catch (Exception ex)
             {
