@@ -48,7 +48,7 @@ namespace ProjectPerseus.sync
         {
             try
             {
-                var endpoint = $"{Config.Instance.BaseUrl.TrimEnd('/')}/source/{docGuid}/pending-edits/";
+                var endpoint = $"{Config.Instance.BaseUrl.TrimEnd('/')}/source/{docGuid}/pending-edits/?kinds=all"; // without kinds=all the server withholds assign_id requests (older clients can't handle them)
                 string json  = WebHelper.Get(endpoint, AuthService.GetAuthTokenSafely(), null);
                 return JsonConvert.DeserializeObject<List<PendingEditItem>>(json) ?? new List<PendingEditItem>();
             }
