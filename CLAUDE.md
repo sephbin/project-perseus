@@ -273,10 +273,13 @@ ProjectPerseus/
 │   │                             updated live via UIApplication.SelectionChanged. Double-click any row
 │   │                             to select + zoom to the element in Revit. Static Instance prevents
 │   │                             multiple open instances.
-│   ├── OwnershipForm.cs          NEW (2026-11-05). Modeless WinForms panel: per-user summary (elements borrowed, worksets
-│   │                             owned), then Elements / Worksets tabs for the selected user. Double-click selects + zooms.
-│   │                             Refresh and "Relinquish mine" buttons. Live: OwnershipTracker pushes each recount (Push), and
-│   │                             grids redraw only when ownership changed (signature), keeping selection/scroll. API work via
+│   ├── OwnershipForm.cs          NEW (2026-11-05). Modeless panel laid out as a narrow column (like Revit's Properties
+│   │                             palette; reads at 1/4-1/5 screen width): title, "You own N", Refresh / Relinquish mine,
+│   │                             compact per-user table (User | Elements | Worksets, "All users" row), then a TreeView of
+│   │                             the selected user's Worksets + elements grouped by category. Double-click an element or
+│   │                             right-click a group to select + zoom. Opens down the right of the Revit window; size/position
+│   │                             remembered per session. Live: OwnershipTracker pushes each recount (Push); redraws only when
+│   │                             ownership changed (signature), keeping selection, expanded groups and scroll. API work via
 │   │                             queue/OwnershipUiEvent.
 │   ├── OwnershipBadge.cs         NEW (2026-11-05). Borderless, non-activating WPF pill (PerseusCyan #00A0E0) owned by the
 │   │                             Revit main window; shows the count of elements the user owns. Click opens OwnershipForm.

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -13,33 +14,42 @@ using ProjectPerseus.queue;
 namespace ProjectPerseus.ui
 {
     /// <summary>
-    /// Modeless panel showing who owns what in the active workshared model: a summary per user (elements borrowed,
-    /// worksets owned), and below it the elements and worksets of the selected user. Double-click an element to
-    /// select and zoom to it. All Revit API work goes through OwnershipUiEvent because the form has no API context.
+    /// Modeless ownership panel, laid out as a narrow column (like Revit's Properties palette) so it reads well at a
+    /// quarter or a fifth of the screen width. Top to bottom: who you are and what you hold, Refresh / Relinquish,
+    /// a compact per-user summary, then a tree of the selected user's worksets and elements grouped by category.
+    /// Double-click an element (or right-click any group) to select and zoom to it in Revit. Kept current by
+    /// OwnershipTracker (Push). All Revit API work goes through OwnershipUiEvent because the form has no API context.
     /// </summary>
     public class OwnershipForm : System.Windows.Forms.Form
     {
         public static OwnershipForm Instance { get; private set; }
 
-        private const string AllUsers = "(All users)";
+        private const string AllUsers = "All users";
         private static readonly System.Drawing.Color Cyan = System.Drawing.Color.FromArgb(0x00, 0xA0, 0xE0);
+        private static readonly System.Drawing.Color Muted = System.Drawing.Color.FromArgb(0x6B, 0x75, 0x85);
+        private const int AutoExpandLimit = 40; // expand every group when the tree holds this few elements
+
+        // Size and position survive closing and reopening within the session.
+        private static System.Drawing.Rectangle? _lastBounds;
 
         private OwnershipSnapshot _snap;
         private string _signature;
-        private Label _info;
+
+        private Label _title;
+        private Label _summary;
         private DataGridView _owners;
-        private DataGridView _elements;
-        private DataGridView _worksets;
-        private TabPage _elementsTab;
-        private TabPage _worksetsTab;
-        private Button _refresh;
-        private Button _relinquish;
+        private Label _listHeading;
+        private TreeView _tree;
+        private Label _footnote;
+        private TableLayoutPanel _layout;
+        private Font _leafFont;
 
         public OwnershipForm(OwnershipSnapshot snapshot)
         {
             Instance = this;
             BuildUI();
             ShowSnapshot(snapshot);
+            FormClosing += (s, e) => _lastBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
             FormClosed += (s, e) => { if (Instance == this) Instance = null; };
         }
 
@@ -63,6 +73,7 @@ namespace ProjectPerseus.ui
                 return;
             }
             var form = new OwnershipForm(snap);
+            form.PlaceBesideRevit(app.MainWindowHandle);
             form.Show(new RevitWindow(app.MainWindowHandle));
         }
 
@@ -78,7 +89,7 @@ namespace ProjectPerseus.ui
 
         /// <summary>
         /// Shows a fresh scan if the panel is open (OwnershipTracker calls this on every recount while it is). The
-        /// grids are only rebuilt when ownership actually changed, keeping the user's selection and scroll position.
+        /// lists are only rebuilt when ownership actually changed, keeping selection, expanded groups and scroll.
         /// </summary>
         internal static void Push(OwnershipSnapshot snap)
         {
@@ -88,88 +99,158 @@ namespace ProjectPerseus.ui
             catch (Exception ex) { Log.Warn($"[OwnershipForm] refresh failed: {ex.Message}"); }
         }
 
+        // ── Layout ──────────────────────────────────────────────────────────────
+
         private void BuildUI()
         {
-            Text = "Perseus — Element Ownership";
-            Size = new Size(900, 680);
-            MinimumSize = new Size(620, 460);
+            Text = "Perseus — Ownership";
+            Font = new Font("Segoe UI", 9f);
+            Size = new Size(340, 760);
+            MinimumSize = new Size(240, 420);
             StartPosition = FormStartPosition.Manual;
-            Location = new System.Drawing.Point(120, 120);
             FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            ShowInTaskbar = false;
 
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1, Padding = new Padding(6) };
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 35));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 65));
-            Controls.Add(layout);
+            _layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(8, 6, 8, 6) };
+            _layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            _layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // title
+            _layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // your summary
+            _layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // buttons
+            _layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 120)); // users (resized to fit its rows)
+            _layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // list heading
+            _layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // tree
+            _layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // footnote
+            Controls.Add(_layout);
 
-            // Header: info text + buttons.
-            var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, AutoSize = true };
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            _info = new Label { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(0, 6, 0, 6) };
-            _refresh = new Button { Text = "Refresh", AutoSize = true };
-            _relinquish = new Button { Text = "Relinquish mine", AutoSize = true };
-            new ToolTip().SetToolTip(_relinquish,
-                "Give back the elements and worksets you own that have no unsynced changes. Elements you have edited " +
-                "stay yours until you sync.");
-            _refresh.Click += (s, e) => OwnershipUiEvent.Run(app => RefreshIfOpen(app));
-            _relinquish.Click += (s, e) => OwnershipUiEvent.Run(RelinquishMine);
-            header.Controls.Add(_info, 0, 0);
-            header.Controls.Add(_refresh, 1, 0);
-            header.Controls.Add(_relinquish, 2, 0);
-            layout.Controls.Add(header, 0, 0);
+            _title = WrapLabel(new Font(Font.FontFamily, 10f, FontStyle.Bold), SystemColors.ControlText);
+            _summary = WrapLabel(Font, Cyan);
+            _summary.Font = new Font(Font, FontStyle.Bold);
 
-            _owners = CreateGrid();
-            _owners.Columns.Add(new DataGridViewTextBoxColumn { Name = "Owner", HeaderText = "User", FillWeight = 50 });
-            _owners.Columns.Add(new DataGridViewTextBoxColumn { Name = "Elements", HeaderText = "Elements borrowed", FillWeight = 25 });
-            _owners.Columns.Add(new DataGridViewTextBoxColumn { Name = "Worksets", HeaderText = "Worksets owned", FillWeight = 25 });
-            _owners.SelectionChanged += (s, e) => FillDetail();
-            layout.Controls.Add(_owners, 0, 1);
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Margin = new Padding(0, 2, 0, 6) };
+            var refresh = new Button { Text = "Refresh", AutoSize = true, Margin = new Padding(0, 0, 6, 0) };
+            var relinquish = new Button { Text = "Relinquish mine", AutoSize = true, Margin = new Padding(0) };
+            new ToolTip().SetToolTip(relinquish,
+                "Give back the elements and worksets you own that have no unsynced changes.\n" +
+                "Elements you have edited stay yours until you sync.");
+            refresh.Click += (s, e) => OwnershipUiEvent.Run(app => RefreshIfOpen(app));
+            relinquish.Click += (s, e) => OwnershipUiEvent.Run(RelinquishMine);
+            buttons.Controls.Add(refresh);
+            buttons.Controls.Add(relinquish);
 
-            var tabs = new TabControl { Dock = DockStyle.Fill };
-            _elementsTab = new TabPage("Elements");
-            _elements = CreateGrid();
-            _elements.Columns.Add(new DataGridViewTextBoxColumn { Name = "Owner", HeaderText = "Owner", FillWeight = 16 });
-            _elements.Columns.Add(new DataGridViewTextBoxColumn { Name = "Id", HeaderText = "Element Id", FillWeight = 10 });
-            _elements.Columns.Add(new DataGridViewTextBoxColumn { Name = "Category", HeaderText = "Category", FillWeight = 18 });
-            _elements.Columns.Add(new DataGridViewTextBoxColumn { Name = "Name", HeaderText = "Name", FillWeight = 36 });
-            _elements.Columns.Add(new DataGridViewTextBoxColumn { Name = "Workset", HeaderText = "Workset", FillWeight = 20 });
-            _elements.MultiSelect = true;
-            _elements.CellDoubleClick += OnElementDoubleClick;
-            _elementsTab.Controls.Add(_elements);
-            tabs.TabPages.Add(_elementsTab);
+            _owners = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                RowHeadersVisible = false,
+                BorderStyle = BorderStyle.FixedSingle,
+                BackgroundColor = SystemColors.Window,
+                CellBorderStyle = DataGridViewCellBorderStyle.None,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+                ColumnHeadersHeight = 22,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
+                Margin = new Padding(0, 0, 0, 8),
+            };
+            _owners.RowTemplate.Height = 22;
+            _owners.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "Owner", HeaderText = "User", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            });
+            _owners.Columns.Add(NumberColumn("Elements", "Elements"));
+            _owners.Columns.Add(NumberColumn("Worksets", "Worksets"));
+            _owners.SelectionChanged += (s, e) => FillTree();
 
-            _worksetsTab = new TabPage("Worksets");
-            _worksets = CreateGrid();
-            _worksets.Columns.Add(new DataGridViewTextBoxColumn { Name = "Owner", HeaderText = "Owner", FillWeight = 25 });
-            _worksets.Columns.Add(new DataGridViewTextBoxColumn { Name = "Workset", HeaderText = "Workset", FillWeight = 50 });
-            _worksets.Columns.Add(new DataGridViewTextBoxColumn { Name = "Kind", HeaderText = "Kind", FillWeight = 25 });
-            _worksetsTab.Controls.Add(_worksets);
-            tabs.TabPages.Add(_worksetsTab);
-            layout.Controls.Add(tabs, 0, 2);
+            _listHeading = WrapLabel(new Font(Font, FontStyle.Bold), SystemColors.ControlText);
+
+            _tree = new TreeView
+            {
+                Dock = DockStyle.Fill,
+                HideSelection = false,
+                ShowNodeToolTips = true,
+                FullRowSelect = true,
+                ShowLines = false,
+                ItemHeight = 20,
+                BorderStyle = BorderStyle.FixedSingle,
+                // Bold tree font: WinForms clips node text drawn wider than the tree font, so group nodes use the
+                // tree's bold font and leaves get the narrower regular LeafFont.
+                Font = new Font(Font, FontStyle.Bold),
+            };
+            _leafFont = new Font(Font, FontStyle.Regular);
+            _tree.NodeMouseDoubleClick += (s, e) => { if (e.Node.Tag is OwnershipSnapshot.ElementRow) SelectInRevit(e.Node); };
+            _tree.NodeMouseClick += (s, e) => { if (e.Button == MouseButtons.Right) _tree.SelectedNode = e.Node; };
+            _tree.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter && _tree.SelectedNode != null) SelectInRevit(_tree.SelectedNode); };
+            var menu = new ContextMenuStrip();
+            menu.Items.Add("Select and zoom in Revit", null, (s, e) => { if (_tree.SelectedNode != null) SelectInRevit(_tree.SelectedNode); });
+            _tree.ContextMenuStrip = menu;
+
+            _footnote = WrapLabel(new Font(Font.FontFamily, 8f), Muted);
+            _footnote.Margin = new Padding(0, 6, 0, 0);
+
+            _layout.Controls.Add(_title, 0, 0);
+            _layout.Controls.Add(_summary, 0, 1);
+            _layout.Controls.Add(buttons, 0, 2);
+            _layout.Controls.Add(_owners, 0, 3);
+            _layout.Controls.Add(_listHeading, 0, 4);
+            _layout.Controls.Add(_tree, 0, 5);
+            _layout.Controls.Add(_footnote, 0, 6);
+
+            // Wrapping labels need a maximum width that follows the panel width.
+            Resize += (s, e) => FitLabels();
+            FitLabels();
         }
 
-        private static DataGridView CreateGrid() => new DataGridView
+        private static DataGridViewTextBoxColumn NumberColumn(string name, string header) => new DataGridViewTextBoxColumn
         {
-            Dock = DockStyle.Fill,
-            ReadOnly = true,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
-            RowHeadersVisible = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            Name = name,
+            HeaderText = header,
+            Width = 62,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+            DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleRight },
+            HeaderCell = { Style = { Alignment = DataGridViewContentAlignment.MiddleRight } },
         };
+
+        private static Label WrapLabel(Font font, System.Drawing.Color color) => new Label
+        {
+            AutoSize = true,
+            Font = font,
+            ForeColor = color,
+            Margin = new Padding(0, 0, 0, 4),
+        };
+
+        private void FitLabels()
+        {
+            int width = Math.Max(120, ClientSize.Width - _layout.Padding.Horizontal - 4);
+            foreach (var l in new[] { _title, _summary, _listHeading, _footnote })
+                l.MaximumSize = new Size(width, 0);
+        }
+
+        // First open: a column down the right-hand side of the Revit window, below the ribbon, a fifth of its width.
+        private void PlaceBesideRevit(IntPtr revit)
+        {
+            if (_lastBounds.HasValue) { Bounds = _lastBounds.Value; return; }
+            if (!GetWindowRect(revit, out RECT r)) { Location = new System.Drawing.Point(120, 120); return; }
+            int width = Math.Max(300, Math.Min(460, (r.Right - r.Left) / 5));
+            int top = r.Top + 170;
+            int height = Math.Max(MinimumSize.Height, r.Bottom - top - 60);
+            Bounds = new System.Drawing.Rectangle(r.Right - width - 24, top, width, height);
+        }
+
+        // ── Content ─────────────────────────────────────────────────────────────
 
         private void ShowSnapshot(OwnershipSnapshot snap)
         {
             int mine = snap.Elements.Count(e => OwnershipScanner.SameUser(e.Owner, snap.CurrentUser));
-            _info.Text = $"{snap.DocumentTitle} — you are {snap.CurrentUser}, borrowing {mine} element(s).  " +
-                         $"As of {snap.TakenAt:HH:mm:ss}; other users' ownership is what Revit knew at your last sync or Reload Latest.";
+            int myWorksets = snap.Worksets.Count(w => OwnershipScanner.SameUser(w.Owner, snap.CurrentUser));
+            _title.Text = snap.DocumentTitle;
+            _summary.Text = $"You ({snap.CurrentUser}) own {Plural(mine, "element")}" +
+                            (myWorksets > 0 ? $" and {Plural(myWorksets, "workset")}" : "");
+            _footnote.Text = $"Updated {snap.TakenAt:HH:mm:ss}. Other users' ownership is as of your last sync or Reload Latest.";
 
-            // Nothing changed since the last scan: leave the grids alone (no flicker, selection untouched).
+            // Nothing changed since the last scan: leave the lists alone (no flicker, selection untouched).
             string signature = Signature(snap);
             if (_snap != null && signature == _signature) { _snap = snap; return; }
             _signature = signature;
@@ -182,7 +263,6 @@ namespace ProjectPerseus.ui
                 .ToList();
 
             _owners.Rows.Clear();
-            AddOwnerRow(AllUsers, snap.Elements.Count, snap.Worksets.Count, false);
             foreach (var u in users)
             {
                 AddOwnerRow(u,
@@ -190,26 +270,176 @@ namespace ProjectPerseus.ui
                     snap.Worksets.Count(w => OwnershipScanner.SameUser(w.Owner, u)),
                     OwnershipScanner.SameUser(u, snap.CurrentUser));
             }
+            if (users.Count > 1) AddOwnerRow(AllUsers, snap.Elements.Count, snap.Worksets.Count, false, muted: true);
+
+            // Show every user row up to 6, then scroll.
+            int rows = Math.Max(1, Math.Min(6, _owners.Rows.Count));
+            _layout.RowStyles[3].Height = _owners.ColumnHeadersHeight + rows * _owners.RowTemplate.Height + 3 + _owners.Margin.Vertical;
 
             // Keep the previous selection; default to the current user.
-            string target = selected ?? (users.Any(u => OwnershipScanner.SameUser(u, snap.CurrentUser)) ? snap.CurrentUser : AllUsers);
+            string target = selected ?? (users.Any(u => OwnershipScanner.SameUser(u, snap.CurrentUser)) ? snap.CurrentUser : users.FirstOrDefault());
+            _owners.ClearSelection();
             foreach (DataGridViewRow row in _owners.Rows)
-                row.Selected = OwnershipScanner.SameUser((string)row.Tag, target);
+                if (OwnershipScanner.SameUser((string)row.Tag, target)) { row.Selected = true; break; }
             if (_owners.SelectedRows.Count == 0 && _owners.Rows.Count > 0) _owners.Rows[0].Selected = true;
-            FillDetail();
+            FillTree();
         }
 
-        private void AddOwnerRow(string owner, int elements, int worksets, bool isMe)
+        private void AddOwnerRow(string owner, int elements, int worksets, bool isMe, bool muted = false)
         {
-            int i = _owners.Rows.Add(isMe ? owner + "  (you)" : owner, elements, worksets);
+            int i = _owners.Rows.Add(owner, elements, worksets);
             var row = _owners.Rows[i];
             row.Tag = owner;
             if (isMe)
             {
                 row.DefaultCellStyle.Font = new Font(_owners.Font, FontStyle.Bold);
                 row.Cells["Owner"].Style.ForeColor = Cyan;
+                row.Cells["Owner"].ToolTipText = "You";
+            }
+            else if (muted)
+            {
+                row.DefaultCellStyle.ForeColor = Muted;
             }
         }
+
+        private string SelectedOwner() =>
+            _owners.SelectedRows.Count > 0 ? _owners.SelectedRows[0].Tag as string : null;
+
+        // Tree for the selected user: Worksets, then one group per category. "All users" adds a user level on top.
+        private void FillTree()
+        {
+            if (_snap == null) return;
+            string owner = SelectedOwner();
+            bool all = owner == null || owner == AllUsers;
+
+            var elements = _snap.Elements.Where(e => all || OwnershipScanner.SameUser(e.Owner, owner)).ToList();
+            var worksets = _snap.Worksets.Where(w => all || OwnershipScanner.SameUser(w.Owner, owner)).ToList();
+            _listHeading.Text = all
+                ? $"Everyone: {Plural(elements.Count, "element")}, {Plural(worksets.Count, "workset")}"
+                : $"{(OwnershipScanner.SameUser(owner, _snap.CurrentUser) ? "Yours" : owner)}: " +
+                  $"{Plural(elements.Count, "element")}, {Plural(worksets.Count, "workset")}";
+
+            // Remember what was open, selected and scrolled to.
+            var expanded = new HashSet<string>(AllNodes(_tree.Nodes).Where(n => n.IsExpanded).Select(n => n.Name));
+            string selectedKey = _tree.SelectedNode?.Name;
+            string topKey = _tree.TopNode?.Name;
+            bool firstFill = _tree.Nodes.Count == 0 && expanded.Count == 0;
+
+            _tree.BeginUpdate();
+            try
+            {
+                _tree.Nodes.Clear();
+                if (elements.Count == 0 && worksets.Count == 0)
+                {
+                    _tree.Nodes.Add(new TreeNode("Nothing owned") { ForeColor = Muted, NodeFont = _leafFont });
+                }
+                else if (all)
+                {
+                    var users = elements.Select(e => e.Owner).Concat(worksets.Select(w => w.Owner))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(u => OwnershipScanner.SameUser(u, _snap.CurrentUser) ? 0 : 1).ThenBy(u => u, StringComparer.OrdinalIgnoreCase);
+                    foreach (var u in users)
+                    {
+                        var mineE = elements.Where(e => OwnershipScanner.SameUser(e.Owner, u)).ToList();
+                        var mineW = worksets.Where(w => OwnershipScanner.SameUser(w.Owner, u)).ToList();
+                        bool isMe = OwnershipScanner.SameUser(u, _snap.CurrentUser);
+                        var userNode = new TreeNode($"{u}{(isMe ? " (you)" : "")}   {mineE.Count}")
+                        {
+                            Name = "u:" + u.ToLowerInvariant(),
+                            ForeColor = isMe ? Cyan : SystemColors.ControlText,
+                        };
+                        AddGroups(userNode.Nodes, userNode.Name, mineE, mineW);
+                        _tree.Nodes.Add(userNode);
+                    }
+                }
+                else
+                {
+                    AddGroups(_tree.Nodes, "u:" + owner.ToLowerInvariant(), elements, worksets);
+                }
+
+                bool expandAll = firstFill && elements.Count <= AutoExpandLimit;
+                foreach (var n in AllNodes(_tree.Nodes))
+                {
+                    if (n.Nodes.Count == 0) continue;
+                    bool isUser = n.Name.StartsWith("u:", StringComparison.Ordinal) && n.Parent == null;
+                    if (expanded.Contains(n.Name) || expandAll || (firstFill && isUser)) n.Expand();
+                }
+                var sel = Find(selectedKey);
+                if (sel != null) _tree.SelectedNode = sel;
+                var top = Find(topKey);
+                if (top != null) _tree.TopNode = top;
+            }
+            finally
+            {
+                _tree.EndUpdate();
+            }
+        }
+
+        private void AddGroups(TreeNodeCollection into, string prefix, List<OwnershipSnapshot.ElementRow> elements,
+                               List<OwnershipSnapshot.WorksetRow> worksets)
+        {
+            if (worksets.Count > 0)
+            {
+                var group = new TreeNode($"Worksets   {worksets.Count}") { Name = prefix + "|ws" };
+                foreach (var w in worksets.OrderBy(w => w.Name))
+                    group.Nodes.Add(new TreeNode(w.Name)
+                    {
+                        Name = prefix + "|ws|" + w.Name,
+                        NodeFont = _leafFont,
+                        ToolTipText = $"{w.Kind} workset, owned by {w.Owner}.\nEvery element on it is editable only by {w.Owner}.",
+                    });
+                into.Add(group);
+            }
+
+            foreach (var cat in elements.GroupBy(e => e.Category).OrderBy(g => g.Key))
+            {
+                var group = new TreeNode($"{cat.Key}   {cat.Count()}")
+                {
+                    Name = prefix + "|c|" + cat.Key,
+                    Tag = cat.ToList(),
+                    ToolTipText = "Right-click to select all of these in Revit.",
+                };
+                foreach (var e in cat.OrderBy(x => ShortName(x)).ThenBy(x => x.Id))
+                {
+                    string name = string.IsNullOrEmpty(e.Name) ? e.Category : e.Name;
+                    group.Nodes.Add(new TreeNode($"{ShortName(e)}  ·  {e.Id}")
+                    {
+                        Name = "e:" + e.Id,
+                        Tag = e,
+                        NodeFont = _leafFont,
+                        ToolTipText = $"{name}\nElement Id {e.Id}\nWorkset: {(string.IsNullOrEmpty(e.Workset) ? "—" : e.Workset)}\n" +
+                                      $"Owner: {e.Owner}\nDouble-click to select and zoom.",
+                    });
+                }
+                into.Add(group);
+            }
+        }
+
+        // "Basic Wall: Interior - 110 Partition" -> "Interior - 110 Partition"; the full name is in the tooltip.
+        private static string ShortName(OwnershipSnapshot.ElementRow e)
+        {
+            string name = string.IsNullOrEmpty(e.Name) ? e.Category : e.Name;
+            int colon = name.IndexOf(": ", StringComparison.Ordinal);
+            return colon > 0 && colon + 2 < name.Length ? name.Substring(colon + 2) : name;
+        }
+
+        private TreeNode Find(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            var hits = _tree.Nodes.Find(key, true);
+            return hits.Length > 0 ? hits[0] : null;
+        }
+
+        private static IEnumerable<TreeNode> AllNodes(TreeNodeCollection nodes)
+        {
+            foreach (TreeNode n in nodes)
+            {
+                yield return n;
+                foreach (var c in AllNodes(n.Nodes)) yield return c;
+            }
+        }
+
+        private static string Plural(int n, string word) => $"{n:N0} {word}{(n == 1 ? "" : "s")}";
 
         // Identifies who owns what, so a rescan that found the same ownership can skip redrawing.
         private static string Signature(OwnershipSnapshot snap)
@@ -221,59 +451,26 @@ namespace ProjectPerseus.ui
             return sb.ToString();
         }
 
-        private string SelectedOwner() =>
-            _owners.SelectedRows.Count > 0 ? _owners.SelectedRows[0].Tag as string : null;
+        // ── Revit actions ───────────────────────────────────────────────────────
 
-        private void FillDetail()
+        // Selects (and zooms to) the element under the node, or every element in the group under it.
+        private static void SelectInRevit(TreeNode node)
         {
-            if (_snap == null) return;
-            string owner = SelectedOwner();
-            bool all = owner == null || owner == AllUsers;
-
-            // Keep the selected elements and scroll position across a refresh.
-            var keep = new HashSet<long>(_elements.SelectedRows.Cast<DataGridViewRow>()
-                .Select(r => r.Tag as OwnershipSnapshot.ElementRow).Where(r => r != null).Select(r => r.Id));
-            int scroll = _elements.FirstDisplayedScrollingRowIndex;
-
-            var elements = _snap.Elements.Where(e => all || OwnershipScanner.SameUser(e.Owner, owner))
-                .OrderBy(e => e.Owner, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Category).ThenBy(e => e.Id).ToList();
-            _elements.SuspendLayout();
-            _elements.Rows.Clear();
-            foreach (var e in elements)
-            {
-                int i = _elements.Rows.Add(e.Owner, e.Id, e.Category, e.Name, e.Workset);
-                _elements.Rows[i].Tag = e;
-            }
-            _elements.ClearSelection();
-            foreach (DataGridViewRow row in _elements.Rows)
-                if (row.Tag is OwnershipSnapshot.ElementRow er && keep.Contains(er.Id)) row.Selected = true;
-            if (scroll >= 0 && _elements.Rows.Count > 0)
-                _elements.FirstDisplayedScrollingRowIndex = Math.Min(scroll, _elements.Rows.Count - 1);
-            _elements.ResumeLayout();
-            _elementsTab.Text = $"Elements ({elements.Count})";
-
-            var worksets = _snap.Worksets.Where(w => all || OwnershipScanner.SameUser(w.Owner, owner))
-                .OrderBy(w => w.Owner, StringComparer.OrdinalIgnoreCase).ThenBy(w => w.Name).ToList();
-            _worksets.Rows.Clear();
-            foreach (var w in worksets) _worksets.Rows.Add(w.Owner, w.Name, w.Kind);
-            _worksetsTab.Text = $"Worksets ({worksets.Count})";
-        }
-
-        private void OnElementDoubleClick(object sender, DataGridViewCellEventArgs e)
-        {
-            if (e.RowIndex < 0) return;
-            var uids = _elements.SelectedRows.Cast<DataGridViewRow>()
-                .Select(r => r.Tag as OwnershipSnapshot.ElementRow).Where(r => r != null).Select(r => r.UniqueId).ToList();
-            if (uids.Count == 0) return;
+            var rows = new List<OwnershipSnapshot.ElementRow>();
+            if (node.Tag is OwnershipSnapshot.ElementRow one) rows.Add(one);
+            foreach (var n in AllNodes(node.Nodes))
+                if (n.Tag is OwnershipSnapshot.ElementRow r) rows.Add(r);
+            var ids = rows.Select(r => r.UniqueId).Distinct().ToList();
+            if (ids.Count == 0) return;
 
             OwnershipUiEvent.Run(app =>
             {
                 var uidoc = app.ActiveUIDocument;
                 if (uidoc == null) return;
-                var ids = uids.Select(u => uidoc.Document.GetElement(u)).Where(x => x != null).Select(x => x.Id).ToList();
-                if (ids.Count == 0) return;
-                uidoc.Selection.SetElementIds(ids);
-                try { uidoc.ShowElements(ids); }
+                var elementIds = ids.Select(u => uidoc.Document.GetElement(u)).Where(x => x != null).Select(x => x.Id).ToList();
+                if (elementIds.Count == 0) return;
+                uidoc.Selection.SetElementIds(elementIds);
+                try { uidoc.ShowElements(elementIds); }
                 catch { /* types and some elements have no view to show them in; the selection is still set */ }
             });
         }
@@ -310,6 +507,9 @@ namespace ProjectPerseus.ui
             OwnershipTracker.MarkDirty();
             RefreshIfOpen(app);
         }
+
+        [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT r);
 
         private sealed class RevitWindow : IWin32Window
         {
