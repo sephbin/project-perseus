@@ -19,6 +19,7 @@ namespace ProjectPerseus.ids
         public int SkippedNotOwned;
         public int SkippedInGroups;     // members of model/detail groups; writing them re-resolves the group and can delete dimensions
         public int Errors;
+        public int Planned;             // dry run only: writes that would be made to elements this user can edit
         public int ElementsChecked;
         public int ActiveRules;
         public int ParametersFound;     // Perseus_ID + rule parameters actually bound in this model
@@ -137,12 +138,16 @@ namespace ProjectPerseus.ids
         /// <summary>
         /// Runs the rules over <paramref name="onlyIds"/>, or the whole model when null (audit).
         /// Opens its own transaction; must not be called while the document is modifiable.
+        /// With <paramref name="dryRun"/> nothing is written (safe inside document events such as the pre-sync
+        /// hook): <see cref="IdAssignResult.Planned"/> counts the writes that would land on elements this user can
+        /// edit, and no ID numbers are allocated.
         /// </summary>
         internal static IdAssignResult Run(Document doc, string docGuid, IdRulesDto rules, ICollection<long> onlyIds,
-                                           bool renumber = false, IdClashFix fix = null)
+                                           bool renumber = false, IdClashFix fix = null, bool dryRun = false)
         {
             var result = new IdAssignResult();
-            if (doc == null || doc.IsReadOnly || doc.IsModifiable) return result;
+            if (doc == null) return result;
+            if (!dryRun && (doc.IsReadOnly || doc.IsModifiable)) return result;
 
             var names = new List<string> { SharedParameterManager.PerseusIdName };
             names.AddRange(rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName))
@@ -241,6 +246,13 @@ namespace ProjectPerseus.ids
                         if (!forced && index.LowestHolder(name, current) == id) continue; // keep
                     }
 
+                    if (dryRun)
+                    {
+                        // No number is allocated, so the index counters stay exactly as the model has them.
+                        changes.Add(new Change { Element = el, Param = p, NewValue = null, IsReassign = !string.IsNullOrEmpty(current) });
+                        continue;
+                    }
+
                     string value;
                     do
                     {
@@ -256,6 +268,14 @@ namespace ProjectPerseus.ids
             }
 
             if (renumber) PlanRenumber(renumberGroups, changes);
+
+            if (dryRun)
+            {
+                result.Planned = changes.Count(c => CanEdit(doc, c.Element.Id));
+                Log.Info($"[IdAssigner] dry run: {changes.Count} write(s) needed, {result.Planned} on elements this user can edit " +
+                         $"({ordered.Count} elements checked, {clock.ElapsedMilliseconds} ms)");
+                return result;
+            }
 
             long planMs = clock.ElapsedMilliseconds - collectMs - indexMs;
             Log.Info($"[IdAssigner] timing: collect {collectMs} ms, index {indexMs} ms, plan {planMs} ms " +
@@ -407,6 +427,18 @@ namespace ProjectPerseus.ids
                 if (t == "CategoryPrefix") result.NoPrefixCategories.Add(el.Category.Name);
                 else result.UnresolvedTokens.Add(t);
             }
+        }
+
+        // Whether this user could write the element now: not owned by someone else and not stale against central.
+        // Unowned elements count as editable (Revit borrows them on edit).
+        internal static bool CanEdit(Document doc, ElementId id)
+        {
+            if (!doc.IsWorkshared) return true;
+            var owner = WorksharingUtils.GetCheckoutStatus(doc, id);
+            if (owner == CheckoutStatus.OwnedByCurrentUser) return true;
+            if (owner == CheckoutStatus.OwnedByOtherUser) return false;
+            var updates = WorksharingUtils.GetModelUpdatesStatus(doc, id);
+            return updates != ModelUpdatesStatus.UpdatedInCentral && updates != ModelUpdatesStatus.DeletedInCentral;
         }
 
         // Name of the write transaction; ViolationDetector ignores it (it is not a user action).

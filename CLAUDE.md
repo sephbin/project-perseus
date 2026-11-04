@@ -99,13 +99,14 @@ namespaces are moved/added/renamed, update 6.1 (Current Layout) AND 6.3 (Target 
 the same change. Claude relies on this section to place new code without re-deriving the
 structure each session.
 
-6.1 Current Layout (snapshot 2026-08-24, after P1–P7 + violation highlight layer)
+6.1 Current Layout (snapshot 2026-11-05, after P1–P7 + violation highlight layer + ownership panel)
 
 ProjectPerseus/
 ├── Plugin.cs                     ~250 lines — IExternalApplication lifecycle, AddRibbonPanel,
 │                                 batch trigger (Idling event → BatchProcessor handoff). Owns
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
-│                                 Calls ViolationHighlightController.Initialize() at startup.
+│                                 Calls ViolationHighlightController.Initialize() and
+│                                 ownership.OwnershipTracker.Subscribe() at startup.
 │                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Setup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
@@ -162,16 +163,20 @@ ProjectPerseus/
 │   │                             another element is a clash; the lower ElementId keeps it. Resolve() renumbers this user's
 │   │                             clashing elements via IdAssigner.Run(fix:) and re-checks. Snapshot() lives in IdAssigner.
 │   ├── IdGapFiller.cs            NEW. Fallback for elements Django saw without an ID (made by a user without Perseus, or
-│   │                             checked out when first seen). Fetches kind='assign_id' pending edits, runs IdAssigner on the
-│   │                             ones in this model, marks done those this user now holds; the rest stay queued.
+│   │                             checked out when first seen). Collect() fetches kind='assign_id' pending edits (read-only,
+│   │                             dismisses unfillable ones); Fulfil() runs IdAssigner on them, marks done those this user now
+│   │                             holds; the rest stay queued. Runs only just before a sync (see IdAutoAssignController).
 │   ├── ElementPosition.cs        NEW. Element position in mm (location point, wall/line midpoint, else bbox
 │   │                             centre) as a util.PositionSample, used for numbering by position.
 │   ├── RelatedValueResolver.cs   NEW. Resolves template tokens for an element: category prefix, workset,
 │   │                             and a parameter of its Level / Host / Room / Space / Type / Group.
 │   └── IdAutoAssignController.cs DocumentChanged hook -> queues added/modified ids -> raises
 │                                 queue/AssignIdsEvent. IsAssigning flag stops re-entry. QueueFromSync() is called by
-│                                 IncrementalSyncRunner with the change set (other users' elements) and also triggers
-│                                 IdGapFiller.
+│                                 IncrementalSyncRunner with the change set (other users' elements) and only PARKS them:
+│                                 writing them after a sync would check them out until the user's next sync. At the next
+│                                 pre-sync, NeedsPreSyncFill() (IdAssigner dry run, read-only) decides whether to cancel the
+│                                 sync; RunPreSyncFill() (from IdPreSyncFixEvent / AutoSyncEvent) writes parked + IdGapFiller
+│                                 IDs so that same sync releases the ownership.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds. Fetches fresh ID rules, ensures parameters,
@@ -191,8 +196,9 @@ ProjectPerseus/
 │   │                             Calls ViolationHighlightController.Toggle(uidoc).
 │   ├── SwitchViolationModeCommand.cs  NEW (2026-08-24). Ribbon: Button_SwitchMode.
 │   │                             Calls ViolationHighlightController.CycleMode(uidoc).
-│   └── ShowViolationListCommand.cs  NEW (2026-08-24). Ribbon: Button_ViolationList.
-│                                 Opens modeless ViolationListForm; brings to front if already open.
+│   ├── ShowViolationListCommand.cs  NEW (2026-08-24). Ribbon: Button_ViolationList.
+│   │                             Opens modeless ViolationListForm; brings to front if already open.
+│   └── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; re-triggers SynchronizeWithCentral after
@@ -203,9 +209,13 @@ ProjectPerseus/
 │   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.
 │   │                             Started in OnDocumentOpened; stopped on Unsubscribe.
 │   ├── AlertNotificationEvent.cs NEW. IExternalEventHandler; shows TaskDialog per pending alert.
-│   ├── IdClashFixEvent.cs        NEW. IExternalEventHandler raised by SyncOrchestrator when the pre-sync ID check finds
-│   │                             clashes: sync is cancelled, IdClaims.EnsureNoClashes renumbers, then the sync is re-triggered
-│   │                             (SyncOrchestrator.IsResyncAfterIdFix skips the check on that pass). AutoSyncEvent runs the same check.
+│   ├── IdPreSyncFixEvent.cs      (Renamed from IdClashFixEvent, 2026-11-05.) IExternalEventHandler raised by SyncOrchestrator
+│   │                             when the pre-sync ID check finds IDs to write (parked/gap-fill) or clashes: sync is cancelled,
+│   │                             IdAutoAssignController.RunPreSyncFill + IdClaims.EnsureNoClashes run, then the sync is
+│   │                             re-triggered with sync/UserSyncOptions (the user's comment + relinquish choices).
+│   │                             SyncOrchestrator.IsResyncAfterIdFix skips the check on that pass. AutoSyncEvent runs the same.
+│   ├── OwnershipUiEvent.cs       NEW (2026-11-05). IExternalEventHandler running queued Action<UIApplication> for the
+│   │                             modeless OwnershipForm and the status-bar badge (refresh, select/zoom, relinquish, open).
 │   ├── AssignIdsEvent.cs         NEW. IExternalEventHandler; calls IdAutoAssignController.ProcessPending.
 │   ├── PresencePoller.cs         Static heartbeat sending /syncboat/api/v2/source/<guid>/heartbeat/
 │   │                             every 60 s. AddSource/RemoveSource from OnDocumentOpened/Closing.
@@ -257,16 +267,32 @@ ProjectPerseus/
 │   │                             without showing the window. Volatile publish pattern: _overlay
 │   │                             written before _dispatcher so Update() callers see both or neither.
 │   │                             BeginInvoke drives all show/hide/update calls to the overlay.
-│   └── ViolationListForm.cs      NEW (2026-08-24). Modeless WinForms form (System.Windows.Forms.Form).
-│                                 Top panel: DataGridView of all current violations (Severity|Rule|
-│                                 Element|Message). Bottom panel: violations for the selected element(s),
-│                                 updated live via UIApplication.SelectionChanged. Double-click any row
-│                                 to select + zoom to the element in Revit. Static Instance prevents
-│                                 multiple open instances.
+│   ├── ViolationListForm.cs      NEW (2026-08-24). Modeless WinForms form (System.Windows.Forms.Form).
+│   │                             Top panel: DataGridView of all current violations (Severity|Rule|
+│   │                             Element|Message). Bottom panel: violations for the selected element(s),
+│   │                             updated live via UIApplication.SelectionChanged. Double-click any row
+│   │                             to select + zoom to the element in Revit. Static Instance prevents
+│   │                             multiple open instances.
+│   ├── OwnershipForm.cs          NEW (2026-11-05). Modeless WinForms panel: per-user summary (elements borrowed, worksets
+│   │                             owned), then Elements / Worksets tabs for the selected user. Double-click selects + zooms.
+│   │                             Refresh and "Relinquish mine" buttons. Auto-refreshes after a sync. API work goes via
+│   │                             queue/OwnershipUiEvent.
+│   ├── OwnershipBadge.cs         NEW (2026-11-05). Borderless, non-activating WPF pill (PerseusCyan #00A0E0) owned by the
+│   │                             Revit main window; shows the count of elements the user owns. Click opens OwnershipForm.
+│   └── OwnershipBadgeController.cs NEW (2026-11-05). Places the badge in Revit's status bar (finds msctls_statusbar32 or
+│                                 the bottom strip; sits left of the status bar's right-hand controls). 250 ms
+│                                 DispatcherTimer on the main thread; logs the status bar layout it found once.
+├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
+│   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
+│   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
+│   │                             as the workset, not individually.
+│   └── OwnershipTracker.cs       Idling-driven, debounced recount of the badge (dirty on DocumentChanged / sync / view
+│                                 switch; 60 s periodic; min gap scales with recount time).
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
+│   ├── OwnershipSnapshot.cs      NEW (2026-11-05). Who owns which elements/worksets (nested ElementRow, WorksetRow).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:
 │   │                             ElementUniqueId, RuleName, Severity, Message, ElementName.
 │   ├── KeyScheduleConfig.cs      Per-schedule mapping: schedule name, Excel path/sheet, Django
@@ -294,6 +320,8 @@ ProjectPerseus/
 │   │                             parameter edits. Shared by PullWebEditsCommand and
 │   │                             SyncOrchestrator. Respects worksharing checkout status.
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
+│   ├── UserSyncOptions.cs        NEW (2026-11-05). Plain copy of the user's Sync with Central dialog options (comment,
+│   │                             compact, relinquish flags), captured pre-sync; Build() makes options for Perseus re-syncs.
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
 │                                 by title and PostMessage(WM_CLOSE).
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
@@ -380,6 +408,7 @@ ProjectPerseus/
 │   ├── Log.cs                    Single front door — wraps Sentry + file output.
 │   └── SentryContext.cs          Extracted from Utl.cs.
 ├── models/                       Mostly unchanged (existing folder is healthy).
+├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).
 │   ├── AutoSyncEvent.cs
 │   └── QueuePoller.cs

@@ -23,6 +23,7 @@ namespace ProjectPerseus
         {
             _orchestrator.Subscribe(application);
             violations.ViolationHighlightController.Initialize();
+            ownership.OwnershipTracker.Subscribe(application);
             AddRibbonPanel(application);
             ThemeIconManager.Initialize(application);
 
@@ -52,6 +53,7 @@ namespace ProjectPerseus
         public Result OnShutdown(UIControlledApplication application)
         {
             _orchestrator.Unsubscribe(application);
+            ownership.OwnershipTracker.Unsubscribe(application);
             ThemeIconManager.Shutdown(application);
             return Result.Succeeded;
         }
@@ -73,6 +75,8 @@ namespace ProjectPerseus
                 "Upload all elements to external database");
             AddButton(syncPanel, asm, "Button_PullWebEdits", "Pull Web\nEdits", "PullWebEditsCommand", "pull_edits",
                 "Fetch pending parameter edits made in the web editor and apply them to the current model. Skips elements checked out by other users.");
+            AddButton(syncPanel, asm, "Button_Ownership", "Ownership", "ShowOwnershipCommand", "ownership",
+                "See which elements and worksets each user owns in this model, and relinquish your own. The cyan number in the status bar is how many elements you own; click it to open this panel.");
 
             // ---- Element IDs
             RibbonPanel idsPanel = application.CreateRibbonPanel(tabName, "Element IDs");

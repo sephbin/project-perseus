@@ -63,8 +63,8 @@ namespace ProjectPerseus.sync
                     var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
 
                     // Elements other users created or edited since the last sync may have no architectural ID (their
-                    // Revit has no Perseus). Queue them for gap-filling on the main thread; the fill is a local edit
-                    // that reaches central and Django on this user's next sync.
+                    // Revit has no Perseus). Park them for the next pre-sync ID fill: writing them now would check them
+                    // out to this user until their next sync, so they are written just before it and released by it.
                     try
                     {
                         var changedIds = elementChangeSet.CreatedElements.Concat(elementChangeSet.ModifiedElements).Select(x => x.Id.Value).ToList();

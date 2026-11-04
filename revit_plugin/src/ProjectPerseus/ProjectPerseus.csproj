@@ -284,7 +284,8 @@
     <Compile Include="ids\IdAssigner.cs" />
     <Compile Include="ids\IdClaims.cs" />
     <Compile Include="ids\IdGapFiller.cs" />
-    <Compile Include="queue\IdClashFixEvent.cs" />
+    <Compile Include="queue\IdPreSyncFixEvent.cs" />
+    <Compile Include="sync\UserSyncOptions.cs" />
     <Compile Include="ids\RelatedValueResolver.cs" />
     <Compile Include="ids\IdAutoAssignController.cs" />
     <Compile Include="ids\IdRulesCache.cs" />
@@ -300,6 +301,11 @@
     <Compile Include="commands\ToggleViolationHighlightCommand.cs" />
     <Compile Include="commands\SwitchViolationModeCommand.cs" />
     <Compile Include="commands\ShowViolationListCommand.cs" />
+    <Compile Include="commands\ShowOwnershipCommand.cs" />
+    <Compile Include="models\OwnershipSnapshot.cs" />
+    <Compile Include="ownership\OwnershipScanner.cs" />
+    <Compile Include="ownership\OwnershipTracker.cs" />
+    <Compile Include="queue\OwnershipUiEvent.cs" />
     <Compile Include="config\Config.cs" />
     <Compile Include="logging\Log.cs" />
     <Compile Include="logging\SentryContext.cs" />
@@ -410,6 +416,9 @@
     </Compile>
     <Compile Include="ui\ThemeIconManager.cs" />
     <Compile Include="ui\ViolationListForm.cs" />
+    <Compile Include="ui\OwnershipForm.cs" />
+    <Compile Include="ui\OwnershipBadge.cs" />
+    <Compile Include="ui\OwnershipBadgeController.cs" />
     <Compile Include="util\ElementWatchList.cs" />
     <Compile Include="util\FilterEvaluator.cs" />
     <Compile Include="util\JsonUtils.cs" />
@@ -458,6 +467,8 @@
     <Resource Include="resources\violations_list_dark.png" />
     <Resource Include="resources\freefall.png" />
     <Resource Include="resources\freefall_dark.png" />
+    <Resource Include="resources\ownership.png" />
+    <Resource Include="resources\ownership_dark.png" />
     <Resource Include="resources\project_rules.png" />
     <Resource Include="resources\project_rules_dark.png" />
     <Resource Include="resources\settings.png" />

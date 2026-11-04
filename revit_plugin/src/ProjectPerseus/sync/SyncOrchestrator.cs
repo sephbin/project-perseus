@@ -37,9 +37,14 @@ namespace ProjectPerseus.sync
         // Cleared on entry to the check so it only suppresses one pass.
         public static bool IsResyncAfterPendingEdits { get; set; } = false;
 
-        // Raised by IdClashFixEvent's re-sync so the ID clash check is skipped on that one pass.
-        public static ExternalEvent IdClashFixExternalEvent { get; private set; }
+        // Raised by the pre-sync hook when IDs need writing or renumbering; IdPreSyncFixEvent does the work and
+        // re-syncs, setting IsResyncAfterIdFix so the ID check is skipped on that one pass.
+        public static ExternalEvent IdPreSyncFixExternalEvent { get; private set; }
         public static bool IsResyncAfterIdFix { get; set; } = false;
+
+        // The options the user chose in the Synchronize with Central dialog, captured in the pre-sync hook so a
+        // Perseus re-sync (after cancelling to write IDs) keeps their comment and relinquish choices.
+        public static UserSyncOptions LastUserSyncOptions { get; private set; } = new UserSyncOptions();
 
         private readonly Config _config = Config.Instance;
         private bool _isSyncing = false;
@@ -77,7 +82,7 @@ namespace ProjectPerseus.sync
 
             var resyncHandler = new PendingEditsResyncEvent();
             PendingEditsResyncExternalEvent = ExternalEvent.Create(resyncHandler);
-            IdClashFixExternalEvent = ExternalEvent.Create(new IdClashFixEvent());
+            IdPreSyncFixExternalEvent = ExternalEvent.Create(new IdPreSyncFixEvent());
 
             var undoViolationHandler = new queue.UndoViolationEvent();
             ViolationDetector.UndoViolationExternalEvent = ExternalEvent.Create(undoViolationHandler);
@@ -151,6 +156,7 @@ namespace ProjectPerseus.sync
                 queue.ViolationPoller.RemoveSource(closingGuid);
                 violations.ViolationDetector.HandleDocumentClosing(closingGuid);
                 ids.IdAutoAssignController.Reset(closingGuid);
+                ids.IdAutoAssignController.Forget(e.Document);
                 ids.IdRulesCache.Remove(closingGuid);
             }
         }
@@ -458,35 +464,46 @@ namespace ProjectPerseus.sync
                     Log.Warn($"Presync violation gate failed (non-fatal): {presyncEx.Message}");
                 }
 
-                // ID clash check: another user may have allocated the same ID numbers. The registry on the server
-                // says who holds what; clashes are fixed here, before the sync, while the elements are still this
-                // user's to edit. The sync is cancelled so the renumbering transaction lands cleanly (same reason
-                // as the pending web edits below), then IdClashFixEvent re-triggers it.
+                // Pre-sync ID pass. Two things may need writing before this sync:
+                //  - IDs for elements other users added or changed (parked by the last incremental sync) and for
+                //    elements Django saw without an ID. These are written now, not after the last sync, because
+                //    writing them checks them out: done here, this sync releases them again.
+                //  - Clashes: another user may have allocated the same ID numbers (the server registry says who
+                //    holds what); fixed while the elements are still this user's to edit.
+                // Both modify the model, which can't happen inside DocumentSynchronizingWithCentral (it races with
+                // Revit's central communication, same as the pending web edits below), so the sync is cancelled,
+                // IdPreSyncFixEvent does the writes, then re-triggers the sync with the user's options.
                 bool skipIdCheck = IsResyncAfterIdFix;
                 IsResyncAfterIdFix = false;
                 if (!skipIdCheck)
                 {
                     try
                     {
+                        LastUserSyncOptions = UserSyncOptions.From(e);
                         var idRules = ids.IdRulesCache.Get(docGuid);
                         if (idRules != null && idRules.Rules.Any(r => r.Enabled))
                         {
                             var clock = System.Diagnostics.Stopwatch.StartNew();
+                            bool needFill = false;
+                            try { needFill = ids.IdAutoAssignController.NeedsPreSyncFill(e.Document, docGuid, idRules); }
+                            catch (Exception fillEx) { Log.Warn($"Pre-sync ID fill check failed (non-fatal): {fillEx.Message}"); }
+
                             var idCheck = ids.IdClaims.Check(docGuid, baseUrl, ids.IdAssigner.Snapshot(e.Document, idRules));
-                            Log.Info($"[IdClaims] pre-sync check took {clock.ElapsedMilliseconds} ms");
-                            if (idCheck != null && idCheck.Conflicts.Count > 0)
+                            int clashes = idCheck?.Conflicts.Count ?? 0;
+                            Log.Info($"[IdClaims] pre-sync ID check took {clock.ElapsedMilliseconds} ms (fill needed: {needFill}, clashes: {clashes})");
+                            if (needFill || clashes > 0)
                             {
-                                Log.Info($"[IdClaims] {idCheck.Conflicts.Count} ID clash(es) with other users — cancelling sync to renumber.");
+                                Log.Info("Pre-sync: IDs need writing — cancelling sync, writing them, then re-syncing.");
                                 e.Cancel();
                                 System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
-                                IdClashFixExternalEvent.Raise();
+                                IdPreSyncFixExternalEvent.Raise();
                                 return;
                             }
                         }
                     }
                     catch (Exception idEx)
                     {
-                        Log.Warn($"Pre-sync ID clash check failed (non-fatal): {idEx.Message}");
+                        Log.Warn($"Pre-sync ID check failed (non-fatal): {idEx.Message}");
                     }
                 }
 

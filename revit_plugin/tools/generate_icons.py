@@ -18,6 +18,10 @@ ICONS = {
 <path d="M9 9h7M9 13h7M9 17h4" fill="none" stroke="{i}"/>
 <circle cx="23" cy="22" r="6" fill="none" stroke="{a}"/>
 <path d="M23 19v6M20.5 22.5l2.5 2.5 2.5-2.5" fill="none" stroke="{a}"/>''',
+"ownership": '''<circle cx="12" cy="10" r="4.500" fill="none" stroke="{i}"/>
+<path d="M3.500 26c0-5 3.800-8.500 8.500-8.500 2 0 3.800.6 5.200 1.700" fill="none" stroke="{i}"/>
+<circle cx="21.500" cy="21.500" r="3.500" fill="none" stroke="{a}"/>
+<path d="M24 24l4.500 4.500M26.500 26.500l1.800-1.800" fill="none" stroke="{a}"/>''',
 # ---- Element IDs
 "audit_ids": '''<path d="M5 8h5M5 14h5M5 20h5" fill="none" stroke="{i}"/>
 <path d="M13 8h8M13 14h6M13 20h5" fill="none" stroke="{i}"/>
@@ -154,7 +158,7 @@ def _diag():
 ICONS["diagnose"] = _diag()
 
 GROUPS = [
-    ("Sync",         ["upload", "pull_edits"]),
+    ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
     ("Key Schedules",["schedule_manage", "schedule_export", "schedule_import"]),
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),

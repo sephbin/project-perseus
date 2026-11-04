@@ -32,9 +32,11 @@ namespace ProjectPerseus.queue
                     }
                 }
 
-                // Auto-sync skips the pre-sync gate, so clear ID clashes here (outside any sync event).
+                // Auto-sync skips the pre-sync gate, so write pending IDs and clear ID clashes here (outside any sync
+                // event). This sync relinquishes everything, so whatever the ID writes check out is released with it.
                 try
                 {
+                    ProjectPerseus.ids.IdAutoAssignController.RunPreSyncFill(doc);
                     if (!ProjectPerseus.ids.IdClaims.EnsureNoClashes(doc, out string idClash))
                     {
                         TaskDialog.Show("Perseus — ID clash", idClash + "\n\nAuto-sync was cancelled so the clash is not pushed to the other users.");

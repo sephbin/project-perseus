@@ -27,8 +27,8 @@ namespace ProjectPerseus.ids
         private static readonly object _lock = new object();
         private static readonly Dictionary<Document, HashSet<long>> _pending = new Dictionary<Document, HashSet<long>>();
         private static readonly HashSet<string> _ensured = new HashSet<string>();
-        // Documents that asked for Django's "assign_id" requests to be fulfilled on the next ProcessPending.
-        private static readonly HashSet<Document> _fulfil = new HashSet<Document>();
+        // Elements other users changed (from the last sync's change set), waiting for the next pre-sync ID fill.
+        private static readonly Dictionary<Document, HashSet<long>> _preSync = new Dictionary<Document, HashSet<long>>();
 
         internal static void Subscribe(UIControlledApplication application, string baseUrl)
         {
@@ -45,8 +45,9 @@ namespace ProjectPerseus.ids
         /// <summary>
         /// Called by incremental sync with the elements other users created or changed since the last sync. Those
         /// never pass through DocumentChanged on this machine, so a colleague without Perseus leaves them without
-        /// IDs. Also asks Django for elements it has seen without an ID (IdGapFiller), covering ones that were
-        /// checked out by someone else the first time round.
+        /// IDs. They are NOT written now: writing them straight after a sync would check them out to this user until
+        /// their next sync, blocking everyone else. They are parked and filled just before this user's next sync
+        /// (<see cref="NeedsPreSyncFill"/> / <see cref="RunPreSyncFill"/>), so that sync releases them again.
         /// </summary>
         internal static void QueueFromSync(Document doc, IEnumerable<long> ids)
         {
@@ -54,12 +55,66 @@ namespace ProjectPerseus.ids
             int n = 0;
             lock (_lock)
             {
-                if (!_pending.TryGetValue(doc, out var set)) _pending[doc] = set = new HashSet<long>();
+                if (!_preSync.TryGetValue(doc, out var set)) _preSync[doc] = set = new HashSet<long>();
                 foreach (var id in ids) { set.Add(id); n++; }
-                _fulfil.Add(doc);
             }
-            var raised = _event?.Raise();
-            Log.Info($"[IdAutoAssign] incremental sync queued {n} changed element(s) for gap-fill; event {raised}");
+            Log.Info($"[IdAutoAssign] incremental sync parked {n} changed element(s) for the next pre-sync ID fill");
+        }
+
+        /// <summary>
+        /// Read-only check run inside the pre-sync hook: true when parked elements or Django's "assign_id" requests
+        /// need an ID written that this user is able to write. The model is not touched.
+        /// </summary>
+        internal static bool NeedsPreSyncFill(Document doc, string docGuid, IdRulesDto rules)
+        {
+            if (doc == null || rules == null || IsAssigning) return false;
+            var ids = new HashSet<long>();
+            lock (_lock) { if (_preSync.TryGetValue(doc, out var set)) ids.UnionWith(set); }
+            ids.UnionWith(IdGapFiller.Collect(doc, docGuid, rules).Keys);
+            if (ids.Count == 0) return false;
+
+            var plan = IdAssigner.Run(doc, docGuid, rules, ids, dryRun: true);
+            if (plan.Planned == 0)
+            {
+                // Nothing to write that this user can write: forget the parked set so it is not re-checked forever.
+                lock (_lock) _preSync.Remove(doc);
+                return false;
+            }
+            Log.Info($"[IdAutoAssign] pre-sync: {plan.Planned} ID write(s) needed on {ids.Count} candidate element(s)");
+            return true;
+        }
+
+        /// <summary>
+        /// Writes the parked and server-requested IDs. Must run on the main thread outside any document event, right
+        /// before a sync (IdPreSyncFixEvent, AutoSyncEvent) so the ownership taken is released by that sync.
+        /// </summary>
+        internal static void RunPreSyncFill(Document doc)
+        {
+            if (doc == null || !doc.IsValidObject || doc.IsReadOnly || doc.IsModifiable) return;
+            string docGuid = ModelGuidStorage.GetOrCreate(doc);
+            IdRulesDto rules = IdRulesCache.Get(docGuid);
+            if (rules == null) return;
+
+            HashSet<long> ids;
+            lock (_lock)
+            {
+                ids = _preSync.TryGetValue(doc, out var set) ? new HashSet<long>(set) : new HashSet<long>();
+                _preSync.Remove(doc);
+            }
+            try
+            {
+                EnsureParametersOnce(doc, docGuid, rules);
+                if (ids.Count > 0)
+                {
+                    var run = IdAssigner.Run(doc, docGuid, rules, ids);
+                    Log.Info($"[IdAutoAssign] pre-sync fill: {ids.Count} parked element(s), assigned {run.Assigned}, not owned {run.SkippedNotOwned}");
+                }
+                IdGapFiller.Fulfil(doc, docGuid, rules);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[IdAutoAssign] pre-sync fill failed (non-fatal): {ex.Message}");
+            }
         }
 
         // Forget cached state for a document (closing, or Reload Latest brought in other users' edits).
@@ -67,6 +122,13 @@ namespace ProjectPerseus.ids
         {
             IdAssigner.InvalidateIndex(docGuid);
             lock (_lock) _ensured.RemoveWhere(k => k.StartsWith(docGuid + "|", StringComparison.Ordinal));
+        }
+
+        // Drops the parked pre-sync set when a document closes.
+        internal static void Forget(Document doc)
+        {
+            if (doc == null) return;
+            lock (_lock) { _preSync.Remove(doc); _pending.Remove(doc); }
         }
 
         private static void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
@@ -96,15 +158,11 @@ namespace ProjectPerseus.ids
         internal static void ProcessPending(UIApplication app)
         {
             Dictionary<Document, HashSet<long>> batch;
-            HashSet<Document> fulfil;
             lock (_lock)
             {
                 batch = new Dictionary<Document, HashSet<long>>(_pending);
                 _pending.Clear();
-                fulfil = new HashSet<Document>(_fulfil);
-                _fulfil.Clear();
             }
-            foreach (var d in fulfil) if (!batch.ContainsKey(d)) batch[d] = new HashSet<long>();
 
             foreach (var kv in batch)
             {
@@ -124,11 +182,10 @@ namespace ProjectPerseus.ids
                         Log.Info($"[IdAutoAssign] skipped {kv.Value.Count} element(s): no ID rules cached for {docGuid}.");
                         continue;
                     }
-                    Log.Info($"[IdAutoAssign] processing {kv.Value.Count} element(s){(fulfil.Contains(doc) ? " + server gap-fill requests" : "")}.");
+                    Log.Info($"[IdAutoAssign] processing {kv.Value.Count} element(s).");
 
                     EnsureParametersOnce(doc, docGuid, rules);
                     if (kv.Value.Count > 0) IdAssigner.Run(doc, docGuid, rules, kv.Value);
-                    if (fulfil.Contains(doc)) IdGapFiller.Fulfil(doc, docGuid, rules);
                 }
                 catch (Exception ex)
                 {
