@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
@@ -19,6 +20,8 @@ namespace ProjectPerseus.ownership
     internal static class OwnershipTracker
     {
         private static readonly TimeSpan Periodic = TimeSpan.FromSeconds(60);
+        // While the ownership panel is open it should follow changes closely, so the periodic rescan is quicker.
+        private static readonly TimeSpan PeriodicWithPanel = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan MinGapFloor = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan MinGapCeiling = TimeSpan.FromSeconds(60);
 
@@ -70,12 +73,6 @@ namespace ProjectPerseus.ownership
             {
                 OwnershipBadgeController.Initialize(app.MainWindowHandle);
 
-                if (_refreshFormAfterSync)
-                {
-                    _refreshFormAfterSync = false;
-                    OwnershipForm.RefreshIfOpen(app);
-                }
-
                 Document doc = app.ActiveUIDocument?.Document;
                 if (doc == null || !doc.IsWorkshared || doc.IsFamilyDocument)
                 {
@@ -87,14 +84,29 @@ namespace ProjectPerseus.ownership
                 string key = doc.PathName + "|" + doc.Title;
                 DateTime now = DateTime.UtcNow;
                 bool switched = key != _lastDocKey;
-                bool due = _dirty || switched || now - _lastScan >= Periodic;
+                bool panel = OwnershipForm.IsOpen;
+                bool due = _dirty || switched || _refreshFormAfterSync || now - _lastScan >= (panel ? PeriodicWithPanel : Periodic);
                 if (!due || (!switched && now - _lastScan < _minGap)) return;
 
+                // With the panel open, one full scan feeds both the badge and the panel, so the panel changes
+                // whenever the numbers do; otherwise only this user's count is needed.
                 var clock = Stopwatch.StartNew();
-                int count = OwnershipScanner.CountMine(doc, out int worksets);
+                int count, worksets;
+                if (panel)
+                {
+                    var snap = OwnershipScanner.Scan(doc);
+                    count = snap.Elements.Count(x => OwnershipScanner.SameUser(x.Owner, snap.CurrentUser));
+                    worksets = snap.Worksets.Count(x => OwnershipScanner.SameUser(x.Owner, snap.CurrentUser));
+                    OwnershipForm.Push(snap);
+                }
+                else
+                {
+                    count = OwnershipScanner.CountMine(doc, out worksets);
+                }
                 long ms = clock.ElapsedMilliseconds;
 
                 _dirty = false;
+                _refreshFormAfterSync = false;
                 _lastScan = now;
                 _lastDocKey = key;
                 // A recount that takes 300 ms waits at least 3 s before the next one.

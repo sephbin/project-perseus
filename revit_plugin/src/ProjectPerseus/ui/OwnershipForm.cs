@@ -25,6 +25,7 @@ namespace ProjectPerseus.ui
         private static readonly System.Drawing.Color Cyan = System.Drawing.Color.FromArgb(0x00, 0xA0, 0xE0);
 
         private OwnershipSnapshot _snap;
+        private string _signature;
         private Label _info;
         private DataGridView _owners;
         private DataGridView _elements;
@@ -65,13 +66,26 @@ namespace ProjectPerseus.ui
             form.Show(new RevitWindow(app.MainWindowHandle));
         }
 
+        internal static bool IsOpen => Instance != null && !Instance.IsDisposed;
+
         /// <summary>Re-scans the active model if the panel is open. Call from an API context.</summary>
         internal static void RefreshIfOpen(UIApplication app)
         {
-            var form = Instance;
             var doc = app?.ActiveUIDocument?.Document;
-            if (form == null || form.IsDisposed || doc == null || !doc.IsWorkshared) return;
-            form.ShowSnapshot(OwnershipScanner.Scan(doc));
+            if (!IsOpen || doc == null || !doc.IsWorkshared) return;
+            Push(OwnershipScanner.Scan(doc));
+        }
+
+        /// <summary>
+        /// Shows a fresh scan if the panel is open (OwnershipTracker calls this on every recount while it is). The
+        /// grids are only rebuilt when ownership actually changed, keeping the user's selection and scroll position.
+        /// </summary>
+        internal static void Push(OwnershipSnapshot snap)
+        {
+            var form = Instance;
+            if (snap == null || form == null || form.IsDisposed) return;
+            try { form.ShowSnapshot(snap); }
+            catch (Exception ex) { Log.Warn($"[OwnershipForm] refresh failed: {ex.Message}"); }
         }
 
         private void BuildUI()
@@ -151,12 +165,16 @@ namespace ProjectPerseus.ui
 
         private void ShowSnapshot(OwnershipSnapshot snap)
         {
-            _snap = snap;
-            string selected = SelectedOwner();
-
             int mine = snap.Elements.Count(e => OwnershipScanner.SameUser(e.Owner, snap.CurrentUser));
             _info.Text = $"{snap.DocumentTitle} — you are {snap.CurrentUser}, borrowing {mine} element(s).  " +
                          $"As of {snap.TakenAt:HH:mm:ss}; other users' ownership is what Revit knew at your last sync or Reload Latest.";
+
+            // Nothing changed since the last scan: leave the grids alone (no flicker, selection untouched).
+            string signature = Signature(snap);
+            if (_snap != null && signature == _signature) { _snap = snap; return; }
+            _signature = signature;
+            _snap = snap;
+            string selected = SelectedOwner();
 
             var users = snap.Elements.Select(e => e.Owner).Concat(snap.Worksets.Select(w => w.Owner))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -193,6 +211,16 @@ namespace ProjectPerseus.ui
             }
         }
 
+        // Identifies who owns what, so a rescan that found the same ownership can skip redrawing.
+        private static string Signature(OwnershipSnapshot snap)
+        {
+            var sb = new System.Text.StringBuilder(snap.DocumentTitle).Append('|');
+            foreach (var e in snap.Elements.OrderBy(x => x.Id)) sb.Append(e.Id).Append(':').Append(e.Owner).Append(';');
+            sb.Append('|');
+            foreach (var w in snap.Worksets.OrderBy(x => x.Name)) sb.Append(w.Name).Append(':').Append(w.Owner).Append(';');
+            return sb.ToString();
+        }
+
         private string SelectedOwner() =>
             _owners.SelectedRows.Count > 0 ? _owners.SelectedRows[0].Tag as string : null;
 
@@ -201,6 +229,11 @@ namespace ProjectPerseus.ui
             if (_snap == null) return;
             string owner = SelectedOwner();
             bool all = owner == null || owner == AllUsers;
+
+            // Keep the selected elements and scroll position across a refresh.
+            var keep = new HashSet<long>(_elements.SelectedRows.Cast<DataGridViewRow>()
+                .Select(r => r.Tag as OwnershipSnapshot.ElementRow).Where(r => r != null).Select(r => r.Id));
+            int scroll = _elements.FirstDisplayedScrollingRowIndex;
 
             var elements = _snap.Elements.Where(e => all || OwnershipScanner.SameUser(e.Owner, owner))
                 .OrderBy(e => e.Owner, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Category).ThenBy(e => e.Id).ToList();
@@ -211,6 +244,11 @@ namespace ProjectPerseus.ui
                 int i = _elements.Rows.Add(e.Owner, e.Id, e.Category, e.Name, e.Workset);
                 _elements.Rows[i].Tag = e;
             }
+            _elements.ClearSelection();
+            foreach (DataGridViewRow row in _elements.Rows)
+                if (row.Tag is OwnershipSnapshot.ElementRow er && keep.Contains(er.Id)) row.Selected = true;
+            if (scroll >= 0 && _elements.Rows.Count > 0)
+                _elements.FirstDisplayedScrollingRowIndex = Math.Min(scroll, _elements.Rows.Count - 1);
             _elements.ResumeLayout();
             _elementsTab.Text = $"Elements ({elements.Count})";
 

@@ -275,7 +275,8 @@ ProjectPerseus/
 │   │                             multiple open instances.
 │   ├── OwnershipForm.cs          NEW (2026-11-05). Modeless WinForms panel: per-user summary (elements borrowed, worksets
 │   │                             owned), then Elements / Worksets tabs for the selected user. Double-click selects + zooms.
-│   │                             Refresh and "Relinquish mine" buttons. Auto-refreshes after a sync. API work goes via
+│   │                             Refresh and "Relinquish mine" buttons. Live: OwnershipTracker pushes each recount (Push), and
+│   │                             grids redraw only when ownership changed (signature), keeping selection/scroll. API work via
 │   │                             queue/OwnershipUiEvent.
 │   ├── OwnershipBadge.cs         NEW (2026-11-05). Borderless, non-activating WPF pill (PerseusCyan #00A0E0) owned by the
 │   │                             Revit main window; shows the count of elements the user owns. Click opens OwnershipForm.
@@ -287,7 +288,8 @@ ProjectPerseus/
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
 │   │                             as the workset, not individually.
 │   └── OwnershipTracker.cs       Idling-driven, debounced recount of the badge (dirty on DocumentChanged / sync / view
-│                                 switch; 60 s periodic; min gap scales with recount time).
+│                                 switch; 60 s periodic, 15 s while OwnershipForm is open; min gap scales with recount time).
+│                                 While the panel is open each recount is a full Scan() that feeds badge + panel.
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
