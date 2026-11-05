@@ -102,7 +102,25 @@ namespace ProjectPerseus.violations
         {
             _positionEvent = ev;
             _positionTimer?.Dispose();
-            _positionTimer = new Timer(_ => _positionEvent?.Raise(), null, 0, 500);
+            _positionTimer = new Timer(_ => OnPositionTick(), null, 0, 500);
+        }
+
+        private static bool _markersWereActive;
+
+        // Runs on a ThreadPool thread. An exception escaping a Timer callback terminates the whole Revit process
+        // (no crash dump), so everything is caught. ExternalEvent.Raise throws once Revit is shutting down.
+        private static void OnPositionTick()
+        {
+            try
+            {
+                bool active = IsEnabled && ViolationHighlightServer.Instance.CurrentMode == ViolationDisplayMode.Symbol;
+                if (active || _markersWereActive) _positionEvent?.Raise(); // one extra tick clears the markers
+                _markersWereActive = active;
+            }
+            catch (Exception ex)
+            {
+                try { Log.Warn($"[ViolationHighlightController] position tick failed: {ex.Message}"); } catch { }
+            }
         }
 
         internal static void Toggle(UIDocument uidoc)

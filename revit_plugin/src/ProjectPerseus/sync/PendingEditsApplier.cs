@@ -42,14 +42,16 @@ namespace ProjectPerseus.sync
         // Web parameter edits for the review dialog. "assign_id" requests are handled silently by IdGapFiller.
         public static List<PendingEditItem> Fetch(string docGuid) => FetchAll(docGuid).Where(e => !e.IsAssignId).ToList();
 
-        internal static List<PendingEditItem> FetchAssignIdRequests(string docGuid) => FetchAll(docGuid).Where(e => e.IsAssignId).ToList();
+        internal static List<PendingEditItem> FetchAssignIdRequests(string docGuid) => FetchAll(docGuid, 15000).Where(e => e.IsAssignId).ToList();
 
-        private static List<PendingEditItem> FetchAll(string docGuid)
+        // Web edits and assign_id requests in one call. The pre-sync hook fetches this once, in parallel with its
+        // other server calls, with WebHelper.SyncTimeoutMs; an empty list on failure.
+        internal static List<PendingEditItem> FetchAll(string docGuid, int timeoutMs = WebHelper.DefaultTimeoutMs)
         {
             try
             {
                 var endpoint = $"{Config.Instance.BaseUrl.TrimEnd('/')}/source/{docGuid}/pending-edits/?kinds=all"; // without kinds=all the server withholds assign_id requests (older clients can't handle them)
-                string json  = WebHelper.Get(endpoint, AuthService.GetAuthTokenSafely(), null);
+                string json  = WebHelper.Get(endpoint, AuthService.GetAuthTokenSafely(), null, timeoutMs: timeoutMs);
                 return JsonConvert.DeserializeObject<List<PendingEditItem>>(json) ?? new List<PendingEditItem>();
             }
             catch (Exception ex)
@@ -169,7 +171,7 @@ namespace ProjectPerseus.sync
             {
                 var endpoint = $"{Config.Instance.BaseUrl.TrimEnd('/')}/source/{docGuid}/pending-edits/mark-applied/";
                 var payload  = JsonConvert.SerializeObject(new { ids, status });
-                WebHelper.Post(endpoint, AuthService.GetAuthTokenSafely(), payload);
+                WebHelper.Post(endpoint, AuthService.GetAuthTokenSafely(), payload, timeoutMs: 15000);
                 Log.Info($"PendingEditsApplier: marked {ids.Count} edit(s) {status}.");
             }
             catch (Exception ex)

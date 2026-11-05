@@ -61,6 +61,12 @@ namespace ProjectPerseus.ui
 
         private void Timer_Tick(object sender, EventArgs e)
         {
+            try { Tick(); }
+            catch (Exception ex) { ProjectPerseus.logging.Log.Warn($"[AutoSyncCountdownForm] tick failed: {ex.Message}"); }
+        }
+
+        private void Tick()
+        {
             _timeLeft--;
             if (_timeLeft > 0)
             {

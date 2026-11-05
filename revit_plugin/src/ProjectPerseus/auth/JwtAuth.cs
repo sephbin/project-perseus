@@ -102,10 +102,18 @@ namespace ProjectPerseus.auth
             (string username, string password)? credentials = null;
             var sta = new Thread(() =>
             {
-                System.Windows.Forms.Application.EnableVisualStyles();
-                var form = new JwtLoginForm(Config.Instance.BaseUrl);
-                if (form.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-                    credentials = (form.Username, form.Password);
+                // A Thread body must never let an exception escape: it would terminate Revit.
+                try
+                {
+                    System.Windows.Forms.Application.EnableVisualStyles();
+                    var form = new JwtLoginForm(Config.Instance.BaseUrl);
+                    if (form.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                        credentials = (form.Username, form.Password);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"JWT login form failed: {ex.Message}");
+                }
             });
             sta.SetApartmentState(ApartmentState.STA);
             sta.Start();

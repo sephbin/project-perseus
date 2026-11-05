@@ -84,7 +84,12 @@ namespace ProjectPerseus.ui
             Content = grid;
 
             _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
-            _positionTimer.Tick += (s, e) => SyncPosition();
+            _positionTimer.Tick += (s, e) =>
+            {
+                // Unhandled exceptions on a WPF dispatcher thread bring Revit down; keep the overlay's failures here.
+                try { SyncPosition(); }
+                catch (Exception ex) { ProjectPerseus.logging.Log.Warn($"[ViolationOverlay] position sync failed: {ex.Message}"); }
+            };
 
             SourceInitialized += OnSourceInitialized;
         }

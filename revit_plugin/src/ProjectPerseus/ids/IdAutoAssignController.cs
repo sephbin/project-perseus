@@ -8,6 +8,7 @@ using ProjectPerseus.logging;
 using ProjectPerseus.models;
 using ProjectPerseus.queue;
 using ProjectPerseus.revit;
+using ProjectPerseus.sync;
 using ProjectPerseus.violations;
 
 namespace ProjectPerseus.ids
@@ -28,7 +29,11 @@ namespace ProjectPerseus.ids
         private static readonly Dictionary<Document, HashSet<long>> _pending = new Dictionary<Document, HashSet<long>>();
         private static readonly HashSet<string> _ensured = new HashSet<string>();
         // Elements other users changed (from the last sync's change set), waiting for the next pre-sync ID fill.
-        private static readonly Dictionary<Document, HashSet<long>> _preSync = new Dictionary<Document, HashSet<long>>();
+        private static readonly Dictionary<Document, HashSet<long>> _parked = new Dictionary<Document, HashSet<long>>();
+        // Documents whose parked set has not been dry-run yet (PlanParkedAtIdle).
+        private static readonly HashSet<Document> _parkedUnplanned = new HashSet<Document>();
+        // Documents with edits waiting for the ID index to finish building at idle.
+        private static readonly HashSet<Document> _waitingForIndex = new HashSet<Document>();
 
         internal static void Subscribe(UIControlledApplication application, string baseUrl)
         {
@@ -47,7 +52,7 @@ namespace ProjectPerseus.ids
         /// never pass through DocumentChanged on this machine, so a colleague without Perseus leaves them without
         /// IDs. They are NOT written now: writing them straight after a sync would check them out to this user until
         /// their next sync, blocking everyone else. They are parked and filled just before this user's next sync
-        /// (<see cref="NeedsPreSyncFill"/> / <see cref="RunPreSyncFill"/>), so that sync releases them again.
+        /// (<see cref="PreSyncFillCount"/> / <see cref="RunPreSyncFill"/>), so that sync releases them again.
         /// </summary>
         internal static void QueueFromSync(Document doc, IEnumerable<long> ids)
         {
@@ -55,33 +60,71 @@ namespace ProjectPerseus.ids
             int n = 0;
             lock (_lock)
             {
-                if (!_preSync.TryGetValue(doc, out var set)) _preSync[doc] = set = new HashSet<long>();
+                if (!_parked.TryGetValue(doc, out var set)) _parked[doc] = set = new HashSet<long>();
                 foreach (var id in ids) { set.Add(id); n++; }
+                _parkedUnplanned.Add(doc);
             }
-            Log.Info($"[IdAutoAssign] incremental sync parked {n} changed element(s) for the next pre-sync ID fill");
+            Log.Info($"[IdAutoAssign] incremental sync parked {n} changed element(s); they are checked at idle and written before the next sync");
         }
 
         /// <summary>
-        /// Read-only check run inside the pre-sync hook: true when parked elements or Django's "assign_id" requests
-        /// need an ID written that this user is able to write. The model is not touched.
+        /// Idle-time step (IdIndexMaintainer, once the index is current): dry-runs the parked elements and keeps only
+        /// those that really need an ID this user can write. Doing it here means the pre-sync hook only has to look at
+        /// the result, never run the rules itself.
         /// </summary>
-        internal static bool NeedsPreSyncFill(Document doc, string docGuid, IdRulesDto rules)
+        internal static void PlanParkedAtIdle(Document doc, string docGuid, IdRulesDto rules)
         {
-            if (doc == null || rules == null || IsAssigning) return false;
-            var ids = new HashSet<long>();
-            lock (_lock) { if (_preSync.TryGetValue(doc, out var set)) ids.UnionWith(set); }
-            ids.UnionWith(IdGapFiller.Collect(doc, docGuid, rules).Keys);
-            if (ids.Count == 0) return false;
+            HashSet<long> ids;
+            lock (_lock)
+            {
+                if (!_parkedUnplanned.Contains(doc) || !_parked.TryGetValue(doc, out var set)) return;
+                _parkedUnplanned.Remove(doc);
+                ids = new HashSet<long>(set);
+            }
+            if (ids.Count == 0 || !IdAssigner.IsIndexReady(docGuid, rules)) return;
 
             var plan = IdAssigner.Run(doc, docGuid, rules, ids, dryRun: true);
-            if (plan.Planned == 0)
+            lock (_lock)
             {
-                // Nothing to write that this user can write: forget the parked set so it is not re-checked forever.
-                lock (_lock) _preSync.Remove(doc);
-                return false;
+                if (!_parked.TryGetValue(doc, out var set)) return;
+                set.IntersectWith(plan.PlannedIds);
+                if (set.Count == 0) _parked.Remove(doc);
             }
-            Log.Info($"[IdAutoAssign] pre-sync: {plan.Planned} ID write(s) needed on {ids.Count} candidate element(s)");
-            return true;
+            Log.Info($"[IdAutoAssign] parked elements checked at idle: {plan.Planned} of {ids.Count} need an ID before the next sync");
+        }
+
+        // Most server "assign_id" requests the pre-sync hook will dry-run itself; more wait for a later sync.
+        private const int PreSyncRequestLimit = 200;
+
+        /// <summary>
+        /// Pre-sync decision, cheap by design: parked elements were already planned at idle; only the server's
+        /// "assign_id" requests (already fetched by the caller, usually a handful) are dry-run here, and only when the
+        /// ID index is in memory. Read-only.
+        /// </summary>
+        internal static int PreSyncFillCount(Document doc, string docGuid, IdRulesDto rules, List<PendingEditItem> assignRequests)
+        {
+            if (doc == null || rules == null || IsAssigning) return 0;
+            int parked;
+            bool unplanned;
+            lock (_lock)
+            {
+                parked = _parked.TryGetValue(doc, out var set) ? set.Count : 0;
+                unplanned = _parkedUnplanned.Contains(doc);
+            }
+            if (unplanned) Log.Info("[IdAutoAssign] pre-sync: parked elements not checked yet (Revit was not idle); they wait for a later sync");
+            int count = unplanned ? 0 : parked;
+
+            if (assignRequests != null && assignRequests.Count > 0 && IdAssigner.IsIndexReady(docGuid, rules))
+            {
+                var ids = new HashSet<long>();
+                foreach (var req in assignRequests.Take(PreSyncRequestLimit))
+                {
+                    var el = doc.GetElement(req.ElementUniqueId);
+                    if (el != null && IdAssigner.IsEligible(el) && IdAssigner.IsApplicable(rules, el)) ids.Add(el.Id.GetIdValue());
+                }
+                if (ids.Count > 0) count += IdAssigner.Run(doc, docGuid, rules, ids, dryRun: true).Planned;
+            }
+            return count;
         }
 
         /// <summary>
@@ -98,8 +141,13 @@ namespace ProjectPerseus.ids
             HashSet<long> ids;
             lock (_lock)
             {
-                ids = _preSync.TryGetValue(doc, out var set) ? new HashSet<long>(set) : new HashSet<long>();
-                _preSync.Remove(doc);
+                // Unplanned parked elements stay parked for the idle check; planned ones are written now.
+                if (_parkedUnplanned.Contains(doc)) ids = new HashSet<long>();
+                else
+                {
+                    ids = _parked.TryGetValue(doc, out var set) ? new HashSet<long>(set) : new HashSet<long>();
+                    _parked.Remove(doc);
+                }
             }
             try
             {
@@ -117,7 +165,8 @@ namespace ProjectPerseus.ids
             }
         }
 
-        // Forget cached state for a document (closing, or Reload Latest brought in other users' edits).
+        // Forget cached state for a document (closing, audit, renumber). Not called after a sync any more:
+        // IdIndexMaintainer folds other users' changes into the index instead of rebuilding it.
         internal static void Reset(string docGuid)
         {
             IdAssigner.InvalidateIndex(docGuid);
@@ -128,7 +177,7 @@ namespace ProjectPerseus.ids
         internal static void Forget(Document doc)
         {
             if (doc == null) return;
-            lock (_lock) { _preSync.Remove(doc); _pending.Remove(doc); }
+            lock (_lock) { _parked.Remove(doc); _parkedUnplanned.Remove(doc); _pending.Remove(doc); _waitingForIndex.Remove(doc); }
         }
 
         private static void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
@@ -182,6 +231,19 @@ namespace ProjectPerseus.ids
                         Log.Info($"[IdAutoAssign] skipped {kv.Value.Count} element(s): no ID rules cached for {docGuid}.");
                         continue;
                     }
+                    if (!IdAssigner.IsIndexReady(docGuid, rules))
+                    {
+                        // A full scan here would freeze the edit for seconds on a big model; the index is being built
+                        // at idle and IndexReady() raises this event again when it is done.
+                        lock (_lock)
+                        {
+                            if (!_pending.TryGetValue(doc, out var set)) _pending[doc] = set = new HashSet<long>();
+                            set.UnionWith(kv.Value);
+                            _waitingForIndex.Add(doc);
+                        }
+                        Log.Info($"[IdAutoAssign] {kv.Value.Count} element(s) wait for the ID index to finish building.");
+                        continue;
+                    }
                     Log.Info($"[IdAutoAssign] processing {kv.Value.Count} element(s).");
 
                     EnsureParametersOnce(doc, docGuid, rules);
@@ -192,6 +254,14 @@ namespace ProjectPerseus.ids
                     Log.Warn($"[IdAutoAssignController] Assignment failed (non-fatal): {ex.Message}");
                 }
             }
+        }
+
+        /// <summary>Called by IdIndexMaintainer when a document's index has been published.</summary>
+        internal static void IndexReady(Document doc)
+        {
+            bool raise;
+            lock (_lock) raise = _waitingForIndex.Remove(doc) && _pending.ContainsKey(doc);
+            if (raise) _event?.Raise();
         }
 
         // Parameters are added lazily on the first edit rather than at document open, so merely

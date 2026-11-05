@@ -68,6 +68,12 @@ namespace ProjectPerseus.ui
 
         private void Timer_Tick(object sender, EventArgs e)
         {
+            try { Tick(); }
+            catch (Exception ex) { Log.Warn($"[BatchProgressForm] tick failed: {ex.Message}"); }
+        }
+
+        private void Tick()
+        {
             _timeLeft--;
             Log.Info($"[BatchProgressForm] Timer Tick. Time left: {_timeLeft}s");
 

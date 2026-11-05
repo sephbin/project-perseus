@@ -52,19 +52,66 @@ namespace ProjectPerseus.ids
         }
 
         private const int MaxRounds = 30;
+        // Server calls made from the fix event / auto-sync run on Revit's UI thread; never wait minutes there.
+        internal const int FixTimeoutMs = 15000;
 
         // docGuid -> "param|uid" -> value last accepted by the server. Lets later checks send only changes.
         private static readonly ConcurrentDictionary<string, Dictionary<string, string>> _sent =
             new ConcurrentDictionary<string, Dictionary<string, string>>();
 
-        internal static void Reset(string docGuid) => _sent.TryRemove(docGuid, out _);
+        internal static void Reset(string docGuid)
+        {
+            _sent.TryRemove(docGuid, out _);
+            try { System.IO.File.Delete(SentPath(docGuid)); } catch { }
+        }
 
-        /// <summary>Posts the snapshot; returns null when the server could not be reached (fail open).</summary>
-        internal static CheckResult Check(string docGuid, string baseUrl, List<IdClaimItem> snapshot)
+        // What the server last accepted is saved per model, so the first check after Revit restarts sends only the
+        // changes too (users typically open, sync and close, so in-memory state alone meant a full send every time).
+        // Older than FullResendAfter, or missing, and the full set is sent so the server's registry can't drift.
+        private static readonly TimeSpan FullResendAfter = TimeSpan.FromDays(1);
+
+        private static string SentPath(string docGuid) =>
+            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                                   "ProjectPerseus", "idclaims", docGuid + ".json");
+
+        private static Dictionary<string, string> LoadSent(string docGuid)
         {
             try
             {
-                bool full = !_sent.TryGetValue(docGuid, out var last);
+                var path = SentPath(docGuid);
+                var info = new System.IO.FileInfo(path);
+                if (!info.Exists || DateTime.UtcNow - info.LastWriteTimeUtc > FullResendAfter) return null;
+                return JsonConvert.DeserializeObject<Dictionary<string, string>>(System.IO.File.ReadAllText(path));
+            }
+            catch { return null; }
+        }
+
+        private static void SaveSent(string docGuid, Dictionary<string, string> accepted)
+        {
+            try
+            {
+                var path = SentPath(docGuid);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                System.IO.File.WriteAllText(path, JsonConvert.SerializeObject(accepted));
+            }
+            catch (Exception ex) { Log.Warn($"[IdClaims] could not save claim state: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Posts the snapshot; returns null when the server could not be reached (fail open). Thread-safe and free of
+        /// Revit API calls, so the pre-sync hook runs it on a background task with a short timeout.
+        /// </summary>
+        internal static CheckResult Check(string docGuid, string baseUrl, List<IdClaimItem> snapshot,
+                                          int timeoutMs = WebHelper.DefaultTimeoutMs)
+        {
+            try
+            {
+                if (!_sent.TryGetValue(docGuid, out var last))
+                {
+                    last = LoadSent(docGuid);
+                    if (last != null) _sent[docGuid] = last;
+                }
+                bool full = last == null;
                 var now = snapshot.ToDictionary(i => i.Parameter + "|" + i.Uid, i => i, StringComparer.Ordinal);
 
                 var send = full
@@ -84,7 +131,7 @@ namespace ProjectPerseus.ids
                     release,
                 });
                 string json = WebHelper.Post($"{baseUrl}/api/source/{docGuid}/id-claims/",
-                                             AuthService.GetAuthTokenSafely(), body, AuthService.GetAuthSchemeSafely());
+                                             AuthService.GetAuthTokenSafely(), body, AuthService.GetAuthSchemeSafely(), timeoutMs);
                 var reply = JsonConvert.DeserializeAnonymousType(json, new { conflicts = new List<ConflictDto>() });
 
                 var result = new CheckResult();
@@ -98,7 +145,8 @@ namespace ProjectPerseus.ids
                 var accepted = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var kv in now) if (!clash.Contains(kv.Key)) accepted[kv.Key] = kv.Value.Value;
                 _sent[docGuid] = accepted;
-                Log.Info($"[IdClaims] checked {snapshot.Count} value(s), sent {send.Count}, released {release.Count}, {result.Conflicts.Count} clash(es)");
+                SaveSent(docGuid, accepted);
+                Log.Info($"[IdClaims] checked {snapshot.Count} value(s), sent {send.Count}{(full ? " (full set)" : "")}, released {release.Count}, {result.Conflicts.Count} clash(es)");
                 return result;
             }
             catch (Exception ex)
@@ -149,9 +197,9 @@ namespace ProjectPerseus.ids
 
             for (int round = 0; round < MaxRounds; round++)
             {
-                var snapshot = IdAssigner.Snapshot(doc, rules);
+                var snapshot = IdIndexMaintainer.GetClaimsBlocking(doc, docGuid, rules);
                 result.TotalClaims = snapshot.Count;
-                var check = Check(docGuid, baseUrl, snapshot);
+                var check = Check(docGuid, baseUrl, snapshot, FixTimeoutMs); // UI thread (fix event): bounded wait
                 if (check == null) { result.ServerUnreachable = true; return result; }
                 if (check.Conflicts.Count == 0) return result;
 

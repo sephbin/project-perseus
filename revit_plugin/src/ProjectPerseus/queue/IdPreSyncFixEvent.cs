@@ -4,6 +4,7 @@ using Autodesk.Revit.UI;
 using ProjectPerseus.ids;
 using ProjectPerseus.logging;
 using ProjectPerseus.sync;
+using ProjectPerseus.ui;
 
 namespace ProjectPerseus.queue
 {
@@ -23,16 +24,23 @@ namespace ProjectPerseus.queue
 
             try
             {
+                SyncStatusToast.Show("Writing element IDs before your sync…");
                 IdAutoAssignController.RunPreSyncFill(doc);
 
                 if (!IdClaims.EnsureNoClashes(doc, out string summary))
                 {
-                    TaskDialog.Show("Perseus — ID clash", summary + "\n\nThe sync was cancelled so the clash is not pushed to the other users.");
+                    SyncStatusToast.Hide();
+                    TaskDialog.Show("Perseus — ID clash", summary + "\n\nThe sync was cancelled so the clash is not pushed to the other users. Press Sync again once it is resolved.");
                     return;
                 }
-                if (!string.IsNullOrEmpty(summary)) TaskDialog.Show("Perseus — ID clash", summary + "\n\nSyncing now.");
+                if (!string.IsNullOrEmpty(summary))
+                {
+                    SyncStatusToast.Hide();
+                    TaskDialog.Show("Perseus — ID clash", summary + "\n\nSyncing now.");
+                }
 
                 Log.Info("Triggering re-sync after the pre-sync ID fill / clash fix.");
+                SyncStatusToast.Show("IDs written. Restarting your sync now…");
                 SyncOrchestrator.IsResyncAfterIdFix = true;
                 doc.SynchronizeWithCentral(new TransactWithCentralOptions(), SyncOrchestrator.LastUserSyncOptions.Build());
             }
@@ -40,6 +48,9 @@ namespace ProjectPerseus.queue
             {
                 SyncOrchestrator.IsResyncAfterIdFix = false;
                 Log.Error($"Pre-sync ID fix / re-sync failed: {ex.Message}");
+                SyncStatusToast.Hide();
+                TaskDialog.Show("Perseus — Sync", "Perseus paused your sync to write element IDs but could not restart it:\n" +
+                                ex.Message + "\n\nPlease press Sync with Central again.");
             }
         }
 

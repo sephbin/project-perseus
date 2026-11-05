@@ -17,6 +17,53 @@ namespace ProjectPerseus.revit
         private static readonly ConcurrentDictionary<string, string> _cache
             = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        // Documents whose GUID could not be read or created recently. Callers in event handlers used to retry on
+        // every call (hundreds of failed transactions per model open); now a failure is remembered for a while.
+        private static readonly ConcurrentDictionary<string, DateTime> _failedAt
+            = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(30);
+
+        internal const string ErrorGuid = "ErrorModelGuid";
+
+        /// <summary>
+        /// The document's GUID if it is already known (cached or stored), without ever creating one or opening a
+        /// transaction. Safe anywhere, including DocumentChanged and linked documents. Null when there is none yet.
+        /// </summary>
+        public static string TryGet(Document doc)
+        {
+            string key = doc?.PathName;
+            if (string.IsNullOrEmpty(key)) return null;
+            if (_cache.TryGetValue(key, out string cached)) return cached;
+            try
+            {
+                string stored = ReadStored(doc);
+                if (!string.IsNullOrEmpty(stored) && !IsDetachedFromCentral(doc))
+                {
+                    _cache[key] = stored;
+                    return stored;
+                }
+            }
+            catch { /* unreadable right now */ }
+            return null;
+        }
+
+        // A transaction can only be opened in a primary document that is neither read-only (e.g. inside
+        // DocumentChanged) nor already modifiable (inside someone else's transaction).
+        private static bool CanWrite(Document doc) =>
+            !doc.IsLinked && !doc.IsReadOnly && !doc.IsModifiable && !doc.IsFamilyDocument;
+
+        private static string ReadStored(Document doc)
+        {
+            Schema schema = Schema.Lookup(SchemaGuid);
+            if (schema == null) return null;
+            foreach (DataStorage ds in new FilteredElementCollector(doc).OfClass(typeof(DataStorage)))
+            {
+                Entity entity = ds.GetEntity(schema);
+                if (entity.IsValid()) return entity.Get<string>(schema.GetField(FieldName));
+            }
+            return null;
+        }
+
         /// <summary>
         /// Retrieves or creates a permanent GUID for the Revit document.
         /// If the document was detached or copied, it regenerates a new one.
@@ -26,6 +73,27 @@ namespace ProjectPerseus.revit
             string key = doc?.PathName;
             if (!string.IsNullOrEmpty(key) && _cache.TryGetValue(key, out string cached))
                 return cached;
+            if (doc == null) return ErrorGuid;
+
+            // Read-only path first: an existing GUID never needs a transaction.
+            string known = TryGet(doc);
+            if (known != null) return known;
+
+            if (!CanWrite(doc))
+            {
+                // Linked file, inside DocumentChanged, or inside another transaction: creating is impossible here.
+                // Say so once per RetryAfter instead of failing a transaction on every call.
+                if (!string.IsNullOrEmpty(key) &&
+                    (!_failedAt.TryGetValue(key, out var at) || DateTime.UtcNow - at > RetryAfter))
+                {
+                    _failedAt[key] = DateTime.UtcNow;
+                    Log.Info($"[ModelGuidStorage] No GUID yet and the document can't be written now " +
+                             $"(linked={doc.IsLinked}, readOnly={doc.IsReadOnly}, modifiable={doc.IsModifiable}); will create it later.");
+                }
+                return ErrorGuid;
+            }
+            if (!string.IsNullOrEmpty(key) && _failedAt.TryGetValue(key, out var failed) && DateTime.UtcNow - failed < RetryAfter)
+                return ErrorGuid;
 
             try
             {
@@ -57,8 +125,9 @@ namespace ProjectPerseus.revit
             }
             catch (Exception ex)
             {
+                if (!string.IsNullOrEmpty(key)) _failedAt[key] = DateTime.UtcNow;
                 Log.Info($"Error in ModelGuidStorage.GetOrCreate: {ex.Message}");
-                return "ErrorModelGuid";
+                return ErrorGuid;
             }
         }
 
@@ -69,7 +138,7 @@ namespace ProjectPerseus.revit
         public static void ClearCache(Document doc)
         {
             string key = doc?.PathName;
-            if (!string.IsNullOrEmpty(key)) _cache.TryRemove(key, out _);
+            if (!string.IsNullOrEmpty(key)) { _cache.TryRemove(key, out _); _failedAt.TryRemove(key, out _); }
         }
 
         /// <summary>

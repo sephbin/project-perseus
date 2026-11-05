@@ -5,15 +5,19 @@ using System.Text;
 using ProjectPerseus.logging;
 namespace ProjectPerseus.sync
 {
-    // Win32 helpers for closing Revit's native "Sync With Central" progress dialog.
-    // Used when Perseus cancels a sync via SyncWarningForm or hands off to AutoSync.
+    // Closes Revit's "Synchronize with Central" progress dialog, which can stay on screen after Perseus cancels a
+    // sync in DocumentSynchronizingWithCentral (violation block, pending web edits, queue, ID writes).
+    //
+    // Only windows owned by Revit's UI thread are looked at (not every window in the process, as before), and only
+    // titles that are Revit's sync dialog. Never use it on its own: every cancel path must also tell the user what
+    // happened (a TaskDialog / form of its own, or ui/SyncStatusToast), or the sync just appears to vanish.
     internal static class RevitSyncDialogCloser
     {
         [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+        private static extern bool EnumThreadWindows(uint threadId, EnumWindowsProc enumProc, IntPtr lParam);
 
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
@@ -25,19 +29,22 @@ namespace ProjectPerseus.sync
 
         private const uint WM_CLOSE = 0x0010;
 
-        public static void TryClose()
+        /// <summary>Call on Revit's UI thread right after e.Cancel(); closes the dialog shortly after, off-thread.</summary>
+        public static void CloseSoon()
+        {
+            uint uiThread = GetCurrentThreadId();
+            System.Threading.Tasks.Task.Run(() => TryClose(uiThread));
+        }
+
+        private static void TryClose(uint uiThread)
         {
             try
             {
                 System.Threading.Thread.Sleep(500);
-                int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
                 var sb = new StringBuilder(256);
 
-                EnumWindows((hwnd, _) =>
+                EnumThreadWindows(uiThread, (hwnd, _) =>
                 {
-                    GetWindowThreadProcessId(hwnd, out uint windowPid);
-                    if (windowPid != (uint)pid) return true;
-
                     sb.Clear();
                     GetWindowText(hwnd, sb, sb.Capacity);
                     string title = sb.ToString();

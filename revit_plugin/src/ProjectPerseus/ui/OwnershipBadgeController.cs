@@ -31,7 +31,11 @@ namespace ProjectPerseus.ui
             {
                 _revit = revitHwnd;
                 _badge = new OwnershipBadge(revitHwnd);
-                _badge.Clicked += () => OnClick?.Invoke();
+                _badge.Clicked += () =>
+                {
+                    try { OnClick?.Invoke(); }
+                    catch (Exception ex) { Log.Warn($"[OwnershipBadge] click failed: {ex.Message}"); }
+                };
                 _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
                 _timer.Tick += (s, e) => Place();
                 _timer.Start();

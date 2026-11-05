@@ -21,6 +21,8 @@ namespace ProjectPerseus
 
         public Result OnStartup(UIControlledApplication application)
         {
+            CrashTrace.Install();
+            util.CodePages.Register();
             _orchestrator.Subscribe(application);
             violations.ViolationHighlightController.Initialize();
             ownership.OwnershipTracker.Subscribe(application);

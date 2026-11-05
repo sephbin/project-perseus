@@ -20,6 +20,7 @@ namespace ProjectPerseus.ids
         public int SkippedInGroups;     // members of model/detail groups; writing them re-resolves the group and can delete dimensions
         public int Errors;
         public int Planned;             // dry run only: writes that would be made to elements this user can edit
+        public readonly HashSet<long> PlannedIds = new HashSet<long>(); // dry run only: those elements
         public int ElementsChecked;
         public int ActiveRules;
         public int ParametersFound;     // Perseus_ID + rule parameters actually bound in this model
@@ -76,11 +77,15 @@ namespace ProjectPerseus.ids
             public bool IsReassign;
         }
 
-        // Per-document index of rule values, so edits don't rescan the whole model. Rebuilt on full runs,
-        // after Reload Latest / sync, when the rules change, or when any planned write is skipped.
+        // Per-document index of rule values, so edits and the pre-sync claims check don't rescan the whole model.
+        // Built in small slices at idle time (IndexBuilder, driven by IdIndexMaintainer), kept current with
+        // ApplyChanges (local edits, and other users' changes after a sync / Reload Latest), and rebuilt from scratch
+        // on full runs, when the rules change, or when a planned write was skipped.
         private class IdIndex
         {
             public string Signature;
+            // element id -> UniqueId, for every element holding at least one value
+            public readonly Dictionary<long, string> Uids = new Dictionary<long, string>();
             // rule name -> value -> element ids holding it
             public readonly Dictionary<string, Dictionary<string, SortedSet<long>>> Holders =
                 new Dictionary<string, Dictionary<string, SortedSet<long>>>(StringComparer.OrdinalIgnoreCase);
@@ -106,6 +111,13 @@ namespace ProjectPerseus.ids
                 byId[id] = value;
                 if (!byValue.TryGetValue(value, out var set)) byValue[value] = set = new SortedSet<long>();
                 set.Add(id);
+            }
+
+            // Forgets a (deleted) element everywhere. Counters are left alone: a gap in the numbering is harmless.
+            public void Remove(long id)
+            {
+                foreach (var rule in ValueById.Keys.ToList()) Set(rule, id, null);
+                Uids.Remove(id);
             }
 
             public long LowestHolder(string rule, string value) =>
@@ -135,6 +147,160 @@ namespace ProjectPerseus.ids
             if (!string.IsNullOrEmpty(docGuid)) _indexes.TryRemove(docGuid, out _);
         }
 
+        private static List<ActiveRule> ResolveActive(Document doc, IdRulesDto rules, out Dictionary<string, Guid> guids)
+        {
+            var names = new List<string> { SharedParameterManager.PerseusIdName };
+            names.AddRange(rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName))
+                                      .Select(r => r.ParameterName.Trim()));
+            guids = SharedParameterManager.ResolveGuids(doc, names);
+
+            var active = new List<ActiveRule>();
+            foreach (var r in rules.Rules.Where(r => r.Enabled))
+            {
+                var pattern = IdPattern.Parse(r.Pattern);
+                string name = r.ParameterName?.Trim();
+                if (pattern == null || string.IsNullOrEmpty(name) || !guids.TryGetValue(name, out var g)) continue;
+                active.Add(new ActiveRule { Dto = r, Pattern = pattern, ParamGuid = g });
+            }
+            return active;
+        }
+
+        /// <summary>True when a current index (matching these rules) is in memory, so no full scan is needed.</summary>
+        internal static bool IsIndexReady(string docGuid, IdRulesDto rules) =>
+            rules != null && !string.IsNullOrEmpty(docGuid) &&
+            _indexes.TryGetValue(docGuid, out var idx) && idx.Signature == rules.Signature;
+
+        // Records one element's rule values (and counter numbers) in the index.
+        private static void Feed(IdIndex index, Element el, List<ActiveRule> active, RelatedValueResolver resolver)
+        {
+            long id = el.Id.GetIdValue();
+            Func<string, string> resolve = null;
+            bool any = false;
+            foreach (var rule in active)
+            {
+                if (!Applies(rule.Dto, el)) continue;
+                string name = rule.Dto.ParameterName.Trim();
+                string value = el.get_Parameter(rule.ParamGuid)?.AsString();
+                index.Set(name, id, value);
+                if (string.IsNullOrEmpty(value)) continue;
+                any = true;
+                if (resolve == null) resolve = resolver.For(el);
+                string scope = rule.Pattern.ScopeKey(resolve);
+                if (scope != null && rule.Pattern.TryExtractNumber(value, resolve, out long n))
+                    index.NoteNumber(name, scope, n);
+            }
+            if (any) index.Uids[id] = el.UniqueId;
+            else index.Uids.Remove(id);
+        }
+
+        /// <summary>
+        /// Builds a document's index a slice at a time so the full-model scan (seconds on large models) never runs in
+        /// one go on the UI thread. Created and stepped by IdIndexMaintainer during Idling; the finished index is
+        /// published only when complete. Main thread only.
+        /// </summary>
+        internal class IndexBuilder
+        {
+            private readonly Document _doc;
+            private readonly string _docGuid;
+            private readonly List<ActiveRule> _active;
+            private readonly RelatedValueResolver _resolver;
+            private readonly IdIndex _index;
+            private readonly IList<ElementId> _ids;
+            private int _cursor;
+            private readonly System.Diagnostics.Stopwatch _total = new System.Diagnostics.Stopwatch();
+
+            internal IndexBuilder(Document doc, string docGuid, IdRulesDto rules)
+            {
+                _doc = doc;
+                _docGuid = docGuid;
+                _active = ResolveActive(doc, rules, out _);
+                _resolver = new RelatedValueResolver(doc, rules);
+                _index = new IdIndex { Signature = rules.Signature };
+                _total.Start();
+                _ids = _active.Count == 0 ? (IList<ElementId>)new List<ElementId>() : CandidateIds(doc, _active);
+                _total.Stop();
+            }
+
+            internal int Total => _ids.Count;
+            internal int Done => _cursor;
+
+            /// <summary>Processes elements until <paramref name="budgetMs"/> is used. True once the index is published.</summary>
+            internal bool Step(int budgetMs)
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                _total.Start();
+                try
+                {
+                    while (_cursor < _ids.Count)
+                    {
+                        Element el = _doc.GetElement(_ids[_cursor++]);
+                        if (IsEligible(el)) Feed(_index, el, _active, _resolver);
+                        if ((_cursor & 63) == 0 && clock.ElapsedMilliseconds >= budgetMs) return false;
+                    }
+                }
+                finally { _total.Stop(); }
+
+                _indexes[_docGuid] = _index;
+                Log.Info($"[IdAssigner] index built in idle slices: {_ids.Count} candidates, {_index.Uids.Count} with IDs, " +
+                         $"{_total.ElapsedMilliseconds} ms of work");
+                return true;
+            }
+        }
+
+        // Elements the rules can apply to. When every rule names its categories, only those are collected.
+        private static IList<ElementId> CandidateIds(Document doc, List<ActiveRule> active)
+        {
+            var collector = new FilteredElementCollector(doc).WhereElementIsNotElementType();
+            if (!active.Any(r => r.Dto.ApplyToAll))
+            {
+                var names = new HashSet<string>(active.SelectMany(r => r.Dto.Categories), StringComparer.OrdinalIgnoreCase);
+                var cats = new List<ElementId>();
+                foreach (Category c in doc.Settings.Categories)
+                    if (names.Contains(c.Name)) cats.Add(c.Id);
+                if (cats.Count == 0) return new List<ElementId>();
+                collector = collector.WherePasses(new ElementMulticategoryFilter(cats));
+            }
+            return collector.ToElementIds().ToList();
+        }
+
+        /// <summary>
+        /// Brings an existing index up to date with changed and deleted elements (no-op when there is no index; it
+        /// will be built from scratch). Cheap: touches only the given elements. Main thread; read-only on the model.
+        /// </summary>
+        internal static void ApplyChanges(Document doc, string docGuid, IdRulesDto rules,
+                                          ICollection<long> changed, ICollection<long> deleted)
+        {
+            if (rules == null || !_indexes.TryGetValue(docGuid, out var index) || index.Signature != rules.Signature) return;
+            if (deleted != null) foreach (var id in deleted) index.Remove(id);
+            if (changed == null || changed.Count == 0) return;
+
+            var active = ResolveActive(doc, rules, out _);
+            if (active.Count == 0) return;
+            var resolver = new RelatedValueResolver(doc, rules);
+            foreach (var id in changed)
+            {
+                Element el = doc.GetElement(RevitExtensions.CreateId(id));
+                if (IsEligible(el)) Feed(index, el, active, resolver);
+                else index.Remove(id);
+            }
+        }
+
+        /// <summary>
+        /// The claims snapshot (every non-empty rule value) straight from the in-memory index; null when the index
+        /// isn't ready. This is what keeps the pre-sync check from scanning the whole model.
+        /// </summary>
+        internal static List<IdClaimItem> SnapshotFromIndex(string docGuid, IdRulesDto rules)
+        {
+            if (!IsIndexReady(docGuid, rules)) return null;
+            var index = _indexes[docGuid];
+            var items = new List<IdClaimItem>();
+            foreach (var rule in index.ValueById)
+                foreach (var kv in rule.Value)
+                    if (index.Uids.TryGetValue(kv.Key, out var uid))
+                        items.Add(new IdClaimItem { Parameter = rule.Key, Uid = uid, ElementId = kv.Key, Value = kv.Value });
+            return items;
+        }
+
         /// <summary>
         /// Runs the rules over <paramref name="onlyIds"/>, or the whole model when null (audit).
         /// Opens its own transaction; must not be called while the document is modifiable.
@@ -149,19 +315,7 @@ namespace ProjectPerseus.ids
             if (doc == null) return result;
             if (!dryRun && (doc.IsReadOnly || doc.IsModifiable)) return result;
 
-            var names = new List<string> { SharedParameterManager.PerseusIdName };
-            names.AddRange(rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName))
-                                      .Select(r => r.ParameterName.Trim()));
-            var guids = SharedParameterManager.ResolveGuids(doc, names);
-
-            var active = new List<ActiveRule>();
-            foreach (var r in rules.Rules.Where(r => r.Enabled))
-            {
-                var pattern = IdPattern.Parse(r.Pattern);
-                string name = r.ParameterName?.Trim();
-                if (pattern == null || string.IsNullOrEmpty(name) || !guids.TryGetValue(name, out var g)) continue;
-                active.Add(new ActiveRule { Dto = r, Pattern = pattern, ParamGuid = g });
-            }
+            var active = ResolveActive(doc, rules, out var guids);
             bool hasPerseusId = guids.TryGetValue(SharedParameterManager.PerseusIdName, out var perseusIdGuid);
             result.ActiveRules = active.Count;
             result.ParametersFound = guids.Count;
@@ -235,6 +389,7 @@ namespace ProjectPerseus.ids
                     string name = rule.Dto.ParameterName.Trim();
                     string current = p.AsString();
                     index.Set(name, id, current); // sync index with what is actually in the model right now
+                    if (!string.IsNullOrEmpty(current)) index.Uids[id] = el.UniqueId;
 
                     // A value the server's registry says another element holds (see IdClaims) must be replaced even
                     // though it is unique within this local model.
@@ -259,6 +414,7 @@ namespace ProjectPerseus.ids
                         value = rule.Pattern.Render(resolve, index.Allocate(name, scope));
                     } while (fix != null && fix.Taken.Contains(IdClashFix.TakenKey(name, value)));
                     index.Set(name, id, value);
+                    index.Uids[id] = el.UniqueId;
                     changes.Add(new Change
                     {
                         Element = el, Param = p, NewValue = value,
@@ -271,7 +427,11 @@ namespace ProjectPerseus.ids
 
             if (dryRun)
             {
-                result.Planned = changes.Count(c => CanEdit(doc, c.Element.Id));
+                foreach (var c in changes.Where(c => CanEdit(doc, c.Element.Id)))
+                {
+                    result.Planned++;
+                    result.PlannedIds.Add(c.Element.Id.GetIdValue());
+                }
                 Log.Info($"[IdAssigner] dry run: {changes.Count} write(s) needed, {result.Planned} on elements this user can edit " +
                          $"({ordered.Count} elements checked, {clock.ElapsedMilliseconds} ms)");
                 return result;
@@ -555,27 +715,7 @@ namespace ProjectPerseus.ids
             var index = new IdIndex { Signature = rules.Signature };
             var resolver = new RelatedValueResolver(doc, rules);
             if (active.Count > 0)
-            {
-                foreach (var el in all ?? Collect(doc))
-                {
-                    long id = el.Id.GetIdValue();
-                    foreach (var rule in active)
-                    {
-                        if (!Applies(rule.Dto, el)) continue;
-                        var p = el.get_Parameter(rule.ParamGuid);
-                        if (p == null) continue;
-                        string value = p.AsString();
-                        if (string.IsNullOrEmpty(value)) continue;
-
-                        string name = rule.Dto.ParameterName.Trim();
-                        index.Set(name, id, value);
-                        var resolve = resolver.For(el);
-                        string scope = rule.Pattern.ScopeKey(resolve);
-                        if (scope != null && rule.Pattern.TryExtractNumber(value, resolve, out long n))
-                            index.NoteNumber(name, scope, n);
-                    }
-                }
-            }
+                foreach (var el in all ?? Collect(doc)) Feed(index, el, active, resolver);
             _indexes[key] = index;
             return index;
         }

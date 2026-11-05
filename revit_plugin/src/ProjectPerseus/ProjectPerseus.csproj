@@ -284,6 +284,8 @@
     <Compile Include="ids\IdAssigner.cs" />
     <Compile Include="ids\IdClaims.cs" />
     <Compile Include="ids\IdGapFiller.cs" />
+    <Compile Include="ids\IdIndexMaintainer.cs" />
+    <Compile Include="ui\SyncStatusToast.cs" />
     <Compile Include="queue\IdPreSyncFixEvent.cs" />
     <Compile Include="sync\UserSyncOptions.cs" />
     <Compile Include="ids\RelatedValueResolver.cs" />
@@ -309,6 +311,8 @@
     <Compile Include="config\Config.cs" />
     <Compile Include="logging\Log.cs" />
     <Compile Include="logging\SentryContext.cs" />
+    <Compile Include="logging\CrashTrace.cs" />
+    <Compile Include="util\CodePages.cs" />
     <Compile Include="models\BatchInstruction.cs" />
     <Compile Include="models\Element.cs" />
     <Compile Include="models\ElementDelta.cs" />

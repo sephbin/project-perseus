@@ -452,7 +452,10 @@ namespace ProjectPerseus.violations
             }
 
             if (!_queue.IsEmpty)
-                Task.Run(() => FlushToServer());
+            {
+                Log.Info($"[ViolationDetector] {_queue.Count} action(s) pending after \"{txnJoined}\"");
+                ScheduleFlush();
+            }
         }
 
         private static void OnFailuresProcessing(object sender, FailuresProcessingEventArgs e)
@@ -596,6 +599,29 @@ namespace ProjectPerseus.violations
             ui.ViolationOverlayController.Update(count);
         }
 
+        // Actions are posted a few seconds after the last one is queued, so a burst (deleting 900 elements, a run of
+        // edits) becomes one request instead of one per transaction.
+        private const int FlushDelayMs = 3000;
+        private const int MaxPerRequest = 500;
+        private static System.Threading.Timer _flushTimer;
+        private static readonly object _flushLock = new object();
+
+        private static void ScheduleFlush()
+        {
+            lock (_flushLock)
+            {
+                if (_flushTimer == null) _flushTimer = new System.Threading.Timer(_ => OnFlushTimer(), null, FlushDelayMs, System.Threading.Timeout.Infinite);
+                else _flushTimer.Change(FlushDelayMs, System.Threading.Timeout.Infinite);
+            }
+        }
+
+        // ThreadPool thread: nothing may escape (an exception in a Timer callback terminates Revit).
+        private static void OnFlushTimer()
+        {
+            try { FlushToServer(); }
+            catch (Exception ex) { try { Log.Warn($"[ViolationDetector] flush failed: {ex.Message}"); } catch { } }
+        }
+
         private static void FlushToServer()
         {
             if (string.IsNullOrEmpty(_baseUrl)) return;
@@ -603,7 +629,8 @@ namespace ProjectPerseus.violations
             if (actions.Count == 0) return;
             try
             {
-                ProjectPerseusWeb.SubmitActions(_baseUrl, actions);
+                for (int i = 0; i < actions.Count; i += MaxPerRequest)
+                    ProjectPerseusWeb.SubmitActions(_baseUrl, actions.Skip(i).Take(MaxPerRequest).ToList());
                 foreach (var docGuid in actions.Select(a => a.DocGuid).Where(g => g != null).Distinct())
                     ViolationSettingsCache.LoadAsyncIfStale(docGuid, _baseUrl);
             }
@@ -620,7 +647,6 @@ namespace ProjectPerseus.violations
         {
             dto.CorrelationId = Guid.NewGuid().ToString("N");
             dto.SessionId     = SessionId;
-            Log.Info($"[ViolationDetector] {dto.ActionType} el={dto.ElementId} txn=\"{dto.TransactionName}\"");
             _queue.Enqueue(dto);
         }
     }

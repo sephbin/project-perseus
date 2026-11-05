@@ -32,6 +32,11 @@ namespace ProjectPerseus.sync
 
         private static DateTime _lastIdleRun = DateTime.MinValue;
 
+        // What was last imported per document + schedule: the Excel file's last-write time and size. An unchanged
+        // file is not read or re-imported again (it used to be on every sync: hundreds of element updates each time).
+        private static readonly Dictionary<string, (DateTime WriteUtc, long Size)> _imported =
+            new Dictionary<string, (DateTime, long)>(StringComparer.OrdinalIgnoreCase);
+
         // Cache trigger list per document (keyed by PathName or Title). Populated once per session.
         private static readonly Dictionary<string, List<string>> _triggerCache =
             new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -98,6 +103,15 @@ namespace ProjectPerseus.sync
                         continue;
                     }
 
+                    var info = new FileInfo(excelPath);
+                    var stamp = (info.LastWriteTimeUtc, info.Length);
+                    string stampKey = DocKey(doc) + "|" + cfg.RevitScheduleName;
+                    if (_imported.TryGetValue(stampKey, out var last) && last == stamp)
+                    {
+                        Log.Info($"[KeyScheduleAutoImporter]   '{cfg.RevitScheduleName}': Excel unchanged since last import — skipped");
+                        continue;
+                    }
+
                     try
                     {
                         KeyScheduleData data = service.ReadFromExcel(cfg.ExcelFilePath, cfg.ExcelSheetName);
@@ -109,6 +123,7 @@ namespace ProjectPerseus.sync
 
                         data = KeyScheduleService.ApplyFilters(data, cfg.Filters);
                         var (created, updated) = service.ImportRows(doc, data, cfg.RevitScheduleName);
+                        _imported[stampKey] = stamp;
                         Log.Info($"[KeyScheduleAutoImporter]   '{cfg.RevitScheduleName}': +{created} created  ~{updated} updated");
 
                         // Count extras but do NOT delete — auto-import is non-interactive.
@@ -142,9 +157,11 @@ namespace ProjectPerseus.sync
             }
         }
 
+        private static string DocKey(Document doc) => !string.IsNullOrEmpty(doc.PathName) ? doc.PathName : doc.Title;
+
         private static List<string> GetCachedTriggers(Document doc)
         {
-            string key = !string.IsNullOrEmpty(doc.PathName) ? doc.PathName : doc.Title;
+            string key = DocKey(doc);
             if (!_triggerCache.TryGetValue(key, out List<string> cached))
             {
                 // FetchTriggers returns null when auth isn't ready or a network error occurs.
@@ -190,7 +207,7 @@ namespace ProjectPerseus.sync
                 string endpoint = $"{baseUrl.TrimEnd('/')}/registersource/";
                 string payload  = Newtonsoft.Json.JsonConvert.SerializeObject(metadata);
                 string response = WebHelper.Post(endpoint, token, payload,
-                                                 AuthService.GetAuthSchemeSafely());
+                                                 AuthService.GetAuthSchemeSafely(), timeoutMs: WebHelper.SyncTimeoutMs);
 
                 var json = JObject.Parse(response);
                 var triggers = json["source"]?["parameter_dict"]?["perseusOption_importKeyScheduleTriggers"]

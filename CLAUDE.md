@@ -130,9 +130,14 @@ ProjectPerseus/
 │                                 console. File path: %AppData%\ProjectPerseus\logs\
 │                                 <timestamp>-<user>-medusa.log (per-session). InitSession
 │                                 called from Plugin.OnStartup.
-│   └── SentryContext.cs          IDisposable scope: SentrySdk.Init/Close around a
-│                                 `using (...)` block. Used in SyncOrchestrator.doOnSync.
+│   ├── SentryContext.cs          IDisposable scope: SentrySdk.Init/Close around a
+│   │                             `using (...)` block. Used in SyncOrchestrator.doOnSync.
+│   └── CrashTrace.cs             NEW (2026-11-05). Installed first in Plugin.OnStartup: logs
+│                                 AppDomain.UnhandledException (with "Perseus on stack: yes/no") and our own unobserved
+│                                 Task exceptions. Can't stop a background-thread exception killing Revit; leaves a trace.
 ├── util/                         NEW (P7). Non-logging helpers extracted from Utl.cs.
+│   ├── CodePages.cs              NEW (2026-11-05). Registers CodePagesEncodingProvider at startup (by reflection) so
+│   │                             EPPlus' IBM437 works on .NET 8 (Revit 2025+). No-op on .NET Framework.
 │   ├── FilterEvaluator.cs        Python-subset expression evaluator for key schedule import filters.
 │   │                             Supports row["Col"] access, re.search/match/findall, math.*,
 │   │                             string methods, comparisons, and/or/not, len/float/int/str.
@@ -159,9 +164,17 @@ ProjectPerseus/
 │   │                             (max in local model + 1) within the counter scope (resolved template values,
 │   │                             e.g. walls on one level). Per-document index; checkout-aware.
 │   ├── IdClaims.cs               NEW. Pre-sync clash check. Posts the model's rule-parameter values to Django
-│   │                             (POST /api/source/<guid>/id-claims/; only changes after the first call). A value held by
-│   │                             another element is a clash; the lower ElementId keeps it. Resolve() renumbers this user's
-│   │                             clashing elements via IdAssigner.Run(fix:) and re-checks. Snapshot() lives in IdAssigner.
+│   │                             (POST /api/source/<guid>/id-claims/; only changes after the first call). What the server
+│   │                             accepted is persisted per model (%AppData%\ProjectPerseus\idclaims\<guid>.json, full resend
+│   │                             after 1 day) so deltas survive Revit restarts. Check() is thread-safe/no Revit API and takes
+│   │                             a timeout (pre-sync runs it on a Task within a 2 s budget). A value held by another element
+│   │                             is a clash; the lower ElementId keeps it. Resolve() renumbers this user's clashing elements
+│   │                             via IdAssigner.Run(fix:), snapshot from IdIndexMaintainer.GetClaimsBlocking.
+│   ├── IdIndexMaintainer.cs      NEW (2026-11-05). Keeps IdAssigner's ID index ready so the sync path never scans the
+│   │                             model: builds it in 40 ms Idling slices (IdAssigner.IndexBuilder), records ids from
+│   │                             DocumentChanged and applies them at idle, and after sync / Reload Latest folds in
+│   │                             Document.GetChangedElements(alignedVersion) (rebuild if history unavailable).
+│   │                             TryGetClaims() = pre-sync snapshot from memory (null => check skipped this sync).
 │   ├── IdGapFiller.cs            NEW. Fallback for elements Django saw without an ID (made by a user without Perseus, or
 │   │                             checked out when first seen). Collect() fetches kind='assign_id' pending edits (read-only,
 │   │                             dismisses unfillable ones); Fulfil() runs IdAssigner on them, marks done those this user now
@@ -173,10 +186,12 @@ ProjectPerseus/
 │   └── IdAutoAssignController.cs DocumentChanged hook -> queues added/modified ids -> raises
 │                                 queue/AssignIdsEvent. IsAssigning flag stops re-entry. QueueFromSync() is called by
 │                                 IncrementalSyncRunner with the change set (other users' elements) and only PARKS them:
-│                                 writing them after a sync would check them out until the user's next sync. At the next
-│                                 pre-sync, NeedsPreSyncFill() (IdAssigner dry run, read-only) decides whether to cancel the
-│                                 sync; RunPreSyncFill() (from IdPreSyncFixEvent / AutoSyncEvent) writes parked + IdGapFiller
-│                                 IDs so that same sync releases the ownership.
+│                                 writing them after a sync would check them out until the user's next sync.
+│                                 PlanParkedAtIdle() dry-runs them at idle (keeps only those needing a write);
+│                                 PreSyncFillCount() is the cheap pre-sync decision (parked count + dry run of <=200 server
+│                                 assign_id requests, only if the index is ready); RunPreSyncFill() (IdPreSyncFixEvent /
+│                                 AutoSyncEvent) writes them so that same sync releases the ownership. Edits made while
+│                                 the index is still building wait for it (IndexReady) instead of forcing a full scan.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds. Fetches fresh ID rules, ensures parameters,
@@ -283,6 +298,9 @@ ProjectPerseus/
 │   │                             queue/OwnershipUiEvent.
 │   ├── OwnershipBadge.cs         NEW (2026-11-05). Borderless, non-activating WPF pill (PerseusCyan #00A0E0) owned by the
 │   │                             Revit main window; shows the count of elements the user owns. Click opens OwnershipForm.
+│   ├── SyncStatusToast.cs        NEW (2026-11-05). Non-activating status card (bottom-right of Revit) on its own STA
+│   │                             thread, so it paints while the UI thread is blocked in the sync event. Shown before the
+│   │                             pre-sync checks and to explain a Perseus cancel + automatic re-sync.
 │   └── OwnershipBadgeController.cs NEW (2026-11-05). Places the badge in Revit's status bar (finds msctls_statusbar32 or
 │                                 the bottom strip; sits left of the status bar's right-hand controls). 250 ms
 │                                 DispatcherTimer on the main thread; logs the status bar layout it found once.
@@ -327,8 +345,9 @@ ProjectPerseus/
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
 │   ├── UserSyncOptions.cs        NEW (2026-11-05). Plain copy of the user's Sync with Central dialog options (comment,
 │   │                             compact, relinquish flags), captured pre-sync; Build() makes options for Perseus re-syncs.
-│   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: TryClose() finds "Sync With Central" dialogs
-│                                 by title and PostMessage(WM_CLOSE).
+│   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: CloseSoon() (call on the UI thread after e.Cancel()) closes Revit's
+│                                 "Synchronize with Central" dialog, looking only at Revit UI-thread windows. Every cancel
+│                                 path must also tell the user why (own dialog/form or ui/SyncStatusToast).
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
 │   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
 │   │                             via ControlledApplication (called from SyncOrchestrator).
@@ -354,7 +373,8 @@ ProjectPerseus/
 │   │                             fetches /source/<guid>/violations/ and deserialises to
 │   │                             List<ViolationHighlightDto>. Called by ViolationPoller.PollAll().
 │   └── WebHelper.cs              NEW (P5). Single static WebHelper. Optional scheme param
-│                                 (defaults "Bearer") so legacy "Token" call still works.
+│                                 (defaults "Bearer") so legacy "Token" call still works. Optional timeoutMs: default
+│                                 5 min is for background uploads; UI-thread / pre-sync calls pass SyncTimeoutMs (5 s).
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
 └── resources/                    Ribbon icons: 16 pairs <name>.png + <name>_dark.png, real 128px PNGs
                                   rendered from vector masters by revit_plugin/tools/generate_icons.py
@@ -411,7 +431,8 @@ ProjectPerseus/
 │   └── Config.cs                 Moved from root.
 ├── logging/
 │   ├── Log.cs                    Single front door — wraps Sentry + file output.
-│   └── SentryContext.cs          Extracted from Utl.cs.
+│   ├── SentryContext.cs          Extracted from Utl.cs.
+│   └── CrashTrace.cs             [DONE 2026-11-05] Last-chance unhandled-exception logging.
 ├── models/                       Mostly unchanged (existing folder is healthy).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).
@@ -480,3 +501,8 @@ Each priority should be its own commit/build so any breakage is localised. Updat
 - Every new `.cs` file needs a `<Compile Include="..."/>` entry in ProjectPerseus.csproj
   (see feedback_csproj_include memory — the .csproj is old-style, no glob discovery).
 - When you move or add a folder/file/namespace, update §6.1 and §6.3 in the SAME change.
+- The DocumentSynchronizingWithCentral handler runs on Revit's UI thread while the user waits: no full-model scans
+  (read from caches maintained at idle, e.g. ids/IdIndexMaintainer), no model writes (cancel + ExternalEvent +
+  re-sync, explained via ui/SyncStatusToast), and every HTTP call uses WebHelper.SyncTimeoutMs or runs on a Task
+  with a bounded wait. Thread bodies, Timer/DispatcherTimer callbacks and async void handlers need their own
+  top-level try/catch: an exception escaping them terminates Revit.

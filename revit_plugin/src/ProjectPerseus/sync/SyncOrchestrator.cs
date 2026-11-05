@@ -76,6 +76,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
             ViolationDetector.Subscribe(application, _config.BaseUrl);
             ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
+            ids.IdIndexMaintainer.Subscribe(application);
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
@@ -110,6 +111,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
             ViolationDetector.Unsubscribe(application);
             ids.IdAutoAssignController.Unsubscribe(application);
+            ids.IdIndexMaintainer.Unsubscribe(application);
             _alertPoller?.Stop();
             _queueWebForm?.Close();
             ui.ViolationOverlayController.Stop();
@@ -172,8 +174,8 @@ namespace ProjectPerseus.sync
             violations.ViolationDetector.IsSyncInProgress = false;
             if (e.Status == RevitAPIEventStatus.Succeeded)
             {
-                // Reload Latest may have brought in other users' IDs; drop the cached ID index.
-                try { ids.IdAutoAssignController.Reset(revit.ModelGuidStorage.GetOrCreate(e.Document)); } catch { }
+                // Reload Latest brought in other users' IDs: IdIndexMaintainer folds those changes into the ID index at
+                // idle (Document.GetChangedElements) instead of the index being rebuilt from a full scan every sync.
 
                 _stageTimeRevitComplete = DateTime.UtcNow;
 
@@ -343,8 +345,21 @@ namespace ProjectPerseus.sync
             }
         }
 
+        // Budget for the ID claims check (server round trip). Past it the sync goes ahead without the check: a clash
+        // is caught before a later sync, a frozen Revit is not recoverable.
+        private const int IdCheckBudgetMs = 2000;
+
+        // Result of a background task if it finished within ms, else null (still running, failed or cancelled).
+        private static T WaitFor<T>(System.Threading.Tasks.Task<T> task, long ms) where T : class
+        {
+            if (task == null) return null;
+            try { return task.Wait((int)Math.Max(0, ms)) ? task.Result : null; }
+            catch { return null; }
+        }
+
         private void doOnPriorToSync(DocumentSynchronizingWithCentralEventArgs e)
         {
+            bool keepToast = false;
             try
             {
                 _isSyncing = true;
@@ -398,6 +413,9 @@ namespace ProjectPerseus.sync
                 string windowsUsername = Environment.UserName;
                 string machineName = Environment.MachineName;
 
+                // Say what is happening before any waiting, so the user isn't left looking at a stalled sync.
+                SyncStatusToast.Show("Checking the model before syncing…");
+
                 // Presync gate: block or warn on protected-element violations from this session.
                 // Freefall mode bypasses this entirely and clears accumulated violations so they
                 // don't linger to block the next non-Freefall sync.
@@ -432,9 +450,10 @@ namespace ProjectPerseus.sync
                                 FooterText      = footer,
                                 CommonButtons   = TaskDialogCommonButtons.Ok,
                             };
+                            SyncStatusToast.Hide();
                             dlg.Show();
                             e.Cancel();
-                            System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                            RevitSyncDialogCloser.CloseSoon();
                             return;
                         }
 
@@ -450,10 +469,11 @@ namespace ProjectPerseus.sync
                             };
                             dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Proceed with sync");
                             dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Cancel sync");
+                            SyncStatusToast.Hide();
                             if (dlg.Show() == TaskDialogResult.CommandLink2)
                             {
                                 e.Cancel();
-                                System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                                RevitSyncDialogCloser.CloseSoon();
                                 return;
                             }
                         }
@@ -475,6 +495,19 @@ namespace ProjectPerseus.sync
                 // IdPreSyncFixEvent does the writes, then re-triggers the sync with the user's options.
                 bool skipIdCheck = IsResyncAfterIdFix;
                 IsResyncAfterIdFix = false;
+                bool skipPendingEditsCheck = IsResyncAfterPendingEdits;
+                IsResyncAfterPendingEdits = false;
+
+                // The server calls below start together on background tasks (no Revit API there), each with a short
+                // timeout. They used to run one after another on Revit's UI thread with a 5-minute timeout each.
+                var preSyncClock = System.Diagnostics.Stopwatch.StartNew();
+                var serverRoot = new Uri(baseUrl).GetLeftPart(UriPartial.Authority);
+                var queueEndpoint = $"{serverRoot}/syncboat/api/v2/source/{docGuid}/queue/";
+                var queueTask = System.Threading.Tasks.Task.Run(() => WebHelper.Get(queueEndpoint, null, null, timeoutMs: WebHelper.SyncTimeoutMs));
+                var editsTask = skipIdCheck && skipPendingEditsCheck
+                    ? System.Threading.Tasks.Task.FromResult(new List<PendingEditItem>())
+                    : System.Threading.Tasks.Task.Run(() => PendingEditsApplier.FetchAll(docGuid, WebHelper.SyncTimeoutMs));
+
                 if (!skipIdCheck)
                 {
                     try
@@ -483,19 +516,36 @@ namespace ProjectPerseus.sync
                         var idRules = ids.IdRulesCache.Get(docGuid);
                         if (idRules != null && idRules.Rules.Any(r => r.Enabled))
                         {
-                            var clock = System.Diagnostics.Stopwatch.StartNew();
-                            bool needFill = false;
-                            try { needFill = ids.IdAutoAssignController.NeedsPreSyncFill(e.Document, docGuid, idRules); }
-                            catch (Exception fillEx) { Log.Warn($"Pre-sync ID fill check failed (non-fatal): {fillEx.Message}"); }
+                            // The snapshot comes from the ID index kept in memory at idle (IdIndexMaintainer); no model
+                            // scan here. If the index isn't ready the clash check is skipped for this sync.
+                            var claims = ids.IdIndexMaintainer.TryGetClaims(e.Document, docGuid, idRules, out string notReady);
+                            if (claims == null) Log.Info($"[IdClaims] pre-sync clash check skipped ({notReady}); it runs before a later sync.");
+                            var claimsTask = claims == null ? null
+                                : System.Threading.Tasks.Task.Run(() => ids.IdClaims.Check(docGuid, baseUrl, claims, WebHelper.SyncTimeoutMs));
 
-                            var idCheck = ids.IdClaims.Check(docGuid, baseUrl, ids.IdAssigner.Snapshot(e.Document, idRules));
+                            var fetched = WaitFor(editsTask, IdCheckBudgetMs - preSyncClock.ElapsedMilliseconds);
+                            var assignRequests = fetched?.Where(x => x.IsAssignId).ToList();
+                            int fill = ids.IdAutoAssignController.PreSyncFillCount(e.Document, docGuid, idRules, assignRequests);
+
+                            var idCheck = WaitFor(claimsTask, IdCheckBudgetMs - preSyncClock.ElapsedMilliseconds);
+                            if (claimsTask != null && !claimsTask.IsCompleted)
+                                Log.Warn($"[IdClaims] pre-sync clash check did not answer within {IdCheckBudgetMs} ms; syncing without it (a clash is caught before a later sync).");
                             int clashes = idCheck?.Conflicts.Count ?? 0;
-                            Log.Info($"[IdClaims] pre-sync ID check took {clock.ElapsedMilliseconds} ms (fill needed: {needFill}, clashes: {clashes})");
-                            if (needFill || clashes > 0)
+                            Log.Info($"[IdClaims] pre-sync ID check took {preSyncClock.ElapsedMilliseconds} ms (IDs to write: {fill}, clashes: {clashes})");
+
+                            if (fill > 0 || clashes > 0)
                             {
-                                Log.Info("Pre-sync: IDs need writing — cancelling sync, writing them, then re-syncing.");
+                                // Writing IDs modifies the model, which can't happen inside this event (it races with
+                                // Revit's central communication), so the sync is cancelled, IdPreSyncFixEvent writes
+                                // them, then re-runs the sync with the user's options. The toast stays up to say so.
+                                string what = fill > 0 && clashes > 0 ? $"write {fill} element ID(s) and renumber {clashes} that clash with other users"
+                                            : fill > 0 ? $"write {fill} element ID(s)"
+                                            : $"renumber {clashes} ID(s) that clash with other users";
+                                Log.Info($"Pre-sync: cancelling sync to {what}, then re-syncing.");
                                 e.Cancel();
-                                System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                                keepToast = true;
+                                SyncStatusToast.Show($"Paused this sync to {what}.\nIt restarts by itself in a moment, no need to press Sync again.");
+                                RevitSyncDialogCloser.CloseSoon();
                                 IdPreSyncFixExternalEvent.Raise();
                                 return;
                             }
@@ -518,11 +568,10 @@ namespace ProjectPerseus.sync
                 // races with Revit's own central-server communication and causes edits to be silently
                 // skipped. Cancelling first guarantees the transaction lands cleanly; the user then
                 // re-syncs so Revit picks up the applied changes.
-                bool skipPendingEditsCheck = IsResyncAfterPendingEdits;
-                IsResyncAfterPendingEdits = false;
                 try
                 {
-                    var pendingEdits = skipPendingEditsCheck ? null : PendingEditsApplier.Fetch(docGuid);
+                    var pendingEdits = skipPendingEditsCheck ? null
+                        : WaitFor(editsTask, WebHelper.SyncTimeoutMs + 500 - preSyncClock.ElapsedMilliseconds)?.Where(x => !x.IsAssignId).ToList();
                     if (pendingEdits != null && pendingEdits.Count > 0)
                     {
                         var dlg = new TaskDialog("Perseus — Pending Web Edits")
@@ -532,12 +581,13 @@ namespace ProjectPerseus.sync
                         };
                         dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Review and apply web edits (sync will be cancelled so edits are applied first)");
                         dlg.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Skip — sync without applying");
+                        SyncStatusToast.Hide();
                         if (dlg.Show() == TaskDialogResult.CommandLink1)
                         {
                             // Cancel the sync now — before any model changes — so Revit is in a
                             // stable, non-syncing state when the transaction runs.
                             e.Cancel();
-                            System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                            RevitSyncDialogCloser.CloseSoon();
 
                             PendingEditsApplier.EnrichWithRevitValues(pendingEdits, e.Document);
                             using (var form = new PendingEditsReviewForm(pendingEdits))
@@ -563,10 +613,12 @@ namespace ProjectPerseus.sync
                     Log.Warn($"Pre-sync pending edits check failed (non-fatal): {pendingEx.Message}");
                 }
 
-                var serverRoot = new Uri(baseUrl).GetLeftPart(UriPartial.Authority);
-                var queueEndpoint = $"{serverRoot}/syncboat/api/v2/source/{docGuid}/queue/";
-
-                string queueResponseJson = WebHelper.Get(queueEndpoint, null, null);
+                string queueResponseJson = WaitFor(queueTask, WebHelper.SyncTimeoutMs + 500 - preSyncClock.ElapsedMilliseconds);
+                if (queueResponseJson == null)
+                {
+                    Log.Warn("Sync queue did not answer in time; syncing without the queue check.");
+                    queueResponseJson = "{}";
+                }
 
                 var queueStatus = JsonConvert.DeserializeObject<SyncQueueResponse>(queueResponseJson);
 
@@ -604,6 +656,7 @@ namespace ProjectPerseus.sync
 
                     using (var form = new SyncWarningForm(queueCount, queueList))
                     {
+                        SyncStatusToast.Hide();
                         form.ShowDialog();
 
                         switch (form.SelectedAction)
@@ -615,7 +668,7 @@ namespace ProjectPerseus.sync
                             case SyncWarningForm.SyncAction.JoinQueue:
                                 Log.Info("User chose: Join Queue.");
                                 e.Cancel();
-                                System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                                RevitSyncDialogCloser.CloseSoon();
                                 OpenWebQueueLink(docGuid);
                                 return;
 
@@ -627,7 +680,7 @@ namespace ProjectPerseus.sync
                             case SyncWarningForm.SyncAction.JoinQueueAndAutoSync:
                                 Log.Info("User chose: Join Queue & Auto-Sync.");
                                 e.Cancel();
-                                System.Threading.Tasks.Task.Run(() => RevitSyncDialogCloser.TryClose());
+                                RevitSyncDialogCloser.CloseSoon();
                                 OpenWebQueueLink(docGuid);
 
                                 // Capture locals — instance fields and Revit API are off-limits on a background thread.
@@ -677,13 +730,27 @@ namespace ProjectPerseus.sync
                 string jsonPayload = JsonConvert.SerializeObject(payload);
 
                 var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
-                string response = WebHelper.Post(preSyncEndpoint, AuthService.GetAuthTokenSafely(), jsonPayload);
-
-                Log.Info($"Preliminary sync request sent. Response: {response}");
+                string preSyncToken = AuthService.GetAuthTokenSafely();
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        string response = WebHelper.Post(preSyncEndpoint, preSyncToken, jsonPayload, timeoutMs: 30000);
+                        Log.Info($"Preliminary sync request sent. Response: {response}");
+                    }
+                    catch (Exception postEx)
+                    {
+                        Log.Warn($"Preliminary sync request failed (non-fatal): {postEx.Message}");
+                    }
+                });
             }
             catch (Exception ex)
             {
                 Log.Error($"Error during preliminary sync: {ex}");
+            }
+            finally
+            {
+                if (!keepToast) SyncStatusToast.Hide();
             }
         }
 
