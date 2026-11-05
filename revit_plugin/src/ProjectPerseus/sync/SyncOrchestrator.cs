@@ -586,26 +586,14 @@ namespace ProjectPerseus.sync
                         SyncStatusToast.Hide();
                         if (dlg.Show() == TaskDialogResult.CommandLink1)
                         {
-                            // Cancel the sync now — before any model changes — so Revit is in a
-                            // stable, non-syncing state when the transaction runs.
+                            // Cancel the sync and do the review + apply in PendingEditsResyncEvent, AFTER this handler
+                            // returns. The model can't be changed inside DocumentSynchronizingWithCentral, even after
+                            // e.Cancel(): applying here failed with "An internal error has occurred", so nothing was
+                            // applied and the next sync prompted for the same edits again.
                             e.Cancel();
                             RevitSyncDialogCloser.CloseSoon();
-
-                            PendingEditsApplier.EnrichWithRevitValues(pendingEdits, e.Document);
-                            using (var form = new PendingEditsReviewForm(pendingEdits))
-                            {
-                                if (form.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-                                {
-                                    var selected = form.SelectedEdits;
-                                    var applyResult = PendingEditsApplier.Apply(e.Document, docGuid, selected);
-                                    Log.Info($"Pre-sync web edits: applied {applyResult.Applied}, skipped {applyResult.Skipped}. Raising re-sync event.");
-
-                                    // Raise the re-sync event so Revit re-triggers SynchronizeWithCentral
-                                    // on the main thread once this event handler returns. The queue check
-                                    // runs normally in doOnPriorToSync (IsAutoSyncing stays false).
-                                    PendingEditsResyncExternalEvent.Raise();
-                                }
-                            }
+                            PendingEditsResyncEvent.Queue(docGuid, pendingEdits);
+                            PendingEditsResyncExternalEvent.Raise();
                             return;
                         }
                     }

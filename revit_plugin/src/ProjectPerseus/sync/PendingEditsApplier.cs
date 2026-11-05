@@ -6,6 +6,8 @@ using Newtonsoft.Json;
 using ProjectPerseus.auth;
 using ProjectPerseus.config;
 using ProjectPerseus.logging;
+using ProjectPerseus.revit;
+using StorageType = Autodesk.Revit.DB.StorageType;
 using ProjectPerseus.web;
 
 namespace ProjectPerseus.sync
@@ -32,6 +34,8 @@ namespace ProjectPerseus.sync
         public int Applied { get; set; }
         public int Skipped { get; set; }
         public int Total   { get; set; }
+        // One line per edit that was not applied: "<element> · <param>: <reason>".
+        public List<string> Problems { get; } = new List<string>();
     }
 
     // Shared logic: fetch pending web edits from Django, apply them to the Revit
@@ -94,41 +98,67 @@ namespace ProjectPerseus.sync
             var result     = new PendingEditsApplierResult { Total = edits.Count };
             var appliedIds = new List<int>();
 
-            using (var tx = new Transaction(doc, "Perseus: Apply Web Parameter Edits"))
+            void Skip(PendingEditItem edit, string what, string reason)
             {
-                tx.Start();
-                foreach (var edit in edits)
+                result.Skipped++;
+                result.Problems.Add($"{what} · {edit.ParamName}: {reason}");
+                Log.Warn($"PendingEditsApplier: edit {edit.Id} ({edit.ElementUniqueId} · {edit.ParamName}) not applied: {reason}");
+            }
+
+            // Resolve elements first.
+            var targets = new List<(PendingEditItem Edit, Element Element)>();
+            foreach (var edit in edits)
+            {
+                var element = string.IsNullOrEmpty(edit.ElementUniqueId) ? null : doc.GetElement(edit.ElementUniqueId);
+                if (element == null) Skip(edit, edit.ElementName ?? edit.ElementUniqueId, "element not found in this model");
+                else targets.Add((edit, element));
+            }
+
+            // Check out everything in one call, outside the transaction (WorksharingUtils talks to central).
+            var editable = new HashSet<ElementId>();
+            if (doc.IsWorkshared && targets.Count > 0)
+            {
+                var want = new List<ElementId>();
+                foreach (var t in targets)
+                {
+                    var st = WorksharingUtils.GetCheckoutStatus(doc, t.Element.Id);
+                    if (st == CheckoutStatus.OwnedByCurrentUser) editable.Add(t.Element.Id);
+                    else if (st == CheckoutStatus.NotOwned) want.Add(t.Element.Id);
+                }
+                if (want.Count > 0)
                 {
                     try
                     {
-                        var element = doc.GetElement(edit.ElementUniqueId);
-                        if (element == null)
-                        {
-                            Log.Warn($"PendingEditsApplier: element not found: {edit.ElementUniqueId}");
-                            result.Skipped++;
-                            continue;
-                        }
+                        foreach (var id in WorksharingUtils.CheckoutElements(doc, want)) editable.Add(id);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"PendingEditsApplier: checkout of {want.Count} element(s) failed: {ex.Message}");
+                    }
+                }
+            }
 
-                        if (doc.IsWorkshared)
+            var setIds = new List<int>();
+            using (var tx = new Transaction(doc, "Perseus: Apply Web Parameter Edits"))
+            {
+                tx.Start();
+                foreach (var (edit, element) in targets)
+                {
+                    string what = string.IsNullOrEmpty(element.Name) ? $"ID {element.Id.GetIdValue()}" : element.Name;
+                    try
+                    {
+                        if (doc.IsWorkshared && !editable.Contains(element.Id))
                         {
-                            var status = WorksharingUtils.GetCheckoutStatus(doc, element.Id);
-                            if (status == CheckoutStatus.OwnedByOtherUser)
-                            {
-                                Log.Info($"PendingEditsApplier: skipping {edit.ElementUniqueId} — checked out by another user.");
-                                result.Skipped++;
-                                continue;
-                            }
-                            if (status == CheckoutStatus.NotOwned)
-                                WorksharingUtils.CheckoutElements(doc, new List<ElementId> { element.Id });
+                            WorksharingUtils.GetCheckoutStatus(doc, element.Id, out string owner);
+                            Skip(edit, what, string.IsNullOrEmpty(owner) || owner == doc.Application.Username
+                                ? "could not be checked out (Reload Latest, then try again)"
+                                : $"checked out by {owner}");
+                            continue;
                         }
 
                         var param = element.LookupParameter(edit.ParamName);
-                        if (param == null || param.IsReadOnly)
-                        {
-                            Log.Warn($"PendingEditsApplier: param '{edit.ParamName}' not found or read-only on {edit.ElementUniqueId}.");
-                            result.Skipped++;
-                            continue;
-                        }
+                        if (param == null) { Skip(edit, what, "parameter not found"); continue; }
+                        if (param.IsReadOnly) { Skip(edit, what, "parameter is read-only"); continue; }
 
                         string val = edit.NewValue ?? "";
                         bool   set = false;
@@ -136,27 +166,43 @@ namespace ProjectPerseus.sync
                         switch (param.StorageType)
                         {
                             case StorageType.String:
-                                param.Set(val);
-                                set = true;
+                                set = param.Set(val);
                                 break;
                             case StorageType.Double:
-                                if (double.TryParse(val, out double d)) { param.Set(d); set = true; }
+                                // Web values are what the user sees (display units); SetValueString converts them.
+                                set = param.SetValueString(val)
+                                      || (double.TryParse(val, System.Globalization.NumberStyles.Float,
+                                              System.Globalization.CultureInfo.InvariantCulture, out double d) && param.Set(d));
                                 break;
                             case StorageType.Integer:
-                                if (int.TryParse(val, out int i)) { param.Set(i); set = true; }
+                                set = (int.TryParse(val, out int i) && param.Set(i)) || param.SetValueString(val);
                                 break;
+                            default:
+                                Skip(edit, what, $"{param.StorageType} parameters can't be set from the web");
+                                continue;
                         }
 
-                        if (set) { appliedIds.Add(edit.Id); result.Applied++; }
-                        else     { result.Skipped++; }
+                        if (set) setIds.Add(edit.Id);
+                        else     Skip(edit, what, $"Revit refused the value '{val}'");
                     }
                     catch (Exception ex)
                     {
-                        Log.Warn($"PendingEditsApplier: error on edit {edit.Id}: {ex.Message}");
-                        result.Skipped++;
+                        Skip(edit, what, ex.Message);
                     }
                 }
-                tx.Commit();
+
+                var status = tx.Commit();
+                if (status == TransactionStatus.Committed)
+                {
+                    appliedIds.AddRange(setIds);
+                    result.Applied = setIds.Count;
+                }
+                else
+                {
+                    foreach (var _ in setIds) { result.Skipped++; }
+                    result.Problems.Add($"Revit did not commit the changes ({status}).");
+                    Log.Warn($"PendingEditsApplier: transaction ended {status}; {setIds.Count} edit(s) not applied.");
+                }
             }
 
             if (appliedIds.Any())

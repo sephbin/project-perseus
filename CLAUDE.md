@@ -219,9 +219,10 @@ ProjectPerseus/
 │   └── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
-│   ├── PendingEditsResyncEvent.cs IExternalEventHandler; re-triggers SynchronizeWithCentral after
-│   │                             pending web edits are applied. IsAutoSyncing stays false so the
-│   │                             queue check runs normally on the follow-up sync.
+│   ├── PendingEditsResyncEvent.cs IExternalEventHandler; the pre-sync hook only cancels + Queue()s the edits
+│   │                             (applying inside the sync event failed with "An internal error has occurred").
+│   │                             Here: review form → PendingEditsApplier.Apply → report any not applied → re-sync
+│   │                             with UserSyncOptions. IsAutoSyncing stays false so the queue check still runs.
 │   ├── QueuePoller.cs            Background task watching /syncboat/api/v2/source/<guid>/queue/.
 │   ├── AlertPoller.cs            NEW. Background Task polling /api/source/<guid>/pending-revit-alerts/
 │   │                             every 60 seconds. Raises AlertNotificationEvent when alerts arrive.

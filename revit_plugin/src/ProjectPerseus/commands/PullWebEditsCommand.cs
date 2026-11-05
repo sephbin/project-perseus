@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -47,7 +48,9 @@ namespace ProjectPerseus.commands
                     var result = PendingEditsApplier.Apply(doc, docGuid, selected);
                     string msg = $"Applied {result.Applied} of {result.Total} selected edit(s).";
                     if (result.Skipped > 0)
-                        msg += $"\n{result.Skipped} skipped (parameter not found, read-only, or owned by another user).";
+                        msg += $"\n{result.Skipped} not applied (they stay pending):\n\n" +
+                               string.Join("\n", result.Problems.Take(10)) +
+                               (result.Problems.Count > 10 ? $"\n… and {result.Problems.Count - 10} more (see the Perseus log)" : "");
 
                     Log.Info($"PullWebEditsCommand: {msg}");
                     TaskDialog.Show("Perseus — Web Edits", msg);
