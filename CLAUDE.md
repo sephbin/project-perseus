@@ -300,7 +300,8 @@ ProjectPerseus/
 │   │                             Revit main window; shows the count of elements the user owns. Click opens OwnershipForm.
 │   ├── SyncStatusToast.cs        NEW (2026-11-05). Non-activating status card (bottom-right of Revit) on its own STA
 │   │                             thread, so it paints while the UI thread is blocked in the sync event. Shown before the
-│   │                             pre-sync checks and to explain a Perseus cancel + automatic re-sync.
+│   │                             pre-sync checks, to explain a Perseus cancel + automatic re-sync, and with a progress bar
+│   │                             (Progress(); same-step updates throttled to 10/s) for the post-sync collection/upload.
 │   └── OwnershipBadgeController.cs NEW (2026-11-05). Places the badge in Revit's status bar (finds msctls_statusbar32 or
 │                                 the bottom strip; sits left of the status bar's right-hand controls). 250 ms
 │                                 DispatcherTimer on the main thread; logs the status bar layout it found once.
@@ -343,6 +344,8 @@ ProjectPerseus/
 │   │                             parameter edits. Shared by PullWebEditsCommand and
 │   │                             SyncOrchestrator. Respects worksharing checkout status.
 │   ├── StateSubmitter.cs         Thin wrappers over ProjectPerseusWeb (moves to web/ in P5).
+│   ├── SyncProgressReporter.cs   NEW (2026-11-05). Wording of the post-sync upload progress on ui/SyncStatusToast:
+│   │                             Stage / Collecting(done,total) / Uploading(chunk) / Done / Failed.
 │   ├── UserSyncOptions.cs        NEW (2026-11-05). Plain copy of the user's Sync with Central dialog options (comment,
 │   │                             compact, relinquish flags), captured pre-sync; Build() makes options for Perseus re-syncs.
 │   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: CloseSoon() (call on the UI thread after e.Cancel()) closes Revit's
@@ -367,11 +370,16 @@ ProjectPerseus/
 │                                 Toggle(uidoc): flips IsEnabled + RefreshActiveView.
 │                                 CycleMode(uidoc): swaps BoundingBox ↔ Symbol + RefreshActiveView.
 ├── web/
-│   ├── ProjectPerseusWeb.cs      HTTP client for Django: SubmitElementDeltas (HttpClient +
+│   ├── ProjectPerseusWeb.cs      HTTP client for Django: SubmitElementPayload (pre-serialised, chunk progress) /
+│   │                             SubmitElementDeltas (HttpClient +
 │   │                             AuthService scheme) and SubmitElementState (legacy Token via
 │   │                             shared WebHelper with scheme="Token"). +GetViolations() (2026-08-24):
 │   │                             fetches /source/<guid>/violations/ and deserialises to
 │   │                             List<ViolationHighlightDto>. Called by ViolationPoller.PollAll().
+│   ├── ElementPayload.cs         NEW (2026-11-05). Element JSON serialised exactly once per upload (ElementDelta reads
+│   │                             parameters/geometry lazily during serialisation, so this IS the collection step), with
+│   │                             per-element progress. Envelope() assembles dump/chunk JSON from the fragments (byte-identical
+│   │                             to serialising the whole object); Chunks() splits by real size. Failed elements are skipped.
 │   └── WebHelper.cs              NEW (P5). Single static WebHelper. Optional scheme param
 │                                 (defaults "Bearer") so legacy "Token" call still works. Optional timeoutMs: default
 │                                 5 min is for background uploads; UI-thread / pre-sync calls pass SyncTimeoutMs (5 s).

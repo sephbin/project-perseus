@@ -49,6 +49,18 @@ namespace ProjectPerseus.web
 
         public void SubmitElementDeltas(IList<models.ElementDelta> elementDeltas, IList<long> deleted, Document doc, string batchId = null)
         {
+            var payload = ElementPayload.Build(elementDeltas, "upload");
+            SubmitElementPayload(payload, deleted, doc, batchId);
+        }
+
+        /// <summary>
+        /// Posts pre-serialised elements (see ElementPayload) to the elements endpoint, split into chunks under the size
+        /// limit by their actual JSON size. <paramref name="chunkProgress"/> is called with (chunks sent, total) after
+        /// each successful chunk. Deletions ride on the last chunk.
+        /// </summary>
+        internal void SubmitElementPayload(ElementPayload payload, IList<long> deleted, Document doc, string batchId = null,
+                                           Action<int, int> chunkProgress = null)
+        {
             string token = ProjectPerseus.auth.AuthService.GetAuthTokenSafely();
             string scheme = ProjectPerseus.auth.AuthService.GetAuthSchemeSafely();
             if (string.IsNullOrEmpty(token))
@@ -57,72 +69,28 @@ namespace ProjectPerseus.web
                 return;
             }
 
-            var revit = new RevitFacade(doc);
-            var docGuid = ModelGuidStorage.GetOrCreate(revit.Document);
-            var currentModelVersion = RevitFacade.GetDocumentVersionGuid(revit.Document);
-
+            var docGuid = ModelGuidStorage.GetOrCreate(doc);
             var app = doc.Application;
             string revitUsername = app.Username;
             string revitAccountId = app.LoginUserId;
             string windowsUsername = Environment.UserName;
             string machineName = Environment.MachineName;
             string timestamp = DateTime.UtcNow.ToString("o");
-            string sourceState = currentModelVersion.ToString();
+            string sourceState = RevitFacade.GetDocumentVersionGuid(doc).ToString();
+
+            // Each chunk targets ~90% of the server limit, measured on the real JSON (no re-serialisation).
+            var chunks = payload.Chunks((long)(MaxSinglePayloadBytes * 0.9));
+            int totalChunks = chunks.Count;
+            Log.Info($"[ProjectPerseusWeb] Payload: {payload.Elements.Count} elements, {payload.TotalChars / 1024} KB — " +
+                     (totalChunks == 1 ? "single request." : $"{totalChunks} chunks."));
 
             using (var client = new System.Net.Http.HttpClient())
             {
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(scheme, token);
-
-                // Serialize the full payload first to measure its size.
-                // Newtonsoft escapes non-ASCII as \uXXXX so JSON output is always ASCII
-                // and string.Length equals the byte count exactly.
-                var singlePayload = new
-                {
-                    documentGuid = docGuid,
-                    source_state = sourceState,
-                    timestamp = timestamp,
-                    revitUser = revitUsername,
-                    revitAccountId = revitAccountId,
-                    windowsUser = windowsUsername,
-                    machine = machineName,
-                    batchId = batchId,
-                    chunkIndex = 0,
-                    totalChunks = 1,
-                    elements = elementDeltas,
-                    deletedElements = deleted
-                };
-
-                var singleJson = JsonUtils.SerializeToJson(singlePayload, null);
-                bool mustChunk = singleJson.Length > MaxSinglePayloadBytes;
-
-                Log.Info($"[ProjectPerseusWeb] Payload: {elementDeltas.Count} elements, {singleJson.Length / 1024} KB — {(mustChunk ? "chunking" : "single request")}.");
-
-                if (!mustChunk)
-                {
-                    PostJson(client, singleJson, 1, 1);
-                    return;
-                }
-
-                // Derive chunk size from actual element density so each chunk targets ~90% of the limit.
-                int avgBytesPerElement = elementDeltas.Count > 0 ? singleJson.Length / elementDeltas.Count : singleJson.Length;
-                int chunkSize = Math.Max(1, (int)((MaxSinglePayloadBytes * 0.9) / avgBytesPerElement));
-
-                // Payload too large: split by derived chunk size and re-serialize each chunk.
-                var chunks = Enumerable.Range(0, (int)Math.Ceiling((double)elementDeltas.Count / chunkSize))
-                    .Select(i => elementDeltas.Skip(i * chunkSize).Take(chunkSize).ToList())
-                    .ToList();
-
-                if (chunks.Count == 0)
-                    chunks.Add(new List<models.ElementDelta>());
-
-                int totalChunks = chunks.Count;
-                Log.Info($"[ProjectPerseusWeb] Submitting {elementDeltas.Count} elements in {totalChunks} chunk(s) of ~{chunkSize} (avg {avgBytesPerElement} bytes/element).");
-
                 for (int i = 0; i < totalChunks; i++)
                 {
                     bool isLastChunk = i == totalChunks - 1;
-
-                    var payload = new
+                    var header = new
                     {
                         documentGuid = docGuid,
                         source_state = sourceState,
@@ -134,13 +102,12 @@ namespace ProjectPerseus.web
                         batchId = batchId,
                         chunkIndex = i,
                         totalChunks = totalChunks,
-                        elements = chunks[i],
-                        deletedElements = isLastChunk ? deleted : (IList<long>)new List<long>()
                     };
-
-                    var jsonString = JsonUtils.SerializeToJson(payload, null);
-                    if (!PostJson(client, jsonString, i + 1, totalChunks))
+                    string json = payload.Envelope(header, chunks[i].From, chunks[i].Count,
+                                                   isLastChunk ? deleted : (IList<long>)new List<long>());
+                    if (!PostJson(client, json, i + 1, totalChunks))
                         return;
+                    chunkProgress?.Invoke(i + 1, totalChunks);
                 }
             }
         }

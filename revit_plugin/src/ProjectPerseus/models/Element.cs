@@ -33,7 +33,13 @@ namespace ProjectPerseus.models
 
         [JsonProperty("unique_id")] public string UniqueId => _element.UniqueId;
         [JsonProperty("name")] public string Name => _element.Name;
-        [JsonProperty("parameters")] public List<IParameter> Parameters => GetParameters();
+        // Parameters and geometry are expensive to extract; read once and reuse (connected-element harvesting reads
+        // Parameters before the element is serialised). An Element only lives for one sync, so it never goes stale.
+        private List<IParameter> _parameters;
+        private List<NamedGeometry> _geometries;
+        private bool _geometriesRead;
+
+        [JsonProperty("parameters")] public List<IParameter> Parameters => _parameters ?? (_parameters = GetParameters());
 
 
         [JsonProperty("last_edited_by")] public string Username => GetLastEditedBy();
@@ -48,7 +54,14 @@ namespace ProjectPerseus.models
         [JsonProperty("source_state")] public string SourceState => RevitFacade.GetDocumentVersionGuid(_doc).ToString();
 
         [JsonProperty("geometries", NullValueHandling = NullValueHandling.Ignore)]
-        public List<NamedGeometry> Geometries => GetGeometries();
+        public List<NamedGeometry> Geometries
+        {
+            get
+            {
+                if (!_geometriesRead) { _geometries = GetGeometries(); _geometriesRead = true; }
+                return _geometries;
+            }
+        }
 
 
 

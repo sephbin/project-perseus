@@ -833,6 +833,10 @@ namespace ProjectPerseus.sync
                     string batchId = Guid.NewGuid().ToString();
                     Log.Info($"SyncBatch: {batchId}");
 
+                    // Progress for the collection + upload is shown on the status card (its own UI thread), since Revit
+                    // itself is unresponsive while element data is read.
+                    SyncProgressReporter.Stage("Preparing…");
+                    bool uploadFailed = false;
                     try
                     {
                         var revit = new RevitFacade(e.Document);
@@ -844,9 +848,12 @@ namespace ProjectPerseus.sync
                     }
                     catch (Exception ex)
                     {
+                        uploadFailed = true;
                         Log.Exception(new Exception($"Error performing sync: {ex.Message}", ex));
                         Log.Info($"Error performing sync: {ex.Message}");
                     }
+
+                    SyncProgressReporter.Stage("Finishing…");
 
                     // Pre-commit flush: drain any remaining actions so Django has the full set
                     // before batchClose runs. batchClose stamps all pending actions as committed
@@ -897,11 +904,16 @@ namespace ProjectPerseus.sync
                     watch.Stop();
                     Log.Info("End Watch");
                     LogStageSummary(watch.Elapsed);
+                    if (uploadFailed)
+                        SyncProgressReporter.Failed("Your sync finished, but sending the changes to Perseus failed. They will be sent with your next sync.");
+                    else
+                        SyncProgressReporter.Done($"Model changes sent to Perseus ({watch.Elapsed.TotalSeconds:0.#} s).");
                 }
                 catch (Exception ex)
                 {
                     Log.Error(ex.ToString());
                     Log.Info(ex.ToString());
+                    SyncStatusToast.Hide();
                 }
             }
         }

@@ -299,6 +299,8 @@ namespace ProjectPerseus.sync
                 }
                 Log.Info($"PerformFullSync: {ghostIds.Count} ghost ids (in Django, not in current Revit model).");
 
+                var payload = ElementPayload.Build(filteredElementDeltaList, "full", SyncProgressReporter.Collecting);
+
                 // Snapshot the entire un-chunked payload to %AppData%\ProjectPerseus\
                 // fullsync-dumps\ for offline inspection. Shape matches SubmitElementDeltas
                 // so the file can be replayed against /add_to_crud_queue/ if needed. Files
@@ -320,7 +322,7 @@ namespace ProjectPerseus.sync
                     string safeDocName = string.Concat(doc.Title.Split(Path.GetInvalidFileNameChars()));
                     string dumpPath = Path.Combine(dumpsFolder, $"{DateTime.Now:yyyyMMdd-HHmmss}-{safeDocName}-fullsync.json");
 
-                    var dumpPayload = new
+                    var dumpHeader = new
                     {
                         documentGuid = thisdocGuid,
                         source_state = RevitFacade.GetDocumentVersionGuid(doc).ToString(),
@@ -329,11 +331,9 @@ namespace ProjectPerseus.sync
                         revitAccountId = app.LoginUserId,
                         windowsUser = Environment.UserName,
                         machine = Environment.MachineName,
-                        elements = filteredElementDeltaList,
-                        deletedElements = ghostIds
                     };
 
-                    File.WriteAllText(dumpPath, JsonUtils.SerializeToJson(dumpPayload, null));
+                    File.WriteAllText(dumpPath, payload.Envelope(dumpHeader, 0, payload.Elements.Count, ghostIds));
                     Log.Info($"PerformFullSync: wrote full payload snapshot to {dumpPath}");
                 }
                 catch (Exception ex)
@@ -347,14 +347,10 @@ namespace ProjectPerseus.sync
                 // "Type Id", etc. Logs to the per-session %AppData% log via Log.Info.
                 try
                 {
-                    var sample = filteredElementDeltaList.FirstOrDefault();
-                    if (sample != null)
+                    if (payload.Elements.Count > 0)
                     {
-                        var prettySample = JsonConvert.SerializeObject(
-                            sample,
-                            Formatting.Indented,
-                            new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
-                        Log.Debug($"PerformFullSync: payload sample (1 of {filteredElementDeltaList.Count}):\n{prettySample}");
+                        var prettySample = Newtonsoft.Json.Linq.JToken.Parse(payload.Elements[0]).ToString(Formatting.Indented);
+                        Log.Debug($"PerformFullSync: payload sample (1 of {payload.Elements.Count}):\n{prettySample}");
                     }
                     else
                     {
@@ -367,7 +363,7 @@ namespace ProjectPerseus.sync
                 }
 
                 // Full sync and ghost deletions go through the same endpoint as incremental.
-                StateSubmitter.SubmitElementDeltas(filteredElementDeltaList, ghostIds, revit.Document, batchId);
+                StateSubmitter.SubmitElementPayload(payload, ghostIds, revit.Document, batchId);
 
                 watch.Stop();
                 Log.Info("End Watch");

@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using ProjectPerseus.web;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using ProjectPerseus.config;
 using ProjectPerseus.models;
 using ProjectPerseus.revit;
-using ProjectPerseus.web;
 
 using ProjectPerseus.logging;
 using ProjectPerseus.util;
@@ -56,6 +56,7 @@ namespace ProjectPerseus.sync
                     categories.Add("Room Separation Lines");
                 }
 
+                SyncProgressReporter.Stage("Finding what changed since the last upload…");
                 var elementChangeSet = revit.GetElementChangeSet(lastSyncVersionGuid);
 
                 if (elementChangeSet.ContainsChanges())
@@ -87,7 +88,7 @@ namespace ProjectPerseus.sync
                             return;
                         }
                         Log.Info($"PerformIncrementalSync: 0 elements match categories, {deletedIds.Count} deletions — submitting deletions only.");
-                        StateSubmitter.SubmitElementDeltas(new List<ElementDelta>(), deletedIds, revit.Document, batchId);
+                        StateSubmitter.SubmitElementPayload(new ElementPayload(), deletedIds, revit.Document, batchId);
                         return;
                     }
 
@@ -108,6 +109,7 @@ namespace ProjectPerseus.sync
                             referencedIds.ExceptWith(existingIds);
 
                             Log.Info($"Found {referencedIds.Count} additional connected elements.");
+                            SyncProgressReporter.Stage($"Adding {referencedIds.Count:N0} connected element(s)…");
 
                             if (referencedIds.Count > 0)
                             {
@@ -138,6 +140,9 @@ namespace ProjectPerseus.sync
 
                     var elementDeltaDeletedList = ElementDelta.CreateDeletedListFromChangeSet(elementChangeSet);
 
+                    // Collect = serialise each element once (parameters and geometry are read here), with progress.
+                    var payload = ElementPayload.Build(elementDeltaList, "incremental", SyncProgressReporter.Collecting);
+
                     try
                     {
                         var dumpsFolder = Path.Combine(
@@ -155,7 +160,7 @@ namespace ProjectPerseus.sync
                         string safeDocName = string.Concat(revit.Document.Title.Split(Path.GetInvalidFileNameChars()));
                         string dumpPath = Path.Combine(dumpsFolder, $"{DateTime.Now:yyyyMMdd-HHmmss}-{safeDocName}-incremental.json");
 
-                        var dumpPayload = new
+                        var dumpHeader = new
                         {
                             documentGuid = docGuid,
                             source_state = RevitFacade.GetDocumentVersionGuid(revit.Document).ToString(),
@@ -164,21 +169,16 @@ namespace ProjectPerseus.sync
                             revitAccountId = revit.Document.Application.LoginUserId,
                             windowsUser = Environment.UserName,
                             machine = Environment.MachineName,
-                            elements = elementDeltaList,
-                            deletedElements = elementDeltaDeletedList
                         };
 
-                        File.WriteAllText(dumpPath, JsonUtils.SerializeToJson(dumpPayload, null));
+                        // Same JSON as before, assembled from the already-serialised elements (no second extraction).
+                        File.WriteAllText(dumpPath, payload.Envelope(dumpHeader, 0, payload.Elements.Count, elementDeltaDeletedList));
                         Log.Info($"PerformIncrementalSync: wrote payload snapshot ({elementDeltaList.Count} changed, {elementDeltaDeletedList.Count} deleted) to {dumpPath}");
 
-                        var sample = elementDeltaList.FirstOrDefault();
-                        if (sample != null)
+                        if (payload.Elements.Count > 0)
                         {
-                            var prettySample = JsonConvert.SerializeObject(
-                                sample,
-                                Formatting.Indented,
-                                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
-                            Log.Debug($"PerformIncrementalSync: payload sample (1 of {elementDeltaList.Count}):\n{prettySample}");
+                            var prettySample = Newtonsoft.Json.Linq.JToken.Parse(payload.Elements[0]).ToString(Formatting.Indented);
+                            Log.Debug($"PerformIncrementalSync: payload sample (1 of {payload.Elements.Count}):\n{prettySample}");
                         }
                     }
                     catch (Exception ex)
@@ -187,7 +187,7 @@ namespace ProjectPerseus.sync
                     }
 
                     Log.Info("About to run SubmitElementDeltas");
-                    StateSubmitter.SubmitElementDeltas(elementDeltaList, elementDeltaDeletedList, revit.Document, batchId);
+                    StateSubmitter.SubmitElementPayload(payload, elementDeltaDeletedList, revit.Document, batchId);
                 }
                 else
                 {
