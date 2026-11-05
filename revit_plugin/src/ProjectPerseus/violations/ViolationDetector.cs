@@ -91,6 +91,46 @@ namespace ProjectPerseus.violations
             RefreshOverlay();
         }
 
+        // Link types an "Unload" transaction really unloaded for everyone. Closing a workset that holds a link's
+        // instances runs a transaction Revit also names "Unload Link"; the link then reports InClosedWorkset
+        // (fallback: every instance sits on a closed workset). "Unload for me" (LocallyUnloaded) never reaches
+        // central, so it doesn't count either. Only LinkedFileStatus.Unloaded is a real unload.
+        private static List<RevitLinkType> RealLinkUnloads(Document doc, ICollection<ElementId> modifiedIds)
+        {
+            var result = new List<RevitLinkType>();
+            foreach (var id in modifiedIds)
+            {
+                if (!(doc.GetElement(id) is RevitLinkType lt)) continue;
+                string skip = null;
+                string status = "?";
+                try
+                {
+                    var st = lt.GetLinkedFileStatus();
+                    status = st.ToString();
+                    if (st == LinkedFileStatus.InClosedWorkset) skip = "its workset was closed";
+                    else if (st == LinkedFileStatus.LocallyUnloaded) skip = "unloaded for this user only";
+                    else if (st != LinkedFileStatus.Unloaded) skip = "link is not unloaded";
+
+                    if (skip == null && doc.IsWorkshared)
+                    {
+                        var table = doc.GetWorksetTable();
+                        var instances = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance))
+                            .Where(i => i.GetTypeId() == id).ToList();
+                        if (instances.Count > 0 && instances.All(i => !table.GetWorkset(i.WorksetId).IsOpen))
+                            skip = "all its instances are on closed worksets";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"[ViolationDetector] could not read link status for '{lt.Name}': {ex.Message}");
+                }
+
+                if (skip == null) result.Add(lt);
+                else Log.Info($"[ViolationDetector] '{lt.Name}' changed in an Unload transaction but {skip} (status {status}); not a link unload.");
+            }
+            return result;
+        }
+
         private static void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
         {
             Document doc = e.GetDocument();
@@ -122,6 +162,8 @@ namespace ProjectPerseus.violations
             bool isUnpin   = txnNames.Any(t => t.IndexOf("Unpin",   StringComparison.OrdinalIgnoreCase) >= 0);
             // CAUTION: "Unload" for link unload is provisional.
             bool isUnload  = txnNames.Any(t => t.IndexOf("Unload",  StringComparison.OrdinalIgnoreCase) >= 0);
+            // Closing a workset that holds a link is also reported as "Unload Link"; keep only real unloads.
+            var unloadedLinks = isUnload ? RealLinkUnloads(doc, modifiedIds) : new List<RevitLinkType>();
 
             // Update element cache before processing deletions — deleted elements return null after this point.
             var addedIds = e.GetAddedElementIds();
@@ -300,20 +342,18 @@ namespace ProjectPerseus.violations
                     }
 
                     // LinkUnload — track all unloaded links; enforcement is at policy level, not per-element
-                    if (isUnload && modifiedIds.Count > 0)
+                    if (unloadedLinks.Count > 0)
                     {
                         string syncStyle = vs.ResolveSyncStyle(models.ActionType.LinkUnload);
                         if (syncStyle != "log")
                         {
-                            foreach (var id in modifiedIds)
+                            foreach (var lt in unloadedLinks)
                             {
-                                var el = doc.GetElement(id);
-                                if (!(el is RevitLinkType)) continue;
                                 newViolations.Add(new PresyncViolation
                                 {
                                     DocGuid = docGuid, ActionType = models.ActionType.LinkUnload,
-                                    ElementId = id.GetIdValue(), CategoryName = "Revit Links",
-                                    ElementName = el.Name, SyncStyle = syncStyle,
+                                    ElementId = lt.Id.GetIdValue(), CategoryName = "Revit Links",
+                                    ElementName = lt.Name, SyncStyle = syncStyle,
                                 });
                             }
                         }
@@ -409,25 +449,18 @@ namespace ProjectPerseus.violations
             }
 
             // 4. Link unload — provisional.
-            if (isUnload)
+            foreach (var lt in unloadedLinks)
             {
-                foreach (var id in modifiedIds)
+                Enqueue(new ActionDto
                 {
-                    var el = doc.GetElement(id);
-                    if (el is RevitLinkType)
-                    {
-                        Enqueue(new ActionDto
-                        {
-                            ActionType      = models.ActionType.LinkUnload,
-                            ElementId       = id.GetIdValue(),
-                            ElementName     = el.Name,
-                            TransactionName = txnJoined,
-                            RevitUser       = user,
-                            DocGuid         = docGuid,
-                            TimestampUtc    = now,
-                        });
-                    }
-                }
+                    ActionType      = models.ActionType.LinkUnload,
+                    ElementId       = lt.Id.GetIdValue(),
+                    ElementName     = lt.Name,
+                    TransactionName = txnJoined,
+                    RevitUser       = user,
+                    DocGuid         = docGuid,
+                    TimestampUtc    = now,
+                });
             }
 
             // 5. Sheet / view edits — always log-only.
