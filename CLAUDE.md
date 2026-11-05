@@ -362,8 +362,10 @@ ProjectPerseus/
 │   │                             Detects: element_deleted, ungroup, unpin, link_unload (provisional),
 │   │                             warning_dismissed, sheet_view_edit. Accumulates ActionDto entries
 │   │                             in ConcurrentQueue. DrainQueue() called by Step 3 ingest.
-│   │                             link_unload: closing a workset with a link is also named "Unload Link", so
-│   │                             RealLinkUnloads() counts only LinkedFileStatus.Unloaded (not InClosedWorkset/LocallyUnloaded).
+│   │                             link_unload: a real unload doesn't arrive as a normal transaction, so DetectLinkUnloads()
+│   │                             diffs each document's link load states (on DocumentChanged + a 1 s throttled Idling check);
+│   │                             Loaded -> not loaded counts, except a closed workset (InClosedWorkset / all instances closed).
+│   │                             Sync / Reload Latest only re-baseline. HandleLinkUnloads() = overlay + block warning + audit.
 │   ├── ViolationHighlightServer.cs NEW (2026-08-24). IDirectContext3DServer singleton. Registered
 │   │                             with DirectContext3DService in ViolationHighlightController.Initialize().
 │   │                             Two draw modes — BoundingBox (8-vertex wireframe, 12 edges) and

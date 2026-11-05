@@ -65,14 +65,22 @@ namespace ProjectPerseus.violations
             _baseUrl = baseUrl;
             application.ControlledApplication.DocumentChanged    += OnDocumentChanged;
             application.ControlledApplication.FailuresProcessing += OnFailuresProcessing;
+            application.ControlledApplication.DocumentSynchronizedWithCentral += OnLinksChangedByOthers;
+            application.ControlledApplication.DocumentReloadedLatest          += OnLinksChangedByOthers;
+            application.ControlledApplication.DocumentClosing                 += OnLinkDocClosing;
             application.ViewActivated += OnViewActivated;
+            application.Idling        += OnIdlingCheckLinks;
         }
 
         internal static void Unsubscribe(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentChanged    -= OnDocumentChanged;
             application.ControlledApplication.FailuresProcessing -= OnFailuresProcessing;
+            application.ControlledApplication.DocumentSynchronizedWithCentral -= OnLinksChangedByOthers;
+            application.ControlledApplication.DocumentReloadedLatest          -= OnLinksChangedByOthers;
+            application.ControlledApplication.DocumentClosing                 -= OnLinkDocClosing;
             application.ViewActivated -= OnViewActivated;
+            application.Idling        -= OnIdlingCheckLinks;
         }
 
         private static void OnViewActivated(object sender, ViewActivatedEventArgs e)
@@ -91,47 +99,169 @@ namespace ProjectPerseus.violations
             RefreshOverlay();
         }
 
-        // Link types an "Unload" transaction really unloaded. Closing a workset that holds a link's instances runs a
-        // transaction Revit also names "Unload Link"; that case is excluded (status InClosedWorkset, or every
-        // instance sits on a closed workset). Everything else is an unload. Do NOT require
-        // LinkedFileStatus.Unloaded: a real unload doesn't reliably report it inside DocumentChanged, and requiring
-        // it silently dropped every real unload.
-        private static List<RevitLinkType> RealLinkUnloads(Document doc, ICollection<ElementId> modifiedIds)
+        // ---- Link unload detection ------------------------------------------------------------------------------
+        // A real link unload (Manage Links > Unload) can't be undone and does not come through DocumentChanged as a
+        // normal transaction carrying the RevitLinkType, so watching transactions missed it. Instead we keep each
+        // document's link load states and diff them: on every DocumentChanged and, as the reliable fallback, at idle
+        // (throttled). A link going from Loaded to anything else is an unload, EXCEPT when its workset was closed
+        // (status InClosedWorkset, or every instance sits on a closed workset) — closing a workset is not an unload.
+        // Changes that arrive from other users (sync / Reload Latest) only re-baseline, never report.
+        private static readonly Dictionary<string, Dictionary<long, LinkedFileStatus>> _linkStates =
+            new Dictionary<string, Dictionary<long, LinkedFileStatus>>();
+        private static DateTime _lastIdleLinkCheck = DateTime.MinValue;
+        private const int IdleLinkCheckMs = 1000;
+
+        private static string LinkDocKey(Document doc) => (doc.PathName ?? "") + "|" + doc.Title;
+
+        // Returns link types unloaded since the last snapshot (empty on the first call for a document, which only
+        // records the baseline). report=false just refreshes the snapshot.
+        private static List<RevitLinkType> DetectLinkUnloads(Document doc, bool report)
         {
             var result = new List<RevitLinkType>();
-            foreach (var id in modifiedIds)
-            {
-                if (!(doc.GetElement(id) is RevitLinkType lt)) continue;
-                string skip = null;
-                string status = "?";
-                try
-                {
-                    var st = lt.GetLinkedFileStatus();
-                    status = st.ToString();
-                    if (st == LinkedFileStatus.InClosedWorkset) skip = "its workset was closed";
+            if (doc == null || doc.IsFamilyDocument || doc.IsLinked) return result;
 
-                    if (skip == null && doc.IsWorkshared)
-                    {
-                        var table = doc.GetWorksetTable();
-                        var instances = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance))
-                            .Where(i => i.GetTypeId() == id).ToList();
-                        if (instances.Count > 0 && instances.All(i => !table.GetWorkset(i.WorksetId).IsOpen))
-                            skip = "all its instances are on closed worksets";
-                    }
-                }
+            string key = LinkDocKey(doc);
+            bool hasBaseline = _linkStates.TryGetValue(key, out var prev);
+            var now = new Dictionary<long, LinkedFileStatus>();
+
+            foreach (var lt in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>())
+            {
+                LinkedFileStatus st;
+                try { st = lt.GetLinkedFileStatus(); }
                 catch (Exception ex)
                 {
                     Log.Warn($"[ViolationDetector] could not read link status for '{lt.Name}': {ex.Message}");
+                    continue;
                 }
+                long idVal = lt.Id.GetIdValue();
+                now[idVal] = st;
+
+                if (!report || !hasBaseline) continue;
+                if (!prev.TryGetValue(idVal, out var before) || before == st) continue;
+
+                Log.Info($"[ViolationDetector] link '{lt.Name}' status {before} -> {st}.");
+                if (before != LinkedFileStatus.Loaded || st == LinkedFileStatus.Loaded) continue;
+
+                string skip = null;
+                if (st == LinkedFileStatus.InClosedWorkset) skip = "its workset was closed";
+                else if (doc.IsWorkshared && AllInstancesOnClosedWorksets(doc, lt.Id))
+                    skip = "all its instances are on closed worksets";
 
                 if (skip == null)
                 {
                     result.Add(lt);
-                    Log.Info($"[ViolationDetector] '{lt.Name}' unloaded (status {status}); counted as a link unload.");
+                    Log.Info($"[ViolationDetector] '{lt.Name}' was unloaded (status {st}); counted as a link unload.");
                 }
-                else Log.Info($"[ViolationDetector] '{lt.Name}' changed in an Unload transaction but {skip} (status {status}); not a link unload.");
+                else Log.Info($"[ViolationDetector] '{lt.Name}' stopped being loaded but {skip}; not a link unload.");
             }
+
+            _linkStates[key] = now;
             return result;
+        }
+
+        private static bool AllInstancesOnClosedWorksets(Document doc, ElementId typeId)
+        {
+            try
+            {
+                var table = doc.GetWorksetTable();
+                var instances = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance))
+                    .Where(i => i.GetTypeId() == typeId).ToList();
+                return instances.Count > 0 && instances.All(i => !table.GetWorkset(i.WorksetId).IsOpen);
+            }
+            catch { return false; }
+        }
+
+        private static void OnIdlingCheckLinks(object sender, IdlingEventArgs e)
+        {
+            try
+            {
+                if (IsSyncInProgress) return;
+                if ((DateTime.UtcNow - _lastIdleLinkCheck).TotalMilliseconds < IdleLinkCheckMs) return;
+                _lastIdleLinkCheck = DateTime.UtcNow;
+
+                var uiapp = sender as UIApplication;
+                if (uiapp == null) return;
+                foreach (Document doc in uiapp.Application.Documents)
+                {
+                    if (doc.IsLinked || doc.IsFamilyDocument || !doc.IsWorkshared) continue;
+                    var unloaded = DetectLinkUnloads(doc, report: true);
+                    if (unloaded.Count > 0)
+                        HandleLinkUnloads(doc, unloaded, "(detected at idle)", skipEnforcement: FreefallMode.IsActive);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Exception(ex);
+            }
+        }
+
+        // Sync / Reload Latest bring in other users' link changes: refresh the baseline without reporting.
+        private static void OnLinksChangedByOthers(object sender, RevitAPIPostDocEventArgs e)
+        {
+            try { DetectLinkUnloads(e.Document, report: false); }
+            catch (Exception ex) { Log.Exception(ex); }
+        }
+
+        private static void OnLinkDocClosing(object sender, DocumentClosingEventArgs e)
+        {
+            try { if (e.Document != null) _linkStates.Remove(LinkDocKey(e.Document)); }
+            catch (Exception ex) { Log.Exception(ex); }
+        }
+
+        // Records unloaded links as pending sync violations (grey overlay + "sync will be blocked" warning) and
+        // enqueues the audit actions.
+        private static void HandleLinkUnloads(Document doc, List<RevitLinkType> links, string txnJoined, bool skipEnforcement)
+        {
+            string docGuid = TryGetDocGuid(doc);
+            string user    = doc.Application.Username;
+            string now     = DateTime.UtcNow.ToString("o");
+
+            foreach (var lt in links)
+            {
+                Enqueue(new ActionDto
+                {
+                    ActionType      = models.ActionType.LinkUnload,
+                    ElementId       = lt.Id.GetIdValue(),
+                    ElementName     = lt.Name,
+                    TransactionName = txnJoined,
+                    RevitUser       = user,
+                    DocGuid         = docGuid,
+                    TimestampUtc    = now,
+                });
+            }
+
+            if (skipEnforcement) return;
+            var vs = ViolationSettingsCache.Get(docGuid);
+            if (vs == null)
+            {
+                Log.Warn($"[ViolationDetector] link unload detected but no violation settings are cached for {docGuid}; not enforced.");
+                return;
+            }
+            string syncStyle = vs.ResolveSyncStyle(models.ActionType.LinkUnload);
+            Log.Info($"[ViolationDetector] link unload sync style = {syncStyle} ({links.Count} link(s)).");
+            if (syncStyle == "log") return;
+
+            foreach (var lt in links)
+            {
+                AddPendingViolation(new PresyncViolation
+                {
+                    DocGuid = docGuid, ActionType = models.ActionType.LinkUnload,
+                    ElementId = lt.Id.GetIdValue(), CategoryName = "Revit Links",
+                    ElementName = lt.Name, SyncStyle = syncStyle,
+                });
+            }
+            RefreshOverlay();
+
+            if (syncStyle != "block") return;
+            string itemList = string.Join("\n", links.Select(lt => $"• Revit Links: {lt.Name}"));
+            new TaskDialog("Perseus — Sync Will Be Blocked")
+            {
+                MainIcon        = TaskDialogIcon.TaskDialogIconError,
+                MainInstruction = "Your next sync will be blocked",
+                MainContent     = $"The following protected element(s) will prevent syncing:\n\n{itemList}",
+                FooterText      = "Link unload cannot be undone in Revit. Contact your BIM manager.",
+                CommonButtons   = TaskDialogCommonButtons.Ok,
+            }.Show();
         }
 
         private static void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
@@ -163,10 +293,9 @@ namespace ProjectPerseus.violations
             bool isUngroup = txnNames.Any(t => t.IndexOf("Ungroup", StringComparison.OrdinalIgnoreCase) >= 0);
             // CAUTION: "Unpin" and "Ungroup" are language-pack-dependent UI strings.
             bool isUnpin   = txnNames.Any(t => t.IndexOf("Unpin",   StringComparison.OrdinalIgnoreCase) >= 0);
-            // CAUTION: "Unload" for link unload is provisional.
-            bool isUnload  = txnNames.Any(t => t.IndexOf("Unload",  StringComparison.OrdinalIgnoreCase) >= 0);
-            // Closing a workset that holds a link is also reported as "Unload Link"; keep only real unloads.
-            var unloadedLinks = isUnload ? RealLinkUnloads(doc, modifiedIds) : new List<RevitLinkType>();
+            // Link unloads come from diffing link load states (see DetectLinkUnloads), not transaction names.
+            // During sync the diff only re-baselines (other users' changes).
+            var unloadedLinks = DetectLinkUnloads(doc, report: !IsSyncInProgress);
 
             // Update element cache before processing deletions — deleted elements return null after this point.
             var addedIds = e.GetAddedElementIds();
@@ -201,6 +330,9 @@ namespace ProjectPerseus.violations
             bool bypass   = BypassNextViolationCheck;
             bool freefall = FreefallMode.IsActive;
             BypassNextViolationCheck = false;
+
+            if (unloadedLinks.Count > 0)
+                HandleLinkUnloads(doc, unloadedLinks, txnJoined, skipEnforcement: bypass || freefall);
 
             if (!bypass && !freefall && effectiveDeletedIds.Count > 0)
             {
@@ -344,23 +476,7 @@ namespace ProjectPerseus.violations
                         }
                     }
 
-                    // LinkUnload — track all unloaded links; enforcement is at policy level, not per-element
-                    if (unloadedLinks.Count > 0)
-                    {
-                        string syncStyle = vs.ResolveSyncStyle(models.ActionType.LinkUnload);
-                        if (syncStyle != "log")
-                        {
-                            foreach (var lt in unloadedLinks)
-                            {
-                                newViolations.Add(new PresyncViolation
-                                {
-                                    DocGuid = docGuid, ActionType = models.ActionType.LinkUnload,
-                                    ElementId = lt.Id.GetIdValue(), CategoryName = "Revit Links",
-                                    ElementName = lt.Name, SyncStyle = syncStyle,
-                                });
-                            }
-                        }
-                    }
+                    // LinkUnload is handled by HandleLinkUnloads (also reached from the idle check).
 
                     foreach (var v in newViolations)
                         AddPendingViolation(v);
@@ -451,20 +567,7 @@ namespace ProjectPerseus.violations
                 }
             }
 
-            // 4. Link unload — provisional.
-            foreach (var lt in unloadedLinks)
-            {
-                Enqueue(new ActionDto
-                {
-                    ActionType      = models.ActionType.LinkUnload,
-                    ElementId       = lt.Id.GetIdValue(),
-                    ElementName     = lt.Name,
-                    TransactionName = txnJoined,
-                    RevitUser       = user,
-                    DocGuid         = docGuid,
-                    TimestampUtc    = now,
-                });
-            }
+            // 4. Link unload — enqueued by HandleLinkUnloads.
 
             // 5. Sheet / view edits — always log-only.
             foreach (var id in modifiedIds)
