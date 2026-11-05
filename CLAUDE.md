@@ -352,9 +352,10 @@ ProjectPerseus/
 │   │                             Stage / Collecting(done,total) / Uploading(chunk) / Done / Failed.
 │   ├── UserSyncOptions.cs        NEW (2026-11-05). Plain copy of the user's Sync with Central dialog options (comment,
 │   │                             compact, relinquish flags), captured pre-sync; Build() makes options for Perseus re-syncs.
-│   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: CloseSoon() (call on the UI thread after e.Cancel()) closes Revit's
-│                                 "Synchronize with Central" dialog, looking only at Revit UI-thread windows. Every cancel
-│                                 path must also tell the user why (own dialog/form or ui/SyncStatusToast).
+│   └── RevitSyncDialogCloser.cs  Win32 P/Invoke: CloseSoon() (after e.Cancel()) closes Revit's "Sync With Central"
+│                                 window, polling all top-level windows of the Revit process for ~6 s (sync titles only).
+│                                 Not UI-thread-only: on cloud models it's CloudWorksharing's WPF CollaborateSWCView on
+│                                 its own thread. Every cancel path must also tell the user why (own dialog or SyncStatusToast).
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
 │   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
 │   │                             via ControlledApplication (called from SyncOrchestrator).

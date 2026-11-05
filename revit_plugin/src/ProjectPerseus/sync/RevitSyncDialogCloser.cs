@@ -1,26 +1,32 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
 using ProjectPerseus.logging;
 namespace ProjectPerseus.sync
 {
-    // Closes Revit's "Synchronize with Central" progress dialog, which can stay on screen after Perseus cancels a
-    // sync in DocumentSynchronizingWithCentral (violation block, pending web edits, queue, ID writes).
+    // Closes Revit's "Sync With Central" progress window, which stays on screen after Perseus cancels a sync in
+    // DocumentSynchronizingWithCentral (violation block, pending web edits, queue, ID writes).
     //
-    // Only windows owned by Revit's UI thread are looked at (not every window in the process, as before), and only
-    // titles that are Revit's sync dialog. Never use it on its own: every cancel path must also tell the user what
-    // happened (a TaskDialog / form of its own, or ui/SyncStatusToast), or the sync just appears to vanish.
+    // Looks at every top-level window of the Revit process, matching only sync-dialog titles. It must NOT be limited
+    // to Revit's UI thread: on cloud models the window is the CloudWorksharing add-in's WPF "CollaborateSWCView"
+    // ("Sync With Central"), which lives on its own thread (journal, 2026-11-05) — the UI-thread-only version never
+    // found it. Never use this on its own: every cancel path must also tell the user what happened (a TaskDialog /
+    // form of its own, or ui/SyncStatusToast), or the sync just appears to vanish.
     internal static class RevitSyncDialogCloser
     {
         [DllImport("user32.dll")]
-        private static extern bool EnumThreadWindows(uint threadId, EnumWindowsProc enumProc, IntPtr lParam);
+        private static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
 
-        [DllImport("kernel32.dll")]
-        private static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
@@ -29,15 +35,11 @@ namespace ProjectPerseus.sync
 
         private const uint WM_CLOSE = 0x0010;
 
-        /// <summary>Call on Revit's UI thread right after e.Cancel(); closes the dialog shortly after, off-thread.</summary>
+        /// <summary>Call right after e.Cancel(); closes the sync dialog shortly after, off-thread.</summary>
         public static void CloseSoon()
         {
-            uint uiThread = GetCurrentThreadId();
-            System.Threading.Tasks.Task.Run(() => TryClose(uiThread));
+            System.Threading.Tasks.Task.Run(() => TryClose());
         }
-
-        [DllImport("user32.dll")]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
 
         private static bool IsSyncDialog(string title) =>
             title.IndexOf("Sync With Central", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -46,24 +48,26 @@ namespace ProjectPerseus.sync
             title.IndexOf("Synchronising with Central", StringComparison.OrdinalIgnoreCase) >= 0 ||
             title.IndexOf("Synchronizing with Central", StringComparison.OrdinalIgnoreCase) >= 0;
 
-        // The dialog can appear (or come back) only after the sync handler returns, e.g. while a browser opens for
-        // the queue page, so one look at 500 ms often missed it. Keep looking for a few seconds; close each sync
-        // dialog once. If none turns up, log the visible UI-thread window titles so the right one can be matched.
-        private static void TryClose(uint uiThread)
+        // The window can appear (or come back) only after the sync handler returns, e.g. while a browser opens for
+        // the queue page, so keep looking for a few seconds and close each sync window once. If none turns up, log the
+        // visible Revit window titles so the right one can be matched.
+        private static void TryClose()
         {
             try
             {
+                uint pid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
                 var sb = new StringBuilder(256);
-                var closed = new System.Collections.Generic.HashSet<IntPtr>();
-                var seen = new System.Collections.Generic.HashSet<string>();
+                var closed = new HashSet<IntPtr>();
+                var seen = new HashSet<string>();
                 var deadline = DateTime.UtcNow.AddSeconds(6);
 
                 while (DateTime.UtcNow < deadline)
                 {
                     System.Threading.Thread.Sleep(200);
-                    EnumThreadWindows(uiThread, (hwnd, _) =>
+                    EnumWindows((hwnd, _) =>
                     {
-                        if (!IsWindowVisible(hwnd)) return true;
+                        GetWindowThreadProcessId(hwnd, out uint owner);
+                        if (owner != pid || !IsWindowVisible(hwnd)) return true;
                         sb.Clear();
                         GetWindowText(hwnd, sb, sb.Capacity);
                         string title = sb.ToString();
