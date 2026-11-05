@@ -169,7 +169,10 @@ ProjectPerseus/
 │   │                             after 1 day) so deltas survive Revit restarts. Check() is thread-safe/no Revit API and takes
 │   │                             a timeout (pre-sync runs it on a Task within a 2 s budget). A value held by another element
 │   │                             is a clash; the lower ElementId keeps it. Resolve() renumbers this user's clashing elements
-│   │                             via IdAssigner.Run(fix:), snapshot from IdIndexMaintainer.GetClaimsBlocking.
+│   │                             via IdAssigner.Run(fix:), snapshot from IdIndexMaintainer.GetClaimsBlocking. Clashes on
+│   │                             elements another user has checked out never block (BlockingConflicts / FixResult.
+│   │                             OwnedElsewhere): this sync can't push them and the owner's Perseus fixes them. Unfixable
+│   │                             ones carry Reasons; IdPreSyncFixEvent.AskAboutClashes offers Show me / Sync anyway / Cancel.
 │   ├── IdIndexMaintainer.cs      NEW (2026-11-05). Keeps IdAssigner's ID index ready so the sync path never scans the
 │   │                             model: builds it in 40 ms Idling slices (IdAssigner.IndexBuilder), records ids from
 │   │                             DocumentChanged and applies them at idle, and after sync / Reload Latest folds in

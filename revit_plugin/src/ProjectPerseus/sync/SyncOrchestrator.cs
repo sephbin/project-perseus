@@ -530,7 +530,9 @@ namespace ProjectPerseus.sync
                             var idCheck = WaitFor(claimsTask, IdCheckBudgetMs - preSyncClock.ElapsedMilliseconds);
                             if (claimsTask != null && !claimsTask.IsCompleted)
                                 Log.Warn($"[IdClaims] pre-sync clash check did not answer within {IdCheckBudgetMs} ms; syncing without it (a clash is caught before a later sync).");
-                            int clashes = idCheck?.Conflicts.Count ?? 0;
+                            // Clashes on elements another user has checked out don't stop this sync: it can't push
+                            // them, and their owner's Perseus renumbers them when they sync.
+                            int clashes = idCheck == null ? 0 : ids.IdClaims.BlockingConflicts(e.Document, idCheck.Conflicts).Count;
                             Log.Info($"[IdClaims] pre-sync ID check took {preSyncClock.ElapsedMilliseconds} ms (IDs to write: {fill}, clashes: {clashes})");
 
                             if (fill > 0 || clashes > 0)

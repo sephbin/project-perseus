@@ -47,8 +47,45 @@ namespace ProjectPerseus.ids
         {
             public int Renumbered;
             public readonly List<IdClaimItem> Unfixable = new List<IdClaimItem>();
+            // Clashes on elements checked out by someone else: not this user's to fix, and this user's sync can't push
+            // them (only the owner's sync sends their changes). The owner's Perseus renumbers them when they sync.
+            public readonly List<(IdClaimItem Claim, string Owner)> OwnedElsewhere = new List<(IdClaimItem, string)>();
+            // Why renumbering failed, from IdAssigner's run results (group members, missing level, stale vs central...).
+            public readonly SortedSet<string> Reasons = new SortedSet<string>();
             public bool ServerUnreachable;
             public int TotalClaims;
+
+            public bool Blocking => Unfixable.Count > 0;
+        }
+
+        /// <summary>True (with the owner) when another user has this element checked out. Local cache read only.</summary>
+        internal static bool IsOwnedElsewhere(Document doc, IdClaimItem c, out string owner)
+        {
+            owner = null;
+            try
+            {
+                if (!doc.IsWorkshared) return false;
+                var status = WorksharingUtils.GetCheckoutStatus(doc, revit.RevitExtensions.CreateId(c.ElementId), out owner);
+                return status == CheckoutStatus.OwnedByOtherUser;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// The clashes this user's sync could actually push (and so must fix first): everything except elements another
+        /// user has checked out. Read-only, cheap; used by the pre-sync hook to decide whether to stop the sync.
+        /// </summary>
+        internal static List<IdClaimItem> BlockingConflicts(Document doc, IEnumerable<IdClaimItem> conflicts)
+        {
+            var blocking = new List<IdClaimItem>();
+            foreach (var c in conflicts)
+            {
+                if (IsOwnedElsewhere(doc, c, out string owner))
+                    Log.Info($"[IdClaims] clash on {c.Value} ({c.Parameter}) is on an element {owner} has checked out; " +
+                             "not blocking this sync, their Perseus renumbers it when they sync.");
+                else blocking.Add(c);
+            }
+            return blocking;
         }
 
         private const int MaxRounds = 30;
@@ -159,30 +196,34 @@ namespace ProjectPerseus.ids
         private class ConflictDto { public string p; public string uid; public string v; }
 
         /// <summary>
-        /// Renumbers this user's clashing elements. True when the model is clean afterwards (or the server could not
-        /// be asked); false when some clashes could not be fixed. <paramref name="summary"/> describes what happened,
-        /// empty when nothing clashed. Must run outside any document event.
+        /// Renumbers this user's clashing elements. Clashes on elements someone else has checked out are reported in
+        /// OwnedElsewhere but never block. Blocking is true only for clashes this user's sync would push and that could
+        /// not be renumbered; the caller then asks the user (see IdPreSyncFixEvent.AskAboutClashes). Must run outside
+        /// any document event.
         /// </summary>
-        internal static bool EnsureNoClashes(Document doc, out string summary)
+        internal static FixResult EnsureNoClashes(Document doc)
         {
-            summary = "";
             string docGuid = revit.ModelGuidStorage.GetOrCreate(doc);
             var rules = IdRulesCache.Get(docGuid);
             string baseUrl = config.Config.Instance.BaseUrl;
-            if (rules == null || string.IsNullOrEmpty(baseUrl) || !rules.Rules.Any(r => r.Enabled)) return true;
+            if (rules == null || string.IsNullOrEmpty(baseUrl) || !rules.Rules.Any(r => r.Enabled)) return new FixResult();
+            return Resolve(doc, docGuid, baseUrl, rules);
+        }
 
-            var fix = Resolve(doc, docGuid, baseUrl, rules);
-            if (fix.Unfixable.Count > 0)
-            {
-                summary = $"{fix.Unfixable.Count} ID(s) clash with values other users already hold and could not be renumbered " +
-                          "(the elements may be checked out by someone else or read-only):\n" +
-                          string.Join("\n", fix.Unfixable.Take(8).Select(c => $"  {c.Value}  ({c.Parameter})")) +
-                          (fix.Unfixable.Count > 8 ? "\n  ..." : "");
-                return false;
-            }
+        /// <summary>One-paragraph description of a FixResult for dialogs and the status card ("" when nothing happened).</summary>
+        internal static string Describe(FixResult fix)
+        {
+            var parts = new List<string>();
             if (fix.Renumbered > 0)
-                summary = $"{fix.Renumbered} ID(s) clashed with values other users had already taken, so they were renumbered before syncing.";
-            return true;
+                parts.Add($"{fix.Renumbered} ID(s) clashed with values other users had already taken and were renumbered.");
+            if (fix.OwnedElsewhere.Count > 0)
+            {
+                var owners = fix.OwnedElsewhere.Select(o => string.IsNullOrEmpty(o.Owner) ? "another user" : o.Owner).Distinct().ToList();
+                parts.Add($"{fix.OwnedElsewhere.Count} clashing ID(s) are on elements checked out by {string.Join(", ", owners)} " +
+                          "(" + string.Join(", ", fix.OwnedElsewhere.Take(4).Select(o => o.Claim.Value)) + (fix.OwnedElsewhere.Count > 4 ? ", ..." : "") +
+                          "). Their Perseus renumbers them when they sync; they don't stop yours.");
+            }
+            return string.Join("\n", parts);
         }
 
         /// <summary>
@@ -203,13 +244,19 @@ namespace ProjectPerseus.ids
                 if (check == null) { result.ServerUnreachable = true; return result; }
                 if (check.Conflicts.Count == 0) return result;
 
-                // A clash that survives a renumbering attempt cannot be fixed from here (read-only, owned by
-                // someone else...). Report it rather than looping on it.
+                // Elements someone else has checked out can't be renumbered here and aren't pushed by this sync: note
+                // them and leave them to their owner. A clash that survives a renumbering attempt cannot be fixed from
+                // here either (group member, missing level, stale vs central...): report it rather than loop on it.
                 var fixable = new List<IdClaimItem>();
                 foreach (var c in check.Conflicts)
                 {
                     string key = c.Parameter + "|" + c.Uid + "|" + c.Value;
                     fix.Taken.Add(IdClashFix.TakenKey(c.Parameter, c.Value));
+                    if (IsOwnedElsewhere(doc, c, out string owner))
+                    {
+                        if (tried.Add(key)) result.OwnedElsewhere.Add((c, owner));
+                        continue;
+                    }
                     if (tried.Add(key)) fixable.Add(c);
                     else result.Unfixable.Add(c);
                 }
@@ -219,6 +266,13 @@ namespace ProjectPerseus.ids
                 var ids = new HashSet<long>(fixable.Select(c => c.ElementId));
                 var run = IdAssigner.Run(doc, docGuid, rules, ids, fix: fix);
                 result.Renumbered += run.Assigned;
+                if (run.SkippedInGroups > 0) result.Reasons.Add("it is in a group whose ID parameter can't vary per group instance");
+                if (run.SkippedNotOwned > 0) result.Reasons.Add("it was changed in central since your last reload (Reload Latest, then sync again)");
+                foreach (var t in run.UnresolvedTokens) result.Reasons.Add($"its {t} is empty, so no ID can be built for it");
+                if (run.NoPrefixCategories.Count > 0) result.Reasons.Add("its category has no ID prefix configured");
+                if (run.MissingOnElement > 0) result.Reasons.Add("it doesn't carry the ID parameter");
+                if (run.RolledBack) result.Reasons.Add("Revit refused the change (" + string.Join(", ", run.BlockedBy) + ")");
+                if (run.Errors > 0) result.Reasons.Add("the parameter couldn't be written (read-only?)");
                 Log.Info($"[IdClaims] round {round + 1}: {fixable.Count} clash(es), renumbered {run.Assigned}");
             }
             return result;

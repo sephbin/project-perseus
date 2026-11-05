@@ -37,12 +37,10 @@ namespace ProjectPerseus.queue
                 try
                 {
                     ProjectPerseus.ids.IdAutoAssignController.RunPreSyncFill(doc);
-                    if (!ProjectPerseus.ids.IdClaims.EnsureNoClashes(doc, out string idClash))
-                    {
-                        TaskDialog.Show("Perseus — ID clash", idClash + "\n\nAuto-sync was cancelled so the clash is not pushed to the other users.");
-                        return;
-                    }
-                    if (!string.IsNullOrEmpty(idClash)) Log.Info("[IdClaims] " + idClash);
+                    var clashes = ProjectPerseus.ids.IdClaims.EnsureNoClashes(doc);
+                    if (clashes.Blocking && !IdPreSyncFixEvent.AskAboutClashes(app, clashes)) return;
+                    string idNote = ProjectPerseus.ids.IdClaims.Describe(clashes);
+                    if (!string.IsNullOrEmpty(idNote)) Log.Info("[IdClaims] " + idNote.Replace("\n", " "));
                 }
                 catch (Exception idEx)
                 {

@@ -75,6 +75,9 @@ namespace ProjectPerseus.ids
             public string NewValue;
             public bool IsPerseusId;
             public bool IsReassign;
+            // For rule writes planned in the index: lets a skipped write be taken back out of the index.
+            public string RuleName;
+            public string OldValue;
         }
 
         // Per-document index of rule values, so edits and the pre-sync claims check don't rescan the whole model.
@@ -419,6 +422,7 @@ namespace ProjectPerseus.ids
                     {
                         Element = el, Param = p, NewValue = value,
                         IsReassign = !string.IsNullOrEmpty(current),
+                        RuleName = name, OldValue = current,
                     });
                 }
             }
@@ -664,7 +668,12 @@ namespace ProjectPerseus.ids
                             if (doc.IsWorkshared && !(editable.TryGetValue(c.Element.Id, out bool canEdit) && canEdit))
                             {
                                 result.SkippedNotOwned++;
-                                skippedAny = true;
+                                // Put the index back to what the model really holds for this element, rather than
+                                // throwing the whole index away (a full rebuild on large models) for one skipped write.
+                                if (c.RuleName != null && _indexes.TryGetValue(docGuid, out var idx))
+                                    idx.Set(c.RuleName, c.Element.Id.GetIdValue(), c.OldValue);
+                                else if (!c.IsPerseusId)
+                                    skippedAny = true;
                                 continue;
                             }
                             if (!c.Param.Set(c.NewValue)) { result.Errors++; skippedAny = true; continue; }
