@@ -91,10 +91,11 @@ namespace ProjectPerseus.violations
             RefreshOverlay();
         }
 
-        // Link types an "Unload" transaction really unloaded for everyone. Closing a workset that holds a link's
-        // instances runs a transaction Revit also names "Unload Link"; the link then reports InClosedWorkset
-        // (fallback: every instance sits on a closed workset). "Unload for me" (LocallyUnloaded) never reaches
-        // central, so it doesn't count either. Only LinkedFileStatus.Unloaded is a real unload.
+        // Link types an "Unload" transaction really unloaded. Closing a workset that holds a link's instances runs a
+        // transaction Revit also names "Unload Link"; that case is excluded (status InClosedWorkset, or every
+        // instance sits on a closed workset). Everything else is an unload. Do NOT require
+        // LinkedFileStatus.Unloaded: a real unload doesn't reliably report it inside DocumentChanged, and requiring
+        // it silently dropped every real unload.
         private static List<RevitLinkType> RealLinkUnloads(Document doc, ICollection<ElementId> modifiedIds)
         {
             var result = new List<RevitLinkType>();
@@ -108,8 +109,6 @@ namespace ProjectPerseus.violations
                     var st = lt.GetLinkedFileStatus();
                     status = st.ToString();
                     if (st == LinkedFileStatus.InClosedWorkset) skip = "its workset was closed";
-                    else if (st == LinkedFileStatus.LocallyUnloaded) skip = "unloaded for this user only";
-                    else if (st != LinkedFileStatus.Unloaded) skip = "link is not unloaded";
 
                     if (skip == null && doc.IsWorkshared)
                     {
@@ -125,7 +124,11 @@ namespace ProjectPerseus.violations
                     Log.Warn($"[ViolationDetector] could not read link status for '{lt.Name}': {ex.Message}");
                 }
 
-                if (skip == null) result.Add(lt);
+                if (skip == null)
+                {
+                    result.Add(lt);
+                    Log.Info($"[ViolationDetector] '{lt.Name}' unloaded (status {status}); counted as a link unload.");
+                }
                 else Log.Info($"[ViolationDetector] '{lt.Name}' changed in an Unload transaction but {skip} (status {status}); not a link unload.");
             }
             return result;
