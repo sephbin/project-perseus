@@ -503,8 +503,10 @@
 
   <!-- BumpVersion must run BEFORE Build so CoreCompile bakes the new AssemblyVersion
        into the DLL. Previously it ran AfterTargets="Build" which produced installers
-       containing a DLL stamped one version behind the installer/commit message. -->
-  <Target Name="BumpVersion" BeforeTargets="Build" Condition="'$(SkipBumpVersion)' != 'true'">
+       containing a DLL stamped one version behind the installer/commit message.
+       It hooks BeforeBuild, not Build: BeforeTargets="Build" runs AFTER Build's DependsOnTargets (CoreBuild,
+       i.e. the compile), so the outer year's DLL still carried the previous version (2026-11-05). -->
+  <Target Name="BumpVersion" BeforeTargets="BeforeBuild" Condition="'$(SkipBumpVersion)' != 'true'">
     <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot;" />
   </Target>
 
@@ -533,7 +535,7 @@
     <RevitVersion Condition="$(Configuration.Contains('2026'))">2026</RevitVersion>
   </PropertyGroup>
 
-  <Target Name="KillRevit" BeforeTargets="Build" Condition="'$(RevitVersion)' != ''">
+  <Target Name="KillRevit" BeforeTargets="BeforeBuild" Condition="'$(RevitVersion)' != ''">
     <Exec Command="taskkill /f /im Revit.exe"       ContinueOnError="WarnAndContinue" />
     <Exec Command="taskkill /f /im RevitWorker.exe"  ContinueOnError="WarnAndContinue" />
   </Target>
