@@ -19,8 +19,8 @@ namespace ProjectPerseus.markers
 {
     /// <summary>
     /// Evaluates the enabled marker sets (MarkerSetStore) against the elements visible in the active view and keeps
-    /// the result for the overlay: one ring per (element, set) in the colour/icon of the first legend entry the
-    /// element's parameter value matches. Runs on Idling, debounced, only when something changed (view switch,
+    /// the result for the overlay: per parameter read by the set's entries, the first entry the element's value
+    /// matches gives a mark (ring + icon, or icon only) - so one element can carry several marks. Runs on Idling, debounced, only when something changed (view switch,
     /// model edit, sets edited) — never per pan/zoom: the view-scoped collector already gives everything in the view,
     /// and queue/ViolationScreenPositionEvent re-projects the cached hits each tick.
     ///
@@ -41,7 +41,9 @@ namespace ProjectPerseus.markers
             internal BoundingBoxXYZ BBox;
             internal byte R, G, B;
             internal string Icon;
-            internal int Ring; // 0 = innermost ring on this element
+            internal bool IconOnly; // no ring: icon (or dot) on the element's centre
+            internal int Ring;      // ring marks: 0 = innermost ring on this element
+            internal int Slot;      // icon-only marks: 0 = first icon on this element
         }
 
         /// <summary>What one set found in the last evaluation (for the panel's status line).</summary>
@@ -152,10 +154,11 @@ namespace ProjectPerseus.markers
             if (note == null)
             {
                 var rings = new Dictionary<string, int>();
+                var slots = new Dictionary<string, int>();
                 var links = sets.Any(s => s.IncludeLinks) ? VisibleLinks(doc, view) : new List<LinkSource>();
                 foreach (var set in sets)
                 {
-                    var r = EvaluateSet(doc, view, set, links, rings, hits);
+                    var r = EvaluateSet(doc, view, set, links, rings, slots, hits);
                     results[set.Id] = r;
                     if (r.Error != null) Log.Info($"[MarkerEngine] set '{set.Name}': {r.Error}");
                 }
@@ -165,7 +168,7 @@ namespace ProjectPerseus.markers
         }
 
         private static SetResult EvaluateSet(Document doc, View view, MarkerSet set, List<LinkSource> links,
-                                             Dictionary<string, int> rings, List<Hit> hits)
+                                             Dictionary<string, int> rings, Dictionary<string, int> slots, List<Hit> hits)
         {
             var r = new SetResult { SetId = set.Id, EntryCounts = new int[set.Entries.Count] };
             var cats = ParseCategories(set.Categories);
@@ -175,8 +178,23 @@ namespace ProjectPerseus.markers
             var matchers = BuildMatchers(set, out string regexError);
             if (regexError != null) { r.Error = regexError; return r; }
 
+            // Entries grouped by the parameter they read, in legend order: within a group the first match wins,
+            // groups mark independently (mag lock from one parameter and drop bolt from another on the same door).
+            var groups = new List<KeyValuePair<string, List<int>>>();
+            for (int i = 0; i < set.Entries.Count; i++)
+            {
+                if (matchers[i] == null) continue;
+                string p = set.ParameterFor(set.Entries[i]);
+                var g = groups.FirstOrDefault(x => string.Equals(x.Key, p, StringComparison.OrdinalIgnoreCase));
+                if (g.Value == null) { g = new KeyValuePair<string, List<int>>(p, new List<int>()); groups.Add(g); }
+                g.Value.Add(i);
+            }
+            if (groups.Any(g => g.Key.Length == 0)) { r.Error = "Choose the parameter to read."; return r; }
+            string defaultParam = (set.Parameter ?? "").Trim();
+
             var colors = set.Entries.Select(x => ParseColor(x.Color)).ToArray();
             bool hasFilter = !string.IsNullOrWhiteSpace(set.Filter);
+            var matched = new List<int>();
 
             var catFilter = new ElementMulticategoryFilter(cats);
 
@@ -197,13 +215,18 @@ namespace ProjectPerseus.markers
                 }
                 r.Matched++;
 
-                string value = ReadValue(src, el, set.Parameter, row, out bool found);
-                if (!found) r.ParamMissing++;
-
-                int entry = -1;
-                for (int i = 0; i < matchers.Length; i++)
-                    if (matchers[i] != null && matchers[i](value)) { entry = i; break; }
-                if (entry < 0) return true;
+                matched.Clear();
+                bool missing = false;
+                foreach (var g in groups)
+                {
+                    string value = ReadValue(src, el, g.Key, row, out bool found);
+                    if (!found && (defaultParam.Length == 0 || string.Equals(g.Key, defaultParam, StringComparison.OrdinalIgnoreCase)))
+                        missing = true;
+                    foreach (int i in g.Value)
+                        if (matchers[i](value)) { matched.Add(i); break; }
+                }
+                if (missing) r.ParamMissing++;
+                if (matched.Count == 0) return true;
 
                 BoundingBoxXYZ bb = el.get_BoundingBox(null);
                 if (bb == null) return true;
@@ -211,12 +234,20 @@ namespace ProjectPerseus.markers
 
                 r.Marked++;
                 if (toHost != null) r.MarkedInLinks++;
-                r.EntryCounts[entry]++;
                 string key = keyPrefix + el.Id.GetIdValue();
-                rings.TryGetValue(key, out int ring);
-                rings[key] = ring + 1;
-                var c = colors[entry];
-                hits.Add(new Hit { Key = key, BBox = bb, R = c.R, G = c.G, B = c.B, Icon = set.Entries[entry].Icon, Ring = ring });
+                matched.Sort(); // legend order: earlier entries get the inner ring / first icon
+                foreach (int entry in matched)
+                {
+                    r.EntryCounts[entry]++;
+                    var e = set.Entries[entry];
+                    var c = colors[entry];
+                    var hit = new Hit { Key = key, BBox = bb, R = c.R, G = c.G, B = c.B, Icon = e.Icon, IconOnly = !e.ShowRing };
+                    var counter = hit.IconOnly ? slots : rings;
+                    counter.TryGetValue(key, out int n);
+                    counter[key] = n + 1;
+                    if (hit.IconOnly) hit.Slot = n; else hit.Ring = n;
+                    hits.Add(hit);
+                }
                 return true;
             }
 
@@ -414,6 +445,7 @@ namespace ProjectPerseus.markers
                         Count = i < r.EntryCounts.Length ? r.EntryCounts[i] : 0,
                         R = c.R, G = c.G, B = c.B,
                         Icon = e.Icon,
+                        IconOnly = !e.ShowRing,
                     });
                 }
             }
@@ -571,7 +603,13 @@ namespace ProjectPerseus.markers
             internal int Models = 1; // host + loaded linked models searched
             internal string Error;
             internal List<string> ParameterNames = new List<string>();
-            internal List<KeyValuePair<string, int>> Values = new List<KeyValuePair<string, int>>();
+            internal List<KeyValuePair<string, int>> Values = new List<KeyValuePair<string, int>>(); // set's parameter
+            /// <summary>Distinct values (most common first) of every parameter the set or its entries read.</summary>
+            internal Dictionary<string, List<KeyValuePair<string, int>>> ValuesByParameter =
+                new Dictionary<string, List<KeyValuePair<string, int>>>(StringComparer.OrdinalIgnoreCase);
+
+            internal List<KeyValuePair<string, int>> ValuesOf(string parameter) =>
+                parameter != null && ValuesByParameter.TryGetValue(parameter.Trim(), out var v) ? v : new List<KeyValuePair<string, int>>();
         }
 
         /// <summary>
@@ -586,7 +624,11 @@ namespace ProjectPerseus.markers
             if (doc == null || cats.Count == 0) return info;
 
             var names = new HashSet<string>(PseudoFields, StringComparer.OrdinalIgnoreCase);
-            var values = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var wanted = new List<string>();
+            foreach (var p in new[] { set.Parameter }.Concat(set.Entries.Select(e => e.Parameter)))
+                if (!string.IsNullOrWhiteSpace(p) && !wanted.Contains(p.Trim(), StringComparer.OrdinalIgnoreCase)) wanted.Add(p.Trim());
+            var values = wanted.ToDictionary(p => p, p => new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                                             StringComparer.OrdinalIgnoreCase);
             bool hasFilter = !string.IsNullOrWhiteSpace(set.Filter);
 
             var catFilter = new ElementMulticategoryFilter(cats);
@@ -639,17 +681,19 @@ namespace ProjectPerseus.markers
                         }
                     }
 
-                    if (!string.IsNullOrWhiteSpace(set.Parameter))
+                    foreach (var kv in values)
                     {
-                        string v = ReadValue(src, el, set.Parameter, row, out _).Trim();
-                        values.TryGetValue(v, out int n);
-                        values[v] = n + 1;
+                        string v = ReadValue(src, el, kv.Key, row, out _).Trim();
+                        kv.Value.TryGetValue(v, out int n);
+                        kv.Value[v] = n + 1;
                     }
                 }
             }
 
             info.ParameterNames = names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
-            info.Values = values.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).ToList();
+            foreach (var kv in values)
+                info.ValuesByParameter[kv.Key] = kv.Value.OrderByDescending(x => x.Value).ThenBy(x => x.Key).ToList();
+            info.Values = info.ValuesOf(set.Parameter);
             return info;
         }
 

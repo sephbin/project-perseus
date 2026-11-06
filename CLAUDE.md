@@ -336,8 +336,10 @@ ProjectPerseus/
 │   │                             model; Import/Export JSON to share). ShowMarkers / ShowLegend master switches. Changed event.
 │   └── MarkerEngine.cs           Idling-driven, debounced (gap scales with evaluation time) evaluation of enabled sets
 │                                 against FilteredElementCollector(doc, activeView.Id): categories -> optional
-│                                 FilterEvaluator expression over all params + Family/Type/Category/Level -> first matching
-│                                 entry gives colour/icon. Hits (bbox, ring index per element) feed
+│                                 FilterEvaluator expression over all params + Family/Type/Category/Level -> entries grouped
+│                                 by the parameter they read (Entry.Parameter, else the set's): first match per group, groups
+│                                 mark independently (several marks per element). Entry.ShowRing=false = icon-only mark
+│                                 (icon/dot row on the element centre, Hit.Slot) instead of a ring. Hits (bbox, ring index per element) feed
 │                                 queue/ViolationScreenPositionEvent; legend rows go to ViolationOverlayController.UpdateLegend.
 │                                 Re-runs on view switch / DocumentChanged / set edits, never on pan. Inspect() = whole-model
 │                                 parameter names + distinct values for the panel.
@@ -358,7 +360,7 @@ ProjectPerseus/
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
-│   │                             IncludeLinks, Filter, Parameter, Entries (Enabled, Label, Match equals/contains/regex/any/empty, Value,
+│   │                             IncludeLinks, Filter, Parameter (default), Entries (Enabled, Label, Parameter, ShowRing, Match equals/contains/regex/any/empty, Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
 │   ├── OwnershipSnapshot.cs      NEW (2026-11-05). Who owns which elements/worksets (nested ElementRow, WorksetRow).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:

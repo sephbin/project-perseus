@@ -86,7 +86,7 @@ namespace ProjectPerseus.ui
             _categories = categories;
 
             Title = "Perseus — Parameter Markers";
-            Width = 900;
+            Width = 1080;
             Height = 640;
             MinWidth = 720;
             MinHeight = 460;
@@ -204,7 +204,8 @@ namespace ProjectPerseus.ui
             _editor.Children.Add(queryGrid);
 
             // Parameter
-            _editor.Children.Add(Section("Parameter to read"));
+            _editor.Children.Add(Section("Default parameter"));
+            _editor.Children.Add(Hint("Read by legend entries that don't name their own parameter."));
             _parameter = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
             _parameter.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler((s, e) =>
             {
@@ -229,7 +230,9 @@ namespace ProjectPerseus.ui
             legendHeader.Children.Add(legendButtons);
             legendHeader.Children.Add(new TextBlock { Text = "Legend", FontWeight = FontWeights.SemiBold, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
             _editor.Children.Add(legendHeader);
-            _editor.Children.Add(Hint("The first entry an element's value matches gives its ring colour and icon. Count = elements in the current view."));
+            _editor.Children.Add(Hint("Per parameter, the first entry an element's value matches marks it; entries on different " +
+                                      "parameters mark independently (e.g. mag lock and drop bolt on one door). " +
+                                      "Show: Ring = ring with the icon on it, Icon = icon only. Count = elements in the current view."));
             _entryRows = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             _editor.Children.Add(_entryRows);
 
@@ -478,10 +481,12 @@ namespace ProjectPerseus.ui
             var header = EntryGrid();
             AddCell(header, 1, Hint("Colour"));
             AddCell(header, 2, Hint("Icon"));
-            AddCell(header, 3, Hint("When value"));
-            AddCell(header, 4, Hint("Value"));
-            AddCell(header, 5, Hint("Label"));
-            AddCell(header, 6, Hint("In view"));
+            AddCell(header, 3, Hint("Show"));
+            AddCell(header, 4, Hint("Parameter"));
+            AddCell(header, 5, Hint("When value"));
+            AddCell(header, 6, Hint("Value"));
+            AddCell(header, 7, Hint("Label"));
+            AddCell(header, 8, Hint("In view"));
             _entryRows.Children.Add(header);
 
             for (int i = 0; i < _set.Entries.Count; i++)
@@ -492,7 +497,8 @@ namespace ProjectPerseus.ui
         private static Grid EntryGrid()
         {
             var g = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-            foreach (var w in new[] { 24.0, 40, 52, 112, -1.2, -1, 52, 84 })
+            // enable | colour | icon | ring/icon-only | parameter | match | value | label | count | tools
+            foreach (var w in new[] { 24.0, 40, 52, 50, -1, 112, -1.2, -1, 52, 84 })
                 g.ColumnDefinitions.Add(new ColumnDefinition
                 {
                     Width = w < 0 ? new GridLength(-w, GridUnitType.Star) : new GridLength(w),
@@ -567,14 +573,45 @@ namespace ProjectPerseus.ui
             };
             AddCell(g, 2, icon);
 
+            // Ring + icon, or icon only
+            var style = new Button { Width = 44, Height = 22, Padding = new Thickness(0), Cursor = Cursors.Hand };
+            Action paintStyle = () =>
+            {
+                style.Content = new TextBlock { Text = entry.ShowRing ? "Ring" : "Icon", FontSize = 11 };
+                style.ToolTip = entry.ShowRing
+                    ? "Ring around the element (with the icon on it). Click for icon only."
+                    : "Icon only, on the element's centre (a dot if no icon). Click for a ring.";
+            };
+            paintStyle();
+            style.Click += (s, e) => { entry.ShowRing = !entry.ShowRing; paintStyle(); ScheduleApply(); };
+            AddCell(g, 3, style);
+
+            // Parameter (blank = the set's default parameter)
+            var param = new ComboBox
+            {
+                IsEditable = true, IsTextSearchEnabled = true, Text = entry.Parameter, Margin = new Thickness(4, 0, 0, 0),
+                ToolTip = "Parameter this entry reads. Leave blank to use the default parameter above.\n" +
+                          "Entries reading different parameters mark independently, so one element can get several marks.",
+            };
+            if (_inspection != null) param.ItemsSource = _inspection.ParameterNames;
+            param.DropDownOpened += (s, e) => { if (_inspection != null) param.ItemsSource = _inspection.ParameterNames; };
+            param.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler((s, e) =>
+            {
+                if ((entry.Parameter ?? "") == param.Text) return;
+                entry.Parameter = param.Text;
+                ScheduleApply();
+                ScheduleInspect(); // fetch this parameter's values for the suggestions
+            }));
+            AddCell(g, 4, param);
+
             // Match kind
             var match = new ComboBox { ItemsSource = MatchNames, SelectedIndex = Math.Max(0, Array.IndexOf(MatchKinds, entry.Match)), Margin = new Thickness(4, 0, 4, 0) };
-            AddCell(g, 3, match);
+            AddCell(g, 5, match);
 
-            // Value (editable, suggestions = distinct values in the model)
+            // Value (editable, suggestions = distinct values of the entry's parameter in the model)
             var value = new ComboBox { IsEditable = true, Text = entry.Value, Margin = new Thickness(0, 0, 4, 0) };
-            if (_inspection != null) value.ItemsSource = SuggestedValues();
-            value.DropDownOpened += (s, e) => { if (_inspection != null) value.ItemsSource = SuggestedValues(); };
+            if (_inspection != null) value.ItemsSource = SuggestedValues(entry);
+            value.DropDownOpened += (s, e) => { if (_inspection != null) value.ItemsSource = SuggestedValues(entry); };
             value.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler((s, e) =>
             {
                 if (entry.Value == value.Text) return;
@@ -595,21 +632,21 @@ namespace ProjectPerseus.ui
                 syncValueEnabled();
                 ScheduleApply();
             };
-            AddCell(g, 4, value);
+            AddCell(g, 6, value);
 
             var label = new TextBox { Text = entry.Label, VerticalContentAlignment = VerticalAlignment.Center, ToolTip = "Shown in the legend (defaults to the value)" };
             label.TextChanged += (s, e) => { entry.Label = label.Text; ScheduleApply(); };
-            AddCell(g, 5, label);
+            AddCell(g, 7, label);
 
             var count = new TextBlock { Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 8, 0) };
             _entryCounts.Add(count);
-            AddCell(g, 6, count);
+            AddCell(g, 8, count);
 
             var tools = new StackPanel { Orientation = Orientation.Horizontal };
-            tools.Children.Add(SmallButton("▲", "Move up (earlier entries win)", () => MoveEntry(index, -1)));
+            tools.Children.Add(SmallButton("▲", "Move up (among entries on the same parameter, earlier entries win)", () => MoveEntry(index, -1)));
             tools.Children.Add(SmallButton("▼", "Move down", () => MoveEntry(index, +1)));
             tools.Children.Add(SmallButton("✕", "Remove", () => { _set.Entries.RemoveAt(index); BuildEntryRows(); RefreshListItem(_set); ScheduleApply(); }));
-            AddCell(g, 7, tools);
+            AddCell(g, 9, tools);
             return g;
         }
 
@@ -670,8 +707,10 @@ namespace ProjectPerseus.ui
             ScheduleApply();
         }
 
-        private List<string> SuggestedValues() =>
-            _inspection == null ? new List<string>() : _inspection.Values.Where(kv => kv.Key.Length > 0).Select(kv => kv.Key).Take(200).ToList();
+        private List<string> SuggestedValues(MarkerSet.Entry entry) =>
+            _inspection == null || _set == null
+                ? new List<string>()
+                : _inspection.ValuesOf(_set.ParameterFor(entry)).Where(kv => kv.Key.Length > 0).Select(kv => kv.Key).Take(200).ToList();
 
         // ── Apply / inspect / status ──
 

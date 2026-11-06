@@ -89,17 +89,34 @@ namespace ProjectPerseus.queue
 
                 // Parameter markers: MarkerEngine already collected only elements in this view, with a ring
                 // index per element. Violation rings on the same element go outside them.
+                // Icon-only marks sit in a row on the element's centre; SlotCount centres that row.
                 var ringsUsed = new Dictionary<string, int>();
+                var iconCount = new Dictionary<string, int>();
                 foreach (var h in markerHits)
                 {
+                    if (h.IconOnly)
+                    {
+                        iconCount.TryGetValue(h.Key, out int c);
+                        if (h.Slot + 1 > c) iconCount[h.Key] = h.Slot + 1;
+                        continue;
+                    }
                     if (ringsUsed.TryGetValue(h.Key, out int n)) { if (h.Ring + 1 > n) ringsUsed[h.Key] = h.Ring + 1; }
                     else ringsUsed[h.Key] = h.Ring + 1;
+                }
+                foreach (var h in markerHits)
+                {
                     OverlayMarker m;
                     if (proj.TryProject(h.BBox, null, out m))
                     {
                         m.R = h.R; m.G = h.G; m.B = h.B;
                         m.Ring = h.Ring;
                         m.Icon = h.Icon;
+                        if (h.IconOnly)
+                        {
+                            m.IconOnly = true;
+                            m.Slot = h.Slot;
+                            m.SlotCount = iconCount[h.Key];
+                        }
                         markers.Add(m);
                     }
                 }

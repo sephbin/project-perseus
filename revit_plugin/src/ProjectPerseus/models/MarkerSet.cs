@@ -25,10 +25,16 @@ namespace ProjectPerseus.models
         /// <summary>Optional util/FilterEvaluator expression, e.g. <c>"Double" in row["Family"]</c>. Empty = all.</summary>
         public string Filter { get; set; } = "";
 
-        /// <summary>Instance parameter, else type parameter, else a pseudo field (Family, Type, Category, Level...).</summary>
+        /// <summary>
+        /// Default parameter for entries that don't name their own: instance parameter, else type parameter, else a
+        /// pseudo field (Family, Type, Category, Level...).
+        /// </summary>
         public string Parameter { get; set; } = "";
 
-        /// <summary>Checked in order; the first matching entry marks the element.</summary>
+        /// <summary>
+        /// Checked in order, per parameter: among the entries reading the same parameter the first match marks the
+        /// element; entries reading different parameters mark independently (one element can get several marks).
+        /// </summary>
         public List<Entry> Entries { get; set; } = new List<Entry>();
 
         public enum MatchKind { Equals, Contains, Regex, AnyValue, Empty }
@@ -37,6 +43,12 @@ namespace ProjectPerseus.models
         {
             public bool Enabled { get; set; } = true;
             public string Label { get; set; } = "";
+
+            /// <summary>Parameter this entry reads; "" = the set's <see cref="MarkerSet.Parameter"/>.</summary>
+            public string Parameter { get; set; } = "";
+
+            /// <summary>False = icon only (no ring): the icon (or a plain dot) sits on the element's centre.</summary>
+            public bool ShowRing { get; set; } = true;
 
             [JsonConverter(typeof(StringEnumConverter))]
             public MatchKind Match { get; set; } = MatchKind.Equals;
@@ -47,6 +59,10 @@ namespace ProjectPerseus.models
             /// <summary>Key in ui/MarkerIcons ("" = no icon).</summary>
             public string Icon { get; set; } = "";
         }
+
+        /// <summary>The parameter an entry actually reads (its own, else the set's), trimmed.</summary>
+        public string ParameterFor(Entry e) =>
+            (string.IsNullOrWhiteSpace(e.Parameter) ? Parameter ?? "" : e.Parameter).Trim();
 
         public MarkerSet Clone()
         {

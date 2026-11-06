@@ -40,6 +40,21 @@ namespace ProjectPerseus.ui
         private const double MaxRingDiameter = 6000; // px — beyond this the ring is just noise off-screen
         private const double RingStep        = 10;   // px added per extra ring on the same element (concentric)
         private const double BadgeSize       = 17;   // px — icon disc on a marker ring
+        private const double IconOnlySize    = 20;   // px — icon disc of an icon-only marker (no ring)
+        private const double IconOnlyGap     = 3;    // px between icon-only markers on the same element
+
+        // Soft shadow so icon-only markers read on light and dark backgrounds alike.
+        private static readonly System.Windows.Media.Effects.DropShadowEffect IconShadow = MakeIconShadow();
+
+        private static System.Windows.Media.Effects.DropShadowEffect MakeIconShadow()
+        {
+            var e = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.55,
+            };
+            e.Freeze();
+            return e;
+        }
 
         private readonly IntPtr _revitHwnd;
         private readonly uint   _revitProcessId;
@@ -348,6 +363,7 @@ namespace ProjectPerseus.ui
                 if (Math.Abs(x.NormX - y.NormX) > eps || Math.Abs(x.NormY - y.NormY) > eps) return false;
                 if (Math.Abs(x.NormW - y.NormW) > eps || Math.Abs(x.NormH - y.NormH) > eps) return false;
                 if (x.Ring != y.Ring || !string.Equals(x.Icon, y.Icon, StringComparison.Ordinal)) return false;
+                if (x.IconOnly != y.IconOnly || x.Slot != y.Slot || x.SlotCount != y.SlotCount) return false;
             }
             return true;
         }
@@ -367,6 +383,15 @@ namespace ProjectPerseus.ui
             var badges = new List<FrameworkElement>();
             foreach (var m in ordered)
             {
+                if (m.IconOnly)
+                {
+                    // No ring: the icon (or, without one, a plain dot) is the whole marker.
+                    var mark = MarkerIcons.Badge(m.Icon, Color.FromRgb(m.R, m.G, m.B), IconOnlySize);
+                    mark.Effect = IconShadow;
+                    badges.Add(mark);
+                    _visuals.Add(new MarkerVisual { Marker = m, Badge = mark });
+                    continue;
+                }
                 var color = Color.FromRgb(m.R, m.G, m.B);
                 var ringBrush = new SolidColorBrush(color);
                 ringBrush.Freeze();
@@ -408,6 +433,15 @@ namespace ProjectPerseus.ui
             foreach (var v in _visuals)
             {
                 var m = v.Marker;
+                if (m.IconOnly)
+                {
+                    // Row of icons centred on the element.
+                    double x = _vpLeft + m.NormX * _vpWidth + (m.Slot - (m.SlotCount - 1) / 2.0) * (IconOnlySize + IconOnlyGap);
+                    double y = _vpTop  + m.NormY * _vpHeight;
+                    Canvas.SetLeft(v.Badge, x - IconOnlySize / 2);
+                    Canvas.SetTop( v.Badge, y - IconOnlySize / 2);
+                    continue;
+                }
                 double wPx = m.NormW * _vpWidth;
                 double hPx = m.NormH * _vpHeight;
                 double d   = Math.Sqrt(wPx * wPx + hPx * hPx) + 2 * RingPadding; // ring encloses the bbox
@@ -461,7 +495,7 @@ namespace ProjectPerseus.ui
                     }
                     var color = Color.FromRgb(row.R, row.G, row.B);
                     var line = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
-                    FrameworkElement swatch = !string.IsNullOrEmpty(row.Icon) && MarkerIcons.Get(row.Icon) != null
+                    FrameworkElement swatch = row.IconOnly || !string.IsNullOrEmpty(row.Icon) && MarkerIcons.Get(row.Icon) != null
                         ? MarkerIcons.Badge(row.Icon, color, 15)
                         : (FrameworkElement)new Ellipse
                           {
