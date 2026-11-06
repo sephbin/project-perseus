@@ -39,6 +39,12 @@ namespace ProjectPerseus.models
 
         public enum MatchKind { Equals, Contains, Regex, AnyValue, Empty }
 
+        /// <summary>
+        /// Ring / Square: around the element's projected box (icon on it). Outline: the element's own view
+        /// geometry traced thick over it (icon at its top-right). IconOnly: icon (or a dot) on the centre.
+        /// </summary>
+        public enum DisplayKind { Ring, Square, Outline, IconOnly }
+
         public class Entry
         {
             public bool Enabled { get; set; } = true;
@@ -47,8 +53,17 @@ namespace ProjectPerseus.models
             /// <summary>Parameter this entry reads; "" = the set's <see cref="MarkerSet.Parameter"/>.</summary>
             public string Parameter { get; set; } = "";
 
-            /// <summary>False = icon only (no ring): the icon (or a plain dot) sits on the element's centre.</summary>
-            public bool ShowRing { get; set; } = true;
+            /// <summary>How the mark is drawn (ring / square around the element, its view outline, or icon only).</summary>
+            [JsonConverter(typeof(StringEnumConverter))]
+            public DisplayKind Display { get; set; } = DisplayKind.Ring;
+
+            // Sets saved by the build that only had a ring on/off switch: ShowRing=false meant icon only.
+            [JsonProperty("ShowRing", NullValueHandling = NullValueHandling.Ignore)]
+            private bool? LegacyShowRing
+            {
+                get => null;
+                set { if (value == false) Display = DisplayKind.IconOnly; }
+            }
 
             [JsonConverter(typeof(StringEnumConverter))]
             public MatchKind Match { get; set; } = MatchKind.Equals;

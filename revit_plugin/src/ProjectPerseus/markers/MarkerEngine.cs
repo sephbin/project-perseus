@@ -20,7 +20,8 @@ namespace ProjectPerseus.markers
     /// <summary>
     /// Evaluates the enabled marker sets (MarkerSetStore) against the elements visible in the active view and keeps
     /// the result for the overlay: per parameter read by the set's entries, the first entry the element's value
-    /// matches gives a mark (ring + icon, or icon only) - so one element can carry several marks. Runs on Idling, debounced, only when something changed (view switch,
+    /// matches gives a mark (ring / square / outline, with its icon, or icon only) - so one element can carry
+    /// several marks. Outline marks read the element's view geometry once per evaluation (point-budgeted). Runs on Idling, debounced, only when something changed (view switch,
     /// model edit, sets edited) — never per pan/zoom: the view-scoped collector already gives everything in the view,
     /// and queue/ViolationScreenPositionEvent re-projects the cached hits each tick.
     ///
@@ -41,10 +42,19 @@ namespace ProjectPerseus.markers
             internal BoundingBoxXYZ BBox;
             internal byte R, G, B;
             internal string Icon;
-            internal bool IconOnly; // no ring: icon (or dot) on the element's centre
-            internal int Ring;      // ring marks: 0 = innermost ring on this element
-            internal int Slot;      // icon-only marks: 0 = first icon on this element
+            internal MarkerSet.DisplayKind Display;
+            internal int Ring;      // ring / square marks: 0 = innermost on this element (they stack outwards)
+            internal int Slot;      // icon-only / outline marks: 0 = first icon on this element
+            internal List<XYZ[]> Outline; // Outline marks: the element's view curves, host coordinates
         }
+
+        // Outline marks read the element's geometry; these keep a big view from stalling Revit.
+        private const int MaxOutlinePointsPerElement = 1500;
+        private const int MaxOutlinePointsPerView    = 80000;
+        private static int _outlinePoints;
+
+        /// <summary>Bumped on every evaluation, so the projection can tell when the hits are new.</summary>
+        internal static int Version { get; private set; }
 
         /// <summary>What one set found in the last evaluation (for the panel's status line).</summary>
         internal class SetResult
@@ -155,6 +165,7 @@ namespace ProjectPerseus.markers
             {
                 var rings = new Dictionary<string, int>();
                 var slots = new Dictionary<string, int>();
+                _outlinePoints = 0;
                 var links = sets.Any(s => s.IncludeLinks) ? VisibleLinks(doc, view) : new List<LinkSource>();
                 foreach (var set in sets)
                 {
@@ -236,16 +247,24 @@ namespace ProjectPerseus.markers
                 if (toHost != null) r.MarkedInLinks++;
                 string key = keyPrefix + el.Id.GetIdValue();
                 matched.Sort(); // legend order: earlier entries get the inner ring / first icon
+                List<XYZ[]> outline = null; // read once per element, shared by its outline marks
                 foreach (int entry in matched)
                 {
                     r.EntryCounts[entry]++;
                     var e = set.Entries[entry];
                     var c = colors[entry];
-                    var hit = new Hit { Key = key, BBox = bb, R = c.R, G = c.G, B = c.B, Icon = e.Icon, IconOnly = !e.ShowRing };
-                    var counter = hit.IconOnly ? slots : rings;
+                    var hit = new Hit { Key = key, BBox = bb, R = c.R, G = c.G, B = c.B, Icon = e.Icon, Display = e.Display };
+                    if (hit.Display == MarkerSet.DisplayKind.Outline)
+                    {
+                        if (outline == null) outline = ReadOutline(el, view, toHost);
+                        if (outline.Count > 0) hit.Outline = outline;
+                        else hit.Display = MarkerSet.DisplayKind.Square; // no curves (or budget used up)
+                    }
+                    bool stacks = hit.Display == MarkerSet.DisplayKind.Ring || hit.Display == MarkerSet.DisplayKind.Square;
+                    var counter = stacks ? rings : slots;
                     counter.TryGetValue(key, out int n);
                     counter[key] = n + 1;
-                    if (hit.IconOnly) hit.Slot = n; else hit.Ring = n;
+                    if (stacks) hit.Ring = n; else hit.Slot = n;
                     hits.Add(hit);
                 }
                 return true;
@@ -277,6 +296,77 @@ namespace ProjectPerseus.markers
                 }
             }
             return r;
+        }
+
+        // ── Outline geometry ────────────────────────────────────────────────────
+
+        // The element's curves as drawn in this view (host elements: the view's own representation, e.g. a door's
+        // plan swing; linked elements: the view's detail level), tessellated to polylines in host coordinates.
+        // Empty when the element has no curves or the per-view point budget is spent (the caller falls back to a
+        // square). Solid edges are included, so a wall in plan gives its outline (top and bottom edges coincide).
+        private static List<XYZ[]> ReadOutline(Element el, View view, Transform toHost)
+        {
+            var list = new List<XYZ[]>();
+            if (_outlinePoints >= MaxOutlinePointsPerView) return list;
+            try
+            {
+                var opt = new Options { ComputeReferences = false, IncludeNonVisibleObjects = false };
+                if (toHost == null) opt.View = view;
+                else opt.DetailLevel = view.DetailLevel;
+                GeometryElement geometry = el.get_Geometry(opt);
+                if (geometry == null) return list;
+                int points = 0;
+                CollectCurves(geometry, list, ref points, 0);
+                if (toHost != null)
+                    for (int i = 0; i < list.Count; i++)
+                        list[i] = list[i].Select(p => toHost.OfPoint(p)).ToArray();
+                _outlinePoints += points;
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"[MarkerEngine] outline of element {el.Id.GetIdValue()} unavailable: {ex.Message}");
+                list.Clear();
+            }
+            return list;
+        }
+
+        private static void CollectCurves(GeometryElement geometry, List<XYZ[]> list, ref int points, int depth)
+        {
+            if (depth > 4) return;
+            foreach (GeometryObject obj in geometry)
+            {
+                if (points >= MaxOutlinePointsPerElement) return;
+                switch (obj)
+                {
+                    case GeometryInstance gi:
+                        // Already placed in the parent's (model) coordinates.
+                        var inner = gi.GetInstanceGeometry();
+                        if (inner != null) CollectCurves(inner, list, ref points, depth + 1);
+                        break;
+                    case Curve c:
+                        AddPolyline(c.Tessellate(), list, ref points);
+                        break;
+                    case PolyLine pl:
+                        AddPolyline(pl.GetCoordinates(), list, ref points);
+                        break;
+                    case Solid s when s.Edges.Size > 0:
+                        foreach (Edge e in s.Edges)
+                        {
+                            if (points >= MaxOutlinePointsPerElement) return;
+                            AddPolyline(e.Tessellate(), list, ref points);
+                        }
+                        break;
+                }
+            }
+        }
+
+        private static void AddPolyline(IList<XYZ> pts, List<XYZ[]> list, ref int points)
+        {
+            if (pts == null || pts.Count < 2) return;
+            var arr = new XYZ[pts.Count];
+            pts.CopyTo(arr, 0);
+            list.Add(arr);
+            points += arr.Length;
         }
 
         // ── Linked models ───────────────────────────────────────────────────────
@@ -419,7 +509,10 @@ namespace ProjectPerseus.markers
             {
                 _hits = hits;
                 _results = results;
+                Version++;
             }
+            if (_outlinePoints >= MaxOutlinePointsPerView)
+                Log.Info($"[MarkerEngine] outline budget ({MaxOutlinePointsPerView:N0} points) reached; remaining outline marks drawn as squares");
             _lastViewNote = note;
             ViolationOverlayController.UpdateLegend(BuildLegend(results, note == null));
             try { Evaluated?.Invoke(); }
@@ -445,7 +538,7 @@ namespace ProjectPerseus.markers
                         Count = i < r.EntryCounts.Length ? r.EntryCounts[i] : 0,
                         R = c.R, G = c.G, B = c.B,
                         Icon = e.Icon,
-                        IconOnly = !e.ShowRing,
+                        Display = e.Display,
                     });
                 }
             }

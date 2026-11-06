@@ -338,8 +338,11 @@ ProjectPerseus/
 │                                 against FilteredElementCollector(doc, activeView.Id): categories -> optional
 │                                 FilterEvaluator expression over all params + Family/Type/Category/Level -> entries grouped
 │                                 by the parameter they read (Entry.Parameter, else the set's): first match per group, groups
-│                                 mark independently (several marks per element). Entry.ShowRing=false = icon-only mark
-│                                 (icon/dot row on the element centre, Hit.Slot) instead of a ring. Hits (bbox, ring index per element) feed
+│                                 mark independently (several marks per element). Entry.Display: Ring / Square (stack
+│                                 outwards, Hit.Ring) / Outline (element's view curves via get_Geometry(Options{View}),
+│                                 links: view detail level; point-budgeted, falls back to Square) / IconOnly (icon row on
+│                                 the centre, Hit.Slot). Version bumps per evaluation; ViolationScreenPositionEvent caches
+│                                 the projected markers per (Version, view, zoom) so outlines aren't re-projected each tick. Hits (bbox, ring index per element) feed
 │                                 queue/ViolationScreenPositionEvent; legend rows go to ViolationOverlayController.UpdateLegend.
 │                                 Re-runs on view switch / DocumentChanged / set edits, never on pan. Inspect() = whole-model
 │                                 parameter names + distinct values for the panel.
@@ -360,7 +363,7 @@ ProjectPerseus/
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
-│   │                             IncludeLinks, Filter, Parameter (default), Entries (Enabled, Label, Parameter, ShowRing, Match equals/contains/regex/any/empty, Value,
+│   │                             IncludeLinks, Filter, Parameter (default), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty, Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
 │   ├── OwnershipSnapshot.cs      NEW (2026-11-05). Who owns which elements/worksets (nested ElementRow, WorksetRow).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:

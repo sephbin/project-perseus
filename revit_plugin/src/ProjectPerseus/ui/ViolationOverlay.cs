@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using ProjectPerseus.models;
 
 namespace ProjectPerseus.ui
 {
@@ -91,8 +92,9 @@ namespace ProjectPerseus.ui
         private sealed class MarkerVisual
         {
             internal OverlayMarker Marker;
-            internal FrameworkElement Ring;
+            internal FrameworkElement Ring;    // ring or square (Grid of halo + coloured shape)
             internal FrameworkElement Badge;
+            internal Path OutlineHalo, OutlineLine; // Outline marks
         }
         private readonly List<MarkerVisual> _visuals = new List<MarkerVisual>();
         private readonly DispatcherTimer _positionTimer;
@@ -363,7 +365,8 @@ namespace ProjectPerseus.ui
                 if (Math.Abs(x.NormX - y.NormX) > eps || Math.Abs(x.NormY - y.NormY) > eps) return false;
                 if (Math.Abs(x.NormW - y.NormW) > eps || Math.Abs(x.NormH - y.NormH) > eps) return false;
                 if (x.Ring != y.Ring || !string.Equals(x.Icon, y.Icon, StringComparison.Ordinal)) return false;
-                if (x.IconOnly != y.IconOnly || x.Slot != y.Slot || x.SlotCount != y.SlotCount) return false;
+                if (x.Display != y.Display || x.Slot != y.Slot || x.SlotCount != y.SlotCount) return false;
+                if (!ReferenceEquals(x.Outline, y.Outline)) return false; // reused while unchanged (see controller)
             }
             return true;
         }
@@ -381,20 +384,49 @@ namespace ProjectPerseus.ui
             var ordered = new List<OverlayMarker>(_currentMarkers);
             ordered.Sort((a, b) => b.Ring.CompareTo(a.Ring));
             var badges = new List<FrameworkElement>();
+            var outlines = new List<Path>();
+            var outlineLines = new List<Path>();
             foreach (var m in ordered)
             {
-                if (m.IconOnly)
+                var color = Color.FromRgb(m.R, m.G, m.B);
+                if (m.Display == MarkerSet.DisplayKind.IconOnly)
                 {
-                    // No ring: the icon (or, without one, a plain dot) is the whole marker.
-                    var mark = MarkerIcons.Badge(m.Icon, Color.FromRgb(m.R, m.G, m.B), IconOnlySize);
+                    // No shape: the icon (or, without one, a plain dot) is the whole marker.
+                    var mark = MarkerIcons.Badge(m.Icon, color, IconOnlySize);
                     mark.Effect = IconShadow;
                     badges.Add(mark);
                     _visuals.Add(new MarkerVisual { Marker = m, Badge = mark });
                     continue;
                 }
-                var color = Color.FromRgb(m.R, m.G, m.B);
                 var ringBrush = new SolidColorBrush(color);
                 ringBrush.Freeze();
+
+                FrameworkElement badge = null;
+                if (!string.IsNullOrEmpty(m.Icon) && MarkerIcons.Get(m.Icon) != null)
+                {
+                    badge = MarkerIcons.Badge(m.Icon, color, BadgeSize);
+                    badges.Add(badge);
+                }
+
+                if (m.Display == MarkerSet.DisplayKind.Outline)
+                {
+                    // The element's own curves, traced thick: dark halo underneath for contrast, colour on top.
+                    var outlineHalo = new Path
+                    {
+                        Stroke = halo, StrokeThickness = 6, IsHitTestVisible = false,
+                        StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                    };
+                    var outlineLine = new Path
+                    {
+                        Stroke = ringBrush, StrokeThickness = 3, IsHitTestVisible = false,
+                        StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                    };
+                    outlines.Add(outlineHalo);
+                    outlineLines.Add(outlineLine);
+                    _visuals.Add(new MarkerVisual { Marker = m, Badge = badge, OutlineHalo = outlineHalo, OutlineLine = outlineLine });
+                    continue;
+                }
+
                 Brush fill = Brushes.Transparent;
                 if (m.Ring == 0)
                 {
@@ -404,23 +436,31 @@ namespace ProjectPerseus.ui
                 }
 
                 var ring = new Grid { IsHitTestVisible = false };
-                ring.Children.Add(new Ellipse { Stroke = halo, StrokeThickness = 5, Fill = fill });
-                ring.Children.Add(new Ellipse
+                if (m.Display == MarkerSet.DisplayKind.Square)
                 {
-                    Stroke          = ringBrush,
-                    StrokeThickness = 2.5,
-                    Margin          = new Thickness(1.25), // centres the coloured ring on the halo
-                });
-                _markerCanvas.Children.Add(ring);
-
-                FrameworkElement badge = null;
-                if (!string.IsNullOrEmpty(m.Icon) && MarkerIcons.Get(m.Icon) != null)
-                {
-                    badge = MarkerIcons.Badge(m.Icon, color, BadgeSize);
-                    badges.Add(badge);
+                    ring.Children.Add(new Rectangle { Stroke = halo, StrokeThickness = 5, Fill = fill, RadiusX = 4, RadiusY = 4 });
+                    ring.Children.Add(new Rectangle
+                    {
+                        Stroke = ringBrush, StrokeThickness = 2.5, Margin = new Thickness(1.25), RadiusX = 3, RadiusY = 3,
+                    });
                 }
+                else
+                {
+                    ring.Children.Add(new Ellipse { Stroke = halo, StrokeThickness = 5, Fill = fill });
+                    ring.Children.Add(new Ellipse
+                    {
+                        Stroke          = ringBrush,
+                        StrokeThickness = 2.5,
+                        Margin          = new Thickness(1.25), // centres the coloured ring on the halo
+                    });
+                }
+                _markerCanvas.Children.Add(ring);
                 _visuals.Add(new MarkerVisual { Marker = m, Ring = ring, Badge = badge });
             }
+            // Outlines over the rings (all halos first, so one outline's halo never covers another's colour),
+            // badges on top of everything.
+            foreach (var o in outlines) _markerCanvas.Children.Add(o);
+            foreach (var o in outlineLines) _markerCanvas.Children.Add(o);
             foreach (var b in badges) _markerCanvas.Children.Add(b);
             PositionMarkers();
         }
@@ -433,41 +473,132 @@ namespace ProjectPerseus.ui
             foreach (var v in _visuals)
             {
                 var m = v.Marker;
-                if (m.IconOnly)
-                {
-                    // Row of icons centred on the element.
-                    double x = _vpLeft + m.NormX * _vpWidth + (m.Slot - (m.SlotCount - 1) / 2.0) * (IconOnlySize + IconOnlyGap);
-                    double y = _vpTop  + m.NormY * _vpHeight;
-                    Canvas.SetLeft(v.Badge, x - IconOnlySize / 2);
-                    Canvas.SetTop( v.Badge, y - IconOnlySize / 2);
-                    continue;
-                }
+                double cx = _vpLeft + m.NormX * _vpWidth;
+                double cy = _vpTop  + m.NormY * _vpHeight;
                 double wPx = m.NormW * _vpWidth;
                 double hPx = m.NormH * _vpHeight;
-                double d   = Math.Sqrt(wPx * wPx + hPx * hPx) + 2 * RingPadding; // ring encloses the bbox
-                if (d < MinRingDiameter) d = MinRingDiameter;
-                d += m.Ring * RingStep;
-                bool show = d <= MaxRingDiameter;
+
+                if (m.Display == MarkerSet.DisplayKind.IconOnly)
+                {
+                    // Row of icons centred on the element.
+                    double x = cx + (m.Slot - (m.SlotCount - 1) / 2.0) * (IconOnlySize + IconOnlyGap);
+                    Canvas.SetLeft(v.Badge, x - IconOnlySize / 2);
+                    Canvas.SetTop( v.Badge, cy - IconOnlySize / 2);
+                    continue;
+                }
+
+                if (m.Display == MarkerSet.DisplayKind.Outline)
+                {
+                    var geometry = BuildOutlineGeometry(m.Outline);
+                    v.OutlineHalo.Data = geometry;
+                    v.OutlineLine.Data = geometry;
+                    if (v.Badge != null)
+                    {
+                        // Top-right corner of the element, further outline marks on it in a row to the right.
+                        Canvas.SetLeft(v.Badge, cx + wPx / 2 + m.Slot * (BadgeSize + 2) - BadgeSize / 2);
+                        Canvas.SetTop( v.Badge, cy - hPx / 2 - BadgeSize / 2);
+                    }
+                    continue;
+                }
+
+                bool square = m.Display == MarkerSet.DisplayKind.Square;
+                double w, h;
+                if (square)
+                {
+                    // Box around the projected element, padded; stacked squares step outwards like rings.
+                    w = Math.Max(MinRingDiameter, wPx + 2 * RingPadding) + m.Ring * RingStep;
+                    h = Math.Max(MinRingDiameter, hPx + 2 * RingPadding) + m.Ring * RingStep;
+                }
+                else
+                {
+                    double d = Math.Sqrt(wPx * wPx + hPx * hPx) + 2 * RingPadding; // ring encloses the bbox
+                    if (d < MinRingDiameter) d = MinRingDiameter;
+                    w = h = d + m.Ring * RingStep;
+                }
+                bool show = Math.Max(w, h) <= MaxRingDiameter;
                 v.Ring.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
                 if (v.Badge != null) v.Badge.Visibility = v.Ring.Visibility;
                 if (!show) continue;
 
-                double cx = _vpLeft + m.NormX * _vpWidth;
-                double cy = _vpTop  + m.NormY * _vpHeight;
-                v.Ring.Width  = d;
-                v.Ring.Height = d;
-                Canvas.SetLeft(v.Ring, cx - d / 2);
-                Canvas.SetTop( v.Ring, cy - d / 2);
+                v.Ring.Width  = w;
+                v.Ring.Height = h;
+                Canvas.SetLeft(v.Ring, cx - w / 2);
+                Canvas.SetTop( v.Ring, cy - h / 2);
                 if (v.Badge != null)
                 {
-                    double r = d / 2 - 1.5;
-                    Canvas.SetLeft(v.Badge, cx + r * 0.7071 - BadgeSize / 2);
-                    Canvas.SetTop( v.Badge, cy - r * 0.7071 - BadgeSize / 2);
+                    // Ring: on the ring at 45°. Square: on its top-right corner.
+                    double bx = square ? w / 2 - 1.5 : (w / 2 - 1.5) * 0.7071;
+                    double by = square ? h / 2 - 1.5 : (h / 2 - 1.5) * 0.7071;
+                    Canvas.SetLeft(v.Badge, cx + bx - BadgeSize / 2);
+                    Canvas.SetTop( v.Badge, cy - by - BadgeSize / 2);
                 }
             }
         }
 
+        // Normalised polylines -> frozen geometry in overlay coordinates for the current viewport.
+        private Geometry BuildOutlineGeometry(float[][] lines)
+        {
+            var geometry = new StreamGeometry();
+            if (lines != null)
+            {
+                using (var ctx = geometry.Open())
+                {
+                    var pts = new List<Point>();
+                    foreach (var line in lines)
+                    {
+                        if (line == null || line.Length < 4) continue;
+                        pts.Clear();
+                        for (int k = 2; k + 1 < line.Length; k += 2)
+                            pts.Add(new Point(_vpLeft + line[k] * _vpWidth, _vpTop + line[k + 1] * _vpHeight));
+                        ctx.BeginFigure(new Point(_vpLeft + line[0] * _vpWidth, _vpTop + line[1] * _vpHeight), false, false);
+                        ctx.PolyLineTo(pts, true, true);
+                    }
+                }
+            }
+            geometry.Freeze();
+            return geometry;
+        }
+
         // ── Marker legend ──
+
+        // The shape a legend row stands for (shared with the marker panel), icon on it when there is one.
+        internal static FrameworkElement LegendSwatch(MarkerSet.DisplayKind display, string icon, Color color)
+        {
+            bool hasIcon = !string.IsNullOrEmpty(icon) && MarkerIcons.Get(icon) != null;
+            if (display == MarkerSet.DisplayKind.IconOnly) return MarkerIcons.Badge(icon, color, 15);
+
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            FrameworkElement shape;
+            switch (display)
+            {
+                case MarkerSet.DisplayKind.Square:
+                    shape = new Rectangle { Width = 13, Height = 13, Stroke = brush, StrokeThickness = 2.5, RadiusX = 2, RadiusY = 2 };
+                    break;
+                case MarkerSet.DisplayKind.Outline:
+                    shape = new Path
+                    {
+                        Data = Geometry.Parse("M1.5,11.5 L1.5,4 L6,1.5 L11.5,4 L11.5,11.5 Z"), Width = 13, Height = 13,
+                        Stroke = brush, StrokeThickness = 2.5, StrokeLineJoin = PenLineJoin.Round,
+                    };
+                    break;
+                default:
+                    shape = new Ellipse { Width = 13, Height = 13, Stroke = brush, StrokeThickness = 2.5 };
+                    break;
+            }
+            var cell = new Grid { Width = 22, Height = 15, IsHitTestVisible = false };
+            shape.HorizontalAlignment = HorizontalAlignment.Left;
+            shape.VerticalAlignment = VerticalAlignment.Center;
+            cell.Children.Add(shape);
+            if (hasIcon)
+            {
+                var badge = MarkerIcons.Badge(icon, color, 11);
+                badge.HorizontalAlignment = HorizontalAlignment.Right;
+                badge.VerticalAlignment = VerticalAlignment.Top;
+                cell.Children.Add(badge);
+            }
+            return cell;
+        }
 
         internal void SetLegend(List<OverlayLegendRow> rows)
         {
@@ -495,14 +626,7 @@ namespace ProjectPerseus.ui
                     }
                     var color = Color.FromRgb(row.R, row.G, row.B);
                     var line = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
-                    FrameworkElement swatch = row.IconOnly || !string.IsNullOrEmpty(row.Icon) && MarkerIcons.Get(row.Icon) != null
-                        ? MarkerIcons.Badge(row.Icon, color, 15)
-                        : (FrameworkElement)new Ellipse
-                          {
-                              Width = 13, Height = 13, Margin = new Thickness(1),
-                              Stroke = new SolidColorBrush(color), StrokeThickness = 2.5,
-                          };
-                    line.Children.Add(swatch);
+                    line.Children.Add(LegendSwatch(row.Display, row.Icon, color));
                     line.Children.Add(new TextBlock
                     {
                         Text = row.Label, FontSize = 11, Foreground = ink,

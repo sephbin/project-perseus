@@ -16,9 +16,12 @@ namespace ProjectPerseus.ui
         internal byte R, G, B;
         internal int Ring;      // 0 = innermost; each further ring on the same element is drawn a step larger
         internal string Icon;   // ui/MarkerIcons key drawn on the ring (null = none)
-        internal bool IconOnly; // no ring: icon (or a plain dot) on the element's centre
-        internal int Slot;      // icon-only: position in the row of icons on this element
+        internal models.MarkerSet.DisplayKind Display; // Ring (default, also violations) / Square / Outline / IconOnly
+        internal int Slot;      // icon-only / outline: position in the row of icons on this element
         internal int SlotCount; // icon-only: how many icons that row holds
+        // Outline: polylines in normalised viewport coordinates, x0,y0,x1,y1,... per polyline. Arrays are reused
+        // while the view and hits are unchanged, so the overlay can compare them by reference.
+        internal float[][] Outline;
     }
 
     // One line of the on-canvas marker legend (markers/MarkerEngine builds these).
@@ -29,7 +32,7 @@ namespace ProjectPerseus.ui
         internal int Count;
         internal byte R, G, B;
         internal string Icon;
-        internal bool IconOnly;
+        internal models.MarkerSet.DisplayKind Display;
     }
 
     // Owns the dedicated STA thread and Dispatcher for ViolationOverlay.

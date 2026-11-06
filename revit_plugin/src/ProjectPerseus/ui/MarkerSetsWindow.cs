@@ -39,6 +39,14 @@ namespace ProjectPerseus.ui
             MarkerSet.MatchKind.AnyValue, MarkerSet.MatchKind.Empty,
         };
 
+        private static readonly MarkerSet.DisplayKind[] DisplayKinds =
+        {
+            MarkerSet.DisplayKind.Ring, MarkerSet.DisplayKind.Square, MarkerSet.DisplayKind.Outline, MarkerSet.DisplayKind.IconOnly,
+        };
+
+        private static string DisplayName(MarkerSet.DisplayKind kind) =>
+            kind == MarkerSet.DisplayKind.IconOnly ? "Icon only" : kind.ToString();
+
         private static readonly Brush Ink = Frozen(Color.FromRgb(0x2F, 0x3D, 0x57));
         private static readonly Brush Muted = Frozen(Color.FromRgb(0x6B, 0x72, 0x80));
         private static readonly Brush ErrorBrush = Frozen(Color.FromRgb(0xC0, 0x26, 0x26));
@@ -86,7 +94,7 @@ namespace ProjectPerseus.ui
             _categories = categories;
 
             Title = "Perseus — Parameter Markers";
-            Width = 1080;
+            Width = 1140;
             Height = 640;
             MinWidth = 720;
             MinHeight = 460;
@@ -232,7 +240,7 @@ namespace ProjectPerseus.ui
             _editor.Children.Add(legendHeader);
             _editor.Children.Add(Hint("Per parameter, the first entry an element's value matches marks it; entries on different " +
                                       "parameters mark independently (e.g. mag lock and drop bolt on one door). " +
-                                      "Show: Ring = ring with the icon on it, Icon = icon only. Count = elements in the current view."));
+                                      "Display: ring, square, the element's outline traced thick, or icon only. Count = elements in the current view."));
             _entryRows = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             _editor.Children.Add(_entryRows);
 
@@ -481,7 +489,7 @@ namespace ProjectPerseus.ui
             var header = EntryGrid();
             AddCell(header, 1, Hint("Colour"));
             AddCell(header, 2, Hint("Icon"));
-            AddCell(header, 3, Hint("Show"));
+            AddCell(header, 3, Hint("Display"));
             AddCell(header, 4, Hint("Parameter"));
             AddCell(header, 5, Hint("When value"));
             AddCell(header, 6, Hint("Value"));
@@ -498,7 +506,7 @@ namespace ProjectPerseus.ui
         {
             var g = new Grid { Margin = new Thickness(0, 2, 0, 2) };
             // enable | colour | icon | ring/icon-only | parameter | match | value | label | count | tools
-            foreach (var w in new[] { 24.0, 40, 52, 50, -1, 112, -1.2, -1, 52, 84 })
+            foreach (var w in new[] { 24.0, 40, 52, 112, -1, 112, -1.2, -1, 52, 84 })
                 g.ColumnDefinitions.Add(new ColumnDefinition
                 {
                     Width = w < 0 ? new GridLength(-w, GridUnitType.Star) : new GridLength(w),
@@ -573,18 +581,29 @@ namespace ProjectPerseus.ui
             };
             AddCell(g, 2, icon);
 
-            // Ring + icon, or icon only
-            var style = new Button { Width = 44, Height = 22, Padding = new Thickness(0), Cursor = Cursors.Hand };
-            Action paintStyle = () =>
+            // Display: ring / square / outline / icon only
+            var display = new ComboBox
             {
-                style.Content = new TextBlock { Text = entry.ShowRing ? "Ring" : "Icon", FontSize = 11 };
-                style.ToolTip = entry.ShowRing
-                    ? "Ring around the element (with the icon on it). Click for icon only."
-                    : "Icon only, on the element's centre (a dot if no icon). Click for a ring.";
+                Margin = new Thickness(4, 0, 0, 0),
+                ToolTip = "Ring or Square: drawn around the element, with the icon on it.\n" +
+                          "Outline: the element's own lines in this view, traced thick in the colour.\n" +
+                          "Icon only: just the icon (a dot if no icon) on the element's centre.",
             };
-            paintStyle();
-            style.Click += (s, e) => { entry.ShowRing = !entry.ShowRing; paintStyle(); ScheduleApply(); };
-            AddCell(g, 3, style);
+            foreach (var kind in DisplayKinds)
+            {
+                var item = new StackPanel { Orientation = Orientation.Horizontal };
+                item.Children.Add(ViolationOverlay.LegendSwatch(kind, "", MarkerEngine.ParseColor(entry.Color)));
+                item.Children.Add(new TextBlock { Text = DisplayName(kind), Margin = new Thickness(2, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+                display.Items.Add(new ComboBoxItem { Content = item, Tag = kind });
+            }
+            display.SelectedIndex = Math.Max(0, Array.IndexOf(DisplayKinds, entry.Display));
+            display.SelectionChanged += (s, e) =>
+            {
+                if (display.SelectedIndex < 0) return;
+                entry.Display = DisplayKinds[display.SelectedIndex];
+                ScheduleApply();
+            };
+            AddCell(g, 3, display);
 
             // Parameter (blank = the set's default parameter)
             var param = new ComboBox

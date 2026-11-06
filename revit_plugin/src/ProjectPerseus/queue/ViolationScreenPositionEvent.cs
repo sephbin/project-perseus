@@ -4,6 +4,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using ProjectPerseus.logging;
 using ProjectPerseus.markers;
+using ProjectPerseus.models;
 using ProjectPerseus.ui;
 using ProjectPerseus.violations;
 
@@ -89,36 +90,26 @@ namespace ProjectPerseus.queue
 
                 // Parameter markers: MarkerEngine already collected only elements in this view, with a ring
                 // index per element. Violation rings on the same element go outside them.
-                // Icon-only marks sit in a row on the element's centre; SlotCount centres that row.
-                var ringsUsed = new Dictionary<string, int>();
-                var iconCount = new Dictionary<string, int>();
-                foreach (var h in markerHits)
+                // The view is still here (moving views returned above), so the parameter markers only need
+                // projecting again when the hits or the zoom changed. Reusing the list also keeps the outline
+                // arrays identical, which lets the overlay skip redrawing.
+                Dictionary<string, int> ringsUsed;
+                if (_cacheVersion == MarkerEngine.Version && _cacheViewId == activeView.Id
+                    && _cacheCorner0 != null && _cacheCorner0.IsAlmostEqualTo(corners[0], 1e-6)
+                    && _cacheCorner1.IsAlmostEqualTo(corners[1], 1e-6))
                 {
-                    if (h.IconOnly)
-                    {
-                        iconCount.TryGetValue(h.Key, out int c);
-                        if (h.Slot + 1 > c) iconCount[h.Key] = h.Slot + 1;
-                        continue;
-                    }
-                    if (ringsUsed.TryGetValue(h.Key, out int n)) { if (h.Ring + 1 > n) ringsUsed[h.Key] = h.Ring + 1; }
-                    else ringsUsed[h.Key] = h.Ring + 1;
+                    ringsUsed = _cacheRings;
+                    markers.AddRange(_cacheMarkers);
                 }
-                foreach (var h in markerHits)
+                else
                 {
-                    OverlayMarker m;
-                    if (proj.TryProject(h.BBox, null, out m))
-                    {
-                        m.R = h.R; m.G = h.G; m.B = h.B;
-                        m.Ring = h.Ring;
-                        m.Icon = h.Icon;
-                        if (h.IconOnly)
-                        {
-                            m.IconOnly = true;
-                            m.Slot = h.Slot;
-                            m.SlotCount = iconCount[h.Key];
-                        }
-                        markers.Add(m);
-                    }
+                    ringsUsed = ProjectMarkerHits(markerHits, proj, markers);
+                    _cacheVersion = MarkerEngine.Version;
+                    _cacheViewId  = activeView.Id;
+                    _cacheCorner0 = corners[0];
+                    _cacheCorner1 = corners[1];
+                    _cacheRings   = ringsUsed;
+                    _cacheMarkers = new List<OverlayMarker>(markers);
                 }
 
                 if (violations)
@@ -152,11 +143,81 @@ namespace ProjectPerseus.queue
             }
         }
 
+        // Last projection of MarkerEngine's hits (see Execute).
+        private static int _cacheVersion = -1;
+        private static ElementId _cacheViewId;
+        private static XYZ _cacheCorner0, _cacheCorner1;
+        private static Dictionary<string, int> _cacheRings;
+        private static List<OverlayMarker> _cacheMarkers;
+
+        // Projects the parameter-marker hits. Returns how many stacking rings/squares each element already has
+        // (violation rings go outside them). Icon-only marks sit in a row on the element's centre; SlotCount
+        // centres that row.
+        private static Dictionary<string, int> ProjectMarkerHits(List<MarkerEngine.Hit> hits, Projection proj, List<OverlayMarker> markers)
+        {
+            var ringsUsed = new Dictionary<string, int>();
+            var iconCount = new Dictionary<string, int>();
+            foreach (var h in hits)
+            {
+                if (h.Display == MarkerSet.DisplayKind.IconOnly)
+                {
+                    iconCount.TryGetValue(h.Key, out int c);
+                    if (h.Slot + 1 > c) iconCount[h.Key] = h.Slot + 1;
+                }
+                else if (h.Display != MarkerSet.DisplayKind.Outline)
+                {
+                    ringsUsed.TryGetValue(h.Key, out int n);
+                    if (h.Ring + 1 > n) ringsUsed[h.Key] = h.Ring + 1;
+                }
+            }
+            // Elements with several outline marks share one projected outline.
+            var projected = new Dictionary<List<XYZ[]>, float[][]>();
+            foreach (var h in hits)
+            {
+                OverlayMarker m;
+                if (!proj.TryProject(h.BBox, null, out m)) continue;
+                m.R = h.R; m.G = h.G; m.B = h.B;
+                m.Ring = h.Ring;
+                m.Icon = h.Icon;
+                m.Display = h.Display;
+                m.Slot = h.Slot;
+                if (h.Display == MarkerSet.DisplayKind.IconOnly) m.SlotCount = iconCount[h.Key];
+                if (h.Display == MarkerSet.DisplayKind.Outline && h.Outline != null)
+                {
+                    if (!projected.TryGetValue(h.Outline, out var lines))
+                    {
+                        lines = proj.ProjectPolylines(h.Outline);
+                        projected[h.Outline] = lines;
+                    }
+                    m.Outline = lines;
+                }
+                markers.Add(m);
+            }
+            return ringsUsed;
+        }
+
         // Model space -> normalised viewport coordinates for the active view.
         private struct Projection
         {
             internal XYZ Right, Up;
             internal double MinU, MinV, RangeU, RangeV;
+
+            internal float[][] ProjectPolylines(List<XYZ[]> polylines)
+            {
+                var result = new float[polylines.Count][];
+                for (int i = 0; i < polylines.Count; i++)
+                {
+                    var pts = polylines[i];
+                    var arr = new float[pts.Length * 2];
+                    for (int k = 0; k < pts.Length; k++)
+                    {
+                        arr[2 * k]     = (float)((pts[k].DotProduct(Right) - MinU) / RangeU);
+                        arr[2 * k + 1] = (float)(1.0 - (pts[k].DotProduct(Up) - MinV) / RangeV);
+                    }
+                    result[i] = arr;
+                }
+                return result;
+            }
 
             // Screen rect of the element: its bounding box's 8 corners projected onto the view plane (so the
             // ring is centred on, and encloses, the whole element); a point if there's no box. False when the
