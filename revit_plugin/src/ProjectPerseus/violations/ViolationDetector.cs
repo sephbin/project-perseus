@@ -100,18 +100,36 @@ namespace ProjectPerseus.violations
         }
 
         // ---- Link unload detection ------------------------------------------------------------------------------
-        // A real link unload (Manage Links > Unload) can't be undone and does not come through DocumentChanged as a
-        // normal transaction carrying the RevitLinkType, so watching transactions missed it. Instead we keep each
-        // document's link load states and diff them: on every DocumentChanged and, as the reliable fallback, at idle
-        // (throttled). A link going from Loaded to anything else is an unload, EXCEPT when its workset was closed
-        // (status InClosedWorkset, or every instance sits on a closed workset) — closing a workset is not an unload.
-        // Changes that arrive from other users (sync / Reload Latest) only re-baseline, never report.
-        private static readonly Dictionary<string, Dictionary<long, LinkedFileStatus>> _linkStates =
-            new Dictionary<string, Dictionary<long, LinkedFileStatus>>();
+        // We keep each document's link load states plus the set of open user worksets and diff them on every
+        // DocumentChanged and, as a fallback, at idle (throttled). A link going from Loaded to anything else is an
+        // unload, EXCEPT when a workset holding its instance closed in that same step: closing a workset is also
+        // reported as "Unload Link" with status Unloaded, so the status alone can't tell them apart. Do NOT use
+        // "all instances are on closed worksets": that read true for a real unload (log 2026-11-06 00:39) and
+        // dropped it. Changes from other users (sync / Reload Latest) only re-baseline, never report.
+        private class LinkSnapshot
+        {
+            public Dictionary<long, LinkedFileStatus> Status = new Dictionary<long, LinkedFileStatus>();
+            public HashSet<int> OpenWorksets = new HashSet<int>();
+        }
+
+        private static readonly Dictionary<string, LinkSnapshot> _linkStates = new Dictionary<string, LinkSnapshot>();
         private static DateTime _lastIdleLinkCheck = DateTime.MinValue;
         private const int IdleLinkCheckMs = 1000;
 
         private static string LinkDocKey(Document doc) => (doc.PathName ?? "") + "|" + doc.Title;
+
+        private static HashSet<int> OpenUserWorksets(Document doc, out Dictionary<int, string> names)
+        {
+            var open = new HashSet<int>();
+            names = new Dictionary<int, string>();
+            if (!doc.IsWorkshared) return open;
+            foreach (var ws in new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset))
+            {
+                names[ws.Id.IntegerValue] = ws.Name;
+                if (ws.IsOpen) open.Add(ws.Id.IntegerValue);
+            }
+            return open;
+        }
 
         // Returns link types unloaded since the last snapshot (empty on the first call for a document, which only
         // records the baseline). report=false just refreshes the snapshot.
@@ -122,7 +140,7 @@ namespace ProjectPerseus.violations
 
             string key = LinkDocKey(doc);
             bool hasBaseline = _linkStates.TryGetValue(key, out var prev);
-            var now = new Dictionary<long, LinkedFileStatus>();
+            var now = new LinkSnapshot { OpenWorksets = OpenUserWorksets(doc, out var wsNames) };
 
             foreach (var lt in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>())
             {
@@ -134,41 +152,39 @@ namespace ProjectPerseus.violations
                     continue;
                 }
                 long idVal = lt.Id.GetIdValue();
-                now[idVal] = st;
+                now.Status[idVal] = st;
 
                 if (!report || !hasBaseline) continue;
-                if (!prev.TryGetValue(idVal, out var before) || before == st) continue;
+                if (!prev.Status.TryGetValue(idVal, out var before) || before == st) continue;
+                if (before != LinkedFileStatus.Loaded || st == LinkedFileStatus.Loaded)
+                {
+                    Log.Info($"[ViolationDetector] link '{lt.Name}' status {before} -> {st}; not an unload.");
+                    continue;
+                }
 
-                Log.Info($"[ViolationDetector] link '{lt.Name}' status {before} -> {st}.");
-                if (before != LinkedFileStatus.Loaded || st == LinkedFileStatus.Loaded) continue;
+                // Worksets of this link's instances, and which of them closed since the last snapshot.
+                var instWs = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance))
+                    .Where(i => i.GetTypeId() == lt.Id).Select(i => i.WorksetId.IntegerValue).Distinct().ToList();
+                var closedNow = instWs.Where(w => prev.OpenWorksets.Contains(w) && !now.OpenWorksets.Contains(w)).ToList();
+                string Describe(int w) => (wsNames.TryGetValue(w, out var n) ? n : "#" + w) +
+                                          (now.OpenWorksets.Contains(w) ? " (open)" : " (closed)");
+                string wsInfo = instWs.Count == 0 ? "no instances" : string.Join(", ", instWs.Select(Describe));
 
                 string skip = null;
-                if (st == LinkedFileStatus.InClosedWorkset) skip = "its workset was closed";
-                else if (doc.IsWorkshared && AllInstancesOnClosedWorksets(doc, lt.Id))
-                    skip = "all its instances are on closed worksets";
+                if (st == LinkedFileStatus.InClosedWorkset) skip = "its status is InClosedWorkset";
+                else if (closedNow.Count > 0)
+                    skip = "workset " + string.Join(", ", closedNow.Select(w => wsNames.TryGetValue(w, out var n) ? n : "#" + w)) + " was just closed";
 
                 if (skip == null)
                 {
                     result.Add(lt);
-                    Log.Info($"[ViolationDetector] '{lt.Name}' was unloaded (status {st}); counted as a link unload.");
+                    Log.Info($"[ViolationDetector] '{lt.Name}' unloaded: status {before} -> {st}; instance worksets: {wsInfo}; counted as a link unload.");
                 }
-                else Log.Info($"[ViolationDetector] '{lt.Name}' stopped being loaded but {skip}; not a link unload.");
+                else Log.Info($"[ViolationDetector] '{lt.Name}' status {before} -> {st} but {skip} (instance worksets: {wsInfo}); not a link unload.");
             }
 
             _linkStates[key] = now;
             return result;
-        }
-
-        private static bool AllInstancesOnClosedWorksets(Document doc, ElementId typeId)
-        {
-            try
-            {
-                var table = doc.GetWorksetTable();
-                var instances = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance))
-                    .Where(i => i.GetTypeId() == typeId).ToList();
-                return instances.Count > 0 && instances.All(i => !table.GetWorkset(i.WorksetId).IsOpen);
-            }
-            catch { return false; }
         }
 
         private static void OnIdlingCheckLinks(object sender, IdlingEventArgs e)

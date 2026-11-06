@@ -364,7 +364,9 @@ ProjectPerseus/
 │   │                             in ConcurrentQueue. DrainQueue() called by Step 3 ingest.
 │   │                             link_unload: a real unload doesn't arrive as a normal transaction, so DetectLinkUnloads()
 │   │                             diffs each document's link load states (on DocumentChanged + a 1 s throttled Idling check);
-│   │                             Loaded -> not loaded counts, except a closed workset (InClosedWorkset / all instances closed).
+│   │                             Loaded -> not loaded counts, except when a workset holding its instance closed in that same
+│   │                             step (snapshot also keeps open user worksets) or status is InClosedWorkset. Closing a workset
+│   │                             also reports "Unload Link"/Unloaded; "all instances on closed worksets" misfired on real unloads.
 │   │                             Sync / Reload Latest only re-baseline. HandleLinkUnloads() = overlay + block warning + audit.
 │   ├── ViolationHighlightServer.cs NEW (2026-08-24). IDirectContext3DServer singleton. Registered
 │   │                             with DirectContext3DService in ViolationHighlightController.Initialize().
