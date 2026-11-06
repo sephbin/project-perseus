@@ -364,7 +364,8 @@ ProjectPerseus/
 │   │                             in ConcurrentQueue. DrainQueue() called by Step 3 ingest.
 │   │                             link_unload: a real unload doesn't arrive as a normal transaction, so DetectLinkUnloads()
 │   │                             diffs each document's link load states (on DocumentChanged + a 1 s throttled Idling check);
-│   │                             Loaded -> not loaded counts, except when a workset holding its instance closed in that same
+│   │                             Loaded/InClosedWorkset -> Unloaded/LocallyUnloaded counts (a link on a closed workset can still
+│   │                             be unloaded via Manage Links), except when a workset holding its instance closed in that same
 │   │                             step (snapshot also keeps open user worksets) or status is InClosedWorkset. Closing a workset
 │   │                             also reports "Unload Link"/Unloaded; "all instances on closed worksets" misfired on real unloads.
 │   │                             Sync / Reload Latest only re-baseline. HandleLinkUnloads() = overlay + block warning + audit.

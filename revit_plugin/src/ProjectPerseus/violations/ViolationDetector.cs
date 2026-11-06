@@ -156,7 +156,12 @@ namespace ProjectPerseus.violations
 
                 if (!report || !hasBaseline) continue;
                 if (!prev.Status.TryGetValue(idVal, out var before) || before == st) continue;
-                if (before != LinkedFileStatus.Loaded || st == LinkedFileStatus.Loaded)
+                // A link on a closed workset reports InClosedWorkset and can still be unloaded (Manage Links); that
+                // InClosedWorkset -> Unloaded is a real unload (log 2026-11-06 12:47). Only a move INTO an unloaded
+                // state counts; NotFound etc. (missing file) is not an unload.
+                bool wasAvailable = before == LinkedFileStatus.Loaded || before == LinkedFileStatus.InClosedWorkset;
+                bool isUnloaded   = st == LinkedFileStatus.Unloaded || st == LinkedFileStatus.LocallyUnloaded;
+                if (!wasAvailable || !isUnloaded)
                 {
                     Log.Info($"[ViolationDetector] link '{lt.Name}' status {before} -> {st}; not an unload.");
                     continue;
