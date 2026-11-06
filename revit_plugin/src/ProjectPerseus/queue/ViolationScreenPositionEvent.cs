@@ -37,9 +37,10 @@ namespace ProjectPerseus.queue
                 var activeView = uidoc.ActiveView;
                 if (activeView == null) { ViolationOverlayController.UpdateMarkers(null); return; }
 
-                // 3D views: orthographic projection via dot-product doesn't account for the
-                // camera transform, so symbols land in wrong positions.  Suppress them.
-                if (activeView.ViewType == ViewType.ThreeD)
+                // Only model views whose screen is a plain orthographic projection of the model.
+                // Not 3D (dot-product projection ignores the camera, rings land in wrong places),
+                // and not schedules, sheets, legends, drafting views etc. (no model geometry).
+                if (!IsProjectableView(activeView.ViewType))
                 {
                     ViolationOverlayController.UpdateMarkers(null);
                     return;
@@ -135,6 +136,15 @@ namespace ProjectPerseus.queue
                 Log.Warn($"[ViolationScreenPositionEvent] {ex.Message}");
             }
         }
+
+        private static bool IsProjectableView(ViewType vt) =>
+               vt == ViewType.FloorPlan
+            || vt == ViewType.CeilingPlan
+            || vt == ViewType.AreaPlan
+            || vt == ViewType.EngineeringPlan
+            || vt == ViewType.Section
+            || vt == ViewType.Elevation
+            || vt == ViewType.Detail;
 
         // True when the active view or its zoom corners differ from the previous tick.
         // The first tick after a reset counts as moving, so markers only appear once the view is still.

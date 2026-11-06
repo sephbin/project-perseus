@@ -52,6 +52,8 @@ namespace ProjectPerseus.ui
         // Same viewport in physical screen pixels, for the mouse hook's hit test.
         private NativeMethods.RECT _vpScreen;
         private volatile bool _revitForeground;
+        private bool   _inModelView;      // last SyncPosition found a model view under the overlay centre
+        private string _lastClassChain;   // for logging changes only
 
         // Navigation suppression state (all touched on this window's dispatcher thread only).
         private bool _suppressed;
@@ -171,7 +173,7 @@ namespace ProjectPerseus.ui
             else
             {
                 if (changed) RebuildMarkerCanvas();
-                if (_suppressed && !_middleDown && unchecked(computedAt - _lastNavTicks) >= SettleMs)
+                if (_suppressed && !_middleDown && _inModelView && unchecked(computedAt - _lastNavTicks) >= SettleMs)
                 {
                     _suppressed = false;
                     PositionMarkers();
@@ -419,8 +421,14 @@ namespace ProjectPerseus.ui
             // Win32 child windows from the centre of the client area.
             int screenCx = pt.X + physW / 2;
             int screenCy = pt.Y + physH / 2;
+            bool isModelView;
             NativeMethods.RECT vp = FindViewportScreenRect(_revitHwnd, screenCx, screenCy,
-                                                            pt.X, pt.Y, physW, physH);
+                                                            pt.X, pt.Y, physW, physH, out isModelView);
+
+            // Home page / non-view screen: keep the markers hidden. Treated like navigation, so on
+            // returning to the view they wait for a fresh frame and fade back in.
+            _inModelView = isModelView;
+            if (!isModelView && _hasMarkers) BeginNavigation();
 
             _vpLeft   = (vp.Left   - pt.X) * scaleX;
             _vpTop    = (vp.Top    - pt.Y) * scaleY;
@@ -440,11 +448,16 @@ namespace ProjectPerseus.ui
         // Walk the Win32 child window tree from (screenCx, screenCy) down to the deepest
         // visible child — that's the Revit view render panel.  Falls back to the full main
         // window rect if nothing useful is found.
-        private static NativeMethods.RECT FindViewportScreenRect(
+        // isModelView: the walk passed through Revit's MFC "MDIClient" (the container of the open view
+        // windows). The Home page and other full-window screens are not under it, so no markers there.
+        private NativeMethods.RECT FindViewportScreenRect(
             IntPtr revitHwnd, int screenCx, int screenCy,
-            int fallbackLeft, int fallbackTop, int fallbackW, int fallbackH)
+            int fallbackLeft, int fallbackTop, int fallbackW, int fallbackH, out bool isModelView)
         {
             IntPtr current = revitHwnd;
+            isModelView = false;
+            var chain = new System.Text.StringBuilder();
+            var cls   = new System.Text.StringBuilder(256);
 
             for (int depth = 0; depth < 12; depth++)
             {
@@ -457,6 +470,23 @@ namespace ProjectPerseus.ui
 
                 if (child == IntPtr.Zero || child == current) break;
                 current = child;
+
+                cls.Clear();
+                NativeMethods.GetClassName(current, cls, cls.Capacity);
+                string name = cls.ToString();
+                if (name == "MDIClient") isModelView = true;
+                if (chain.Length > 0) chain.Append(" > ");
+                chain.Append(name);
+            }
+
+            // Log the window structure whenever it changes, so the logs show what the overlay saw
+            // (e.g. if a Revit version lays out its view windows differently).
+            string chainText = chain.ToString();
+            if (chainText != _lastClassChain)
+            {
+                _lastClassChain = chainText;
+                ProjectPerseus.logging.Log.Info(
+                    $"[ViolationOverlay] view area windows: {chainText} (model view: {(isModelView ? "yes" : "no")})");
             }
 
             if (current == revitHwnd)
@@ -503,6 +533,8 @@ namespace ProjectPerseus.ui
             [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
             [DllImport("user32.dll")] public static extern uint   GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
             [DllImport("user32.dll")] public static extern short  GetAsyncKeyState(int vKey);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            public static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
