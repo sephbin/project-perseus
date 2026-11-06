@@ -83,6 +83,7 @@ namespace ProjectPerseus.violations
 
                     highlights.Add(new ViolationHighlight
                     {
+                        Id       = el.Id,
                         BBox     = bbox,
                         Location = location,
                         Color    = ViolationHighlightServer.SeverityColor(dto.Severity),
@@ -134,7 +135,8 @@ namespace ProjectPerseus.violations
         {
             try
             {
-                bool active = IsEnabled && ViolationHighlightServer.Instance.CurrentMode == ViolationDisplayMode.Symbol;
+                bool active = (IsEnabled && ViolationHighlightServer.Instance.CurrentMode == ViolationDisplayMode.Symbol)
+                              || markers.MarkerEngine.HasHits; // parameter markers share the overlay
                 if (active || _markersWereActive) _positionEvent?.Raise(); // one extra tick clears the markers
                 _markersWereActive = active;
             }

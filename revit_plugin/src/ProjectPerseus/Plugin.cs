@@ -26,6 +26,7 @@ namespace ProjectPerseus
             _orchestrator.Subscribe(application);
             violations.ViolationHighlightController.Initialize();
             ownership.OwnershipTracker.Subscribe(application);
+            markers.MarkerEngine.Subscribe(application);
             AddRibbonPanel(application);
             ThemeIconManager.Initialize(application);
 
@@ -56,6 +57,7 @@ namespace ProjectPerseus
         {
             _orchestrator.Unsubscribe(application);
             ownership.OwnershipTracker.Unsubscribe(application);
+            markers.MarkerEngine.Unsubscribe(application);
             ThemeIconManager.Shutdown(application);
             return Result.Succeeded;
         }
@@ -68,7 +70,7 @@ namespace ProjectPerseus
             string asm = Assembly.GetExecutingAssembly().Location;
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
 
-            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Setup.
+            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Markers / Setup.
             // Icon base names map to resources/<name>.png (+ <name>_dark.png); see revit_plugin/tools/generate_icons.py.
 
             // ---- Sync: moving data between the model and the Perseus server
@@ -106,6 +108,11 @@ namespace ProjectPerseus
                 "Open the violation list. Select an element in Revit to see its violations in the bottom panel.");
             AddButton(violationsPanel, asm, "Button_Freefall", "Freefall\nMode", "FreefallCommand", "freefall",
                 "Enable Freefall mode to bypass violation blocks for one sync. Requires confirmation. Turns off automatically after sync.");
+
+            // ---- Markers: rings/icons around elements by parameter value
+            RibbonPanel markersPanel = application.CreateRibbonPanel(tabName, "Markers");
+            AddButton(markersPanel, asm, "Button_Markers", "Parameter\nMarkers", "ShowMarkersCommand", "markers",
+                "Ring elements in the view by a parameter value, with a colour and icon per value and a legend: e.g. doors with mag locks in magenta and drop bolts in cyan. Define what to look for (categories, filter, parameter) in the panel.");
 
             // ---- Setup: configuration up front, rarely used tools stacked small, About standalone
             RibbonPanel setupPanel = application.CreateRibbonPanel(tabName, "Setup");

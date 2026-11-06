@@ -14,6 +14,18 @@ namespace ProjectPerseus.ui
         internal double NormW;  // projected element extent as a fraction of viewport width (0 = point)
         internal double NormH;  // projected element extent as a fraction of viewport height
         internal byte R, G, B;
+        internal int Ring;      // 0 = innermost; each further ring on the same element is drawn a step larger
+        internal string Icon;   // ui/MarkerIcons key drawn on the ring (null = none)
+    }
+
+    // One line of the on-canvas marker legend (markers/MarkerEngine builds these).
+    internal class OverlayLegendRow
+    {
+        internal bool IsHeader;  // set name
+        internal string Label;
+        internal int Count;
+        internal byte R, G, B;
+        internal string Icon;
     }
 
     // Owns the dedicated STA thread and Dispatcher for ViolationOverlay.
@@ -100,6 +112,23 @@ namespace ProjectPerseus.ui
                 {
                     try   { ov.OnViewMoving(); }
                     catch (Exception ex) { Log.Warn($"[ViolationOverlay] OnViewMoving failed: {ex.Message}"); }
+                }));
+            }
+            catch { /* dispatcher shut down */ }
+        }
+
+        // Marker legend card (null hides it).
+        internal static void UpdateLegend(List<OverlayLegendRow> rows)
+        {
+            var disp = _dispatcher;
+            var ov   = _overlay;
+            if (disp == null || ov == null) return;
+            try
+            {
+                disp.BeginInvoke(new Action(() =>
+                {
+                    try   { ov.SetLegend(rows); }
+                    catch (Exception ex) { Log.Warn($"[ViolationOverlay] SetLegend failed: {ex.Message}"); }
                 }));
             }
             catch { /* dispatcher shut down */ }

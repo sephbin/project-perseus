@@ -11,6 +11,7 @@ namespace ProjectPerseus.violations
 
     internal struct ViolationHighlight
     {
+        internal ElementId Id;
         internal BoundingBoxXYZ BBox;
         internal XYZ Location;
         internal Color Color;

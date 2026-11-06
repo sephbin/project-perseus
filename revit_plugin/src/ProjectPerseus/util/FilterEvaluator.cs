@@ -33,17 +33,31 @@ namespace ProjectPerseus.util
     {
         public static bool Evaluate(string expression, Dictionary<string, string> row)
         {
+            if (TryEvaluate(expression, row, out bool result, out string error)) return result;
+            if (error != null) Log.Warn($"[FilterEvaluator] '{expression}': {error}");
+            return false;
+        }
+
+        /// <summary>
+        /// Like Evaluate but never logs: returns false with the parse/runtime error instead (callers that evaluate
+        /// one expression against many rows, e.g. markers/MarkerEngine, report it once). Empty expression: false, no error.
+        /// </summary>
+        public static bool TryEvaluate(string expression, Dictionary<string, string> row, out bool result, out string error)
+        {
+            result = false;
+            error = null;
             if (string.IsNullOrWhiteSpace(expression)) return false;
             try
             {
                 var p = new Parser(expression.Trim(), row);
-                object result = p.ParseOr();
+                object value = p.ParseOr();
                 p.ExpectEnd();
-                return Truthy(result);
+                result = Truthy(value);
+                return true;
             }
             catch (Exception ex)
             {
-                Log.Warn($"[FilterEvaluator] '{expression}': {ex.Message}");
+                error = ex.Message;
                 return false;
             }
         }

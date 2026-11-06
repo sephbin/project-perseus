@@ -424,6 +424,12 @@
     <Compile Include="ui\ViolationListForm.cs" />
     <Compile Include="ui\OwnershipForm.cs" />
     <Compile Include="ui\StatusBadge.cs" />
+    <Compile Include="ui\MarkerIcons.cs" />
+    <Compile Include="ui\MarkerSetsWindow.cs" />
+    <Compile Include="markers\MarkerEngine.cs" />
+    <Compile Include="markers\MarkerSetStore.cs" />
+    <Compile Include="models\MarkerSet.cs" />
+    <Compile Include="commands\ShowMarkersCommand.cs" />
     <Compile Include="ui\StatusBadgeController.cs" />
     <Compile Include="util\ElementWatchList.cs" />
     <Compile Include="util\FilterEvaluator.cs" />
@@ -474,6 +480,8 @@
     <Resource Include="resources\freefall.png" />
     <Resource Include="resources\freefall_dark.png" />
     <Resource Include="resources\ownership.png" />
+    <Resource Include="resources\markers.png" />
+    <Resource Include="resources\markers_dark.png" />
     <Resource Include="resources\ownership_dark.png" />
     <Resource Include="resources\project_rules.png" />
     <Resource Include="resources\project_rules_dark.png" />

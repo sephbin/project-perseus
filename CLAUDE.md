@@ -107,7 +107,7 @@ ProjectPerseus/
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Calls ViolationHighlightController.Initialize() and
 │                                 ownership.OwnershipTracker.Subscribe() at startup.
-│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Setup.
+│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Setup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
 ├── auth/                         Split in P6 (2026-05-30).
@@ -138,7 +138,8 @@ ProjectPerseus/
 ├── util/                         NEW (P7). Non-logging helpers extracted from Utl.cs.
 │   ├── CodePages.cs              NEW (2026-11-05). Registers CodePagesEncodingProvider at startup (by reflection) so
 │   │                             EPPlus' IBM437 works on .NET 8 (Revit 2025+). No-op on .NET Framework.
-│   ├── FilterEvaluator.cs        Python-subset expression evaluator for key schedule import filters.
+│   ├── FilterEvaluator.cs        Python-subset expression evaluator for key schedule import filters and marker set
+│   │                             filters (TryEvaluate: no logging, returns the error, for per-element loops).
 │   │                             Supports row["Col"] access, re.search/match/findall, math.*,
 │   │                             string methods, comparisons, and/or/not, len/float/int/str.
 │   │                             No external dependencies — pure C# recursive-descent evaluator.
@@ -216,7 +217,8 @@ ProjectPerseus/
 │   │                             Calls ViolationHighlightController.CycleMode(uidoc).
 │   ├── ShowViolationListCommand.cs  NEW (2026-08-24). Ribbon: Button_ViolationList.
 │   │                             Opens modeless ViolationListForm; brings to front if already open.
-│   └── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
+│   ├── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
+│   └── ShowMarkersCommand.cs     NEW (2026-11-06). Ribbon: Button_Markers (Markers panel). Opens ui/MarkerSetsWindow.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; the pre-sync hook only cancels + Queue()s the edits
@@ -235,6 +237,8 @@ ProjectPerseus/
 │   │                             SyncOrchestrator.IsResyncAfterIdFix skips the check on that pass. AutoSyncEvent runs the same.
 │   ├── OwnershipUiEvent.cs       NEW (2026-11-05). IExternalEventHandler running queued Action<UIApplication> for the
 │   │                             modeless OwnershipForm and the status-bar badges (refresh, select/zoom, relinquish, open ownership panel / violation list).
+│   │                             Despite the name it is the general "run in an API context" event for modeless UI: MarkerSetsWindow
+│   │                             uses it for model reads too.
 │   ├── AssignIdsEvent.cs         NEW. IExternalEventHandler; calls IdAutoAssignController.ProcessPending.
 │   ├── PresencePoller.cs         Static heartbeat sending /syncboat/api/v2/source/<guid>/heartbeat/
 │   │                             every 60 s. AddSource/RemoveSource from OnDocumentOpened/Closing.
@@ -291,6 +295,14 @@ ProjectPerseus/
 │   │                             without showing the window. Volatile publish pattern: _overlay
 │   │                             written before _dispatcher so Update() callers see both or neither.
 │   │                             BeginInvoke drives all show/hide/update calls to the overlay.
+│   ├── MarkerIcons.cs            NEW (2026-11-06). Stroked 16x16 glyph geometries (lock, dropbolt, bolt, key, card, bell,
+│   │                             flame, shield...) keyed by string (stored in marker sets: never rename a key). Badge() =
+│   │                             white glyph on a coloured disc (overlay + panel), Glyph() = glyph alone.
+│   ├── MarkerSetsWindow.cs       NEW (2026-11-06). Modeless code-only WPF "Parameter Markers" panel: set library (enable,
+│   │                             new/duplicate/delete, import/export) + editor (name, category checklist with search, filter,
+│   │                             parameter with whole-model suggestions, legend rows: colour dialog, icon menu, match, value
+│   │                             with distinct-value suggestions, label, in-view count; Auto-fill from values). Live apply
+│   │                             (400 ms debounce -> MarkerSetStore.NotifyChanged). Model reads via OwnershipUiEvent.
 │   ├── ViolationListForm.cs      NEW (2026-08-24). Modeless WinForms form (System.Windows.Forms.Form).
 │   │                             Top panel: DataGridView of all current violations (Severity|Rule|
 │   │                             Element|Message). Bottom panel: violations for the selected element(s),
@@ -319,6 +331,16 @@ ProjectPerseus/
 │                                 severity (ViolationHighlightController.Update), hidden at 0 or when the counts are for
 │                                 another document (SetActiveDocument/DocKey), click opens ViolationListForm.Open.
 │                                 250 ms DispatcherTimer on the main thread; logs the status bar layout it found once.
+├── markers/                      NEW (2026-11-06). Parameter markers: rings + icons around elements by parameter value.
+│   ├── MarkerSetStore.cs         User library of models/MarkerSet at %AppData%\ProjectPerseus\marker_sets.json (not per
+│   │                             model; Import/Export JSON to share). ShowMarkers / ShowLegend master switches. Changed event.
+│   └── MarkerEngine.cs           Idling-driven, debounced (gap scales with evaluation time) evaluation of enabled sets
+│                                 against FilteredElementCollector(doc, activeView.Id): categories -> optional
+│                                 FilterEvaluator expression over all params + Family/Type/Category/Level -> first matching
+│                                 entry gives colour/icon. Hits (bbox, ring index per element) feed
+│                                 queue/ViolationScreenPositionEvent; legend rows go to ViolationOverlayController.UpdateLegend.
+│                                 Re-runs on view switch / DocumentChanged / set edits, never on pan. Inspect() = whole-model
+│                                 parameter names + distinct values for the panel.
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
 │   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
@@ -330,6 +352,9 @@ ProjectPerseus/
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
+│   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
+│   │                             Filter, Parameter, Entries (Enabled, Label, Match equals/contains/regex/any/empty, Value,
+│   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
 │   ├── OwnershipSnapshot.cs      NEW (2026-11-05). Who owns which elements/worksets (nested ElementRow, WorksetRow).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:
 │   │                             ElementUniqueId, RuleName, Severity, Message, ElementName.
@@ -464,6 +489,7 @@ ProjectPerseus/
 │   ├── SentryContext.cs          Extracted from Utl.cs.
 │   └── CrashTrace.cs             [DONE 2026-11-05] Last-chance unhandled-exception logging.
 ├── models/                       Mostly unchanged (existing folder is healthy).
+├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).
 │   ├── AutoSyncEvent.cs

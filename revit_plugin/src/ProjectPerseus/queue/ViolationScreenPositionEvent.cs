@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using ProjectPerseus.logging;
+using ProjectPerseus.markers;
 using ProjectPerseus.ui;
 using ProjectPerseus.violations;
 
 namespace ProjectPerseus.queue
 {
     // Runs on the Revit main thread every ~200 ms.
-    // Projects each violating element's bounding box from model space to a normalised screen
+    // Projects each violating element's (and each parameter marker's, see markers/MarkerEngine) bounding box from model space to a normalised screen
     // rect (centre + extent) and pushes them to ViolationOverlayController, which draws a ring
     // around each one. Only active in Symbol mode.  Skips 3D views (projection is unreliable).
     // Filters elements outside the view's visible depth range before projecting.
@@ -24,8 +25,10 @@ namespace ProjectPerseus.queue
         {
             try
             {
-                if (!ViolationHighlightController.IsEnabled
-                    || ViolationHighlightServer.Instance.CurrentMode != ViolationDisplayMode.Symbol)
+                bool violations = ViolationHighlightController.IsEnabled
+                    && ViolationHighlightServer.Instance.CurrentMode == ViolationDisplayMode.Symbol;
+                var markerHits = MarkerEngine.GetHitsSnapshot();
+                if (!violations && markerHits.Count == 0)
                 {
                     ViolationOverlayController.UpdateMarkers(null);
                     return;
@@ -67,66 +70,61 @@ namespace ProjectPerseus.queue
                 XYZ right = activeView.RightDirection;
                 XYZ up    = activeView.UpDirection;
 
-                double minU = corners[0].DotProduct(right);
-                double maxU = corners[1].DotProduct(right);
-                double minV = corners[0].DotProduct(up);
-                double maxV = corners[1].DotProduct(up);
-
-                double rangeU = maxU - minU;
-                double rangeV = maxV - minV;
-                if (Math.Abs(rangeU) < 1e-9 || Math.Abs(rangeV) < 1e-9)
+                var proj = new Projection
+                {
+                    Right = right,
+                    Up    = up,
+                    MinU  = corners[0].DotProduct(right),
+                    MinV  = corners[0].DotProduct(up),
+                };
+                proj.RangeU = corners[1].DotProduct(right) - proj.MinU;
+                proj.RangeV = corners[1].DotProduct(up)    - proj.MinV;
+                if (Math.Abs(proj.RangeU) < 1e-9 || Math.Abs(proj.RangeV) < 1e-9)
                 {
                     ViolationOverlayController.UpdateMarkers(null);
                     return;
                 }
 
-                // Build the depth filter for this view type (plan Z-range or section crop depth).
-                DepthFilter depth = BuildDepthFilter(activeView);
+                var markers = new List<OverlayMarker>();
 
-                var snapshot = ViolationHighlightServer.Instance.GetHighlightsSnapshot();
-                var markers  = new List<OverlayMarker>(snapshot.Count);
-
-                foreach (var h in snapshot)
+                // Parameter markers: MarkerEngine already collected only elements in this view, with a ring
+                // index per element. Violation rings on the same element go outside them.
+                var ringsUsed = new Dictionary<ElementId, int>();
+                foreach (var h in markerHits)
                 {
-                    // Depth test point: Location point, else BBox centre.
-                    XYZ pt = h.Location;
-                    if (pt == null && h.BBox != null)
-                        pt = (h.BBox.Min + h.BBox.Max) * 0.5;
-                    if (pt == null) continue;
-
-                    // Skip elements outside the view's visible depth range.
-                    if (!depth.Passes(h, pt)) continue;
-
-                    // Screen rect of the element: its bounding box's 8 corners projected onto the
-                    // view plane (so the ring is centred on, and encloses, the whole element).
-                    double u0, u1, v0, v1;
-                    if (h.BBox != null)
-                        ProjectBox(h.BBox, right, up, out u0, out u1, out v0, out v1);
-                    else
+                    if (ringsUsed.TryGetValue(h.Id, out int n)) { if (h.Ring + 1 > n) ringsUsed[h.Id] = h.Ring + 1; }
+                    else ringsUsed[h.Id] = h.Ring + 1;
+                    OverlayMarker m;
+                    if (proj.TryProject(h.BBox, null, out m))
                     {
-                        u0 = u1 = pt.DotProduct(right);
-                        v0 = v1 = pt.DotProduct(up);
+                        m.R = h.R; m.G = h.G; m.B = h.B;
+                        m.Ring = h.Ring;
+                        m.Icon = h.Icon;
+                        markers.Add(m);
                     }
-                    u0 = (u0 - minU) / rangeU; u1 = (u1 - minU) / rangeU;
-                    v0 = (v0 - minV) / rangeV; v1 = (v1 - minV) / rangeV;
-                    if (u0 > u1) { var t = u0; u0 = u1; u1 = t; }
-                    if (v0 > v1) { var t = v0; v0 = v1; v1 = t; }
+                }
 
-                    // Cull elements whose rect (plus a margin for the ring) misses the visible area.
-                    const double margin = 0.05;
-                    if (u1 < -margin || u0 > 1 + margin || v1 < -margin || v0 > 1 + margin) continue;
-
-                    // WPF canvas Y=0 is the top; model up is the bottom of NormY=0.
-                    markers.Add(new OverlayMarker
+                if (violations)
+                {
+                    // Build the depth filter for this view type (plan Z-range or section crop depth).
+                    DepthFilter depth = BuildDepthFilter(activeView);
+                    foreach (var h in ViolationHighlightServer.Instance.GetHighlightsSnapshot())
                     {
-                        NormX = (u0 + u1) * 0.5,
-                        NormY = 1.0 - (v0 + v1) * 0.5,
-                        NormW = u1 - u0,
-                        NormH = v1 - v0,
-                        R     = h.Color.Red,
-                        G     = h.Color.Green,
-                        B     = h.Color.Blue,
-                    });
+                        // Depth test point: Location point, else BBox centre.
+                        XYZ pt = h.Location;
+                        if (pt == null && h.BBox != null)
+                            pt = (h.BBox.Min + h.BBox.Max) * 0.5;
+                        if (pt == null) continue;
+
+                        // Skip elements outside the view's visible depth range.
+                        if (!depth.Passes(h, pt)) continue;
+
+                        OverlayMarker m;
+                        if (!proj.TryProject(h.BBox, pt, out m)) continue;
+                        m.R = h.Color.Red; m.G = h.Color.Green; m.B = h.Color.Blue;
+                        if (h.Id != null && ringsUsed.TryGetValue(h.Id, out int ring)) m.Ring = ring;
+                        markers.Add(m);
+                    }
                 }
 
                 ViolationOverlayController.UpdateMarkers(markers);
@@ -137,7 +135,47 @@ namespace ProjectPerseus.queue
             }
         }
 
-        private static bool IsProjectableView(ViewType vt) =>
+        // Model space -> normalised viewport coordinates for the active view.
+        private struct Projection
+        {
+            internal XYZ Right, Up;
+            internal double MinU, MinV, RangeU, RangeV;
+
+            // Screen rect of the element: its bounding box's 8 corners projected onto the view plane (so the
+            // ring is centred on, and encloses, the whole element); a point if there's no box. False when the
+            // rect (plus a margin for the ring) misses the visible area.
+            internal bool TryProject(BoundingBoxXYZ bbox, XYZ fallbackPoint, out OverlayMarker marker)
+            {
+                marker = default(OverlayMarker);
+                double u0, u1, v0, v1;
+                if (bbox != null)
+                    ProjectBox(bbox, Right, Up, out u0, out u1, out v0, out v1);
+                else if (fallbackPoint != null)
+                {
+                    u0 = u1 = fallbackPoint.DotProduct(Right);
+                    v0 = v1 = fallbackPoint.DotProduct(Up);
+                }
+                else return false;
+
+                u0 = (u0 - MinU) / RangeU; u1 = (u1 - MinU) / RangeU;
+                v0 = (v0 - MinV) / RangeV; v1 = (v1 - MinV) / RangeV;
+                if (u0 > u1) { var t = u0; u0 = u1; u1 = t; }
+                if (v0 > v1) { var t = v0; v0 = v1; v1 = t; }
+
+                const double margin = 0.05;
+                if (u1 < -margin || u0 > 1 + margin || v1 < -margin || v0 > 1 + margin) return false;
+
+                // WPF canvas Y=0 is the top; model up is the bottom of NormY=0.
+                marker.NormX = (u0 + u1) * 0.5;
+                marker.NormY = 1.0 - (v0 + v1) * 0.5;
+                marker.NormW = u1 - u0;
+                marker.NormH = v1 - v0;
+                return true;
+            }
+        }
+
+        // Shared with markers/MarkerEngine: the views where rings can be drawn.
+        internal static bool IsProjectableView(ViewType vt) =>
                vt == ViewType.FloorPlan
             || vt == ViewType.CeilingPlan
             || vt == ViewType.AreaPlan

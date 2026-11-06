@@ -157,11 +157,23 @@ def _diag():
             + _tongue(tip, tg, 0.8))
 ICONS["diagnose"] = _diag()
 
+# ---- Markers: elements ringed by parameter value (cyan + magenta rings, a lock badge)
+ICONS["markers"] = (
+    '<path d="M6 25V7h7v18" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<path d="M4 25h11" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<circle cx="9.5" cy="16" r="8" fill="none" stroke="{w}"/>'
+    '<path d="M20 25V12h6v13" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<circle cx="23" cy="19" r="6.5" fill="none" stroke="{a}"/>'
+    '<circle cx="26.5" cy="8" r="4.2" fill="{a}" stroke="none"/>'
+    '<path d="M24.8 8.2h3.4v2.4h-3.4z M25.6 8.2V7.3a.9.9 0 0 1 1.8 0v.9" fill="none" stroke="{sp}" stroke-width="1"/>'
+)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
     ("Key Schedules",["schedule_manage", "schedule_export", "schedule_import"]),
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
+    ("Markers",      ["markers"]),
     ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "about"]),
 ]
 

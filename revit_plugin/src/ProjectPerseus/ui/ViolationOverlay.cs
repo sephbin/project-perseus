@@ -38,6 +38,8 @@ namespace ProjectPerseus.ui
         private const double MinRingDiameter = 28;   // px — small/point elements still get a visible ring
         private const double RingPadding     = 8;    // px added around the element's projected diagonal
         private const double MaxRingDiameter = 6000; // px — beyond this the ring is just noise off-screen
+        private const double RingStep        = 10;   // px added per extra ring on the same element (concentric)
+        private const double BadgeSize       = 17;   // px — icon disc on a marker ring
 
         private readonly IntPtr _revitHwnd;
         private readonly uint   _revitProcessId;
@@ -66,6 +68,18 @@ namespace ProjectPerseus.ui
         private readonly TextBlock       _statusText;
         private readonly Border          _blockingLabel;
         private readonly Canvas          _markerCanvas;
+        private readonly Border          _legend;
+        private readonly StackPanel      _legendStack;
+        private bool _hasLegend;
+
+        // One per marker: the ring (Grid of ellipses) and its optional icon badge.
+        private sealed class MarkerVisual
+        {
+            internal OverlayMarker Marker;
+            internal FrameworkElement Ring;
+            internal FrameworkElement Badge;
+        }
+        private readonly List<MarkerVisual> _visuals = new List<MarkerVisual>();
         private readonly DispatcherTimer _positionTimer;
 
         internal ViolationOverlay(IntPtr revitHwnd)
@@ -108,8 +122,24 @@ namespace ProjectPerseus.ui
 
             _markerCanvas = new Canvas { IsHitTestVisible = false, ClipToBounds = true };
 
+            _legendStack = new StackPanel { Orientation = Orientation.Vertical };
+            _legend = new Border
+            {
+                Background          = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF)),
+                BorderBrush         = new SolidColorBrush(Color.FromArgb(0x40, 0, 0, 0)),
+                BorderThickness     = new Thickness(1),
+                CornerRadius        = new CornerRadius(6),
+                Padding             = new Thickness(10, 6, 12, 8),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment   = VerticalAlignment.Top,
+                Child               = _legendStack,
+                Visibility          = Visibility.Collapsed,
+                IsHitTestVisible    = false,
+            };
+
             var grid = new Grid();
             grid.Children.Add(_markerCanvas);   // bottom layer: element markers
+            grid.Children.Add(_legend);         // marker legend card (top-left of the view)
             grid.Children.Add(_blockingLabel);  // top layer: blocking count pill
             Content = grid;
 
@@ -168,6 +198,7 @@ namespace ProjectPerseus.ui
                 // Cleared (layer off / mode switched / nothing visible): reset suppression too.
                 _suppressed = false;
                 _markerCanvas.Children.Clear();
+                _visuals.Clear();
                 ShowMarkerLayer(animate: false);
             }
             else
@@ -296,7 +327,7 @@ namespace ProjectPerseus.ui
         {
             if (_hasMarkers) InstallMouseHook(); else UninstallMouseHook();
 
-            if (!_hasBlockingViolations && !_hasMarkers)
+            if (!_hasBlockingViolations && !_hasMarkers && !_hasLegend)
             {
                 _positionTimer.Stop();
                 if (IsVisible) Hide();
@@ -316,39 +347,56 @@ namespace ProjectPerseus.ui
                 if (x.R != y.R || x.G != y.G || x.B != y.B) return false;
                 if (Math.Abs(x.NormX - y.NormX) > eps || Math.Abs(x.NormY - y.NormY) > eps) return false;
                 if (Math.Abs(x.NormW - y.NormW) > eps || Math.Abs(x.NormH - y.NormH) > eps) return false;
+                if (x.Ring != y.Ring || !string.Equals(x.Icon, y.Icon, StringComparison.Ordinal)) return false;
             }
             return true;
         }
 
-        // Each marker is a Grid holding a dark halo ring (contrast on any background), a faint tinted
-        // fill, and the severity-coloured ring on top. Size/position are set in PositionMarkers.
+        // Each marker is a Grid holding a dark halo ring (contrast on any background), a faint tinted fill
+        // (innermost ring only, so stacked rings don't darken), and the coloured ring on top; plus an icon disc
+        // sitting on the ring at 45° when the marker has an icon. Size/position are set in PositionMarkers.
         private void RebuildMarkerCanvas()
         {
             _markerCanvas.Children.Clear();
+            _visuals.Clear();
             var halo = new SolidColorBrush(Color.FromArgb(0x70, 0, 0, 0));
             halo.Freeze();
-            foreach (var m in _currentMarkers)
+            // Outer rings first so inner rings (and every badge) draw on top of them.
+            var ordered = new List<OverlayMarker>(_currentMarkers);
+            ordered.Sort((a, b) => b.Ring.CompareTo(a.Ring));
+            var badges = new List<FrameworkElement>();
+            foreach (var m in ordered)
             {
-                var ringBrush = new SolidColorBrush(Color.FromRgb(m.R, m.G, m.B));
+                var color = Color.FromRgb(m.R, m.G, m.B);
+                var ringBrush = new SolidColorBrush(color);
                 ringBrush.Freeze();
-                var fillBrush = new SolidColorBrush(Color.FromArgb(0x1F, m.R, m.G, m.B));
-                fillBrush.Freeze();
-
-                var marker = new Grid { IsHitTestVisible = false, Tag = m };
-                marker.Children.Add(new Ellipse
+                Brush fill = Brushes.Transparent;
+                if (m.Ring == 0)
                 {
-                    Stroke          = halo,
-                    StrokeThickness = 5,
-                    Fill            = fillBrush,
-                });
-                marker.Children.Add(new Ellipse
+                    var tint = new SolidColorBrush(Color.FromArgb(0x1F, m.R, m.G, m.B));
+                    tint.Freeze();
+                    fill = tint;
+                }
+
+                var ring = new Grid { IsHitTestVisible = false };
+                ring.Children.Add(new Ellipse { Stroke = halo, StrokeThickness = 5, Fill = fill });
+                ring.Children.Add(new Ellipse
                 {
                     Stroke          = ringBrush,
                     StrokeThickness = 2.5,
                     Margin          = new Thickness(1.25), // centres the coloured ring on the halo
                 });
-                _markerCanvas.Children.Add(marker);
+                _markerCanvas.Children.Add(ring);
+
+                FrameworkElement badge = null;
+                if (!string.IsNullOrEmpty(m.Icon) && MarkerIcons.Get(m.Icon) != null)
+                {
+                    badge = MarkerIcons.Badge(m.Icon, color, BadgeSize);
+                    badges.Add(badge);
+                }
+                _visuals.Add(new MarkerVisual { Marker = m, Ring = ring, Badge = badge });
             }
+            foreach (var b in badges) _markerCanvas.Children.Add(b);
             PositionMarkers();
         }
 
@@ -357,30 +405,97 @@ namespace ProjectPerseus.ui
             if (!_hasMarkers) return;
             if (_vpWidth <= 0 || _vpHeight <= 0) return;
 
-            foreach (UIElement child in _markerCanvas.Children)
+            foreach (var v in _visuals)
             {
-                if (!(child is Grid g) || !(g.Tag is OverlayMarker m)) continue;
-
+                var m = v.Marker;
                 double wPx = m.NormW * _vpWidth;
                 double hPx = m.NormH * _vpHeight;
                 double d   = Math.Sqrt(wPx * wPx + hPx * hPx) + 2 * RingPadding; // ring encloses the bbox
                 if (d < MinRingDiameter) d = MinRingDiameter;
-                if (d > MaxRingDiameter)
+                d += m.Ring * RingStep;
+                bool show = d <= MaxRingDiameter;
+                v.Ring.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+                if (v.Badge != null) v.Badge.Visibility = v.Ring.Visibility;
+                if (!show) continue;
+
+                double cx = _vpLeft + m.NormX * _vpWidth;
+                double cy = _vpTop  + m.NormY * _vpHeight;
+                v.Ring.Width  = d;
+                v.Ring.Height = d;
+                Canvas.SetLeft(v.Ring, cx - d / 2);
+                Canvas.SetTop( v.Ring, cy - d / 2);
+                if (v.Badge != null)
                 {
-                    g.Visibility = Visibility.Collapsed;
-                    continue;
+                    double r = d / 2 - 1.5;
+                    Canvas.SetLeft(v.Badge, cx + r * 0.7071 - BadgeSize / 2);
+                    Canvas.SetTop( v.Badge, cy - r * 0.7071 - BadgeSize / 2);
                 }
-                g.Visibility = Visibility.Visible;
-                g.Width  = d;
-                g.Height = d;
-                Canvas.SetLeft(g, _vpLeft + m.NormX * _vpWidth  - d / 2);
-                Canvas.SetTop( g, _vpTop  + m.NormY * _vpHeight - d / 2);
             }
+        }
+
+        // ── Marker legend ──
+
+        internal void SetLegend(List<OverlayLegendRow> rows)
+        {
+            _legendStack.Children.Clear();
+            _hasLegend = rows != null && rows.Count > 0;
+            if (_hasLegend)
+            {
+                var ink   = new SolidColorBrush(Color.FromRgb(0x2F, 0x3D, 0x57)); ink.Freeze();
+                var muted = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)); muted.Freeze();
+                bool first = true;
+                foreach (var row in rows)
+                {
+                    if (row.IsHeader)
+                    {
+                        _legendStack.Children.Add(new TextBlock
+                        {
+                            Text       = row.Label,
+                            FontWeight = FontWeights.SemiBold,
+                            FontSize   = 11.5,
+                            Foreground = ink,
+                            Margin     = new Thickness(0, first ? 0 : 6, 0, 2),
+                        });
+                        first = false;
+                        continue;
+                    }
+                    var color = Color.FromRgb(row.R, row.G, row.B);
+                    var line = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
+                    FrameworkElement swatch = !string.IsNullOrEmpty(row.Icon) && MarkerIcons.Get(row.Icon) != null
+                        ? MarkerIcons.Badge(row.Icon, color, 15)
+                        : (FrameworkElement)new Ellipse
+                          {
+                              Width = 13, Height = 13, Margin = new Thickness(1),
+                              Stroke = new SolidColorBrush(color), StrokeThickness = 2.5,
+                          };
+                    line.Children.Add(swatch);
+                    line.Children.Add(new TextBlock
+                    {
+                        Text = row.Label, FontSize = 11, Foreground = ink,
+                        Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    });
+                    line.Children.Add(new TextBlock
+                    {
+                        Text = row.Count.ToString("N0"), FontSize = 11, Foreground = muted,
+                        Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    });
+                    _legendStack.Children.Add(line);
+                }
+            }
+            UpdateLegendPlacement();
+            ManageTimer();
+        }
+
+        private void UpdateLegendPlacement()
+        {
+            bool show = _hasLegend && _inModelView;
+            _legend.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (show) _legend.Margin = new Thickness(_vpLeft + 12, _vpTop + 12, 0, 0);
         }
 
         private void SyncPosition()
         {
-            if (!_hasBlockingViolations && !_hasMarkers) return;
+            if (!_hasBlockingViolations && !_hasMarkers && !_hasLegend) return;
             if (_revitHwnd == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
 
             IntPtr fg = NativeMethods.GetForegroundWindow();
@@ -441,6 +556,7 @@ namespace ProjectPerseus.ui
             if (_vpHeight < 100) { _vpTop  = 0; _vpHeight = Height; _vpScreen.Top  = pt.Y; _vpScreen.Bottom = pt.Y + physH; }
 
             if (!_suppressed) PositionMarkers();
+            UpdateLegendPlacement();
 
             if (!IsVisible) Show();
         }
