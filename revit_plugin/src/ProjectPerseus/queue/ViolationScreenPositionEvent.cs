@@ -89,11 +89,11 @@ namespace ProjectPerseus.queue
 
                 // Parameter markers: MarkerEngine already collected only elements in this view, with a ring
                 // index per element. Violation rings on the same element go outside them.
-                var ringsUsed = new Dictionary<ElementId, int>();
+                var ringsUsed = new Dictionary<string, int>();
                 foreach (var h in markerHits)
                 {
-                    if (ringsUsed.TryGetValue(h.Id, out int n)) { if (h.Ring + 1 > n) ringsUsed[h.Id] = h.Ring + 1; }
-                    else ringsUsed[h.Id] = h.Ring + 1;
+                    if (ringsUsed.TryGetValue(h.Key, out int n)) { if (h.Ring + 1 > n) ringsUsed[h.Key] = h.Ring + 1; }
+                    else ringsUsed[h.Key] = h.Ring + 1;
                     OverlayMarker m;
                     if (proj.TryProject(h.BBox, null, out m))
                     {
@@ -122,7 +122,7 @@ namespace ProjectPerseus.queue
                         OverlayMarker m;
                         if (!proj.TryProject(h.BBox, pt, out m)) continue;
                         m.R = h.Color.Red; m.G = h.Color.Green; m.B = h.Color.Blue;
-                        if (h.Id != null && ringsUsed.TryGetValue(h.Id, out int ring)) m.Ring = ring;
+                        if (h.Id != null && ringsUsed.TryGetValue(MarkerEngine.HostKey(h.Id), out int ring)) m.Ring = ring;
                         markers.Add(m);
                     }
                 }

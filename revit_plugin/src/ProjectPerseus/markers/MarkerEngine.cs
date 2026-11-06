@@ -23,6 +23,12 @@ namespace ProjectPerseus.markers
     /// element's parameter value matches. Runs on Idling, debounced, only when something changed (view switch,
     /// model edit, sets edited) — never per pan/zoom: the view-scoped collector already gives everything in the view,
     /// and queue/ViolationScreenPositionEvent re-projects the cached hits each tick.
+    ///
+    /// Linked models: for each link instance visible in the view, the link's elements are read from the link document
+    /// and their boxes transformed into host coordinates (RevitLinkInstance.GetTotalTransform). Revit 2024+ collects
+    /// exactly the linked elements visible in the host view; 2023 has no such collector, so it takes the link's whole
+    /// category and keeps those inside the view's depth (plan view range / section depth). Links nested inside links
+    /// are not included. Hits are keyed per model ("h:id" host, "l<instance>:id" link) since ids repeat across models.
     /// </summary>
     internal static class MarkerEngine
     {
@@ -31,7 +37,7 @@ namespace ProjectPerseus.markers
 
         internal struct Hit
         {
-            internal ElementId Id;
+            internal string Key;     // HostKey(id) for host elements, "l<link instance id>:<id>" for linked ones
             internal BoundingBoxXYZ BBox;
             internal byte R, G, B;
             internal string Icon;
@@ -45,6 +51,7 @@ namespace ProjectPerseus.markers
             internal int Considered;   // elements of the set's categories in the view
             internal int Matched;      // ... that passed the filter
             internal int Marked;       // ... whose value matched an entry
+            internal int MarkedInLinks;// ... of which in linked models
             internal int ParamMissing; // matched elements with no such parameter / pseudo field
             internal int[] EntryCounts = new int[0];
             internal string Error;
@@ -64,6 +71,8 @@ namespace ProjectPerseus.markers
 
         internal static bool HasHits { get { lock (_lock) return _hits.Count > 0; } }
         internal static string ViewNote => _lastViewNote;
+
+        internal static string HostKey(ElementId id) => "h:" + id.GetIdValue();
 
         internal static List<Hit> GetHitsSnapshot() { lock (_lock) return new List<Hit>(_hits); }
 
@@ -142,10 +151,11 @@ namespace ProjectPerseus.markers
 
             if (note == null)
             {
-                var rings = new Dictionary<ElementId, int>();
+                var rings = new Dictionary<string, int>();
+                var links = sets.Any(s => s.IncludeLinks) ? VisibleLinks(doc, view) : new List<LinkSource>();
                 foreach (var set in sets)
                 {
-                    var r = EvaluateSet(doc, view, set, rings, hits);
+                    var r = EvaluateSet(doc, view, set, links, rings, hits);
                     results[set.Id] = r;
                     if (r.Error != null) Log.Info($"[MarkerEngine] set '{set.Name}': {r.Error}");
                 }
@@ -154,8 +164,8 @@ namespace ProjectPerseus.markers
             Publish(hits, results, note);
         }
 
-        private static SetResult EvaluateSet(Document doc, View view, MarkerSet set,
-                                             Dictionary<ElementId, int> rings, List<Hit> hits)
+        private static SetResult EvaluateSet(Document doc, View view, MarkerSet set, List<LinkSource> links,
+                                             Dictionary<string, int> rings, List<Hit> hits)
         {
             var r = new SetResult { SetId = set.Id, EntryCounts = new int[set.Entries.Count] };
             var cats = ParseCategories(set.Categories);
@@ -168,48 +178,209 @@ namespace ProjectPerseus.markers
             var colors = set.Entries.Select(x => ParseColor(x.Color)).ToArray();
             bool hasFilter = !string.IsNullOrWhiteSpace(set.Filter);
 
-            var collector = new FilteredElementCollector(doc, view.Id)
-                .WherePasses(new ElementMulticategoryFilter(cats))
-                .WhereElementIsNotElementType();
+            var catFilter = new ElementMulticategoryFilter(cats);
 
-            foreach (Element el in collector)
+            // False = stop the whole set (filter error, reported in r.Error).
+            bool Process(Document src, Element el, Transform toHost, string keyPrefix)
             {
-                if (hits.Count >= MaxHits) break;
                 r.Considered++;
-
                 Dictionary<string, string> row = null;
                 if (hasFilter)
                 {
-                    row = BuildRow(doc, el);
+                    row = BuildRow(src, el);
                     if (!FilterEvaluator.TryEvaluate(set.Filter, row, out bool pass, out string err))
                     {
                         r.Error = "Filter: " + err;
-                        return r;
+                        return false;
                     }
-                    if (!pass) continue;
+                    if (!pass) return true;
                 }
                 r.Matched++;
 
-                string value = ReadValue(doc, el, set.Parameter, row, out bool found);
+                string value = ReadValue(src, el, set.Parameter, row, out bool found);
                 if (!found) r.ParamMissing++;
 
                 int entry = -1;
                 for (int i = 0; i < matchers.Length; i++)
                     if (matchers[i] != null && matchers[i](value)) { entry = i; break; }
-                if (entry < 0) continue;
+                if (entry < 0) return true;
 
                 BoundingBoxXYZ bb = el.get_BoundingBox(null);
-                if (bb == null) continue;
+                if (bb == null) return true;
+                if (toHost != null) bb = TransformBox(bb, toHost);
 
                 r.Marked++;
+                if (toHost != null) r.MarkedInLinks++;
                 r.EntryCounts[entry]++;
-                rings.TryGetValue(el.Id, out int ring);
-                rings[el.Id] = ring + 1;
+                string key = keyPrefix + el.Id.GetIdValue();
+                rings.TryGetValue(key, out int ring);
+                rings[key] = ring + 1;
                 var c = colors[entry];
-                hits.Add(new Hit { Id = el.Id, BBox = bb, R = c.R, G = c.G, B = c.B, Icon = set.Entries[entry].Icon, Ring = ring });
+                hits.Add(new Hit { Key = key, BBox = bb, R = c.R, G = c.G, B = c.B, Icon = set.Entries[entry].Icon, Ring = ring });
+                return true;
+            }
+
+            var host = new FilteredElementCollector(doc, view.Id).WherePasses(catFilter).WhereElementIsNotElementType();
+            foreach (Element el in host)
+            {
+                if (hits.Count >= MaxHits) return r;
+                if (!Process(doc, el, null, "h:")) return r;
+            }
+
+            if (set.IncludeLinks)
+            {
+                foreach (var link in links)
+                {
+                    IEnumerable<Element> linked;
+                    try { linked = LinkedElementsInView(doc, view, link, catFilter); }
+                    catch (Exception ex)
+                    {
+                        Log.Info($"[MarkerEngine] link '{link.Doc.Title}' skipped: {ex.Message}");
+                        continue;
+                    }
+                    foreach (Element el in linked)
+                    {
+                        if (hits.Count >= MaxHits) return r;
+                        if (!Process(link.Doc, el, link.ToHost, link.KeyPrefix)) return r;
+                    }
+                }
             }
             return r;
         }
+
+        // ── Linked models ───────────────────────────────────────────────────────
+
+        internal class LinkSource
+        {
+            internal RevitLinkInstance Instance;
+            internal Document Doc;
+            internal Transform ToHost;
+            internal string KeyPrefix;
+        }
+
+        // Loaded link instances visible in the view (hidden links / link category off are excluded by the
+        // view-scoped collector).
+        private static List<LinkSource> VisibleLinks(Document doc, View view)
+        {
+            var list = new List<LinkSource>();
+            foreach (RevitLinkInstance inst in new FilteredElementCollector(doc, view.Id).OfClass(typeof(RevitLinkInstance)))
+            {
+                try
+                {
+                    Document linkDoc = inst.GetLinkDocument();
+                    if (linkDoc == null) continue; // unloaded
+                    list.Add(new LinkSource
+                    {
+                        Instance = inst,
+                        Doc = linkDoc,
+                        ToHost = inst.GetTotalTransform(),
+                        KeyPrefix = "l" + inst.Id.GetIdValue() + ":",
+                    });
+                }
+                catch (Exception ex) { Log.Info($"[MarkerEngine] link instance {inst.Id.GetIdValue()} skipped: {ex.Message}"); }
+            }
+            return list;
+        }
+
+        private static IEnumerable<Element> LinkedElementsInView(Document hostDoc, View view, LinkSource link, ElementFilter catFilter)
+        {
+#if REVIT2024_OR_GREATER
+            // Exactly the linked elements visible in the host view (view range, crop, link visibility overrides).
+            return new FilteredElementCollector(hostDoc, view.Id, link.Instance.Id)
+                .WherePasses(catFilter)
+                .WhereElementIsNotElementType()
+                .ToElements();
+#else
+            // Revit 2023: no host-view collector for links. Take the category and keep what lies in the view's depth.
+            var depth = ViewDepth.For(view);
+            return new FilteredElementCollector(link.Doc)
+                .WherePasses(catFilter)
+                .WhereElementIsNotElementType()
+                .Where(el =>
+                {
+                    var bb = el.get_BoundingBox(null);
+                    return bb != null && depth.Contains(TransformBox(bb, link.ToHost));
+                })
+                .ToList();
+#endif
+        }
+
+        // Axis-aligned box (host coordinates) around a box given in another model's coordinates.
+        private static BoundingBoxXYZ TransformBox(BoundingBoxXYZ bb, Transform toHost)
+        {
+            double x0 = double.MaxValue, y0 = double.MaxValue, z0 = double.MaxValue;
+            double x1 = double.MinValue, y1 = double.MinValue, z1 = double.MinValue;
+            var own = bb.Transform;
+            for (int i = 0; i < 8; i++)
+            {
+                var p = new XYZ((i & 1) == 0 ? bb.Min.X : bb.Max.X,
+                                (i & 2) == 0 ? bb.Min.Y : bb.Max.Y,
+                                (i & 4) == 0 ? bb.Min.Z : bb.Max.Z);
+                if (own != null) p = own.OfPoint(p);
+                p = toHost.OfPoint(p);
+                x0 = Math.Min(x0, p.X); y0 = Math.Min(y0, p.Y); z0 = Math.Min(z0, p.Z);
+                x1 = Math.Max(x1, p.X); y1 = Math.Max(y1, p.Y); z1 = Math.Max(z1, p.Z);
+            }
+            return new BoundingBoxXYZ { Min = new XYZ(x0, y0, z0), Max = new XYZ(x1, y1, z1) };
+        }
+
+#if !REVIT2024_OR_GREATER
+        // Revit 2023 fallback: does a host-coordinate box overlap the view's depth (plan cut range / section depth)?
+        private class ViewDepth
+        {
+            private enum Kind { None, PlanZ, Section }
+            private Kind _kind;
+            private double _min, _max;
+            private XYZ _axis, _origin;
+
+            internal static ViewDepth For(View view)
+            {
+                var d = new ViewDepth { _kind = Kind.None };
+                try
+                {
+                    if (view is ViewPlan plan && plan.GenLevel != null)
+                    {
+                        var vr = plan.GetViewRange();
+                        double lz = plan.GenLevel.Elevation;
+                        double a = lz + vr.GetOffset(PlanViewPlane.TopClipPlane);
+                        double b = lz + vr.GetOffset(PlanViewPlane.BottomClipPlane);
+                        d._kind = Kind.PlanZ; d._min = Math.Min(a, b); d._max = Math.Max(a, b);
+                    }
+                    else if (view.ViewType == ViewType.Section || view.ViewType == ViewType.Elevation)
+                    {
+                        var cb = view.CropBox;
+                        d._kind = Kind.Section;
+                        d._axis = cb.Transform.BasisZ; d._origin = cb.Transform.Origin;
+                        d._min = Math.Min(cb.Min.Z, cb.Max.Z); d._max = Math.Max(cb.Min.Z, cb.Max.Z);
+                    }
+                }
+                catch { d._kind = Kind.None; }
+                return d;
+            }
+
+            internal bool Contains(BoundingBoxXYZ bb)
+            {
+                switch (_kind)
+                {
+                    case Kind.PlanZ:
+                        return bb.Max.Z >= _min && bb.Min.Z <= _max;
+                    case Kind.Section:
+                        double lo = double.MaxValue, hi = double.MinValue;
+                        for (int i = 0; i < 8; i++)
+                        {
+                            var p = new XYZ((i & 1) == 0 ? bb.Min.X : bb.Max.X,
+                                            (i & 2) == 0 ? bb.Min.Y : bb.Max.Y,
+                                            (i & 4) == 0 ? bb.Min.Z : bb.Max.Z);
+                            double t = p.Subtract(_origin).DotProduct(_axis);
+                            lo = Math.Min(lo, t); hi = Math.Max(hi, t);
+                        }
+                        return hi >= _min && lo <= _max;
+                    default:
+                        return true;
+                }
+            }
+        }
+#endif
 
         private static void Publish(List<Hit> hits, Dictionary<string, SetResult> results, string note)
         {
@@ -305,7 +476,7 @@ namespace ProjectPerseus.markers
 
         // ── Parameter access (shared with the panel's inspection) ──────────────
 
-        private static readonly string[] PseudoFields = { "Family", "Type", "Family and Type", "Category", "Level" };
+        private static readonly string[] PseudoFields = { "Family", "Type", "Family and Type", "Category", "Level", "Model" };
 
         /// <summary>Instance parameter, else type parameter, else pseudo field. found=false when none exists.</summary>
         internal static string ReadValue(Document doc, Element el, string name, Dictionary<string, string> row, out bool found)
@@ -338,6 +509,7 @@ namespace ProjectPerseus.markers
                 case "family and type": return family + ": " + (type?.Name ?? "");
                 case "category":        return el.Category?.Name ?? "";
                 case "level":           return (doc.GetElement(el.LevelId) as Level)?.Name ?? "";
+                case "model":           return doc.Title ?? ""; // host or linked model the element is in
                 default:                return null;
             }
         }
@@ -396,6 +568,7 @@ namespace ProjectPerseus.markers
         internal class Inspection
         {
             internal int Considered, Matched;
+            internal int Models = 1; // host + loaded linked models searched
             internal string Error;
             internal List<string> ParameterNames = new List<string>();
             internal List<KeyValuePair<string, int>> Values = new List<KeyValuePair<string, int>>();
@@ -403,7 +576,8 @@ namespace ProjectPerseus.markers
 
         /// <summary>
         /// Parameter names available on the set's elements and the distinct values of its parameter, across the
-        /// whole model (so a set can be set up from any view). Needs an API context.
+        /// whole model and (if the set includes links) every loaded linked model, so a set can be set up from any view.
+        /// Needs an API context.
         /// </summary>
         internal static Inspection Inspect(Document doc, MarkerSet set)
         {
@@ -414,47 +588,63 @@ namespace ProjectPerseus.markers
             var names = new HashSet<string>(PseudoFields, StringComparer.OrdinalIgnoreCase);
             var values = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             bool hasFilter = !string.IsNullOrWhiteSpace(set.Filter);
-            var seenTypes = new HashSet<ElementId>();
 
-            var collector = new FilteredElementCollector(doc)
-                .WherePasses(new ElementMulticategoryFilter(cats))
-                .WhereElementIsNotElementType();
-            foreach (Element el in collector)
+            var catFilter = new ElementMulticategoryFilter(cats);
+            var docs = new List<Document> { doc };
+            if (set.IncludeLinks)
             {
-                if (info.Considered >= 20000) break;
-                info.Considered++;
-                Dictionary<string, string> row = null;
-                if (hasFilter)
+                var seenDocs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (RevitLinkInstance inst in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)))
                 {
-                    row = BuildRow(doc, el);
-                    if (!FilterEvaluator.TryEvaluate(set.Filter, row, out bool pass, out string err))
-                    {
-                        info.Error = "Filter: " + err;
-                        break;
-                    }
-                    if (!pass) continue;
+                    Document ld = null;
+                    try { ld = inst.GetLinkDocument(); } catch { /* unloaded / inaccessible */ }
+                    if (ld != null && seenDocs.Add(ld.PathName + "|" + ld.Title)) docs.Add(ld);
                 }
-                info.Matched++;
+            }
+            info.Models = docs.Count;
 
-                if (info.Matched <= 300)
+            foreach (var src in docs)
+            {
+                var seenTypes = new HashSet<ElementId>(); // ids are per document
+                int namesFromThisDoc = 0;
+                var collector = new FilteredElementCollector(src).WherePasses(catFilter).WhereElementIsNotElementType();
+                foreach (Element el in collector)
                 {
-                    foreach (Parameter p in el.Parameters)
-                        if (p.Definition != null) names.Add(p.Definition.Name);
-                    var typeId = el.GetTypeId();
-                    if (typeId != ElementId.InvalidElementId && seenTypes.Add(typeId))
+                    if (info.Considered >= 20000 || info.Error != null) break;
+                    info.Considered++;
+                    Dictionary<string, string> row = null;
+                    if (hasFilter)
                     {
-                        var type = doc.GetElement(typeId);
-                        if (type != null)
-                            foreach (Parameter p in type.Parameters)
-                                if (p.Definition != null) names.Add(p.Definition.Name);
+                        row = BuildRow(src, el);
+                        if (!FilterEvaluator.TryEvaluate(set.Filter, row, out bool pass, out string err))
+                        {
+                            info.Error = "Filter: " + err;
+                            break;
+                        }
+                        if (!pass) continue;
                     }
-                }
+                    info.Matched++;
 
-                if (!string.IsNullOrWhiteSpace(set.Parameter))
-                {
-                    string v = ReadValue(doc, el, set.Parameter, row, out _).Trim();
-                    values.TryGetValue(v, out int n);
-                    values[v] = n + 1;
+                    if (++namesFromThisDoc <= 300)
+                    {
+                        foreach (Parameter p in el.Parameters)
+                            if (p.Definition != null) names.Add(p.Definition.Name);
+                        var typeId = el.GetTypeId();
+                        if (typeId != ElementId.InvalidElementId && seenTypes.Add(typeId))
+                        {
+                            var type = src.GetElement(typeId);
+                            if (type != null)
+                                foreach (Parameter p in type.Parameters)
+                                    if (p.Definition != null) names.Add(p.Definition.Name);
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(set.Parameter))
+                    {
+                        string v = ReadValue(src, el, set.Parameter, row, out _).Trim();
+                        values.TryGetValue(v, out int n);
+                        values[v] = n + 1;
+                    }
                 }
             }
 

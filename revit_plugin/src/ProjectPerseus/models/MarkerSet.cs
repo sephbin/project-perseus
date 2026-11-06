@@ -19,6 +19,9 @@ namespace ProjectPerseus.models
         /// <summary>BuiltInCategory names, e.g. "OST_Doors". Empty = no elements.</summary>
         public List<string> Categories { get; set; } = new List<string>();
 
+        /// <summary>Also mark matching elements inside linked Revit models visible in the view.</summary>
+        public bool IncludeLinks { get; set; } = true;
+
         /// <summary>Optional util/FilterEvaluator expression, e.g. <c>"Double" in row["Family"]</c>. Empty = all.</summary>
         public string Filter { get; set; } = "";
 

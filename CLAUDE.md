@@ -341,6 +341,11 @@ ProjectPerseus/
 │                                 queue/ViolationScreenPositionEvent; legend rows go to ViolationOverlayController.UpdateLegend.
 │                                 Re-runs on view switch / DocumentChanged / set edits, never on pan. Inspect() = whole-model
 │                                 parameter names + distinct values for the panel.
+│                                 Linked models (set.IncludeLinks, default on): per visible RevitLinkInstance, elements read
+│                                 from the link doc, boxes moved to host coords via GetTotalTransform. 2024+: exact via
+│                                 FilteredElementCollector(host, viewId, linkInstanceId); 2023: whole category + view-depth
+│                                 check (ViewDepth). Nested links not included. Hit.Key = "h:<id>" / "l<instance>:<id>".
+│                                 Pseudo field "Model" = the element's model title (for filtering by link).
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
 │   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
@@ -353,7 +358,7 @@ ProjectPerseus/
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
-│   │                             Filter, Parameter, Entries (Enabled, Label, Match equals/contains/regex/any/empty, Value,
+│   │                             IncludeLinks, Filter, Parameter, Entries (Enabled, Label, Match equals/contains/regex/any/empty, Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
 │   ├── OwnershipSnapshot.cs      NEW (2026-11-05). Who owns which elements/worksets (nested ElementRow, WorksetRow).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:

@@ -51,6 +51,7 @@ namespace ProjectPerseus.ui
         private readonly StackPanel _editor;
         private readonly TextBlock _emptyEditor;
         private readonly TextBox _name, _categorySearch, _filter;
+        private readonly CheckBox _includeLinks;
         private readonly ListBox _categoryList;
         private readonly ComboBox _parameter;
         private readonly StackPanel _entryRows;
@@ -163,6 +164,15 @@ namespace ProjectPerseus.ui
             catPanel.Children.Add(catLabel);
             catPanel.Children.Add(_categorySearch);
             _categoryList = new ListBox { Height = 120, BorderBrush = Line };
+            _includeLinks = new CheckBox
+            {
+                Content = "Include elements in linked models",
+                Margin = new Thickness(0, 6, 0, 0),
+                ToolTip = "Also ring matching elements inside Revit links shown in the view. Use row[\"Model\"] in the filter to pick a link.",
+            };
+            _includeLinks.Click += (s, e) => { if (Editing()) { _set.IncludeLinks = _includeLinks.IsChecked == true; ScheduleApply(); ScheduleInspect(); } };
+            DockPanel.SetDock(_includeLinks, Dock.Bottom);
+            catPanel.Children.Add(_includeLinks);
             catPanel.Children.Add(_categoryList);
             Grid.SetColumn(catPanel, 0);
             queryGrid.Children.Add(catPanel);
@@ -185,7 +195,7 @@ namespace ProjectPerseus.ui
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 4, 0, 0),
-                Text = "Python-style, using any parameter or Family / Type / Category / Level, e.g.\n" +
+                Text = "Python-style, using any parameter or Family / Type / Category / Level / Model, e.g.\n" +
                        "  \"Double\" in row[\"Family\"]\n" +
                        "  row[\"Level\"] == \"L02\" and row[\"Fire Rating\"] != \"\"",
             });
@@ -412,6 +422,7 @@ namespace ProjectPerseus.ui
             {
                 _name.Text = set.Name;
                 _filter.Text = set.Filter;
+                _includeLinks.IsChecked = set.IncludeLinks;
                 _parameter.ItemsSource = null;
                 _parameter.Text = set.Parameter;
                 _categorySearch.Text = "";
@@ -713,9 +724,10 @@ namespace ProjectPerseus.ui
             _modelStatus.Foreground = Muted;
             if (_set.Categories.Count == 0) { _modelStatus.Text = "Pick one or more categories."; return; }
 
+            string where = info.Models > 1 ? $"this model and {info.Models - 1} linked model(s)" : "the model";
             string matched = string.IsNullOrWhiteSpace(_set.Filter)
-                ? $"{info.Matched:N0} element(s) in the model"
-                : $"{info.Matched:N0} of {info.Considered:N0} element(s) in the model pass the filter";
+                ? $"{info.Matched:N0} element(s) in {where}"
+                : $"{info.Matched:N0} of {info.Considered:N0} element(s) in {where} pass the filter";
             if (string.IsNullOrWhiteSpace(_set.Parameter)) { _modelStatus.Text = matched + ". Choose a parameter."; return; }
 
             var nonEmpty = info.Values.Where(kv => kv.Key.Length > 0).ToList();
@@ -753,7 +765,7 @@ namespace ProjectPerseus.ui
 
             string text = $"In this view: {r.Considered:N0} element(s)";
             if (!string.IsNullOrWhiteSpace(_set.Filter)) text += $", {r.Matched:N0} pass the filter";
-            text += $", {r.Marked:N0} marked.";
+            text += $", {r.Marked:N0} marked" + (r.MarkedInLinks > 0 ? $" ({r.MarkedInLinks:N0} in linked models)." : ".");
             if (r.ParamMissing > 0 && !string.IsNullOrWhiteSpace(_set.Parameter))
                 text += $" {r.ParamMissing:N0} don't have a \"{_set.Parameter}\" parameter.";
             if (note != null) text += " " + note;
