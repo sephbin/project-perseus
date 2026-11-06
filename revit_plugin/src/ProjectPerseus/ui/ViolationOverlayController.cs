@@ -9,8 +9,10 @@ namespace ProjectPerseus.ui
 {
     internal struct OverlayMarker
     {
-        internal double NormX;  // 0 = left edge, 1 = right edge of Revit viewport
-        internal double NormY;  // 0 = top edge,  1 = bottom edge
+        internal double NormX;  // centre: 0 = left edge, 1 = right edge of Revit viewport
+        internal double NormY;  // centre: 0 = top edge,  1 = bottom edge
+        internal double NormW;  // projected element extent as a fraction of viewport width (0 = point)
+        internal double NormH;  // projected element extent as a fraction of viewport height
         internal byte R, G, B;
     }
 
@@ -66,7 +68,28 @@ namespace ProjectPerseus.ui
             }
         }
 
+        // markers == null clears them. The frame is stamped here (Revit thread, at projection time) so the
+        // overlay can tell whether it was computed before or after the user's last pan/zoom input.
         internal static void UpdateMarkers(List<OverlayMarker> markers)
+        {
+            var disp = _dispatcher;
+            var ov   = _overlay;
+            if (disp == null || ov == null) return;
+            int computedAt = Environment.TickCount;
+            try
+            {
+                disp.BeginInvoke(new Action(() =>
+                {
+                    try   { ov.SetMarkers(markers, computedAt); }
+                    catch (Exception ex) { Log.Warn($"[ViolationOverlay] SetMarkers failed: {ex.Message}"); }
+                }));
+            }
+            catch { /* dispatcher shut down */ }
+        }
+
+        // The Revit view's zoom corners changed since the last tick (pan/zoom/view switch): hide the
+        // markers until a frame computed on a settled view arrives.
+        internal static void SetViewMoving()
         {
             var disp = _dispatcher;
             var ov   = _overlay;
@@ -75,8 +98,8 @@ namespace ProjectPerseus.ui
             {
                 disp.BeginInvoke(new Action(() =>
                 {
-                    try   { ov.SetMarkers(markers); }
-                    catch (Exception ex) { Log.Warn($"[ViolationOverlay] SetMarkers failed: {ex.Message}"); }
+                    try   { ov.OnViewMoving(); }
+                    catch (Exception ex) { Log.Warn($"[ViolationOverlay] OnViewMoving failed: {ex.Message}"); }
                 }));
             }
             catch { /* dispatcher shut down */ }

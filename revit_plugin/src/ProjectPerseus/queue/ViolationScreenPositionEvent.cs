@@ -8,13 +8,18 @@ using ProjectPerseus.violations;
 
 namespace ProjectPerseus.queue
 {
-    // Runs on the Revit main thread every ~500 ms.
-    // Projects element locations from model space to normalised screen coordinates
-    // and pushes them to ViolationOverlayController for WPF canvas rendering.
-    // Only active in Symbol mode.  Skips 3D views (projection is unreliable).
+    // Runs on the Revit main thread every ~200 ms.
+    // Projects each violating element's bounding box from model space to a normalised screen
+    // rect (centre + extent) and pushes them to ViolationOverlayController, which draws a ring
+    // around each one. Only active in Symbol mode.  Skips 3D views (projection is unreliable).
     // Filters elements outside the view's visible depth range before projecting.
+    // If the view's zoom corners changed since the previous tick the view is being navigated:
+    // the overlay is told to hide (SetViewMoving) and markers are only sent once it is still again.
     internal class ViolationScreenPositionEvent : IExternalEventHandler
     {
+        private static ElementId _lastViewId;
+        private static XYZ       _lastCorner0, _lastCorner1;
+
         public void Execute(UIApplication app)
         {
             try
@@ -51,6 +56,12 @@ namespace ProjectPerseus.queue
                 var corners = uiView.GetZoomCorners();
                 if (corners == null || corners.Count < 2) { ViolationOverlayController.UpdateMarkers(null); return; }
 
+                if (ViewMovedSinceLastTick(activeView.Id, corners[0], corners[1]))
+                {
+                    ViolationOverlayController.SetViewMoving();
+                    return;
+                }
+
                 // View basis vectors: RightDirection = screen X, UpDirection = screen Y.
                 XYZ right = activeView.RightDirection;
                 XYZ up    = activeView.UpDirection;
@@ -76,7 +87,7 @@ namespace ProjectPerseus.queue
 
                 foreach (var h in snapshot)
                 {
-                    // Prefer Location point; fall back to BBox centre.
+                    // Depth test point: Location point, else BBox centre.
                     XYZ pt = h.Location;
                     if (pt == null && h.BBox != null)
                         pt = (h.BBox.Min + h.BBox.Max) * 0.5;
@@ -85,17 +96,32 @@ namespace ProjectPerseus.queue
                     // Skip elements outside the view's visible depth range.
                     if (!depth.Passes(h, pt)) continue;
 
-                    double u = (pt.DotProduct(right) - minU) / rangeU;
-                    double v = (pt.DotProduct(up)    - minV) / rangeV;
+                    // Screen rect of the element: its bounding box's 8 corners projected onto the
+                    // view plane (so the ring is centred on, and encloses, the whole element).
+                    double u0, u1, v0, v1;
+                    if (h.BBox != null)
+                        ProjectBox(h.BBox, right, up, out u0, out u1, out v0, out v1);
+                    else
+                    {
+                        u0 = u1 = pt.DotProduct(right);
+                        v0 = v1 = pt.DotProduct(up);
+                    }
+                    u0 = (u0 - minU) / rangeU; u1 = (u1 - minU) / rangeU;
+                    v0 = (v0 - minV) / rangeV; v1 = (v1 - minV) / rangeV;
+                    if (u0 > u1) { var t = u0; u0 = u1; u1 = t; }
+                    if (v0 > v1) { var t = v0; v0 = v1; v1 = t; }
 
-                    // Cull markers well outside the visible area.
-                    if (u < -0.05 || u > 1.05 || v < -0.05 || v > 1.05) continue;
+                    // Cull elements whose rect (plus a margin for the ring) misses the visible area.
+                    const double margin = 0.05;
+                    if (u1 < -margin || u0 > 1 + margin || v1 < -margin || v0 > 1 + margin) continue;
 
                     // WPF canvas Y=0 is the top; model up is the bottom of NormY=0.
                     markers.Add(new OverlayMarker
                     {
-                        NormX = u,
-                        NormY = 1.0 - v,
+                        NormX = (u0 + u1) * 0.5,
+                        NormY = 1.0 - (v0 + v1) * 0.5,
+                        NormW = u1 - u0,
+                        NormH = v1 - v0,
                         R     = h.Color.Red,
                         G     = h.Color.Green,
                         B     = h.Color.Blue,
@@ -107,6 +133,40 @@ namespace ProjectPerseus.queue
             catch (Exception ex)
             {
                 Log.Warn($"[ViolationScreenPositionEvent] {ex.Message}");
+            }
+        }
+
+        // True when the active view or its zoom corners differ from the previous tick.
+        // The first tick after a reset counts as moving, so markers only appear once the view is still.
+        private static bool ViewMovedSinceLastTick(ElementId viewId, XYZ c0, XYZ c1)
+        {
+            const double tol = 1e-6;
+            bool moved = _lastViewId == null || _lastViewId != viewId
+                      || !_lastCorner0.IsAlmostEqualTo(c0, tol)
+                      || !_lastCorner1.IsAlmostEqualTo(c1, tol);
+            _lastViewId  = viewId;
+            _lastCorner0 = c0;
+            _lastCorner1 = c1;
+            return moved;
+        }
+
+        private static void ProjectBox(BoundingBoxXYZ bb, XYZ right, XYZ up,
+                                       out double u0, out double u1, out double v0, out double v1)
+        {
+            u0 = v0 = double.MaxValue;
+            u1 = v1 = double.MinValue;
+            var tf = bb.Transform;
+            for (int i = 0; i < 8; i++)
+            {
+                var local = new XYZ((i & 1) == 0 ? bb.Min.X : bb.Max.X,
+                                    (i & 2) == 0 ? bb.Min.Y : bb.Max.Y,
+                                    (i & 4) == 0 ? bb.Min.Z : bb.Max.Z);
+                var p = tf != null ? tf.OfPoint(local) : local;
+                double u = p.DotProduct(right), v = p.DotProduct(up);
+                if (u < u0) u0 = u;
+                if (u > u1) u1 = u;
+                if (v < v0) v0 = v;
+                if (v > v1) v1 = v;
             }
         }
 

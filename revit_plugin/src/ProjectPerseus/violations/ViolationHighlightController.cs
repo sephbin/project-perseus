@@ -102,7 +102,7 @@ namespace ProjectPerseus.violations
         {
             _positionEvent = ev;
             _positionTimer?.Dispose();
-            _positionTimer = new Timer(_ => OnPositionTick(), null, 0, 500);
+            _positionTimer = new Timer(_ => OnPositionTick(), null, 0, 200); // markers return promptly after a pan
         }
 
         private static bool _markersWereActive;

@@ -99,9 +99,9 @@ namespace ProjectPerseus
             // ---- Violations: highlight layer, list, and the emergency bypass
             RibbonPanel violationsPanel = application.CreateRibbonPanel(tabName, "Violations");
             AddButton(violationsPanel, asm, "Button_ToggleViolations", "Toggle\nViolations", "ToggleViolationHighlightCommand", "violations_toggle",
-                "Show or hide the violation highlight layer (bounding boxes or symbols) in the active view.");
+                "Show or hide the violation highlight layer (bounding boxes or rings) in the active view.");
             AddButton(violationsPanel, asm, "Button_SwitchMode", "Switch\nMode", "SwitchViolationModeCommand", "violations_mode",
-                "Switch the violation highlight layer between bounding-box wireframes and 3-axis symbol markers.");
+                "Switch the violation highlight layer between bounding-box wireframes and rings around each element (hidden while you pan/zoom).");
             AddButton(violationsPanel, asm, "Button_ViolationList", "Violation\nList", "ShowViolationListCommand", "violations_list",
                 "Open the violation list. Select an element in Revit to see its violations in the bottom panel.");
             AddButton(violationsPanel, asm, "Button_Freefall", "Freefall\nMode", "FreefallCommand", "freefall",

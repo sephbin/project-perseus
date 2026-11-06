@@ -244,12 +244,13 @@ ProjectPerseus/
 │   │                             HighlightEvent (ExternalEvent) set once at Subscribe() time.
 │   ├── ViolationHighlightEvent.cs NEW (2026-08-24). IExternalEventHandler; marshals violation list
 │   │                             to main Revit thread; calls ViolationHighlightController.Update().
-│   └── ViolationScreenPositionEvent.cs NEW (2026-08-24). IExternalEventHandler; raised every 500ms
+│   └── ViolationScreenPositionEvent.cs NEW (2026-08-24). IExternalEventHandler; raised every 200ms
 │                                 by ViolationHighlightController's System.Threading.Timer. Projects
-│                                 each ViolationHighlight.Location to normalised [0,1] screen coords
-│                                 via UIView.GetZoomCorners() + View.RightDirection/UpDirection.
-│                                 Pushes OverlayMarker list to ViolationOverlayController for WPF
-│                                 canvas rendering. Only active in Symbol mode when overlay is enabled.
+│                                 each ViolationHighlight's BBox (8 corners) to a normalised [0,1] screen
+│                                 rect via UIView.GetZoomCorners() + View.RightDirection/UpDirection.
+│                                 Pushes OverlayMarker list (centre + extent) to ViolationOverlayController.
+│                                 Zoom corners changed since last tick => SetViewMoving() instead (overlay
+│                                 hides markers until the view is still). Only active in Symbol mode.
 ├── ui/                           WinForms + WPF UI (P3, 2026-05-30). forms/ folder deleted.
 │   ├── AutoSyncCountdownForm.cs  Moved from forms/ (namespace was already ProjectPerseus.ui).
 │   ├── BatchProgressForm.cs
@@ -280,7 +281,11 @@ ProjectPerseus/
 │   │                             SourceInitialized. 150ms DispatcherTimer syncs position against
 │   │                             Revit MainWindowHandle client rect. DPI-correct via
 │   │                             HwndSource.CompositionTarget.TransformFromDevice. Runs on
-│   │                             ViolationOverlayController's dedicated STA thread.
+│   │                             ViolationOverlayController's dedicated STA thread. Markers are rings
+│   │                             enclosing each element's projected bbox (min 28px, dark halo + tint).
+│   │                             Hidden during navigation: a WH_MOUSE_LL hook (installed only while
+│   │                             markers exist) catches middle-drag / wheel over the viewport, plus
+│   │                             Revit's SetViewMoving; faded back in on a frame computed after settling.
 │   ├── ViolationOverlayController.cs NEW (2026-08-04). Static controller. Owns a dedicated STA
 │   │                             thread running Dispatcher.Run(). EnsureHandle() creates the HWND
 │   │                             without showing the window. Volatile publish pattern: _overlay

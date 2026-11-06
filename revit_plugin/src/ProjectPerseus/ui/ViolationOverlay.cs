@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
@@ -13,15 +15,30 @@ namespace ProjectPerseus.ui
     // Topmost, click-through WPF overlay covering the Revit canvas.
     // Two independent layers:
     //   (1) _blockingLabel  — dark pill shown when sync-blocking violations exist
-    //   (2) _markerCanvas   — coloured circles at projected element positions (always in front)
+    //   (2) _markerCanvas   — rings drawn around each violating element (projected bounding box)
     // All methods must be called via this window's own Dispatcher (see ViolationOverlayController).
     //
-    // Marker positioning note: NormX/NormY are normalised coordinates within the Revit VIEW
+    // Marker positioning note: NormX/NormY/NormW/NormH are normalised coordinates within the Revit VIEW
     // viewport (from UIView.GetZoomCorners projection), NOT the Revit main window.  The overlay
     // covers the full main window client rect, so SyncPosition() walks Win32 child windows to
     // find the actual view panel and computes _vpLeft/_vpTop/_vpWidth/_vpHeight within the canvas.
+    //
+    // Navigation: marker positions are recomputed by Revit only every ~200 ms, so while the user pans
+    // or zooms they would lag behind the model. Instead the markers are hidden as soon as navigation
+    // starts and faded back in once a frame computed on the settled view arrives. Two signals:
+    //   - a low-level mouse hook (installed only while markers exist) sees middle-button drags and
+    //     wheel zooms over the viewport the instant they happen;
+    //   - Revit reports SetViewMoving() when the zoom corners changed between ticks (ViewCube,
+    //     navigation bar, keyboard, view switch... anything the hook can't see).
     internal sealed class ViolationOverlay : Window
     {
+        // A marker frame must be computed at least this long after the last navigation input
+        // to be trusted (Revit may apply a wheel zoom slightly after the wheel message).
+        private const int SettleMs = 150;
+        private const double MinRingDiameter = 28;   // px — small/point elements still get a visible ring
+        private const double RingPadding     = 8;    // px added around the element's projected diagonal
+        private const double MaxRingDiameter = 6000; // px — beyond this the ring is just noise off-screen
+
         private readonly IntPtr _revitHwnd;
         private readonly uint   _revitProcessId;
         private IntPtr _hwnd;
@@ -32,6 +49,17 @@ namespace ProjectPerseus.ui
 
         // Viewport sub-rect within the overlay canvas (WPF units).  Updated each SyncPosition tick.
         private double _vpLeft, _vpTop, _vpWidth, _vpHeight;
+        // Same viewport in physical screen pixels, for the mouse hook's hit test.
+        private NativeMethods.RECT _vpScreen;
+        private volatile bool _revitForeground;
+
+        // Navigation suppression state (all touched on this window's dispatcher thread only).
+        private bool _suppressed;
+        private bool _middleDown;
+        private int  _lastNavTicks;
+
+        private IntPtr _mouseHook = IntPtr.Zero;
+        private NativeMethods.LowLevelMouseProc _mouseProc; // field keeps the delegate alive while hooked
 
         private readonly TextBlock       _statusText;
         private readonly Border          _blockingLabel;
@@ -76,7 +104,7 @@ namespace ProjectPerseus.ui
                 Visibility          = Visibility.Collapsed,
             };
 
-            _markerCanvas = new Canvas { IsHitTestVisible = false };
+            _markerCanvas = new Canvas { IsHitTestVisible = false, ClipToBounds = true };
 
             var grid = new Grid();
             grid.Children.Add(_markerCanvas);   // bottom layer: element markers
@@ -87,11 +115,16 @@ namespace ProjectPerseus.ui
             _positionTimer.Tick += (s, e) =>
             {
                 // Unhandled exceptions on a WPF dispatcher thread bring Revit down; keep the overlay's failures here.
-                try { SyncPosition(); }
+                try
+                {
+                    CheckMiddleButtonReleased();
+                    SyncPosition();
+                }
                 catch (Exception ex) { ProjectPerseus.logging.Log.Warn($"[ViolationOverlay] position sync failed: {ex.Message}"); }
             };
 
             SourceInitialized += OnSourceInitialized;
+            Closed += (s, e) => UninstallMouseHook();
         }
 
         private void OnSourceInitialized(object sender, EventArgs e)
@@ -120,18 +153,147 @@ namespace ProjectPerseus.ui
             ManageTimer();
         }
 
-        internal void SetMarkers(List<OverlayMarker> markers)
+        // computedAt = Environment.TickCount when Revit projected this frame.
+        internal void SetMarkers(List<OverlayMarker> markers, int computedAt)
         {
-            _currentMarkers = markers ?? new List<OverlayMarker>();
-            _hasMarkers     = _currentMarkers.Count > 0;
-            RebuildMarkerCanvas();
+            var next = markers ?? new List<OverlayMarker>();
+            bool changed = !SameMarkers(_currentMarkers, next);
+            _currentMarkers = next;
+            _hasMarkers     = next.Count > 0;
+
+            if (!_hasMarkers)
+            {
+                // Cleared (layer off / mode switched / nothing visible): reset suppression too.
+                _suppressed = false;
+                _markerCanvas.Children.Clear();
+                ShowMarkerLayer(animate: false);
+            }
+            else
+            {
+                if (changed) RebuildMarkerCanvas();
+                if (_suppressed && !_middleDown && unchecked(computedAt - _lastNavTicks) >= SettleMs)
+                {
+                    _suppressed = false;
+                    PositionMarkers();
+                    ShowMarkerLayer(animate: true);
+                }
+            }
             ManageTimer();
         }
+
+        internal void OnViewMoving() => BeginNavigation();
+
+        // ── Navigation suppression ──
+
+        private void BeginNavigation()
+        {
+            _lastNavTicks = Environment.TickCount;
+            if (_suppressed) return;
+            _suppressed = true;
+            _markerCanvas.BeginAnimation(OpacityProperty, null);
+            _markerCanvas.Opacity    = 0;
+            _markerCanvas.Visibility = Visibility.Collapsed;
+        }
+
+        private void ShowMarkerLayer(bool animate)
+        {
+            _markerCanvas.Visibility = Visibility.Visible;
+            if (!animate)
+            {
+                _markerCanvas.BeginAnimation(OpacityProperty, null);
+                _markerCanvas.Opacity = 1;
+                return;
+            }
+            var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+            };
+            _markerCanvas.BeginAnimation(OpacityProperty, fade);
+        }
+
+        // Safety net in case the hook missed WM_MBUTTONUP (e.g. released over another window).
+        private void CheckMiddleButtonReleased()
+        {
+            if (!_middleDown) return;
+            if ((NativeMethods.GetAsyncKeyState(NativeMethods.VK_MBUTTON) & 0x8000) != 0) return;
+            _middleDown   = false;
+            _lastNavTicks = Environment.TickCount;
+        }
+
+        private void InstallMouseHook()
+        {
+            if (_mouseHook != IntPtr.Zero) return;
+            try
+            {
+                if (_mouseProc == null) _mouseProc = MouseHookCallback;
+                IntPtr hMod;
+                using (var module = Process.GetCurrentProcess().MainModule)
+                    hMod = NativeMethods.GetModuleHandle(module.ModuleName);
+                _mouseHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _mouseProc, hMod, 0);
+                if (_mouseHook == IntPtr.Zero)
+                    ProjectPerseus.logging.Log.Warn(
+                        $"[ViolationOverlay] mouse hook not installed (Win32 error {Marshal.GetLastWin32Error()}); " +
+                        "markers will hide on view change only.");
+            }
+            catch (Exception ex)
+            {
+                _mouseHook = IntPtr.Zero;
+                ProjectPerseus.logging.Log.Warn($"[ViolationOverlay] mouse hook install failed: {ex.Message}");
+            }
+        }
+
+        private void UninstallMouseHook()
+        {
+            if (_mouseHook == IntPtr.Zero) return;
+            try { NativeMethods.UnhookWindowsHookEx(_mouseHook); } catch { }
+            _mouseHook  = IntPtr.Zero;
+            _middleDown = false;
+        }
+
+        // Runs on this window's thread for every mouse event system-wide while installed: keep it tiny,
+        // never throw, and always pass the event on. Windows silently removes slow LL hooks.
+        private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            try
+            {
+                if (nCode >= 0 && _revitForeground)
+                {
+                    int msg = wParam.ToInt32();
+                    if (msg == NativeMethods.WM_MBUTTONUP)
+                    {
+                        if (_middleDown)
+                        {
+                            _middleDown   = false;
+                            _lastNavTicks = Environment.TickCount;
+                        }
+                    }
+                    else if (msg == NativeMethods.WM_MBUTTONDOWN
+                          || msg == NativeMethods.WM_MOUSEWHEEL
+                          || msg == NativeMethods.WM_MOUSEHWHEEL)
+                    {
+                        var info = (NativeMethods.MSLLHOOKSTRUCT)Marshal.PtrToStructure(
+                            lParam, typeof(NativeMethods.MSLLHOOKSTRUCT));
+                        if (InViewport(info.pt.X, info.pt.Y))
+                        {
+                            if (msg == NativeMethods.WM_MBUTTONDOWN) _middleDown = true;
+                            BeginNavigation();
+                        }
+                    }
+                }
+            }
+            catch { /* never let anything escape a hook */ }
+            return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+        }
+
+        private bool InViewport(int x, int y) =>
+            x >= _vpScreen.Left && x < _vpScreen.Right && y >= _vpScreen.Top && y < _vpScreen.Bottom;
 
         // ── Private helpers ──
 
         private void ManageTimer()
         {
+            if (_hasMarkers) InstallMouseHook(); else UninstallMouseHook();
+
             if (!_hasBlockingViolations && !_hasMarkers)
             {
                 _positionTimer.Stop();
@@ -142,23 +304,48 @@ namespace ProjectPerseus.ui
             SyncPosition();
         }
 
+        private static bool SameMarkers(List<OverlayMarker> a, List<OverlayMarker> b)
+        {
+            if (a.Count != b.Count) return false;
+            const double eps = 1e-5;
+            for (int i = 0; i < a.Count; i++)
+            {
+                var x = a[i]; var y = b[i];
+                if (x.R != y.R || x.G != y.G || x.B != y.B) return false;
+                if (Math.Abs(x.NormX - y.NormX) > eps || Math.Abs(x.NormY - y.NormY) > eps) return false;
+                if (Math.Abs(x.NormW - y.NormW) > eps || Math.Abs(x.NormH - y.NormH) > eps) return false;
+            }
+            return true;
+        }
+
+        // Each marker is a Grid holding a dark halo ring (contrast on any background), a faint tinted
+        // fill, and the severity-coloured ring on top. Size/position are set in PositionMarkers.
         private void RebuildMarkerCanvas()
         {
             _markerCanvas.Children.Clear();
-            const double diameter = 20;
+            var halo = new SolidColorBrush(Color.FromArgb(0x70, 0, 0, 0));
+            halo.Freeze();
             foreach (var m in _currentMarkers)
             {
-                var ellipse = new Ellipse
+                var ringBrush = new SolidColorBrush(Color.FromRgb(m.R, m.G, m.B));
+                ringBrush.Freeze();
+                var fillBrush = new SolidColorBrush(Color.FromArgb(0x1F, m.R, m.G, m.B));
+                fillBrush.Freeze();
+
+                var marker = new Grid { IsHitTestVisible = false, Tag = m };
+                marker.Children.Add(new Ellipse
                 {
-                    Width            = diameter,
-                    Height           = diameter,
-                    Fill             = new SolidColorBrush(Color.FromRgb(m.R, m.G, m.B)),
-                    Stroke           = Brushes.White,
-                    StrokeThickness  = 2,
-                    IsHitTestVisible = false,
-                    Tag              = m,
-                };
-                _markerCanvas.Children.Add(ellipse);
+                    Stroke          = halo,
+                    StrokeThickness = 5,
+                    Fill            = fillBrush,
+                });
+                marker.Children.Add(new Ellipse
+                {
+                    Stroke          = ringBrush,
+                    StrokeThickness = 2.5,
+                    Margin          = new Thickness(1.25), // centres the coloured ring on the halo
+                });
+                _markerCanvas.Children.Add(marker);
             }
             PositionMarkers();
         }
@@ -168,14 +355,24 @@ namespace ProjectPerseus.ui
             if (!_hasMarkers) return;
             if (_vpWidth <= 0 || _vpHeight <= 0) return;
 
-            const double radius = 10;
             foreach (UIElement child in _markerCanvas.Children)
             {
-                if (child is Ellipse e && e.Tag is OverlayMarker m)
+                if (!(child is Grid g) || !(g.Tag is OverlayMarker m)) continue;
+
+                double wPx = m.NormW * _vpWidth;
+                double hPx = m.NormH * _vpHeight;
+                double d   = Math.Sqrt(wPx * wPx + hPx * hPx) + 2 * RingPadding; // ring encloses the bbox
+                if (d < MinRingDiameter) d = MinRingDiameter;
+                if (d > MaxRingDiameter)
                 {
-                    Canvas.SetLeft(e, _vpLeft + m.NormX * _vpWidth  - radius);
-                    Canvas.SetTop( e, _vpTop  + m.NormY * _vpHeight - radius);
+                    g.Visibility = Visibility.Collapsed;
+                    continue;
                 }
+                g.Visibility = Visibility.Visible;
+                g.Width  = d;
+                g.Height = d;
+                Canvas.SetLeft(g, _vpLeft + m.NormX * _vpWidth  - d / 2);
+                Canvas.SetTop( g, _vpTop  + m.NormY * _vpHeight - d / 2);
             }
         }
 
@@ -189,9 +386,11 @@ namespace ProjectPerseus.ui
             NativeMethods.GetWindowThreadProcessId(fg, out fgPid);
             if (fgPid != _revitProcessId)
             {
+                _revitForeground = false;
                 if (IsVisible) Hide();
                 return;
             }
+            _revitForeground = true;
 
             NativeMethods.RECT cr;
             if (!NativeMethods.GetClientRect(_revitHwnd, out cr)) return;
@@ -227,12 +426,13 @@ namespace ProjectPerseus.ui
             _vpTop    = (vp.Top    - pt.Y) * scaleY;
             _vpWidth  = (vp.Right  - vp.Left) * scaleX;
             _vpHeight = (vp.Bottom - vp.Top)  * scaleY;
+            _vpScreen = vp;
 
             // Sanity-clamp: if lookup failed, fall back to full overlay area.
-            if (_vpWidth  < 100) { _vpLeft = 0; _vpWidth  = Width;  }
-            if (_vpHeight < 100) { _vpTop  = 0; _vpHeight = Height; }
+            if (_vpWidth  < 100) { _vpLeft = 0; _vpWidth  = Width;  _vpScreen.Left = pt.X; _vpScreen.Right  = pt.X + physW; }
+            if (_vpHeight < 100) { _vpTop  = 0; _vpHeight = Height; _vpScreen.Top  = pt.Y; _vpScreen.Bottom = pt.Y + physH; }
 
-            PositionMarkers();
+            if (!_suppressed) PositionMarkers();
 
             if (!IsVisible) Show();
         }
@@ -284,6 +484,15 @@ namespace ProjectPerseus.ui
             public const int CWP_SKIPINVISIBLE  = 0x0001;
             public const int CWP_SKIPDISABLED   = 0x0002;
 
+            public const int WH_MOUSE_LL        = 14;
+            public const int WM_MBUTTONDOWN     = 0x0207;
+            public const int WM_MBUTTONUP       = 0x0208;
+            public const int WM_MOUSEWHEEL      = 0x020A;
+            public const int WM_MOUSEHWHEEL     = 0x020E;
+            public const int VK_MBUTTON         = 0x04;
+
+            public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
             [DllImport("user32.dll")] public static extern int    GetWindowLong(IntPtr hwnd, int nIndex);
             [DllImport("user32.dll")] public static extern int    SetWindowLong(IntPtr hwnd, int nIndex, int dwNewLong);
             [DllImport("user32.dll")] public static extern bool   GetClientRect(IntPtr hwnd, out RECT lpRect);
@@ -293,9 +502,26 @@ namespace ProjectPerseus.ui
             [DllImport("user32.dll")] public static extern IntPtr ChildWindowFromPointEx(IntPtr hwnd, POINT pt, int uFlags);
             [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
             [DllImport("user32.dll")] public static extern uint   GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
+            [DllImport("user32.dll")] public static extern short  GetAsyncKeyState(int vKey);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+            [DllImport("user32.dll")] public static extern bool   UnhookWindowsHookEx(IntPtr hhk);
+            [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+            [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string lpModuleName);
 
             [StructLayout(LayoutKind.Sequential)] public struct RECT  { public int Left, Top, Right, Bottom; }
             [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+
+            [StructLayout(LayoutKind.Sequential)]
+            public struct MSLLHOOKSTRUCT
+            {
+                public POINT  pt;
+                public uint   mouseData;
+                public uint   flags;
+                public uint   time;
+                public IntPtr dwExtraInfo;
+            }
         }
     }
 }
