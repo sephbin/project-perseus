@@ -187,6 +187,9 @@ namespace ProjectPerseus.ui
 
         private void OnSelectionChanged(object sender, Autodesk.Revit.UI.Events.SelectionChangedEventArgs e)
         {
+            // Selection events arrive before the form's handle exists (just opened) or after it's gone (closing):
+            // BeginInvoke would throw, and there's nothing to update anyway.
+            if (IsDisposed || !IsHandleCreated) return;
             try
             {
                 var selectedIds = e.GetSelectedElements();

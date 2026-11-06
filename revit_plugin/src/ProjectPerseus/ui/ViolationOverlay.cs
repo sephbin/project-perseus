@@ -564,8 +564,8 @@ namespace ProjectPerseus.ui
         // Walk the Win32 child window tree from (screenCx, screenCy) down to the deepest
         // visible child — that's the Revit view render panel.  Falls back to the full main
         // window rect if nothing useful is found.
-        // isModelView: the walk passed through Revit's MFC "MDIClient" (the container of the open view
-        // windows). The Home page and other full-window screens are not under it, so no markers there.
+        // isModelView: the walk reached Revit's view canvas (MFC "AfxFrameOrView…", or an "MDIClient" view container
+        // on versions that use one). The Home page and other full-window screens are neither, so no markers there.
         private NativeMethods.RECT FindViewportScreenRect(
             IntPtr revitHwnd, int screenCx, int screenCy,
             int fallbackLeft, int fallbackTop, int fallbackW, int fallbackH, out bool isModelView)
@@ -590,7 +590,10 @@ namespace ProjectPerseus.ui
                 cls.Clear();
                 NativeMethods.GetClassName(current, cls, cls.Capacity);
                 string name = cls.ToString();
-                if (name == "MDIClient") isModelView = true;
+                // Revit's view canvas is an MFC "AfxFrameOrView140u" window (2026: Afx frame > AfxFrameOrView140u, no
+                // MDIClient in between); some versions nest the views under an MFC "MDIClient". The Home page is
+                // neither (WPF/web host), so it never matches.
+                if (name == "MDIClient" || name.StartsWith("AfxFrameOrView", StringComparison.Ordinal)) isModelView = true;
                 if (chain.Length > 0) chain.Append(" > ");
                 chain.Append(name);
             }
