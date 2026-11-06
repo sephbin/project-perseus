@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExternalService;
@@ -96,6 +97,26 @@ namespace ProjectPerseus.violations
             _currentViolations     = instances;
             _currentTypeViolations = types;
             ViolationHighlightServer.Instance.SetHighlights(highlights);
+
+            // Status-bar badge: everything in the violation list (instances + types), by severity.
+            try
+            {
+                int errors = 0, warnings = 0, infos = 0;
+                foreach (var dto in instances.Concat(types))
+                {
+                    switch (dto.Severity?.ToLower())
+                    {
+                        case "error":   errors++;   break;
+                        case "warning": warnings++; break;
+                        default:        infos++;    break;
+                    }
+                }
+                StatusBadgeController.ShowViolations(StatusBadgeController.DocKey(doc), doc.Title, errors, warnings, infos);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[ViolationHighlightController] badge update failed: {ex.Message}");
+            }
         }
 
         internal static void SetPositionEvent(ExternalEvent ev)

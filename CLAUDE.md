@@ -234,7 +234,7 @@ ProjectPerseus/
 │   │                             re-triggered with sync/UserSyncOptions (the user's comment + relinquish choices).
 │   │                             SyncOrchestrator.IsResyncAfterIdFix skips the check on that pass. AutoSyncEvent runs the same.
 │   ├── OwnershipUiEvent.cs       NEW (2026-11-05). IExternalEventHandler running queued Action<UIApplication> for the
-│   │                             modeless OwnershipForm and the status-bar badge (refresh, select/zoom, relinquish, open).
+│   │                             modeless OwnershipForm and the status-bar badges (refresh, select/zoom, relinquish, open ownership panel / violation list).
 │   ├── AssignIdsEvent.cs         NEW. IExternalEventHandler; calls IdAutoAssignController.ProcessPending.
 │   ├── PresencePoller.cs         Static heartbeat sending /syncboat/api/v2/source/<guid>/heartbeat/
 │   │                             every 60 s. AddSource/RemoveSource from OnDocumentOpened/Closing.
@@ -305,20 +305,25 @@ ProjectPerseus/
 │   │                             remembered per session. Live: OwnershipTracker pushes each recount (Push); redraws only when
 │   │                             ownership changed (signature), keeping selection, expanded groups and scroll. API work via
 │   │                             queue/OwnershipUiEvent.
-│   ├── OwnershipBadge.cs         NEW (2026-11-05). Borderless, non-activating WPF pill (PerseusCyan #00A0E0) owned by the
-│   │                             Revit main window; shows the count of elements the user owns. Click opens OwnershipForm.
+│   ├── StatusBadge.cs            (Renamed from OwnershipBadge.cs, 2026-11-06.) Borderless, non-activating WPF pill owned
+│   │                             by the Revit main window: colour + text + tooltip, Clicked event. Explicitly sized from its
+│   │                             measured content (not SizeToContent, which reported stale widths and made the pill jump).
 │   ├── SyncStatusToast.cs        NEW (2026-11-05). Non-activating status card (bottom-right of Revit) on its own STA
 │   │                             thread, so it paints while the UI thread is blocked in the sync event. Shown before the
 │   │                             pre-sync checks, to explain a Perseus cancel + automatic re-sync, and with a progress bar
 │   │                             (Progress(); same-step updates throttled to 10/s) for the post-sync collection/upload.
-│   └── OwnershipBadgeController.cs NEW (2026-11-05). Places the badge in Revit's status bar (finds msctls_statusbar32 or
-│                                 the bottom strip; sits left of the status bar's right-hand controls). 250 ms
-│                                 DispatcherTimer on the main thread; logs the status bar layout it found once.
+│   └── StatusBadgeController.cs  (Renamed from OwnershipBadgeController.cs, 2026-11-06.) Places the status-bar badges in
+│                                 Revit's status bar (finds msctls_statusbar32 or the bottom strip; left of its right-hand
+│                                 controls): [⚠ violations][ownership]. Ownership: PerseusCyan count of elements the user
+│                                 owns (OwnershipTracker), click opens OwnershipForm. Violations: count coloured by worst
+│                                 severity (ViolationHighlightController.Update), hidden at 0 or when the counts are for
+│                                 another document (SetActiveDocument/DocKey), click opens ViolationListForm.Open.
+│                                 250 ms DispatcherTimer on the main thread; logs the status bar layout it found once.
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
 │   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
 │   │                             as the workset, not individually.
-│   └── OwnershipTracker.cs       Idling-driven, debounced recount of the badge (dirty on DocumentChanged / sync / view
+│   └── OwnershipTracker.cs       Idling-driven, debounced recount of the ownership badge (also tells StatusBadgeController the active doc) (dirty on DocumentChanged / sync / view
 │                                 switch; 60 s periodic, 15 s while OwnershipForm is open; min gap scales with recount time).
 │                                 While the panel is open each recount is a full Scan() that feeds badge + panel.
 ├── models/                       DTOs + geometry extractor.

@@ -1,5 +1,4 @@
 using System;
-using System.Windows.Forms;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -14,19 +13,8 @@ namespace ProjectPerseus.commands
         {
             try
             {
-                var uidoc = commandData.Application.ActiveUIDocument;
-                if (uidoc == null) return Result.Failed;
-
-                var existing = ui.ViolationListForm.Instance;
-                if (existing != null && !existing.IsDisposed)
-                {
-                    existing.BringToFront();
-                    return Result.Succeeded;
-                }
-
-                var owner = new RevitWindowWrapper(commandData.Application.MainWindowHandle);
-                var form = new ui.ViolationListForm(uidoc);
-                form.Show(owner);
+                if (commandData.Application.ActiveUIDocument == null) return Result.Failed;
+                ui.ViolationListForm.Open(commandData.Application);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -35,12 +23,6 @@ namespace ProjectPerseus.commands
                 message = ex.Message;
                 return Result.Failed;
             }
-        }
-
-        private sealed class RevitWindowWrapper : IWin32Window
-        {
-            public RevitWindowWrapper(IntPtr hwnd) { Handle = hwnd; }
-            public IntPtr Handle { get; }
         }
     }
 }

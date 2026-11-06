@@ -24,6 +24,27 @@ namespace ProjectPerseus.ui
         private DataGridView _selGrid;
         private Label        _selLabel;
 
+        /// <summary>Opens the list for the active model, or brings the open one to the front. Needs an API context.</summary>
+        internal static void Open(UIApplication app)
+        {
+            var uidoc = app.ActiveUIDocument;
+            if (uidoc == null) return;
+
+            var existing = Instance;
+            if (existing != null && !existing.IsDisposed)
+            {
+                existing.BringToFront();
+                return;
+            }
+            new ViolationListForm(uidoc).Show(new OwnerWindow(app.MainWindowHandle));
+        }
+
+        private sealed class OwnerWindow : IWin32Window
+        {
+            public OwnerWindow(IntPtr hwnd) { Handle = hwnd; }
+            public IntPtr Handle { get; }
+        }
+
         public ViolationListForm(UIDocument uidoc)
         {
             _uidoc   = uidoc;

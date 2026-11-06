@@ -423,8 +423,8 @@
     <Compile Include="ui\ThemeIconManager.cs" />
     <Compile Include="ui\ViolationListForm.cs" />
     <Compile Include="ui\OwnershipForm.cs" />
-    <Compile Include="ui\OwnershipBadge.cs" />
-    <Compile Include="ui\OwnershipBadgeController.cs" />
+    <Compile Include="ui\StatusBadge.cs" />
+    <Compile Include="ui\StatusBadgeController.cs" />
     <Compile Include="util\ElementWatchList.cs" />
     <Compile Include="util\FilterEvaluator.cs" />
     <Compile Include="util\JsonUtils.cs" />

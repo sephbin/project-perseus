@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -34,7 +34,8 @@ namespace ProjectPerseus.ownership
         internal static void Subscribe(UIControlledApplication app)
         {
             OwnershipUiEvent.Create();
-            OwnershipBadgeController.OnClick = () => OwnershipUiEvent.Run(OwnershipForm.Open);
+            StatusBadgeController.OnOwnershipClick = () => OwnershipUiEvent.Run(OwnershipForm.Open);
+            StatusBadgeController.OnViolationsClick = () => OwnershipUiEvent.Run(ViolationListForm.Open);
 
             app.Idling += OnIdling;
             app.ViewActivated += OnViewActivated;
@@ -50,7 +51,7 @@ namespace ProjectPerseus.ownership
             app.ControlledApplication.DocumentChanged -= OnDocumentChanged;
             app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynced;
             app.ControlledApplication.DocumentClosed -= OnDocumentClosed;
-            OwnershipBadgeController.Shutdown();
+            StatusBadgeController.Shutdown();
         }
 
         internal static void MarkDirty() => _dirty = true;
@@ -71,17 +72,20 @@ namespace ProjectPerseus.ownership
             if (!(sender is UIApplication app)) return;
             try
             {
-                OwnershipBadgeController.Initialize(app.MainWindowHandle);
+                StatusBadgeController.Initialize(app.MainWindowHandle);
 
                 Document doc = app.ActiveUIDocument?.Document;
+                // Both badges hide with no model (or a family) active; the violation badge also checks the
+                // counts it holds are for this model.
+                StatusBadgeController.SetActiveDocument(doc == null || doc.IsFamilyDocument ? null : StatusBadgeController.DocKey(doc));
                 if (doc == null || !doc.IsWorkshared || doc.IsFamilyDocument)
                 {
-                    OwnershipBadgeController.Hide();
+                    StatusBadgeController.HideOwnership();
                     _lastDocKey = null;
                     return;
                 }
 
-                string key = doc.PathName + "|" + doc.Title;
+                string key = StatusBadgeController.DocKey(doc);
                 DateTime now = DateTime.UtcNow;
                 bool switched = key != _lastDocKey;
                 bool panel = OwnershipForm.IsOpen;
@@ -114,7 +118,7 @@ namespace ProjectPerseus.ownership
                                                              Math.Max(MinGapFloor.TotalMilliseconds, ms * 10)));
                 if (ms > 500) Log.Info($"[Ownership] badge recount took {ms} ms; next recount no sooner than {_minGap.TotalSeconds:0} s");
 
-                OwnershipBadgeController.Show(count, worksets, doc.Title);
+                StatusBadgeController.ShowOwnership(count, worksets, doc.Title);
             }
             catch (Exception ex)
             {
