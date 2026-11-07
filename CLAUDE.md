@@ -364,7 +364,7 @@ ProjectPerseus/
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
-│   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty, Value,
+│   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty/>/>=/</<= (numeric: double params in internal units via UnitFormatUtils.TryParse of the threshold in host units; else first number in the text), Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
 │   ├── OwnershipSnapshot.cs      NEW (2026-11-05). Who owns which elements/worksets (nested ElementRow, WorksetRow).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:

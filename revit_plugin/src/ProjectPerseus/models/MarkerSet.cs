@@ -67,7 +67,8 @@ namespace ProjectPerseus.models
         /// </summary>
         public List<Entry> Entries { get; set; } = new List<Entry>();
 
-        public enum MatchKind { Equals, Contains, Regex, AnyValue, Empty }
+        /// <summary>GreaterThan..LessOrEqual compare numbers: lengths etc. in the host model's units, else the first number in the text.</summary>
+        public enum MatchKind { Equals, Contains, Regex, AnyValue, Empty, GreaterThan, GreaterOrEqual, LessThan, LessOrEqual }
 
         /// <summary>
         /// Ring / Square: around the element's projected box (icon on it). Outline: the element's own view

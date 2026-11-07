@@ -186,7 +186,7 @@ namespace ProjectPerseus.markers
             if (cats.Count == 0) { r.Error = "Pick at least one category."; return r; }
             if (!set.Entries.Any(x => x.Enabled)) { r.Error = "Add a legend entry."; return r; }
 
-            var matchers = BuildMatchers(set, out string regexError);
+            var matchers = BuildMatchers(set, doc.GetUnits(), out string regexError);
             if (regexError != null) { r.Error = regexError; return r; }
 
             // Entries grouped by the parameter they read, in legend order: within a group the first match wins,
@@ -202,6 +202,8 @@ namespace ProjectPerseus.markers
             }
             if (groups.Any(g => g.Key.Length == 0)) { r.Error = "Choose the parameter to read."; return r; }
             string defaultParam = (set.Parameter ?? "").Trim();
+            // Groups with a greater/less-than entry also read the parameter as a number.
+            var numericGroup = groups.Select(g => g.Value.Any(i => IsNumericMatch(set.Entries[i].Match))).ToArray();
 
             var colors = set.Entries.Select(x => ParseColor(x.Color)).ToArray();
             bool hasFilter = !string.IsNullOrWhiteSpace(set.Filter);
@@ -228,13 +230,15 @@ namespace ProjectPerseus.markers
 
                 matched.Clear();
                 bool missing = false;
-                foreach (var g in groups)
+                for (int gi = 0; gi < groups.Count; gi++)
                 {
+                    var g = groups[gi];
                     string value = ReadValue(src, el, g.Key, row, out bool found);
                     if (!found && (defaultParam.Length == 0 || string.Equals(g.Key, defaultParam, StringComparison.OrdinalIgnoreCase)))
                         missing = true;
+                    var number = numericGroup[gi] ? ReadNumber(src, el, g.Key, value) : default(NumberValue);
                     foreach (int i in g.Value)
-                        if (matchers[i](value)) { matched.Add(i); break; }
+                        if (matchers[i](value, number)) { matched.Add(i); break; }
                 }
                 if (missing) r.ParamMissing++;
                 if (matched.Count == 0) return true;
@@ -553,40 +557,132 @@ namespace ProjectPerseus.markers
                 case MarkerSet.MatchKind.Empty:    return "(empty)";
                 case MarkerSet.MatchKind.Contains: return $"contains \"{e.Value}\"";
                 case MarkerSet.MatchKind.Regex:    return $"/{e.Value}/";
-                default:                           return string.IsNullOrEmpty(e.Value) ? "(blank)" : e.Value;
+                case MarkerSet.MatchKind.GreaterThan:    return $"> {e.Value}";
+                case MarkerSet.MatchKind.GreaterOrEqual: return $"≥ {e.Value}";
+                case MarkerSet.MatchKind.LessThan:       return $"< {e.Value}";
+                case MarkerSet.MatchKind.LessOrEqual:    return $"≤ {e.Value}";
+                default:                          return string.IsNullOrEmpty(e.Value) ? "(blank)" : e.Value;
             }
         }
 
-        // One matcher per entry (null = disabled entry). Regexes compiled once per evaluation.
-        private static Func<string, bool>[] BuildMatchers(MarkerSet set, out string error)
+        internal static bool IsNumericMatch(MarkerSet.MatchKind m) =>
+            m == MarkerSet.MatchKind.GreaterThan || m == MarkerSet.MatchKind.GreaterOrEqual ||
+            m == MarkerSet.MatchKind.LessThan || m == MarkerSet.MatchKind.LessOrEqual;
+
+        /// <summary>
+        /// A parameter read as a number. Spec != null: Value is in Revit internal units (a length/area/angle... double
+        /// parameter), so a threshold typed in project units is parsed with the same spec. Spec == null: a plain number
+        /// (integer parameter, or the first number in a text value such as "60 min").
+        /// </summary>
+        internal struct NumberValue
+        {
+            internal bool Has;
+            internal double Value;
+            internal ForgeTypeId Spec;
+        }
+
+        internal static NumberValue ReadNumber(Document doc, Element el, string name, string text)
+        {
+            var n = new NumberValue();
+            try
+            {
+                Parameter p = el.LookupParameter(name) ?? doc.GetElement(el.GetTypeId())?.LookupParameter(name);
+                if (p != null && p.HasValue)
+                {
+                    switch (p.StorageType)
+                    {
+                        case StorageType.Double:
+                            n.Has = true;
+                            n.Value = p.AsDouble();
+                            var spec = p.Definition?.GetDataType();
+                            n.Spec = spec != null && UnitUtils.IsMeasurableSpec(spec) ? spec : null;
+                            return n;
+                        case StorageType.Integer:
+                            n.Has = true;
+                            n.Value = p.AsInteger();
+                            return n;
+                    }
+                }
+            }
+            catch { /* fall back to the text */ }
+            n.Has = TryParseLoose(text, out n.Value);
+            return n;
+        }
+
+        private static readonly Regex NumberInText = new Regex(@"[-+]?\d+(?:[.,]\d+)?", RegexOptions.CultureInvariant);
+
+        /// <summary>The first number in the text ("60 min" → 60, "2,5" → 2.5).</summary>
+        internal static bool TryParseLoose(string text, out double value)
+        {
+            value = 0;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var m = NumberInText.Match(text);
+            return m.Success && double.TryParse(m.Value.Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                                                System.Globalization.CultureInfo.InvariantCulture, out value);
+        }
+
+        // One matcher per entry (null = disabled entry). Regexes compiled once per evaluation. units = the host
+        // model's units: greater/less-than thresholds are typed as the user sees values (e.g. 2100 in a mm project).
+        private static Func<string, NumberValue, bool>[] BuildMatchers(MarkerSet set, Units units, out string error)
         {
             error = null;
-            var result = new Func<string, bool>[set.Entries.Count];
+            var result = new Func<string, NumberValue, bool>[set.Entries.Count];
             for (int i = 0; i < set.Entries.Count; i++)
             {
                 var e = set.Entries[i];
                 if (!e.Enabled) continue;
                 string want = (e.Value ?? "").Trim();
+                if (IsNumericMatch(e.Match))
+                {
+                    if (!TryParseLoose(want, out double plain))
+                    {
+                        error = $"Entry {i + 1}: \"{DescribeMatch(e)}\" needs a number.";
+                        return result;
+                    }
+                    var cmp = NumericComparer(e.Match);
+                    // Threshold per spec, parsed once: "2100" → 2100 mm in internal feet, "6'-10\"" works too.
+                    var bySpec = new Dictionary<string, double>();
+                    result[i] = (v, n) =>
+                    {
+                        if (!n.Has) return false;
+                        double t = plain;
+                        if (n.Spec != null)
+                        {
+                            if (!bySpec.TryGetValue(n.Spec.TypeId, out t))
+                            {
+                                try
+                                {
+                                    if (!UnitFormatUtils.TryParse(units, n.Spec, want, out t))
+                                        t = UnitUtils.ConvertToInternalUnits(plain, units.GetFormatOptions(n.Spec).GetUnitTypeId());
+                                }
+                                catch { t = plain; }
+                                bySpec[n.Spec.TypeId] = t;
+                            }
+                        }
+                        return cmp(n.Value, t);
+                    };
+                    continue;
+                }
                 switch (e.Match)
                 {
                     case MarkerSet.MatchKind.Equals:
-                        result[i] = v => string.Equals(v.Trim(), want, StringComparison.OrdinalIgnoreCase);
+                        result[i] = (v, n) => string.Equals(v.Trim(), want, StringComparison.OrdinalIgnoreCase);
                         break;
                     case MarkerSet.MatchKind.Contains:
-                        result[i] = v => v.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0;
+                        result[i] = (v, n) => v.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0;
                         break;
                     case MarkerSet.MatchKind.AnyValue:
-                        result[i] = v => !string.IsNullOrWhiteSpace(v);
+                        result[i] = (v, n) => !string.IsNullOrWhiteSpace(v);
                         break;
                     case MarkerSet.MatchKind.Empty:
-                        result[i] = v => string.IsNullOrWhiteSpace(v);
+                        result[i] = (v, n) => string.IsNullOrWhiteSpace(v);
                         break;
                     case MarkerSet.MatchKind.Regex:
                         try
                         {
                             var rx = new Regex(e.Value ?? "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
                                                TimeSpan.FromMilliseconds(50));
-                            result[i] = v => { try { return rx.IsMatch(v); } catch (RegexMatchTimeoutException) { return false; } };
+                            result[i] = (v, n) => { try { return rx.IsMatch(v); } catch (RegexMatchTimeoutException) { return false; } };
                         }
                         catch (ArgumentException ex)
                         {
@@ -597,6 +693,19 @@ namespace ProjectPerseus.markers
                 }
             }
             return result;
+        }
+
+        // Tolerance so "≥ 2100" holds for a value Revit shows as 2100 (internal feet don't round-trip exactly).
+        private static Func<double, double, bool> NumericComparer(MarkerSet.MatchKind m)
+        {
+            double eps(double t) => Math.Max(1e-9, Math.Abs(t) * 1e-9);
+            switch (m)
+            {
+                case MarkerSet.MatchKind.GreaterThan:    return (v, t) => v > t + eps(t);
+                case MarkerSet.MatchKind.GreaterOrEqual: return (v, t) => v >= t - eps(t);
+                case MarkerSet.MatchKind.LessThan:       return (v, t) => v < t - eps(t);
+                default:                                 return (v, t) => v <= t + eps(t);
+            }
         }
 
         // ── Parameter access (shared with the panel's inspection) ──────────────

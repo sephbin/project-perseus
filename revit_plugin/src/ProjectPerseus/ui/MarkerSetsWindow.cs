@@ -32,12 +32,22 @@ namespace ProjectPerseus.ui
             "#E6007E", "#00A0E0", "#F28C00", "#2EAD4B", "#7B4FD6", "#D4B000",
             "#D23A3A", "#00A39A", "#2F6FDE", "#F06BA8", "#8C5A2B", "#6B7280",
         };
-        private static readonly string[] MatchNames = { "equals", "contains", "matches regex", "has any value", "is empty" };
+        private static readonly string[] MatchNames =
+        {
+            "equals", "contains", "matches regex", "has any value", "is empty",
+            "> greater than", "≥ at least", "< less than", "≤ at most",
+        };
         private static readonly MarkerSet.MatchKind[] MatchKinds =
         {
             MarkerSet.MatchKind.Equals, MarkerSet.MatchKind.Contains, MarkerSet.MatchKind.Regex,
             MarkerSet.MatchKind.AnyValue, MarkerSet.MatchKind.Empty,
+            MarkerSet.MatchKind.GreaterThan, MarkerSet.MatchKind.GreaterOrEqual,
+            MarkerSet.MatchKind.LessThan, MarkerSet.MatchKind.LessOrEqual,
         };
+
+        private const string NumericValueTip =
+            "A number, as you'd type it in Revit: lengths, areas etc. are in the project's units (2100, 2.1 m, 6'-10\" ...).\n" +
+            "Text parameters compare their first number (\"60 min\" → 60).";
 
         private static readonly MarkerSet.DisplayKind[] DisplayKinds =
         {
@@ -771,6 +781,7 @@ namespace ProjectPerseus.ui
                 bool needsValue = entry.Match != MarkerSet.MatchKind.AnyValue && entry.Match != MarkerSet.MatchKind.Empty;
                 value.IsEnabled = needsValue;
                 value.Opacity = needsValue ? 1 : 0.4;
+                value.ToolTip = MarkerEngine.IsNumericMatch(entry.Match) ? NumericValueTip : null;
             };
             syncValueEnabled();
             match.SelectionChanged += (s, e) =>
