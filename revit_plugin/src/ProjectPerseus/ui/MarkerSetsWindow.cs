@@ -61,9 +61,20 @@ namespace ProjectPerseus.ui
         private readonly TextBox _name, _categorySearch, _filter;
         private readonly CheckBox _includeLinks;
         private readonly ListBox _categoryList;
-        private readonly ComboBox _parameter;
+        private readonly StackPanel _paramRows;                 // the set's default parameters, one editable box each
+        private readonly List<ComboBox> _paramBoxes = new List<ComboBox>();
         private readonly StackPanel _entryRows;
-        private readonly TextBlock _viewStatus, _modelStatus;
+        private readonly TextBlock _viewStatus, _modelStatus, _selectionStatus;
+        private readonly Button _clearSelection;
+
+        // Legend row selection (Ctrl/Shift+click): colour, icon, display, parameter, match and on/off changes made on a
+        // selected row apply to every selected row.
+        private readonly HashSet<MarkerSet.Entry> _selected = new HashSet<MarkerSet.Entry>();
+        private MarkerSet.Entry _anchor;
+        private readonly List<KeyValuePair<MarkerSet.Entry, Border>> _rowBorders = new List<KeyValuePair<MarkerSet.Entry, Border>>();
+        private readonly List<Action> _entryParamRefreshers = new List<Action>();
+        private static readonly Brush SelectedFill = Frozen(Color.FromRgb(0xE8, 0xF1, 0xFC));
+        private static readonly Brush SelectedEdge = Frozen(Color.FromRgb(0x9C, 0xC3, 0xF0));
 
         private MarkerSet _set;
         private bool _loading;
@@ -211,18 +222,12 @@ namespace ProjectPerseus.ui
             queryGrid.Children.Add(filterPanel);
             _editor.Children.Add(queryGrid);
 
-            // Parameter
-            _editor.Children.Add(Section("Default parameter"));
-            _editor.Children.Add(Hint("Read by legend entries that don't name their own parameter."));
-            _parameter = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
-            _parameter.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler((s, e) =>
-            {
-                if (!Editing() || _set.Parameter == _parameter.Text) return;
-                _set.Parameter = _parameter.Text;
-                ScheduleApply();
-                ScheduleInspect();
-            }));
-            _editor.Children.Add(_parameter);
+            // Parameters
+            _editor.Children.Add(Section("Parameters"));
+            _editor.Children.Add(Hint("Legend entries pick one of these. Auto-fill adds an entry for each value of each parameter. " +
+                                      "Entries that don't pick one read the first."));
+            _paramRows = new StackPanel();
+            _editor.Children.Add(_paramRows);
             _modelStatus = new TextBlock { Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
             _editor.Children.Add(_modelStatus);
 
@@ -232,8 +237,15 @@ namespace ProjectPerseus.ui
             legendButtons.Children.Add(MakeButton("+ Add entry", (s, e) => AddEntry(null)));
             var auto = MakeButton("Auto-fill from values", (s, e) => AutoFill());
             auto.Margin = new Thickness(6, 0, 0, 0);
-            auto.ToolTip = "Add an entry (with its own colour) for each distinct value of the parameter in the model.";
+            auto.ToolTip = "Add an entry (with its own colour) for each distinct value of each parameter in the model.";
             legendButtons.Children.Add(auto);
+            var selectAll = MakeButton("Select all", (s, e) => SelectAllEntries());
+            selectAll.Margin = new Thickness(6, 0, 0, 0);
+            selectAll.ToolTip = "Select every entry, then change a colour, icon, display, parameter or match once for all of them.";
+            legendButtons.Children.Add(selectAll);
+            _clearSelection = MakeButton("Clear selection", (s, e) => { _selected.Clear(); _anchor = null; PaintSelection(); });
+            _clearSelection.Margin = new Thickness(4, 0, 0, 0);
+            legendButtons.Children.Add(_clearSelection);
             DockPanel.SetDock(legendButtons, Dock.Right);
             legendHeader.Children.Add(legendButtons);
             legendHeader.Children.Add(new TextBlock { Text = "Legend", FontWeight = FontWeights.SemiBold, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
@@ -241,6 +253,8 @@ namespace ProjectPerseus.ui
             _editor.Children.Add(Hint("Per parameter, the first entry an element's value matches marks it; entries on different " +
                                       "parameters mark independently (e.g. mag lock and drop bolt on one door). " +
                                       "Display: ring, square, the element's outline traced thick, or icon only. Count = elements in the current view."));
+            _selectionStatus = new TextBlock { FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
+            _editor.Children.Add(_selectionStatus);
             _entryRows = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             _editor.Children.Add(_entryRows);
 
@@ -424,6 +438,8 @@ namespace ProjectPerseus.ui
         {
             _set = set;
             _inspection = null;
+            _selected.Clear();
+            _anchor = null;
             _emptyEditor.Visibility = set == null ? Visibility.Visible : Visibility.Collapsed;
             _editor.Visibility = set == null ? Visibility.Collapsed : Visibility.Visible;
             if (set == null) return;
@@ -434,8 +450,7 @@ namespace ProjectPerseus.ui
                 _name.Text = set.Name;
                 _filter.Text = set.Filter;
                 _includeLinks.IsChecked = set.IncludeLinks;
-                _parameter.ItemsSource = null;
-                _parameter.Text = set.Parameter;
+                BuildParameterRows();
                 _categorySearch.Text = "";
                 FillCategoryList();
                 BuildEntryRows();
@@ -480,11 +495,86 @@ namespace ProjectPerseus.ui
             }
         }
 
+        // ── Parameters ──
+
+        private void BuildParameterRows()
+        {
+            _paramRows.Children.Clear();
+            _paramBoxes.Clear();
+            if (_set == null) return;
+            if (_set.Parameters.Count == 0) _set.Parameters.Add("");
+            for (int i = 0; i < _set.Parameters.Count; i++)
+            {
+                int index = i;
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 3) };
+                var box = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, Width = 320, Text = _set.Parameters[i] ?? "" };
+                if (_inspection != null) box.ItemsSource = _inspection.ParameterNames;
+                // Entries that picked this parameter follow it when it's retyped (also through a momentarily blank box).
+                string start = (_set.Parameters[i] ?? "").Trim();
+                var linked = start.Length == 0
+                    ? new List<MarkerSet.Entry>()
+                    : _set.Entries.Where(x => string.Equals((x.Parameter ?? "").Trim(), start, StringComparison.OrdinalIgnoreCase)).ToList();
+                box.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler((s, e) => OnParameterEdited(index, box.Text, linked)));
+                row.Children.Add(box);
+                if (_set.Parameters.Count > 1)
+                    row.Children.Add(SmallButton("✕", "Remove this parameter (entries that picked it keep reading it)", () => RemoveParameter(index)));
+                if (index == 0 && _set.Parameters.Count > 1)
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = "also used by entries that don't pick one", Foreground = Muted, FontSize = 11,
+                        Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    });
+                _paramBoxes.Add(box);
+                _paramRows.Children.Add(row);
+            }
+            var add = MakeButton("+ Add parameter", (s, e) =>
+            {
+                if (_set == null) return;
+                _set.Parameters.Add("");
+                BuildParameterRows();
+            });
+            add.HorizontalAlignment = HorizontalAlignment.Left;
+            add.Margin = new Thickness(0, 2, 0, 0);
+            _paramRows.Children.Add(add);
+        }
+
+        private void OnParameterEdited(int index, string text, List<MarkerSet.Entry> linked)
+        {
+            if (!Editing() || index >= _set.Parameters.Count || (_set.Parameters[index] ?? "") == text) return;
+            string old = (_set.Parameters[index] ?? "").Trim();
+            _set.Parameters[index] = text;
+            foreach (var en in linked)
+                if (string.Equals((en.Parameter ?? "").Trim(), old, StringComparison.OrdinalIgnoreCase)) en.Parameter = text.Trim();
+            foreach (var refresh in _entryParamRefreshers) refresh();
+            ScheduleApply();
+            ScheduleInspect();
+        }
+
+        private void RemoveParameter(int index)
+        {
+            if (_set == null || index >= _set.Parameters.Count) return;
+            string removed = (_set.Parameters[index] ?? "").Trim();
+            // Entries reading the first parameter implicitly keep reading it.
+            if (index == 0 && removed.Length > 0)
+                foreach (var en in _set.Entries.Where(x => string.IsNullOrWhiteSpace(x.Parameter))) en.Parameter = removed;
+            _set.Parameters.RemoveAt(index);
+            BuildParameterRows();
+            foreach (var refresh in _entryParamRefreshers) refresh();
+            ScheduleApply();
+            ScheduleInspect();
+        }
+
+        // ── Legend entries ──
+
         private void BuildEntryRows()
         {
             _entryRows.Children.Clear();
             _entryCounts.Clear();
-            if (_set == null) return;
+            _rowBorders.Clear();
+            _entryParamRefreshers.Clear();
+            if (_set == null) { PaintSelection(); return; }
+            _selected.RemoveWhere(x => !_set.Entries.Contains(x));
+            if (_anchor != null && !_set.Entries.Contains(_anchor)) _anchor = null;
 
             var header = EntryGrid();
             AddCell(header, 1, Hint("Colour"));
@@ -495,17 +585,18 @@ namespace ProjectPerseus.ui
             AddCell(header, 6, Hint("Value"));
             AddCell(header, 7, Hint("Label"));
             AddCell(header, 8, Hint("In view"));
-            _entryRows.Children.Add(header);
+            _entryRows.Children.Add(new Border { Child = header, BorderThickness = new Thickness(1) }); // aligns with the rows
 
             for (int i = 0; i < _set.Entries.Count; i++)
                 _entryRows.Children.Add(BuildEntryRow(_set.Entries[i], i));
             UpdateEntryCounts();
+            PaintSelection();
         }
 
         private static Grid EntryGrid()
         {
             var g = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-            // enable | colour | icon | ring/icon-only | parameter | match | value | label | count | tools
+            // enable | colour | icon | display | parameter | match | value | label | count | tools
             foreach (var w in new[] { 24.0, 40, 52, 112, -1, 112, -1.2, -1, 52, 84 })
                 g.ColumnDefinitions.Add(new ColumnDefinition
                 {
@@ -520,24 +611,41 @@ namespace ProjectPerseus.ui
             g.Children.Add(e);
         }
 
+        /// <summary>The entries an edit on <paramref name="entry"/> applies to: all selected ones if it is one of several.</summary>
+        private List<MarkerSet.Entry> Targets(MarkerSet.Entry entry) =>
+            _selected.Count > 1 && _selected.Contains(entry)
+                ? _set.Entries.Where(_selected.Contains).ToList()
+                : new List<MarkerSet.Entry> { entry };
+
+        /// <summary>After an edit: redraw the rows when other rows (or this row's swatches) changed, then apply.</summary>
+        private void Applied(int count, bool repaint = false)
+        {
+            if (count > 1 || repaint) Dispatcher.BeginInvoke(new Action(BuildEntryRows), DispatcherPriority.Background);
+            RefreshListItem(_set);
+            ScheduleApply();
+        }
+
         private UIElement BuildEntryRow(MarkerSet.Entry entry, int index)
         {
             var g = EntryGrid();
 
             var enabled = new CheckBox { IsChecked = entry.Enabled, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Use this entry" };
-            enabled.Click += (s, e) => { entry.Enabled = enabled.IsChecked == true; RefreshListItem(_set); ScheduleApply(); };
+            enabled.Click += (s, e) =>
+            {
+                bool on = enabled.IsChecked == true;
+                var t = Targets(entry);
+                foreach (var x in t) x.Enabled = on;
+                Applied(t.Count);
+            };
             AddCell(g, 0, enabled);
 
             // Colour swatch → colour dialog
-            var colour = new Button { Width = 32, Height = 22, Padding = new Thickness(0), ToolTip = "Ring colour", Cursor = Cursors.Hand };
-            Action paintColour = () =>
-            {
-                var c = MarkerEngine.ParseColor(entry.Color);
-                colour.Content = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14, Stroke = Frozen(c), StrokeThickness = 3 };
-            };
-            paintColour();
+            var colour = new Button { Width = 32, Height = 22, Padding = new Thickness(0), ToolTip = "Colour", Cursor = Cursors.Hand };
+            var c0 = MarkerEngine.ParseColor(entry.Color);
+            colour.Content = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14, Stroke = Frozen(c0), StrokeThickness = 3 };
             colour.Click += (s, e) =>
             {
+                var t = Targets(entry);
                 var c = MarkerEngine.ParseColor(entry.Color);
                 using (var dlg = new System.Windows.Forms.ColorDialog
                 {
@@ -547,34 +655,37 @@ namespace ProjectPerseus.ui
                 })
                 {
                     if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-                    entry.Color = $"#{dlg.Color.R:X2}{dlg.Color.G:X2}{dlg.Color.B:X2}";
+                    string hex = $"#{dlg.Color.R:X2}{dlg.Color.G:X2}{dlg.Color.B:X2}";
+                    foreach (var x in t) x.Color = hex;
                 }
-                paintColour();
-                RefreshListItem(_set);
-                ScheduleApply();
+                Applied(t.Count, repaint: true);
             };
             AddCell(g, 1, colour);
 
             // Icon → menu of icons
-            var icon = new Button { Width = 44, Height = 22, Padding = new Thickness(0), ToolTip = "Icon on the ring", Cursor = Cursors.Hand };
-            Action paintIcon = () =>
-            {
-                icon.Content = string.IsNullOrEmpty(entry.Icon)
-                    ? (object)new TextBlock { Text = "none", Foreground = Muted, FontSize = 10 }
-                    : MarkerIcons.Badge(entry.Icon, MarkerEngine.ParseColor(entry.Color), 18);
-            };
-            paintIcon();
+            var icon = new Button { Width = 44, Height = 22, Padding = new Thickness(0), ToolTip = "Icon", Cursor = Cursors.Hand };
+            icon.Content = string.IsNullOrEmpty(entry.Icon)
+                ? (object)new TextBlock { Text = "none", Foreground = Muted, FontSize = 10 }
+                : MarkerIcons.Badge(entry.Icon, MarkerEngine.ParseColor(entry.Color), 18);
             icon.Click += (s, e) =>
             {
+                var t = Targets(entry);
                 var menu = new ContextMenu { PlacementTarget = icon, Placement = PlacementMode.Bottom };
+                if (t.Count > 1)
+                    menu.Items.Add(new MenuItem { Header = $"Icon for the {t.Count} selected entries", IsEnabled = false, FontWeight = FontWeights.SemiBold });
+                Action<string> choose = key =>
+                {
+                    foreach (var x in t) x.Icon = key;
+                    Applied(t.Count, repaint: true);
+                };
                 var none = new MenuItem { Header = "No icon" };
-                none.Click += (s2, e2) => { entry.Icon = ""; paintIcon(); ScheduleApply(); };
+                none.Click += (s2, e2) => choose("");
                 menu.Items.Add(none);
                 foreach (var ic in MarkerIcons.All)
                 {
                     var key = ic.Key;
                     var item = new MenuItem { Header = ic.Name, Icon = MarkerIcons.Badge(key, MarkerEngine.ParseColor(entry.Color), 18) };
-                    item.Click += (s2, e2) => { entry.Icon = key; paintIcon(); ScheduleApply(); };
+                    item.Click += (s2, e2) => choose(key);
                     menu.Items.Add(item);
                 }
                 menu.IsOpen = true;
@@ -600,27 +711,45 @@ namespace ProjectPerseus.ui
             display.SelectionChanged += (s, e) =>
             {
                 if (display.SelectedIndex < 0) return;
-                entry.Display = DisplayKinds[display.SelectedIndex];
-                ScheduleApply();
+                var kind = DisplayKinds[display.SelectedIndex];
+                var t = Targets(entry);
+                foreach (var x in t) x.Display = kind;
+                Applied(t.Count);
             };
             AddCell(g, 3, display);
 
-            // Parameter (blank = the set's default parameter)
+            // Parameter: one of the set's parameters (an entry imported with another one keeps it, listed last)
             var param = new ComboBox
             {
-                IsEditable = true, IsTextSearchEnabled = true, Text = entry.Parameter, Margin = new Thickness(4, 0, 0, 0),
-                ToolTip = "Parameter this entry reads. Leave blank to use the default parameter above.\n" +
+                Margin = new Thickness(4, 0, 0, 0),
+                ToolTip = "Which of the set's parameters this entry reads (add parameters above).\n" +
                           "Entries reading different parameters mark independently, so one element can get several marks.",
             };
-            if (_inspection != null) param.ItemsSource = _inspection.ParameterNames;
-            param.DropDownOpened += (s, e) => { if (_inspection != null) param.ItemsSource = _inspection.ParameterNames; };
-            param.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler((s, e) =>
+            bool fillingParam = false;
+            Action fillParam = () =>
             {
-                if ((entry.Parameter ?? "") == param.Text) return;
-                entry.Parameter = param.Text;
-                ScheduleApply();
-                ScheduleInspect(); // fetch this parameter's values for the suggestions
-            }));
+                fillingParam = true;
+                try
+                {
+                    var choices = _set.DefaultParameters;
+                    string current = _set.ParameterFor(entry);
+                    if (current.Length > 0 && !choices.Contains(current, StringComparer.OrdinalIgnoreCase)) choices.Add(current);
+                    param.ItemsSource = choices;
+                    param.SelectedIndex = choices.FindIndex(x => string.Equals(x, current, StringComparison.OrdinalIgnoreCase));
+                    param.IsEnabled = choices.Count > 0;
+                }
+                finally { fillingParam = false; }
+            };
+            fillParam();
+            _entryParamRefreshers.Add(fillParam);
+            param.SelectionChanged += (s, e) =>
+            {
+                if (fillingParam || !(param.SelectedItem is string chosen)) return;
+                var t = Targets(entry);
+                foreach (var x in t) x.Parameter = chosen;
+                Applied(t.Count);
+                ScheduleInspect(); // values for this parameter's suggestions
+            };
             AddCell(g, 4, param);
 
             // Match kind
@@ -647,9 +776,11 @@ namespace ProjectPerseus.ui
             match.SelectionChanged += (s, e) =>
             {
                 if (match.SelectedIndex < 0) return;
-                entry.Match = MatchKinds[match.SelectedIndex];
+                var kind = MatchKinds[match.SelectedIndex];
+                var t = Targets(entry);
+                foreach (var x in t) x.Match = kind;
                 syncValueEnabled();
-                ScheduleApply();
+                Applied(t.Count);
             };
             AddCell(g, 6, value);
 
@@ -664,9 +795,95 @@ namespace ProjectPerseus.ui
             var tools = new StackPanel { Orientation = Orientation.Horizontal };
             tools.Children.Add(SmallButton("▲", "Move up (among entries on the same parameter, earlier entries win)", () => MoveEntry(index, -1)));
             tools.Children.Add(SmallButton("▼", "Move down", () => MoveEntry(index, +1)));
-            tools.Children.Add(SmallButton("✕", "Remove", () => { _set.Entries.RemoveAt(index); BuildEntryRows(); RefreshListItem(_set); ScheduleApply(); }));
+            tools.Children.Add(SmallButton("✕", "Remove (all selected entries, if this is one of them)", () =>
+            {
+                foreach (var x in Targets(entry)) { _set.Entries.Remove(x); _selected.Remove(x); }
+                BuildEntryRows();
+                RefreshListItem(_set);
+                ScheduleApply();
+            }));
             AddCell(g, 9, tools);
-            return g;
+
+            var border = new Border
+            {
+                Child = g, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
+                Background = Brushes.Transparent, BorderBrush = Brushes.Transparent,
+            };
+            border.PreviewMouseLeftButtonDown += (s, e) => OnRowMouseDown(entry, border, e);
+            _rowBorders.Add(new KeyValuePair<MarkerSet.Entry, Border>(entry, border));
+            return border;
+        }
+
+        // ── Entry selection ──
+
+        // Ctrl+click toggles a row, Shift+click selects a range (Ctrl+Shift adds it); neither reaches the control under
+        // the mouse. A plain click on an unselected row, or on a selected row's background, selects just that row; a
+        // plain click on a control in a selected row keeps the selection so the change applies to all of it.
+        private void OnRowMouseDown(MarkerSet.Entry entry, Border row, MouseButtonEventArgs e)
+        {
+            if (_set == null) return;
+            var mods = Keyboard.Modifiers;
+            bool ctrl = (mods & ModifierKeys.Control) != 0, shift = (mods & ModifierKeys.Shift) != 0;
+            if (shift && _anchor != null && _set.Entries.Contains(_anchor))
+            {
+                int a = _set.Entries.IndexOf(_anchor), b = _set.Entries.IndexOf(entry);
+                if (!ctrl) _selected.Clear();
+                for (int i = Math.Min(a, b); i <= Math.Max(a, b); i++) _selected.Add(_set.Entries[i]);
+                e.Handled = true;
+            }
+            else if (ctrl || shift)
+            {
+                if (!_selected.Remove(entry)) _selected.Add(entry);
+                _anchor = entry;
+                e.Handled = true;
+            }
+            else if (!_selected.Contains(entry) || !IsInControl(e.OriginalSource as DependencyObject, row))
+            {
+                _selected.Clear();
+                _selected.Add(entry);
+                _anchor = entry;
+            }
+            PaintSelection();
+        }
+
+        private static bool IsInControl(DependencyObject d, Border row)
+        {
+            while (d != null && d != row)
+            {
+                if (d is ButtonBase || d is ComboBox || d is TextBoxBase) return true;
+                d = d is Visual ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+            }
+            return d == null; // left the row's tree (e.g. a drop-down's popup): treat as a control
+        }
+
+        private void SelectAllEntries()
+        {
+            if (_set == null) return;
+            foreach (var x in _set.Entries) _selected.Add(x);
+            _anchor = _set.Entries.FirstOrDefault();
+            PaintSelection();
+        }
+
+        private void PaintSelection()
+        {
+            foreach (var kv in _rowBorders)
+            {
+                bool on = _selected.Contains(kv.Key);
+                kv.Value.Background = on ? SelectedFill : Brushes.Transparent;
+                kv.Value.BorderBrush = on ? SelectedEdge : Brushes.Transparent;
+            }
+            int n = _selected.Count;
+            _clearSelection.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (n > 1)
+            {
+                _selectionStatus.Text = $"{n} entries selected: changing the colour, icon, display, parameter, match or on/off of any of them changes all {n}.";
+                _selectionStatus.Foreground = Ink;
+            }
+            else
+            {
+                _selectionStatus.Text = "Ctrl+click or Shift+click entries (or Select all) to change their colour, icon, display… in one go.";
+                _selectionStatus.Foreground = Muted;
+            }
         }
 
         private void MoveEntry(int index, int delta)
@@ -680,47 +897,79 @@ namespace ProjectPerseus.ui
             ScheduleApply();
         }
 
+        private string NextColour()
+        {
+            var used = new HashSet<string>(_set.Entries.Select(x => x.Color), StringComparer.OrdinalIgnoreCase);
+            return Palette.FirstOrDefault(p => !used.Contains(p)) ?? Palette[_set.Entries.Count % Palette.Length];
+        }
+
         private void AddEntry(string value)
         {
             if (_set == null) return;
-            var used = new HashSet<string>(_set.Entries.Select(x => x.Color), StringComparer.OrdinalIgnoreCase);
-            string color = Palette.FirstOrDefault(p => !used.Contains(p)) ?? Palette[_set.Entries.Count % Palette.Length];
             _set.Entries.Add(new MarkerSet.Entry
             {
                 Match = MarkerSet.MatchKind.Equals,
                 Value = value ?? "",
                 Label = value ?? "",
-                Color = color,
+                Color = NextColour(),
             });
             BuildEntryRows();
             RefreshListItem(_set);
             ScheduleApply();
         }
 
+        private const int MaxAutoFillPerParameter = 24;
+
         private void AutoFill()
         {
             if (_set == null) return;
-            if (_inspection == null || string.IsNullOrWhiteSpace(_set.Parameter))
+            var parms = _set.DefaultParameters;
+            if (parms.Count == 0)
             {
-                MessageBox.Show(this, "Choose the parameter first; the values are read from the model.", "Perseus — Parameter Markers");
+                MessageBox.Show(this, "Add a parameter first; the values are read from the model.", "Perseus — Parameter Markers");
                 return;
             }
-            var existing = new HashSet<string>(
-                _set.Entries.Where(x => x.Match == MarkerSet.MatchKind.Equals).Select(x => (x.Value ?? "").Trim()),
-                StringComparer.OrdinalIgnoreCase);
-            int added = 0;
-            foreach (var kv in _inspection.Values)
+            if (_set.Categories.Count == 0)
             {
-                if (string.IsNullOrWhiteSpace(kv.Key) || existing.Contains(kv.Key)) continue;
-                if (added >= Palette.Length) break;
-                var used = new HashSet<string>(_set.Entries.Select(x => x.Color), StringComparer.OrdinalIgnoreCase);
-                string color = Palette.FirstOrDefault(p => !used.Contains(p)) ?? Palette[_set.Entries.Count % Palette.Length];
-                _set.Entries.Add(new MarkerSet.Entry { Match = MarkerSet.MatchKind.Equals, Value = kv.Key, Label = kv.Key, Color = color });
-                added++;
+                MessageBox.Show(this, "Pick one or more categories first.", "Perseus — Parameter Markers");
+                return;
+            }
+            if (_inspection == null || _inspection.Error != null || parms.Any(p => !_inspection.ValuesByParameter.ContainsKey(p)))
+            {
+                MessageBox.Show(this, _inspection?.Error ?? "Still reading the values from the model; try again in a moment.", "Perseus — Parameter Markers");
+                RequestInspection();
+                return;
+            }
+
+            int added = 0;
+            var notes = new List<string>();
+            foreach (var p in parms)
+            {
+                var existing = new HashSet<string>(
+                    _set.Entries.Where(x => x.Match == MarkerSet.MatchKind.Equals &&
+                                            string.Equals(_set.ParameterFor(x), p, StringComparison.OrdinalIgnoreCase))
+                                .Select(x => (x.Value ?? "").Trim()),
+                    StringComparer.OrdinalIgnoreCase);
+                int here = 0, skipped = 0;
+                foreach (var kv in _inspection.ValuesOf(p))
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key) || existing.Contains(kv.Key)) continue;
+                    if (here >= MaxAutoFillPerParameter) { skipped++; continue; }
+                    _set.Entries.Add(new MarkerSet.Entry
+                    {
+                        Match = MarkerSet.MatchKind.Equals, Value = kv.Key, Label = kv.Key, Color = NextColour(),
+                        Parameter = parms.Count > 1 ? p : "",
+                    });
+                    here++;
+                }
+                added += here;
+                if (skipped > 0) notes.Add($"\"{p}\": {skipped} more value(s) not added (at most {MaxAutoFillPerParameter} per parameter at a time).");
             }
             if (added == 0)
-                MessageBox.Show(this, "No new values to add: every value already has an entry (or the parameter is empty).",
+                MessageBox.Show(this, "No new values to add: every value already has an entry (or the parameters have no values).",
                                 "Perseus — Parameter Markers");
+            else if (notes.Count > 0)
+                MessageBox.Show(this, $"Added {added} entries.\n\n" + string.Join("\n", notes), "Perseus — Parameter Markers");
             BuildEntryRows();
             RefreshListItem(_set);
             ScheduleApply();
@@ -769,12 +1018,15 @@ namespace ProjectPerseus.ui
         private void ShowInspection(MarkerEngine.Inspection info)
         {
             _inspection = info;
-            string typed = _parameter.Text;
             _loading = true;
             try
             {
-                _parameter.ItemsSource = info.ParameterNames;
-                _parameter.Text = typed;
+                foreach (var box in _paramBoxes)
+                {
+                    string typed = box.Text;
+                    box.ItemsSource = info.ParameterNames;
+                    box.Text = typed;
+                }
             }
             finally { _loading = false; }
 
@@ -786,14 +1038,21 @@ namespace ProjectPerseus.ui
             string matched = string.IsNullOrWhiteSpace(_set.Filter)
                 ? $"{info.Matched:N0} element(s) in {where}"
                 : $"{info.Matched:N0} of {info.Considered:N0} element(s) in {where} pass the filter";
-            if (string.IsNullOrWhiteSpace(_set.Parameter)) { _modelStatus.Text = matched + ". Choose a parameter."; return; }
+            var parms = _set.DefaultParameters;
+            if (parms.Count == 0) { _modelStatus.Text = matched + ". Choose a parameter."; return; }
+            _modelStatus.Text = matched + ". " + string.Join("  ", parms.Select(p => ValueSummary(info, p, parms.Count > 1)));
+        }
 
-            var nonEmpty = info.Values.Where(kv => kv.Key.Length > 0).ToList();
-            int blank = info.Values.Where(kv => kv.Key.Length == 0).Sum(kv => kv.Value);
+        private static string ValueSummary(MarkerEngine.Inspection info, string parameter, bool named)
+        {
+            var all = info.ValuesOf(parameter);
+            var nonEmpty = all.Where(kv => kv.Key.Length > 0).ToList();
+            int blank = all.Where(kv => kv.Key.Length == 0).Sum(kv => kv.Value);
+            int take = named ? 4 : 6;
             string values = nonEmpty.Count == 0
                 ? "no values"
-                : string.Join(", ", nonEmpty.Take(6).Select(kv => $"{kv.Key} ({kv.Value})")) + (nonEmpty.Count > 6 ? $", +{nonEmpty.Count - 6} more" : "");
-            _modelStatus.Text = $"{matched}. Values: {values}" + (blank > 0 ? $"; {blank} blank/missing." : ".");
+                : string.Join(", ", nonEmpty.Take(take).Select(kv => $"{kv.Key} ({kv.Value})")) + (nonEmpty.Count > take ? $", +{nonEmpty.Count - take} more" : "");
+            return (named ? parameter + ": " : "Values: ") + values + (blank > 0 ? $"; {blank} blank/missing." : ".");
         }
 
         private void OnEvaluated()

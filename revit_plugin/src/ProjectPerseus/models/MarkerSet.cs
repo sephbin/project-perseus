@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 
@@ -26,10 +27,39 @@ namespace ProjectPerseus.models
         public string Filter { get; set; } = "";
 
         /// <summary>
-        /// Default parameter for entries that don't name their own: instance parameter, else type parameter, else a
-        /// pseudo field (Family, Type, Category, Level...).
+        /// The set's parameters (instance parameter, else type parameter, else a pseudo field such as Family, Type,
+        /// Category, Level). Entries pick one of these; Auto-fill reads values from each. The first is used by entries
+        /// that don't name their own.
         /// </summary>
-        public string Parameter { get; set; } = "";
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public List<string> Parameters { get; set; } = new List<string>();
+
+        /// <summary>The first non-blank default parameter (trimmed, "" if none). Setting it replaces the first.</summary>
+        [JsonIgnore]
+        public string Parameter
+        {
+            get => Parameters?.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))?.Trim() ?? "";
+            set
+            {
+                if (Parameters == null) Parameters = new List<string>();
+                if (Parameters.Count == 0) Parameters.Add(value ?? "");
+                else Parameters[0] = value ?? "";
+            }
+        }
+
+        /// <summary>The non-blank default parameters, trimmed and without duplicates, in order.</summary>
+        [JsonIgnore]
+        public List<string> DefaultParameters =>
+            (Parameters ?? new List<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim())
+                                              .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        // Sets saved before there could be several default parameters had a single "Parameter".
+        [JsonProperty("Parameter", NullValueHandling = NullValueHandling.Ignore)]
+        private string LegacyParameter
+        {
+            get => null;
+            set { if (!string.IsNullOrWhiteSpace(value) && DefaultParameters.Count == 0) Parameter = value; }
+        }
 
         /// <summary>
         /// Checked in order, per parameter: among the entries reading the same parameter the first match marks the
@@ -50,7 +80,7 @@ namespace ProjectPerseus.models
             public bool Enabled { get; set; } = true;
             public string Label { get; set; } = "";
 
-            /// <summary>Parameter this entry reads; "" = the set's <see cref="MarkerSet.Parameter"/>.</summary>
+            /// <summary>Parameter this entry reads (one of the set's Parameters); "" = the set's first.</summary>
             public string Parameter { get; set; } = "";
 
             /// <summary>How the mark is drawn (ring / square around the element, its view outline, or icon only).</summary>

@@ -113,7 +113,7 @@ namespace ProjectPerseus.markers
             if (s.Categories == null) s.Categories = new List<string>();
             if (s.Entries == null) s.Entries = new List<MarkerSet.Entry>();
             if (s.Filter == null) s.Filter = "";
-            if (s.Parameter == null) s.Parameter = "";
+            if (s.Parameters == null) s.Parameters = new List<string>();
         }
 
         private static void Save()

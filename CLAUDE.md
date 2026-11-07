@@ -300,7 +300,8 @@ ProjectPerseus/
 │   │                             white glyph on a coloured disc (overlay + panel), Glyph() = glyph alone.
 │   ├── MarkerSetsWindow.cs       NEW (2026-11-06). Modeless code-only WPF "Parameter Markers" panel: set library (enable,
 │   │                             new/duplicate/delete, import/export) + editor (name, category checklist with search, filter,
-│   │                             parameter with whole-model suggestions, legend rows: colour dialog, icon menu, match, value
+│   │                             parameter list with whole-model suggestions (rows pick from it; Auto-fill per parameter), legend rows with
+│   │                             Ctrl/Shift multi-select (colour/icon/display/parameter/match edits apply to all selected): colour dialog, icon menu, match, value
 │   │                             with distinct-value suggestions, label, in-view count; Auto-fill from values). Live apply
 │   │                             (400 ms debounce -> MarkerSetStore.NotifyChanged). Model reads via OwnershipUiEvent.
 │   ├── ViolationListForm.cs      NEW (2026-08-24). Modeless WinForms form (System.Windows.Forms.Form).
@@ -337,7 +338,7 @@ ProjectPerseus/
 │   └── MarkerEngine.cs           Idling-driven, debounced (gap scales with evaluation time) evaluation of enabled sets
 │                                 against FilteredElementCollector(doc, activeView.Id): categories -> optional
 │                                 FilterEvaluator expression over all params + Family/Type/Category/Level -> entries grouped
-│                                 by the parameter they read (Entry.Parameter, else the set's): first match per group, groups
+│                                 by the parameter they read (Entry.Parameter, one of set.Parameters, else the first): first match per group, groups
 │                                 mark independently (several marks per element). Entry.Display: Ring / Square (stack
 │                                 outwards, Hit.Ring) / Outline (element's view curves via get_Geometry(Options{View}),
 │                                 links: view detail level; point-budgeted, falls back to Square) / IconOnly (icon row on
@@ -363,7 +364,7 @@ ProjectPerseus/
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
-│   │                             IncludeLinks, Filter, Parameter (default), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty, Value,
+│   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty, Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
 │   ├── OwnershipSnapshot.cs      NEW (2026-11-05). Who owns which elements/worksets (nested ElementRow, WorksetRow).
 │   ├── ViolationHighlightDto.cs  NEW (2026-08-24). DTO for /source/<guid>/violations/ response:

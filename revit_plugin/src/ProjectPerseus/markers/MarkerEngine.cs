@@ -718,7 +718,7 @@ namespace ProjectPerseus.markers
 
             var names = new HashSet<string>(PseudoFields, StringComparer.OrdinalIgnoreCase);
             var wanted = new List<string>();
-            foreach (var p in new[] { set.Parameter }.Concat(set.Entries.Select(e => e.Parameter)))
+            foreach (var p in set.DefaultParameters.Concat(set.Entries.Select(e => e.Parameter)))
                 if (!string.IsNullOrWhiteSpace(p) && !wanted.Contains(p.Trim(), StringComparer.OrdinalIgnoreCase)) wanted.Add(p.Trim());
             var values = wanted.ToDictionary(p => p, p => new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
                                              StringComparer.OrdinalIgnoreCase);
