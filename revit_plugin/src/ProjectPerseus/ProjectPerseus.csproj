@@ -448,6 +448,15 @@
     <Compile Include="federator\ViewExtent.cs" />
     <Compile Include="federator\ReviewNavigator.cs" />
     <Compile Include="federator\FederatorController.cs" />
+    <Compile Include="federator\ViewTargets.cs" />
+    <Compile Include="federator\LinkTransform.cs" />
+    <Compile Include="federator\ChangeHighlightServer.cs" />
+    <Compile Include="federator\ChangeHighlightController.cs" />
+    <Compile Include="federator\FederatorSettingsStore.cs" />
+    <Compile Include="federator\AnnotationBaker.cs" />
+    <Compile Include="models\BakeSettings.cs" />
+    <Compile Include="models\ViewCandidate.cs" />
+    <Compile Include="ui\BakeDialog.cs" />
     <Compile Include="models\ReplacementCandidate.cs" />
     <Compile Include="models\ReviewAction.cs" />
     <Compile Include="ui\ChangeRow.cs" />

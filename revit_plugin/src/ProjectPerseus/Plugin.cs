@@ -25,6 +25,7 @@ namespace ProjectPerseus
             util.CodePages.Register();
             _orchestrator.Subscribe(application);
             violations.ViolationHighlightController.Initialize();
+            federator.ChangeHighlightController.Initialize();
             ownership.OwnershipTracker.Subscribe(application);
             markers.MarkerEngine.Subscribe(application);
             federator.FederatorController.Subscribe(application);

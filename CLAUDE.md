@@ -108,7 +108,7 @@ ProjectPerseus/
 │                                 Calls ViolationHighlightController.Initialize() and
 │                                 ownership.OwnershipTracker.Subscribe() at startup.
 │                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Federator, Setup.
-│                                 Calls federator.FederatorController.Subscribe() at startup.
+│                                 Calls federator.FederatorController.Subscribe() + ChangeHighlightController.Initialize() at startup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
 ├── auth/                         Split in P6 (2026-05-30).
@@ -308,6 +308,8 @@ ProjectPerseus/
 │   │                             assignee, Done/Cancel), comment box (any status), thread. Multi-select applies status/action/comment
 │   │                             to all. Double-click = ReviewNavigator.Show(select). Model work via queue/OwnershipUiEvent (RunApi).
 │   │                             Revit selection -> row highlight via FederatorController (OnRevitSelection).
+│   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
+│   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
 │   ├── ChangeRow.cs              NEW (2026-11-08). INotifyPropertyChanged row: ElementChange + ElementReviewState, kind/status brushes.
 │   ├── MarkerSetsWindow.cs       NEW (2026-11-06). Modeless code-only WPF "Parameter Markers" panel: set library (enable,
 │   │                             new/duplicate/delete, import/export) + editor (name, category checklist with search, filter,
@@ -386,6 +388,17 @@ ProjectPerseus/
 │   ├── ReviewNavigator.cs        Select linked elements (SetReferences) + zoom; not visible here -> user's own "Perseus Federator
 │   │                             - <user>" 3D view with a section box. VisibleLinkedIds (2024+ link view collector, 2023 boxes).
 │   ├── FederatorController.cs    Startup-subscribed ViewActivated + SelectionChanged, forwarded to FederatorWindow when open.
+│   ├── ChangeHighlightServer.cs  IDirectContext3DServer: changes drawn in model views (plans/sections/elevations/details/3D),
+│   │                             on screen only. Boxes green/amber/red, grey ghost + connector for moved; view-facing edge quads
+│   │                             (0.35 mm paper), translucent faces in the transparent pass; batched per colour, cached per view.
+│   ├── ChangeHighlightController.cs Registers the server; Show(doc, changes, LinkTransform, selected uids) -> items (max 6000).
+│   ├── LinkTransform.cs          Pure link total transform (captured in API context) so the panel can compute host boxes.
+│   ├── AnnotationBaker.cs        Bakes changes into chosen views: rectangle per visible change as detail lines (line styles
+│   │                             "Perseus Federator - Added/Modified/Deleted") or revision cloud, connector for moved, TextNote
+│   │                             label (text types of the same names). Elements tagged (schema PerseusFederatorAnnotation) so a
+│   │                             re-bake replaces / Remove clears them. TransactionGroup = one undo; failing views rolled back.
+│   ├── ViewTargets.cs            Pure: target views = regex (view name / sheet number) ∪ ticked − unticked. Tested.
+│   ├── FederatorSettingsStore.cs Append-only shared settings (newest per key wins), e.g. "bake:<link uid>" -> models/BakeSettings.
 │   ├── PluginDataStorage.cs      Shared Extensible Storage helpers (All, EnsureSchema, CanDelete = author + not checked out, gzip).
 │   ├── LinkedElementRef.cs       Link instance UniqueId + linked UniqueId -> Element; stable link Reference string for SetReferences.
 │   ├── LinkDiff.cs               Pure (no Revit API) compare of two models/LinkSnapshot by UniqueId -> models/ElementChange
@@ -412,6 +425,8 @@ ProjectPerseus/
 │   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants.
 │   ├── ElementReviewState.cs     NEW (2026-11-08). Folded review state: status (+carried), open actions, assignees, thread.
 │   ├── ReviewAction.cs           NEW (2026-11-08). Extensible action (free-text Type, Assignee) opened by a ReviewEvent.
+│   ├── BakeSettings.cs           NEW (2026-11-08). Federator bake settings (target views, scope, style, labels), saved per link.
+│   ├── ViewCandidate.cs          NEW (2026-11-08). A view that can receive baked annotations.
 │   ├── ReplacementCandidate.cs   NEW (2026-11-08). Likely replacement of a deleted element (uid, type, score, reason).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
 │   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty/>/>=/</<= (numeric: double params in internal units via UnitFormatUtils.TryParse of the threshold in host units; else first number in the text), Value,

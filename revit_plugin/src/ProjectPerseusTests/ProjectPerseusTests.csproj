@@ -154,6 +154,7 @@
     <Compile Include="ChangeDescriberTest.cs" />
     <Compile Include="ReplacementMatcherTest.cs" />
     <Compile Include="ChangeFilterTest.cs" />
+    <Compile Include="ViewTargetsTest.cs" />
     <Compile Include="mocks\MockArdbDefinition.cs" />
     <Compile Include="mocks\MockArdbElement.cs" />
     <Compile Include="mocks\MockArdbElementId.cs" />

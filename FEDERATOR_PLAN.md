@@ -74,7 +74,7 @@ versioned JSON / gzip payload — new fields go into the payload, never into a n
 | F2 | `federator/OldModelOpener` — copy + unload its links + detached open + snapshot + close; `federator/ComparisonRunner` end to end with `ui/SyncStatusToast` progress | done (untested in Revit) |
 | F3 | `federator/ComparisonStore` + `federator/ReviewStore` (Extensible Storage, append-only events), `federator/ReviewLog` fold (tests), `federator/LinkedElementRef` | done (untested in Revit) |
 | F4 | `ui/FederatorWindow` review panel (see *Review panel* below) + `ChangeDescriber`, `ReplacementMatcher`, `ChangeFilter`, `ReviewNavigator`, `ViewExtent`, `FederatorController`; status carry-over and actions in `ReviewLog` | built, unit-tested; not yet tried in Revit |
-| F5 | Overlay layer: changed elements in the active view coloured by kind (added green / modified amber / deleted red ghost), reusing `MarkerEngine` hit projection in `queue/ViolationScreenPositionEvent` | |
+| F5 | See the changes: `ChangeHighlightServer` (DirectContext3D, all model views incl. 3D, on screen only) driven by the panel's "Show in view" (shown or selected rows). Bake: `AnnotationBaker` + `ui/BakeDialog` — printable outlines / revision clouds + labels in views picked by regex and ticks, settings shared per link | built, unit-tested; not yet tried in Revit |
 | F6 | `commands/ShowFederatorCommand` + "Federator" ribbon panel ("Link Changes") + `federator` icon | done |
 | F7 | Later: export review (Excel / BCF), optional Django upload of comparison summaries | |
 

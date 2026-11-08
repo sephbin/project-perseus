@@ -83,6 +83,7 @@ namespace ProjectPerseus.ui
         private readonly Dictionary<string, List<ChangeRow>> _replaces = new Dictionary<string, List<ChangeRow>>(); // added uid → deleted rows suggesting it
         private HashSet<long> _inView;
         private bool _loading, _suppressSelection;
+        private LinkTransform _toHost = LinkTransform.Identity;
 
         // ── Controls ──
         private readonly ComboBox _linkBox, _comparisonBox, _kindBox, _aspectBox, _categoryBox, _levelBox, _statusBox, _assigneeBox, _groupBox;
@@ -93,6 +94,10 @@ namespace ProjectPerseus.ui
         private readonly DataGrid _grid;
         private readonly StackPanel _detail;
         private readonly DispatcherTimer _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        private readonly DispatcherTimer _highlightTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        private readonly CheckBox _highlightBox;
+        private readonly ComboBox _highlightMode;
+        private const string HighlightShown = "Shown rows", HighlightSelected = "Selected rows";
 
         /// <summary>Opens the panel (or brings it to the front) on the active model. Needs an API context.</summary>
         internal static void Open(UIApplication app)
@@ -184,8 +189,19 @@ namespace ProjectPerseus.ui
             var footButtons = new StackPanel { Orientation = Orientation.Horizontal };
             var zoom = MakeButton("Zoom to", "Zoom to the selected changes (opens your federator 3D view if they aren't visible here).");
             var select = MakeButton("Select in Revit", "Select the selected changes' linked elements in Revit and zoom to them.");
+            _highlightBox = new CheckBox { Content = "Show in view", IsChecked = true, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+                                           ToolTip = "Draw the changes in Revit's views: green added, amber modified, red deleted (old position), grey = where a moved element was. On screen only; use Bake to print." };
+            _highlightMode = new ComboBox { Width = 105, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center };
+            _highlightMode.Items.Add(HighlightShown);
+            _highlightMode.Items.Add(HighlightSelected);
+            _highlightMode.SelectedIndex = 0;
+            var bake = MakeButton("Bake to views…", "Draw the changes as printable annotations (outlines or revision clouds + labels) in the views you choose.");
+            bake.Margin = new Thickness(14, 0, 0, 0);
+            footButtons.Children.Add(_highlightBox);
+            footButtons.Children.Add(_highlightMode);
             footButtons.Children.Add(zoom);
             footButtons.Children.Add(select);
+            footButtons.Children.Add(bake);
             DockPanel.SetDock(footButtons, Dock.Right);
             footer.Children.Add(footButtons);
             _count = new TextBlock { Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
@@ -228,9 +244,21 @@ namespace ProjectPerseus.ui
             _searchTimer.Tick += (s, e) => Safe(() => { _searchTimer.Stop(); ApplyFilter(); });
             _inViewBox.Checked += (s, e) => Safe(() => RunApi(UpdateInView, needActive: true));
             _inViewBox.Unchecked += (s, e) => Safe(() => { _inView = null; ApplyFilter(); });
-            _grid.SelectionChanged += (s, e) => Safe(() => { if (!_suppressSelection) RebuildDetail(); });
+            _grid.SelectionChanged += (s, e) => Safe(() => { if (!_suppressSelection) RebuildDetail(); QueueHighlight(); });
             _grid.MouseDoubleClick += (s, e) => Safe(() => { if (_grid.SelectedItems.Count > 0) ShowSelected(true); });
-            Closed += (s, e) => { _searchTimer.Stop(); Instance = null; };
+            bake.Click += (s, e) => Safe(OpenBake);
+            _highlightBox.Checked += (s, e) => Safe(QueueHighlight);
+            _highlightBox.Unchecked += (s, e) => Safe(QueueHighlight);
+            _highlightMode.SelectionChanged += (s, e) => Safe(QueueHighlight);
+            _highlightTimer.Tick += (s, e) => Safe(() => { _highlightTimer.Stop(); PushHighlight(); });
+            Closed += (s, e) =>
+            {
+                _searchTimer.Stop();
+                _highlightTimer.Stop();
+                Instance = null;
+                ChangeHighlightController.Clear();
+                OwnershipUiEvent.Run(app => { try { app.ActiveUIDocument?.RefreshActiveView(); } catch { } });
+            };
 
             RebuildDetail();
         }
@@ -361,6 +389,15 @@ namespace ProjectPerseus.ui
             _grid.ItemsSource = _view;
             ApplyFilter();
             RebuildDetail();
+
+            _toHost = LinkTransform.Identity;
+            if (rec != null)
+                RunApi(app =>
+                {
+                    _toHost = ChangeHighlightController.Capture(LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid));
+                    PushHighlight();
+                });
+            else PushHighlight();
         }
 
         /// <summary>Re-folds the review events into row states (after loading or writing events).</summary>
@@ -406,6 +443,105 @@ namespace ProjectPerseus.ui
             _view.Filter = o => o is ChangeRow r && f.Matches(r.Change, r.State);
             int shown = _view.Count;
             _count.Text = shown == _rows.Count ? $"{_rows.Count:N0} changes" : $"Showing {shown:N0} of {_rows.Count:N0}";
+            QueueHighlight();
+        }
+
+        // ═══════════════════════════ In-view highlight ═══════════════════════════
+
+        private void QueueHighlight()
+        {
+            _highlightTimer.Stop();
+            _highlightTimer.Start();
+        }
+
+        /// <summary>Hands the shown / selected changes to the DirectContext3D server and redraws the active view.</summary>
+        private void PushHighlight()
+        {
+            bool on = _highlightBox.IsChecked == true && _record != null && _view != null;
+            ChangeHighlightController.Enabled = on;
+            if (on)
+            {
+                var selected = _grid.SelectedItems.Cast<ChangeRow>().ToList();
+                var emphasised = new HashSet<string>(selected.Select(r => r.Change.UniqueId));
+                IEnumerable<ChangeRow> rows = (_highlightMode.SelectedItem as string) == HighlightSelected
+                    ? (IEnumerable<ChangeRow>)selected
+                    : _view.Cast<ChangeRow>();
+                int drawn = ChangeHighlightController.Show(_doc, rows.Select(r => r.Change), _toHost, emphasised);
+                if (drawn >= ChangeHighlightController.MaxItems)
+                    Status($"Showing the first {ChangeHighlightController.MaxItems:N0} changes in the view (selected first). Filter to see the rest.");
+            }
+            else ChangeHighlightController.Clear();
+            OwnershipUiEvent.Run(app => { try { app.ActiveUIDocument?.RefreshActiveView(); } catch { } });
+        }
+
+        // ═══════════════════════════ Bake ═══════════════════════════
+
+        private string SettingsKey => "bake:" + _record?.LinkInstanceUid;
+
+        private void OpenBake()
+        {
+            var rec = _record;
+            if (rec == null || rec.Changes == null) { Status("Open a comparison first."); return; }
+            var shown = _view.Cast<ChangeRow>().ToList();
+            var selected = _grid.SelectedItems.Cast<ChangeRow>().ToList();
+            RunApi(app =>
+            {
+                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
+                if (inst == null) { Status("The link instance is no longer in the model.", true); return; }
+                var views = AnnotationBaker.Candidates(_doc);
+                var revisions = AnnotationBaker.OpenRevisions(_doc);
+                var settings = FederatorSettingsStore.Load<BakeSettings>(_doc, SettingsKey) ?? new BakeSettings();
+                ViewTargets.Prune(settings, views);
+                var dlg = new BakeDialog(rec.LinkTitle, views, revisions, settings, shown.Count, selected.Count, _rows.Count) { Owner = this };
+                if (dlg.ShowDialog() != true || dlg.Action == BakeDialog.Choice.None) return;
+                var targets = dlg.TargetUids;
+                try { FederatorSettingsStore.Save(_doc, SettingsKey, settings, _me); }
+                catch (Exception ex) { Log.Info($"[Federator] bake settings not saved: {ex.Message}"); }
+
+                if (dlg.Action == BakeDialog.Choice.Remove)
+                {
+                    var r = AnnotationBaker.Remove(_doc, rec.LinkInstanceUid, targets);
+                    Status($"Removed {r.Removed:N0} baked annotations from {targets.Count} view(s)." +
+                           (r.SkippedOwned > 0 ? $" {r.SkippedOwned} are checked out by others and were left." : ""));
+                    return;
+                }
+
+                var rows = settings.Scope == BakeSettings.ScopeSelected ? selected
+                         : settings.Scope == BakeSettings.ScopeAll ? _rows : shown;
+                try
+                {
+                    var result = AnnotationBaker.Bake(_doc, inst, rec, rows.Select(x => x.Change).ToList(), targets, settings,
+                        c => LabelFor(c, settings), (text, f) => SyncStatusToast.Progress("Baking link changes", f, text));
+                    SyncStatusToast.Hide();
+                    string msg = $"Baked {result.Changes:N0} change marks ({result.Annotations:N0} annotations) into {result.Views} view(s)" +
+                                 (result.Removed > 0 ? $", replacing {result.Removed:N0} earlier ones" : "") + ".";
+                    if (result.SkippedOwned > 0) msg += $" {result.SkippedOwned} earlier annotations are checked out by others and were left.";
+                    if (result.Errors.Count > 0)
+                    {
+                        msg += $" {result.Errors.Count} view(s) failed.";
+                        MessageBox.Show(this, msg + "\n\n" + string.Join("\n", result.Errors.Take(15)), "Federator", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    Status(msg, result.Errors.Count > 0);
+                }
+                finally { SyncStatusToast.Hide(); }
+            }, needActive: true);
+        }
+
+        private string LabelFor(ElementChange c, BakeSettings s)
+        {
+            _rowByUid.TryGetValue(c.UniqueId ?? "", out var row);
+            string glyph = c.Kind == ChangeKind.Added ? "+" : c.Kind == ChangeKind.Deleted ? "−" : "~";
+            string name = ChangeDescriber.TypeName(c.Family, c.Type);
+            string text = $"{glyph} {(string.IsNullOrEmpty(name) ? c.Category : name)} (Id {c.Id}) — {ChangeDescriber.Summary(c)}";
+            if (s.LabelStatus && row != null)
+            {
+                var st = row.State;
+                var extra = new List<string>();
+                if (st.Status != ReviewStatus.Unreviewed) extra.Add(st.Status);
+                if (!string.IsNullOrEmpty(st.Assignees)) extra.Add("→ " + st.Assignees);
+                if (extra.Count > 0) text += " [" + string.Join(" ", extra) + "]";
+            }
+            return text;
         }
 
         private void Regroup()
