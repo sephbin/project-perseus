@@ -16,8 +16,8 @@ namespace ProjectPerseus.federator
     /// rounded rectangle on the view plane around the element's projected box, with a white halo, a coloured corner
     /// badge (+ added, − deleted, ~ modified) and, for moved elements, a dashed grey outline at the old position and an
     /// arrow from it to the new one. Solid green = added, solid amber = modified, dashed red = deleted (old position).
-    /// Shapes come from OverlayShapes (2D) and are placed just in front of the element, but behind the view's cut /
-    /// near clip so they aren't clipped away. Sizes are paper millimetres × view scale (like annotations); a 1 px line
+    /// Shapes come from OverlayShapes (2D). Placement (panel setting): OnTop = just behind the view's cut plane /
+    /// near clip, over everything visible; Underneath = just behind each element, inside the view depth. Sizes are paper millimetres × view scale (like annotations); a 1 px line
     /// runs under every stroke so it never breaks up when zoomed out. Only small badges/arrowheads are filled, so the
     /// underlay stays visible. Batched per colour, cached per view until items, view direction, scale or clip change.
     /// </summary>
@@ -56,6 +56,10 @@ namespace ProjectPerseus.federator
         private readonly Dictionary<long, KeyValuePair<int, List<int>>> _visible = new Dictionary<long, KeyValuePair<int, List<int>>>();
 
         internal volatile bool Enabled = true;
+
+        internal enum Placement { OnTop, Underneath }
+        /// <summary>Draw over everything visible (OnTop) or behind each changed element (Underneath).</summary>
+        internal volatile Placement Place = Placement.OnTop;
 
         private ChangeHighlightServer() { }
 
@@ -125,7 +129,7 @@ namespace ProjectPerseus.federator
                 List<int> visible = VisibleFor(view, viewKey, items, version);
                 if (visible.Count == 0) return;
 
-                var frame = new Frame(view);
+                var frame = new Frame(view, Place);
                 string key = $"{version}|{frame.Key}";
                 if (!_cache.TryGetValue(viewKey, out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
                 {
@@ -158,26 +162,37 @@ namespace ProjectPerseus.federator
         private class Frame
         {
             internal readonly XYZ O, R, U, N;
-            internal readonly double S;        // view scale
-            internal readonly double? CapW;    // shapes must stay behind this depth (w grows toward the viewer)
+            internal readonly double S;          // view scale
+            internal readonly double? NearW;     // shapes must stay behind this depth (w grows toward the viewer)
+            internal readonly double? FarW;      // ... and in front of this one (view depth / far clip)
+            internal readonly double? EyeW;      // orthographic 3D without section box: camera depth
+            internal readonly Placement Place;
             internal readonly string Key;
 
-            internal Frame(View view)
+            internal Frame(View view, Placement place)
             {
                 O = view.Origin; R = view.RightDirection; U = view.UpDirection; N = view.ViewDirection;
                 S = Math.Max(1, view.Scale);
-                CapW = NearCap(view);
-                Key = $"{N.X:F3},{N.Y:F3},{N.Z:F3}|{R.X:F3},{R.Y:F3}|{S}|{(CapW.HasValue ? CapW.Value.ToString("F3") : "-")}";
+                Place = place;
+                Clip(view, out NearW, out FarW);
+                if (view is View3D v3 && !v3.IsPerspective && !NearW.HasValue)
+                {
+                    try { EyeW = Wof(v3.GetOrientation().EyePosition); } catch { EyeW = null; }
+                }
+                Key = $"{N.X:F3},{N.Y:F3},{N.Z:F3}|{R.X:F3},{R.Y:F3}|{S}|{place}|{F(NearW)}|{F(FarW)}|{F(EyeW)}";
             }
+
+            private static string F(double? d) => d.HasValue ? d.Value.ToString("F3") : "-";
 
             internal double Wof(XYZ p) => (p - O).DotProduct(N);
             internal XYZ At(double u, double v, double w) => O + R * u + U * v + N * w;
 
-            // Rectangle (u0, v0, u1, v1) and nearest depth of a host box on this view.
-            internal void Project(double[] min, double[] max, out double[] rect, out double wNear)
+            // Rectangle (u0, v0, u1, v1) and depth range of a host box on this view.
+            internal void Project(double[] min, double[] max, out double[] rect, out double wNear, out double wFar)
             {
                 double u0 = double.MaxValue, v0 = double.MaxValue, u1 = double.MinValue, v1 = double.MinValue;
                 wNear = double.MinValue;
+                wFar = double.MaxValue;
                 for (int i = 0; i < 8; i++)
                 {
                     var p = new XYZ((i & 1) == 0 ? min[0] : max[0], (i & 2) == 0 ? min[1] : max[1], (i & 4) == 0 ? min[2] : max[2]) - O;
@@ -185,44 +200,81 @@ namespace ProjectPerseus.federator
                     u0 = Math.Min(u0, u); u1 = Math.Max(u1, u);
                     v0 = Math.Min(v0, v); v1 = Math.Max(v1, v);
                     wNear = Math.Max(wNear, w);
+                    wFar = Math.Min(wFar, w);
                 }
                 rect = new[] { u0, v0, u1, v1 };
             }
 
-            internal double Depth(double wNear)
+            /// <summary>
+            /// Base depth for an element's shapes (they occupy base − Layer … base + 2·Layer). On top: just behind the
+            /// cut plane / near clip / section box front, so nothing visible covers them (orthographic 3D without a
+            /// section box: just in front of the camera; perspective: in front of the element). Underneath: just behind
+            /// the element, so its own linework draws over them, but in front of the view depth so they aren't clipped.
+            /// </summary>
+            internal double Depth(double wNear, double wFar)
             {
-                double lift = Math.Max(MinLiftFt, Lift * S);
-                double w = wNear + lift;
-                if (CapW.HasValue) w = Math.Min(w, CapW.Value - lift - 3 * Layer * S);
+                double lift = Math.Max(MinLiftFt, Lift * S), layers = 3 * Layer * S;
+                double w;
+                if (Place == Placement.Underneath)
+                {
+                    w = wFar - lift - layers;
+                    if (FarW.HasValue) w = Math.Max(w, FarW.Value + lift + layers);
+                }
+                else
+                {
+                    if (NearW.HasValue) w = NearW.Value - lift - layers;
+                    else if (EyeW.HasValue) w = Math.Max(wNear + lift, EyeW.Value - Math.Max(1.0, 10 * lift));
+                    else w = wNear + lift;
+                }
+                if (NearW.HasValue) w = Math.Min(w, NearW.Value - lift - layers);
                 return w;
             }
 
-            private double? NearCap(View view)
+            // Near / far depth limits: plan cut plane / view depth plane; section, elevation, detail crop box; 3D section box.
+            private void Clip(View view, out double? near, out double? far)
             {
+                near = far = null;
                 try
                 {
                     if (view is ViewPlan plan && plan.GenLevel != null)
                     {
                         var vr = plan.GetViewRange();
-                        var levelId = vr.GetLevelId(PlanViewPlane.CutPlane);
-                        var level = view.Document.GetElement(levelId) as Level ?? plan.GenLevel;
-                        double cutZ = level.Elevation + vr.GetOffset(PlanViewPlane.CutPlane);
-                        return Wof(new XYZ(O.X, O.Y, cutZ));
+                        near = Wof(new XYZ(O.X, O.Y, PlaneZ(view.Document, plan, vr, PlanViewPlane.CutPlane)));
+                        double depthZ = PlaneZ(view.Document, plan, vr, PlanViewPlane.ViewDepthPlane);
+                        if (!double.IsNaN(depthZ)) far = Wof(new XYZ(O.X, O.Y, depthZ));
+                        if (far.HasValue && near.HasValue && far.Value > near.Value) { var t0 = near; near = far; far = t0; }
+                        return;
                     }
                     BoundingBoxXYZ box = null;
                     if (view is View3D v3) { if (v3.IsSectionBoxActive) box = v3.GetSectionBox(); }
                     else if (view.ViewType == ViewType.Section || view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Detail)
                         box = view.CropBox;
-                    if (box == null) return null;
+                    if (box == null) return;
                     var t = box.Transform ?? Transform.Identity;
-                    double best = double.MinValue;
+                    double hi = double.MinValue, lo = double.MaxValue;
                     for (int i = 0; i < 8; i++)
-                        best = Math.Max(best, Wof(t.OfPoint(new XYZ((i & 1) == 0 ? box.Min.X : box.Max.X,
-                                                                    (i & 2) == 0 ? box.Min.Y : box.Max.Y,
-                                                                    (i & 4) == 0 ? box.Min.Z : box.Max.Z))));
-                    return best;
+                    {
+                        double w = Wof(t.OfPoint(new XYZ((i & 1) == 0 ? box.Min.X : box.Max.X,
+                                                         (i & 2) == 0 ? box.Min.Y : box.Max.Y,
+                                                         (i & 4) == 0 ? box.Min.Z : box.Max.Z)));
+                        hi = Math.Max(hi, w); lo = Math.Min(lo, w);
+                    }
+                    near = hi;
+                    far = lo;
                 }
-                catch { return null; }
+                catch { near = far = null; }
+            }
+
+            private static double PlaneZ(Document doc, ViewPlan plan, PlanViewRange vr, PlanViewPlane plane)
+            {
+                var id = vr.GetLevelId(plane);
+                var level = id != null && id != ElementId.InvalidElementId ? doc.GetElement(id) as Level : null;
+                if (level == null)
+                {
+                    if (plane == PlanViewPlane.ViewDepthPlane) return double.NaN; // unlimited
+                    level = plan.GenLevel;
+                }
+                return level.Elevation + vr.GetOffset(plane);
             }
         }
 
@@ -273,8 +325,8 @@ namespace ProjectPerseus.federator
             foreach (int i in visible)
             {
                 var it = items[i];
-                f.Project(it.Min, it.Max, out var rect, out double wNear);
-                double w = f.Depth(wNear);
+                f.Project(it.Min, it.Max, out var rect, out double wNear, out double wFar);
+                double w = f.Depth(wNear, wFar);
                 Grow(rect, Pad * s, MinRect * s);
                 bool dashed = it.Kind == Kind.Deleted;
                 double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s;
@@ -284,8 +336,8 @@ namespace ProjectPerseus.federator
                 var badgeAt = new Pt(rect[0], rect[3]);
                 if (it.OldMin != null && it.OldMax != null)
                 {
-                    f.Project(it.OldMin, it.OldMax, out var oldRect, out double wOld);
-                    double wg = f.Depth(wOld);
+                    f.Project(it.OldMin, it.OldMax, out var oldRect, out double wOld, out double wOldFar);
+                    double wg = f.Depth(wOld, wOldFar);
                     Grow(oldRect, Pad * s, MinRect * s);
                     Outline(f, oldRect, true, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), white);
 
@@ -295,7 +347,7 @@ namespace ProjectPerseus.federator
                     if ((to - badgeAt).Length < (to - topRight).Length) badgeAt = topRight;
                     if ((to - from).Length > HeadLen * s * 0.5)
                     {
-                        double aw = Math.Max(w, wg);
+                        double aw = f.Place == Placement.Underneath ? Math.Min(w, wg) : Math.Max(w, wg);
                         var arrow = new List<double>();
                         OverlayShapes.Arrow(arrow, from, to, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
                         OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 12);

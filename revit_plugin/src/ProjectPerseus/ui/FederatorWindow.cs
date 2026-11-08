@@ -100,7 +100,8 @@ namespace ProjectPerseus.ui
         private readonly DispatcherTimer _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         private readonly DispatcherTimer _highlightTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         private readonly CheckBox _highlightBox;
-        private readonly ComboBox _highlightMode;
+        private readonly ComboBox _highlightMode, _highlightPlace;
+        private const string PlaceOnTop = "On top", PlaceUnder = "Underneath";
         private const string HighlightShown = "Shown rows", HighlightSelected = "Selected rows";
 
         /// <summary>Opens the panel (or brings it to the front) on the active model. Needs an API context.</summary>
@@ -202,8 +203,14 @@ namespace ProjectPerseus.ui
             _highlightMode.SelectedIndex = 0;
             var bake = MakeButton("Bake to views…", "Draw the changes as printable annotations (outlines or revision clouds + labels) in the views you choose.");
             bake.Margin = new Thickness(14, 0, 0, 0);
+            _highlightPlace = new ComboBox { Width = 95, Margin = new Thickness(-8, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "On top: drawn over everything visible in the view.\nUnderneath: drawn behind each changed element, like an underlay." };
+            _highlightPlace.Items.Add(PlaceOnTop);
+            _highlightPlace.Items.Add(PlaceUnder);
+            _highlightPlace.SelectedItem = ChangeHighlightController.OnTop ? PlaceOnTop : PlaceUnder;
             footButtons.Children.Add(_highlightBox);
             footButtons.Children.Add(_highlightMode);
+            footButtons.Children.Add(_highlightPlace);
             footButtons.Children.Add(zoom);
             footButtons.Children.Add(select);
             footButtons.Children.Add(bake);
@@ -255,6 +262,11 @@ namespace ProjectPerseus.ui
             _highlightBox.Checked += (s, e) => Safe(QueueHighlight);
             _highlightBox.Unchecked += (s, e) => Safe(QueueHighlight);
             _highlightMode.SelectionChanged += (s, e) => Safe(QueueHighlight);
+            _highlightPlace.SelectionChanged += (s, e) => Safe(() =>
+            {
+                ChangeHighlightController.OnTop = (_highlightPlace.SelectedItem as string) != PlaceUnder;
+                QueueHighlight();
+            });
             _highlightTimer.Tick += (s, e) => Safe(() => { _highlightTimer.Stop(); PushHighlight(); });
             Closed += (s, e) =>
             {

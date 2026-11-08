@@ -395,8 +395,10 @@ ProjectPerseus/
 │   │                             on screen only, SVG-style: flat rounded rectangles on the view plane with a white halo, solid
 │   │                             green added / amber modified, dashed red deleted, dashed grey old position + arrow for moved,
 │   │                             corner badge (+ − ~). Paper-mm sizes × view scale; 1 px line under strokes; no fills except
-│   │                             badges/arrowheads (transparent-pass fills hid the plan underlay). Depth: just in front of the
-│   │                             element, capped behind the plan cut plane / crop / section box near face. Cached per view.
+│   │                             badges/arrowheads (transparent-pass fills hid the plan underlay). Placement (panel combo):
+│   │                             On top = just behind the cut plane / crop / section box near face (ortho 3D: in front of the
+│   │                             camera; perspective: in front of the element); Underneath = just behind each element, kept in
+│   │                             front of the view depth / far clip. Cached per view.
 │   ├── OverlayShapes.cs          Pure 2D shapes for it: rounded rect, dashes, stroke (round joins), disc, arrow, rect-to-rect
 │   │                             arrow clipping, badge glyphs. Tested in OverlayShapesTest.cs. Reusable for P8 (markers/violations).
 │   ├── ChangeHighlightController.cs Registers the server; Show(doc, changes, LinkTransform, selected uids) -> items (max 6000).

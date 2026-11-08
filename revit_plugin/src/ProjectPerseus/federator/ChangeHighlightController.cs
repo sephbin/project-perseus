@@ -38,6 +38,13 @@ namespace ProjectPerseus.federator
             set => ChangeHighlightServer.Instance.Enabled = value;
         }
 
+        /// <summary>True: over everything visible; false: behind each changed element (underlay).</summary>
+        internal static bool OnTop
+        {
+            get => ChangeHighlightServer.Instance.Place == ChangeHighlightServer.Placement.OnTop;
+            set => ChangeHighlightServer.Instance.Place = value ? ChangeHighlightServer.Placement.OnTop : ChangeHighlightServer.Placement.Underneath;
+        }
+
         /// <returns>How many changes are drawn (capped at MaxItems).</returns>
         internal static int Show(Document doc, IEnumerable<ElementChange> changes, LinkTransform toHost, ICollection<string> emphasised)
         {
