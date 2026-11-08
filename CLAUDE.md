@@ -314,6 +314,7 @@ ProjectPerseus/
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
 │   ├── TriageWindow.cs           NEW (2026-11-09). Modeless bulk review: ChangeTriage groups (largest first), value transitions,
 │   │                             tick groups -> Accept / Ignore / Resolved / Query + assign / hide-show preview / mark as noise;
+│   │                             category headers (tick-all check box, categories biggest first), optional split by type.
 │   │                             noise rule list + move threshold. Calls FederatorWindow's Triage* API; refreshes on ReviewChanged.
 │   ├── ChangeRow.cs              NEW (2026-11-08). INotifyPropertyChanged row: ElementChange + ElementReviewState, kind/status brushes,
 │   │                             Preview flag (static PreviewChanged event for user ticks; SetPreviewQuietly for bulk).
@@ -417,7 +418,9 @@ ProjectPerseus/
 │   │                             sheets, views, viewports, cameras, scope boxes).
 │   ├── ChangeTriage.cs           Pure: groups changes that look alike (category, type, kind, aspects, changed parameter set,
 │   │                             move bucket ≤5/≤50/≤500/>500 mm; optional split by values) + top before→after transitions. Tested.
-│   ├── NoiseFilter.cs            Pure: a change is noise when only NoiseRules parameters changed and/or it moved < MinMoveMm.
+│   ├── NoiseFilter.cs            Pure: Effective(change) = change minus noise parameters / noise-sized move (copy; null = only noise;
+│   │                             stored change untouched). ChangeRow.Shown holds it; panel summary/filters/detail, triage and bake
+│   │                             labels all use Shown, so marking one parameter as noise removes it everywhere.
 │   ├── FederatorSettingsStore.cs Append-only shared settings (newest per key wins), e.g. "bake:<link uid>" -> models/BakeSettings.
 │   ├── PluginDataStorage.cs      Shared Extensible Storage helpers (All, EnsureSchema, CanDelete = author + not checked out, gzip).
 │   ├── LinkedElementRef.cs       Link instance UniqueId + linked UniqueId -> Element; stable link Reference string for SetReferences.

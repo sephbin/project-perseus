@@ -37,7 +37,7 @@ namespace ProjectPerseus.ui
         }
 
         /// <summary>Only noise under the link's NoiseRules (hidden by "Hide noise").</summary>
-        internal bool IsNoise { get; set; }
+        internal bool IsNoise { get; private set; }
 
         internal void SetPreviewQuietly(bool value)
         {
@@ -51,6 +51,7 @@ namespace ProjectPerseus.ui
             Change = change;
             Key = ReviewLog.Key(linkInstanceUid, change.UniqueId);
             Element = ChangeDescriber.TypeName(change.Family, change.Type);
+            Shown = change;
             Summary = ChangeDescriber.Summary(change);
             State = new ElementReviewState { Key = Key };
         }
@@ -69,7 +70,18 @@ namespace ProjectPerseus.ui
         public string Category => Change.Category ?? "";
         public string Level => Change.Level ?? "";
         public long Id => Change.Id;
-        public string Summary { get; }
+        public string Summary { get; private set; }
+
+        /// <summary>The change with noise removed (NoiseFilter.Effective); Change itself when there's no noise.</summary>
+        internal ElementChange Shown { get; private set; }
+
+        internal void SetShown(ElementChange effective)
+        {
+            IsNoise = effective == null;
+            Shown = effective ?? Change;
+            Summary = IsNoise ? "Noise only" : ChangeDescriber.Summary(Shown);
+            Raise(nameof(Summary));
+        }
 
         public string Status => State.Status + (State.StatusCarried ? " ↺" : "");
         public Brush StatusBrush => StatusBrushOf(State.Status);

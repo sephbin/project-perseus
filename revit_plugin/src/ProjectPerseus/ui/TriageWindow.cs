@@ -29,7 +29,9 @@ namespace ProjectPerseus.ui
         private static readonly Brush Accent = Frozen(0x00, 0x7C, 0xB8);
 
         private readonly FederatorWindow _owner;
-        private readonly CheckBox _byType, _split, _includeReviewed;
+        private readonly CheckBox _byCategory, _byType, _split, _includeReviewed;
+        // Category header check boxes (tick every group in a category), kept to refresh their ticked / mixed state.
+        private readonly List<WeakReference<CheckBox>> _categoryChecks = new List<WeakReference<CheckBox>>();
         private readonly TextBlock _summary, _scope;
         private readonly DataGrid _grid;
         private readonly StackPanel _detail, _noisePanel;
@@ -49,16 +51,20 @@ namespace ProjectPerseus.ui
                 set
                 {
                     if (value) _w._checkedKeys.Add(G.Key); else _w._checkedKeys.Remove(G.Key);
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Checked)));
+                    Raise();
                     _w.UpdateScope();
                 }
             }
+            internal void Raise() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Checked)));
             public int Count => G.Changes.Count;
             public string Kind => G.Kind == ChangeKind.Added ? "+" : G.Kind == ChangeKind.Deleted ? "−" : "~";
             public Brush KindBrush => ChangeRow.KindBrushOf(G.Kind);
             public string Category => G.Category;
             public string Type => G.Type;
             public string Change => G.Description;
+            /// <summary>Category header text: "Sprinklers · 1,240 changes in 6 groups" (set by Refresh).</summary>
+            public string CategoryHeader { get; set; }
+            internal int CategoryTotal;
             public event PropertyChangedEventHandler PropertyChanged;
         }
 
@@ -78,10 +84,11 @@ namespace ProjectPerseus.ui
 
             // ── Options ──
             var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-            _byType = Check("Group by type", true, "Off: group by category only");
+            _byCategory = Check("Group by category", true, "Collapsible category headers; tick a header to tick every group in it");
+            _byType = Check("Split by type", true, "Off: one group per kind of change across all types of a category");
             _split = Check("Split by values", false, "Also split groups whose before → after values differ");
             _includeReviewed = Check("Include reviewed", false, "Off: only changes still Unreviewed");
-            top.Children.Add(_byType); top.Children.Add(_split); top.Children.Add(_includeReviewed);
+            top.Children.Add(_byCategory); top.Children.Add(_byType); top.Children.Add(_split); top.Children.Add(_includeReviewed);
             _summary = new TextBlock { Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
             top.Children.Add(_summary);
             DockPanel.SetDock(top, Dock.Top);
@@ -140,7 +147,7 @@ namespace ProjectPerseus.ui
             Content = root;
 
             // ── Wiring ──
-            foreach (var c in new[] { _byType, _split, _includeReviewed })
+            foreach (var c in new[] { _byCategory, _byType, _split, _includeReviewed })
             {
                 c.Checked += (s, e) => Safe(Refresh);
                 c.Unchecked += (s, e) => Safe(Refresh);
@@ -178,14 +185,30 @@ namespace ProjectPerseus.ui
         {
             var keepSelected = new HashSet<string>(_grid.SelectedItems.Cast<GroupRow>().Select(g => g.G.Key));
             var source = _owner.TriageSource(_includeReviewed.IsChecked == true);
-            var groups = ChangeTriage.Group(source.Select(r => r.Change), new TriageOptions
+            var groups = ChangeTriage.Group(source.Select(r => r.Shown), new TriageOptions
             {
                 ByType = _byType.IsChecked == true,
                 SplitByValues = _split.IsChecked == true,
             });
             _groups = groups.Select(g => new GroupRow(this, g)).ToList();
             _checkedKeys.IntersectWith(_groups.Select(g => g.G.Key));
-            _grid.ItemsSource = _groups;
+            // Category totals: headers show them, and categories are ordered biggest first.
+            foreach (var cat in _groups.GroupBy(g => g.Category))
+            {
+                int total = cat.Sum(g => g.Count), n = cat.Count();
+                foreach (var g in cat)
+                {
+                    g.CategoryTotal = total;
+                    g.CategoryHeader = $"{(string.IsNullOrEmpty(cat.Key) ? "(no category)" : cat.Key)}   ·   {total:N0} change(s) in {n} group(s)";
+                }
+            }
+            var view = new ListCollectionView(_groups);
+            if (_byCategory.IsChecked == true)
+            {
+                view.CustomSort = new CategoryOrder();
+                view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(GroupRow.Category)));
+            }
+            _grid.ItemsSource = view;
             foreach (var g in _groups.Where(g => keepSelected.Contains(g.G.Key))) _grid.SelectedItems.Add(g);
             _summary.Text = $"{_groups.Count:N0} groups · {source.Count:N0} changes" +
                             (_includeReviewed.IsChecked == true ? "" : " still unreviewed") + " (noise excluded)";
@@ -208,6 +231,52 @@ namespace ProjectPerseus.ui
             int n = t.Sum(g => g.Count);
             bool ticked = _groups.Any(g => g.Checked);
             _scope.Text = t.Count == 0 ? "Tick or select groups" : $"{(ticked ? "Ticked" : "Selected")}: {t.Count:N0} group(s) · {n:N0} change(s)";
+            RefreshCategoryChecks();
+        }
+
+        private class CategoryOrder : System.Collections.IComparer
+        {
+            public int Compare(object x, object y)
+            {
+                var a = (GroupRow)x; var b = (GroupRow)y;
+                int c = b.CategoryTotal.CompareTo(a.CategoryTotal);
+                if (c == 0) c = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase);
+                if (c == 0) c = b.Count.CompareTo(a.Count);
+                if (c == 0) c = string.Compare(a.Type, b.Type, StringComparison.OrdinalIgnoreCase);
+                return c;
+            }
+        }
+
+        private void RegisterCategoryCheck(CheckBox cb)
+        {
+            _categoryChecks.RemoveAll(w => !w.TryGetTarget(out var c));
+            if (!_categoryChecks.Any(w => w.TryGetTarget(out var c) && c == cb)) _categoryChecks.Add(new WeakReference<CheckBox>(cb));
+            cb.IsChecked = StateOf(cb);
+        }
+
+        private void CategoryCheckClicked(CheckBox cb)
+        {
+            if (!(cb.DataContext is CollectionViewGroup g)) return;
+            bool on = cb.IsChecked == true;
+            foreach (var row in g.Items.OfType<GroupRow>()) { if (on) _checkedKeys.Add(row.G.Key); else _checkedKeys.Remove(row.G.Key); row.Raise(); }
+            UpdateScope();
+        }
+
+        private void RefreshCategoryChecks()
+        {
+            foreach (var w in _categoryChecks.ToList())
+            {
+                if (!w.TryGetTarget(out var cb)) { _categoryChecks.Remove(w); continue; }
+                cb.IsChecked = StateOf(cb);
+            }
+        }
+
+        private bool? StateOf(CheckBox cb)
+        {
+            if (!(cb.DataContext is CollectionViewGroup g)) return false;
+            var rows = g.Items.OfType<GroupRow>().ToList();
+            int on = rows.Count(r => _checkedKeys.Contains(r.G.Key));
+            return on == 0 ? false : on == rows.Count ? (bool?)true : null;
         }
 
         private void Bulk(Action<List<ChangeRow>> act)
@@ -355,6 +424,29 @@ namespace ProjectPerseus.ui
             g.Columns.Add(new DataGridTemplateColumn { Header = "", Width = new DataGridLength(24), CellTemplate = new DataTemplate { VisualTree = kind }, IsReadOnly = true });
 
             g.Columns.Add(Text("Count", nameof(GroupRow.Count), new DataGridLength(60)));
+
+            // Category groups: expander header = [check box] "Sprinklers · 1,240 change(s) in 6 group(s)".
+            var expander = new FrameworkElementFactory(typeof(Expander));
+            expander.SetValue(Expander.IsExpandedProperty, true);
+            expander.SetBinding(HeaderedContentControl.HeaderProperty, new Binding());
+            var header = new FrameworkElementFactory(typeof(StackPanel));
+            header.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+            var catCheck = new FrameworkElementFactory(typeof(CheckBox));
+            catCheck.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            catCheck.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 6, 0));
+            catCheck.SetValue(FrameworkElement.ToolTipProperty, "Tick every group in this category");
+            catCheck.AddHandler(FrameworkElement.LoadedEvent, new RoutedEventHandler((s, e) => Safe(() => RegisterCategoryCheck((CheckBox)s))));
+            catCheck.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler((s, e) => Safe(() => CategoryCheckClicked((CheckBox)s))));
+            var catText = new FrameworkElementFactory(typeof(TextBlock));
+            catText.SetBinding(TextBlock.TextProperty, new Binding("Items[0]." + nameof(GroupRow.CategoryHeader)));
+            catText.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+            header.AppendChild(catCheck);
+            header.AppendChild(catText);
+            expander.SetValue(HeaderedContentControl.HeaderTemplateProperty, new DataTemplate { VisualTree = header });
+            expander.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
+            var containerStyle = new Style(typeof(GroupItem));
+            containerStyle.Setters.Add(new Setter(Control.TemplateProperty, new ControlTemplate(typeof(GroupItem)) { VisualTree = expander }));
+            g.GroupStyle.Add(new GroupStyle { ContainerStyle = containerStyle });
             g.Columns.Add(Text("Category", nameof(GroupRow.Category), new DataGridLength(120)));
             g.Columns.Add(Text("Type", nameof(GroupRow.Type), new DataGridLength(1, DataGridLengthUnitType.Star)));
             g.Columns.Add(Text("Change", nameof(GroupRow.Change), new DataGridLength(1.6, DataGridLengthUnitType.Star)));

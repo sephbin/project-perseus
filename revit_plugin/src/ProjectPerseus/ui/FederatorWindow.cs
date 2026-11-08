@@ -466,7 +466,8 @@ namespace ProjectPerseus.ui
         private void ApplyNoise()
         {
             var set = NoiseFilter.ParameterSet(_noise);
-            foreach (var r in _rows) r.IsNoise = NoiseFilter.IsNoise(r.Change, _noise, set);
+            foreach (var r in _rows) r.SetShown(NoiseFilter.Effective(r.Change, _noise, set));
+            if (_groupBox.SelectedItem as string != null) Regroup();
             ApplyFilter();
         }
 
@@ -580,7 +581,7 @@ namespace ProjectPerseus.ui
             _view.Filter = o => o is ChangeRow r
                                 && (!hideNoise || !r.IsNoise)
                                 && (focus == null || focus.Contains(r.Change.UniqueId))
-                                && f.Matches(r.Change, r.State);
+                                && f.Matches(r.Shown, r.State);
             int shown = _view.Count;
             int noise = _rows.Count(r => r.IsNoise);
             _count.Text = (shown == _rows.Count ? $"{_rows.Count:N0} changes" : $"Showing {shown:N0} of {_rows.Count:N0}")
@@ -763,7 +764,7 @@ namespace ProjectPerseus.ui
             _rowByUid.TryGetValue(c.UniqueId ?? "", out var row);
             string glyph = c.Kind == ChangeKind.Added ? "+" : c.Kind == ChangeKind.Deleted ? "−" : "~";
             string name = ChangeDescriber.TypeName(c.Family, c.Type);
-            string text = $"{glyph} {(string.IsNullOrEmpty(name) ? c.Category : name)} (Id {c.Id}) — {ChangeDescriber.Summary(c)}";
+            string text = $"{glyph} {(string.IsNullOrEmpty(name) ? c.Category : name)} (Id {c.Id}) — {ChangeDescriber.Summary(row?.Shown ?? c)}";
             if (s.LabelStatus && row != null)
             {
                 var st = row.State;
@@ -1102,9 +1103,16 @@ namespace ProjectPerseus.ui
             _detail.Children.Add(Muted_($"{c.Category} · Id {c.Id} · {(string.IsNullOrEmpty(c.Level) ? "no level" : c.Level)} · {c.Kind}"));
 
             _detail.Children.Add(Section("What changed"));
-            foreach (var line in ChangeDescriber.Lines(c)) _detail.Children.Add(Text(line));
+            var shown = row.Shown;
+            if (row.IsNoise) _detail.Children.Add(Muted_("Only noise: everything that changed is covered by this link's noise rules."));
+            else foreach (var line in ChangeDescriber.Lines(shown)) _detail.Children.Add(Text(line));
+            var noiseParams = NoiseFilter.NoiseParameters(c, NoiseFilter.ParameterSet(_noise));
+            bool smallMove = c.Aspects.HasFlag(ChangeAspect.Moved) && !shown.Aspects.HasFlag(ChangeAspect.Moved) && !row.IsNoise;
+            if (noiseParams.Count > 0 || smallMove)
+                _detail.Children.Add(Muted_("Ignored as noise: " + string.Join(", ", noiseParams.Concat(smallMove ? new[] { "move of " + ChangeDescriber.Length(c.MoveDistance) } : new string[0]))));
 
-            if (c.ParameterChanges != null && c.ParameterChanges.Count > 0) _detail.Children.Add(ParameterTable(c.ParameterChanges));
+            var tableParams = row.IsNoise ? c.ParameterChanges : shown.ParameterChanges;
+            if (tableParams != null && tableParams.Count > 0) _detail.Children.Add(ParameterTable(tableParams));
 
             if (c.Kind == ChangeKind.Deleted && c.Replacements != null && c.Replacements.Count > 0)
             {

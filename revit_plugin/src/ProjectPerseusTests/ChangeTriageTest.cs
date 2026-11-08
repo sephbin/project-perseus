@@ -126,5 +126,31 @@ namespace ProjectPerseusTests
             Assert.AreEqual(ReviewStatus.Accepted, later[ReviewLog.Key("link", "e1")].Status);
             Assert.AreEqual(ReviewStatus.Unreviewed, later[ReviewLog.Key("link", "e2")].Status);
         }
+        [TestMethod]
+        public void EffectiveChangeDropsNoiseButKeepsTheRest()
+        {
+            var rules = new NoiseRules { Parameters = new List<string> { "Mark" }, MinMoveMm = 5 };
+            var set = NoiseFilter.ParameterSet(rules);
+
+            var mixed = Params("a", "K80", "Mark", "1", "2", "Flow", "60", "80");
+            var e = NoiseFilter.Effective(mixed, rules, set);
+            Assert.AreNotSame(mixed, e);
+            CollectionAssert.AreEqual(new[] { "Flow" }, e.ParameterChanges.Select(p => p.Name).ToArray());
+            Assert.AreEqual(2, mixed.ParameterChanges.Count, "the stored change is untouched");
+
+            Assert.IsNull(NoiseFilter.Effective(Params("b", "K80", "Mark", "1", "2"), rules, set), "only noise");
+            var clean = Params("c", "K80", "Flow", "60", "80");
+            Assert.AreSame(clean, NoiseFilter.Effective(clean, rules, set), "no noise: same instance");
+
+            var smallMoveAndFlow = Moved("d", 2, ChangeAspect.Parameters);
+            smallMoveAndFlow.ParameterChanges.Add(new ParameterChange { Name = "Flow", Old = "60", New = "80" });
+            var eff = NoiseFilter.Effective(smallMoveAndFlow, rules, set);
+            Assert.AreEqual(ChangeAspect.Parameters, eff.Aspects);
+
+            // Triage on effective changes: "Mark" no longer splits the groups.
+            var groups = ChangeTriage.Group(new[] { e, NoiseFilter.Effective(clean, rules, set) });
+            Assert.AreEqual(1, groups.Count);
+            Assert.AreEqual("Parameters: Flow", groups[0].Description);
+        }
     }
 }
