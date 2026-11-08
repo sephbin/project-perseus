@@ -151,7 +151,7 @@ namespace ProjectPerseus.ui
             // ── Right: options ──
             var right = new StackPanel();
             right.Children.Add(Section("Changes"));
-            var scopeShown = Radio("scope", $"Shown in the list ({shown:N0})", _s.Scope == BakeSettings.ScopeShown);
+            var scopeShown = Radio("scope", $"Shown in the list and previewed ({shown:N0})", _s.Scope == BakeSettings.ScopeShown);
             var scopeSel = Radio("scope", $"Selected ({selected:N0})", _s.Scope == BakeSettings.ScopeSelected);
             var scopeAll = Radio("scope", $"All in this comparison ({all:N0})", _s.Scope == BakeSettings.ScopeAll);
             scopeSel.IsEnabled = selected > 0;

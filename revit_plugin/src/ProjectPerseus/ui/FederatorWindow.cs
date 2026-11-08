@@ -83,6 +83,10 @@ namespace ProjectPerseus.ui
         private readonly Dictionary<string, List<ChangeRow>> _replaces = new Dictionary<string, List<ChangeRow>>(); // added uid → deleted rows suggesting it
         private HashSet<long> _inView;
         private bool _loading, _suppressSelection;
+        // Preview column: group header / column header check boxes, kept to refresh their ticked / mixed state.
+        private readonly List<WeakReference<CheckBox>> _groupChecks = new List<WeakReference<CheckBox>>();
+        private CheckBox _allCheck;
+        private bool _previewDirty;
         private LinkTransform _toHost = LinkTransform.Identity;
 
         // ── Controls ──
@@ -124,6 +128,7 @@ namespace ProjectPerseus.ui
         private FederatorWindow()
         {
             Instance = this;
+            ChangeRow.PreviewChanged += OnRowPreviewChanged;
             Title = "Perseus — Federator";
             Width = 1240;
             Height = 760;
@@ -255,6 +260,8 @@ namespace ProjectPerseus.ui
             {
                 _searchTimer.Stop();
                 _highlightTimer.Stop();
+                ChangeRow.PreviewChanged -= OnRowPreviewChanged;
+                SavePreview();
                 Instance = null;
                 ChangeHighlightController.Clear();
                 OwnershipUiEvent.Run(app => { try { app.ActiveUIDocument?.RefreshActiveView(); } catch { } });
@@ -351,6 +358,7 @@ namespace ProjectPerseus.ui
 
         private void ShowComparison(ComparisonRecord rec, List<ElementChange> changes)
         {
+            SavePreview();
             _record = rec;
             _rows = new List<ChangeRow>();
             _rowByUid.Clear();
@@ -365,6 +373,11 @@ namespace ProjectPerseus.ui
                     if (!string.IsNullOrEmpty(c.UniqueId)) _rowByUid[c.UniqueId] = row;
                     if (c.Kind != ChangeKind.Deleted) _rowById[c.Id] = row;
                 }
+                var hidden = PreviewStateStore.Load(rec.Id);
+                foreach (var row in _rows)
+                    row.SetPreviewQuietly(hidden != null
+                        ? !hidden.Contains(row.Change.UniqueId)
+                        : !PreviewStateStore.DefaultHiddenCategories.Contains(row.Category));
                 foreach (var row in _rows.Where(r => r.Change.Replacements != null))
                     foreach (var cand in row.Change.Replacements)
                     {
@@ -443,7 +456,93 @@ namespace ProjectPerseus.ui
             _view.Filter = o => o is ChangeRow r && f.Matches(r.Change, r.State);
             int shown = _view.Count;
             _count.Text = shown == _rows.Count ? $"{_rows.Count:N0} changes" : $"Showing {shown:N0} of {_rows.Count:N0}";
+            RefreshPreviewChecks();
             QueueHighlight();
+        }
+
+        // ═══════════════════════════ Preview column ═══════════════════════════
+
+        private DataGridTemplateColumn PreviewColumn()
+        {
+            var cb = new FrameworkElementFactory(typeof(CheckBox));
+            cb.SetBinding(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty,
+                          new Binding(nameof(ChangeRow.Preview)) { Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged });
+            cb.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            cb.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            _allCheck = new CheckBox { ToolTip = "Preview every change shown in the list", HorizontalAlignment = HorizontalAlignment.Center };
+            _allCheck.Click += (s, e) => Safe(() =>
+            {
+                if (_view == null) return;
+                SetPreview(_view.Cast<ChangeRow>(), _allCheck.IsChecked == true);
+            });
+            return new DataGridTemplateColumn
+            {
+                Header = _allCheck,
+                Width = new DataGridLength(30),
+                CanUserSort = true,
+                SortMemberPath = nameof(ChangeRow.Preview),
+                CellTemplate = new DataTemplate { VisualTree = cb },
+            };
+        }
+
+        private void OnRowPreviewChanged(ChangeRow row)
+        {
+            _previewDirty = true;
+            RefreshPreviewChecks();
+            QueueHighlight();
+        }
+
+        private void SetPreview(IEnumerable<ChangeRow> rows, bool on)
+        {
+            foreach (var r in rows) r.SetPreviewQuietly(on);
+            _previewDirty = true;
+            RefreshPreviewChecks();
+            QueueHighlight();
+        }
+
+        private void RegisterGroupCheck(CheckBox cb)
+        {
+            _groupChecks.RemoveAll(w => !w.TryGetTarget(out var c) || !c.IsLoaded && c != cb);
+            if (!_groupChecks.Any(w => w.TryGetTarget(out var c) && c == cb)) _groupChecks.Add(new WeakReference<CheckBox>(cb));
+            cb.IsChecked = StateOf((cb.DataContext as CollectionViewGroup)?.Items.OfType<ChangeRow>());
+        }
+
+        private void GroupCheckClicked(CheckBox cb)
+        {
+            var rows = (cb.DataContext as CollectionViewGroup)?.Items.OfType<ChangeRow>().ToList();
+            if (rows == null) return;
+            SetPreview(rows, cb.IsChecked == true);
+        }
+
+        /// <summary>Ticked / unticked / mixed (null) for group headers and the column header.</summary>
+        private void RefreshPreviewChecks()
+        {
+            foreach (var w in _groupChecks.ToList())
+            {
+                if (!w.TryGetTarget(out var cb)) { _groupChecks.Remove(w); continue; }
+                if (cb.DataContext is CollectionViewGroup g) cb.IsChecked = StateOf(g.Items.OfType<ChangeRow>());
+            }
+            if (_allCheck != null) _allCheck.IsChecked = _view == null ? (bool?)true : StateOf(_view.Cast<ChangeRow>());
+        }
+
+        private static bool? StateOf(IEnumerable<ChangeRow> rows)
+        {
+            if (rows == null) return true;
+            bool any = false, on = false, off = false;
+            foreach (var r in rows)
+            {
+                any = true;
+                if (r.Preview) on = true; else off = true;
+                if (on && off) return null;
+            }
+            return !any || on;
+        }
+
+        private void SavePreview()
+        {
+            if (!_previewDirty || _record == null) return;
+            _previewDirty = false;
+            PreviewStateStore.Save(_record.Id, _rows.Where(r => !r.Preview).Select(r => r.Change.UniqueId));
         }
 
         // ═══════════════════════════ In-view highlight ═══════════════════════════
@@ -457,6 +556,7 @@ namespace ProjectPerseus.ui
         /// <summary>Hands the shown / selected changes to the DirectContext3D server and redraws the active view.</summary>
         private void PushHighlight()
         {
+            SavePreview();
             bool on = _highlightBox.IsChecked == true && _record != null && _view != null;
             ChangeHighlightController.Enabled = on;
             if (on)
@@ -465,7 +565,7 @@ namespace ProjectPerseus.ui
                 var emphasised = new HashSet<string>(selected.Select(r => r.Change.UniqueId));
                 IEnumerable<ChangeRow> rows = (_highlightMode.SelectedItem as string) == HighlightSelected
                     ? (IEnumerable<ChangeRow>)selected
-                    : _view.Cast<ChangeRow>();
+                    : _view.Cast<ChangeRow>().Where(r => r.Preview);
                 int drawn = ChangeHighlightController.Show(_doc, rows.Select(r => r.Change), _toHost, emphasised);
                 if (drawn >= ChangeHighlightController.MaxItems)
                     Status($"Showing the first {ChangeHighlightController.MaxItems:N0} changes in the view (selected first). Filter to see the rest.");
@@ -482,7 +582,7 @@ namespace ProjectPerseus.ui
         {
             var rec = _record;
             if (rec == null || rec.Changes == null) { Status("Open a comparison first."); return; }
-            var shown = _view.Cast<ChangeRow>().ToList();
+            var shown = _view.Cast<ChangeRow>().Where(r => r.Preview).ToList();
             var selected = _grid.SelectedItems.Cast<ChangeRow>().ToList();
             RunApi(app =>
             {
@@ -1105,6 +1205,7 @@ namespace ProjectPerseus.ui
             VirtualizingPanel.SetIsVirtualizingWhenGrouping(g, true);
             VirtualizingPanel.SetVirtualizationMode(g, VirtualizationMode.Recycling);
 
+            g.Columns.Add(PreviewColumn());
             g.Columns.Add(Coloured("", nameof(ChangeRow.KindGlyph), nameof(ChangeRow.KindBrush), 26, nameof(ChangeRow.KindOrder), true));
             g.Columns.Add(TextCol("Element", nameof(ChangeRow.Element), new DataGridLength(1.3, DataGridLengthUnitType.Star)));
             g.Columns.Add(TextCol("Id", nameof(ChangeRow.Id), new DataGridLength(70)));
@@ -1126,6 +1227,13 @@ namespace ProjectPerseus.ui
             var count = new FrameworkElementFactory(typeof(TextBlock));
             count.SetBinding(TextBlock.TextProperty, new Binding("ItemCount") { StringFormat = "  ({0})" });
             count.SetValue(TextBlock.ForegroundProperty, Muted);
+            var groupCheck = new FrameworkElementFactory(typeof(CheckBox));
+            groupCheck.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            groupCheck.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 6, 0));
+            groupCheck.SetValue(FrameworkElement.ToolTipProperty, "Preview this group in the view");
+            groupCheck.AddHandler(FrameworkElement.LoadedEvent, new RoutedEventHandler((s, e) => Safe(() => RegisterGroupCheck((CheckBox)s))));
+            groupCheck.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler((s, e) => Safe(() => GroupCheckClicked((CheckBox)s))));
+            headerPanel.AppendChild(groupCheck);
             headerPanel.AppendChild(name);
             headerPanel.AppendChild(count);
             expander.SetValue(HeaderedContentControl.HeaderTemplateProperty, new DataTemplate { VisualTree = headerPanel });

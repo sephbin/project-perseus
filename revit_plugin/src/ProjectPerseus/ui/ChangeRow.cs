@@ -18,6 +18,31 @@ namespace ProjectPerseus.ui
 
         public event PropertyChangedEventHandler PropertyChanged;
 
+        /// <summary>Raised when the user ticks / unticks a row's Preview box (not for SetPreviewQuietly).</summary>
+        internal static event System.Action<ChangeRow> PreviewChanged;
+
+        private bool _preview = true;
+
+        /// <summary>Drawn in the view (and baked with the "shown" scope) when true.</summary>
+        public bool Preview
+        {
+            get => _preview;
+            set
+            {
+                if (_preview == value) return;
+                _preview = value;
+                Raise(nameof(Preview));
+                PreviewChanged?.Invoke(this);
+            }
+        }
+
+        internal void SetPreviewQuietly(bool value)
+        {
+            if (_preview == value) return;
+            _preview = value;
+            Raise(nameof(Preview));
+        }
+
         internal ChangeRow(ElementChange change, string linkInstanceUid)
         {
             Change = change;

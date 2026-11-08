@@ -451,6 +451,7 @@
     <Compile Include="federator\ViewTargets.cs" />
     <Compile Include="federator\LinkTransform.cs" />
     <Compile Include="federator\OverlayShapes.cs" />
+    <Compile Include="federator\PreviewStateStore.cs" />
     <Compile Include="federator\ChangeHighlightServer.cs" />
     <Compile Include="federator\ChangeHighlightController.cs" />
     <Compile Include="federator\FederatorSettingsStore.cs" />

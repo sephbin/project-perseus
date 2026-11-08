@@ -308,9 +308,12 @@ ProjectPerseus/
 │   │                             assignee, Done/Cancel), comment box (any status), thread. Multi-select applies status/action/comment
 │   │                             to all. Double-click = ReviewNavigator.Show(select). Model work via queue/OwnershipUiEvent (RunApi).
 │   │                             Revit selection -> row highlight via FederatorController (OnRevitSelection).
+│   │                             Preview column: row check boxes + group header (ticked/unticked/mixed) + column header for all
+│   │                             shown; unticked rows aren't drawn or baked ("shown" scope).
 │   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
-│   ├── ChangeRow.cs              NEW (2026-11-08). INotifyPropertyChanged row: ElementChange + ElementReviewState, kind/status brushes.
+│   ├── ChangeRow.cs              NEW (2026-11-08). INotifyPropertyChanged row: ElementChange + ElementReviewState, kind/status brushes,
+│   │                             Preview flag (static PreviewChanged event for user ticks; SetPreviewQuietly for bulk).
 │   ├── MarkerSetsWindow.cs       NEW (2026-11-06). Modeless code-only WPF "Parameter Markers" panel: set library (enable,
 │   │                             new/duplicate/delete, import/export) + editor (name, category checklist with search, filter,
 │   │                             parameter list with whole-model suggestions (rows pick from it; Auto-fill per parameter), legend rows with
@@ -403,6 +406,8 @@ ProjectPerseus/
 │   │                             label (text types of the same names). Elements tagged (schema PerseusFederatorAnnotation) so a
 │   │                             re-bake replaces / Remove clears them. TransactionGroup = one undo; failing views rolled back.
 │   ├── ViewTargets.cs            Pure: target views = regex (view name / sheet number) ∪ ticked − unticked. Tested.
+│   ├── PreviewStateStore.cs      Per-user Preview column state (hidden change uids per comparison) in AppDataederator\n│   │                             preview_hidden.json; new comparisons start with DefaultHiddenCategories off (base/survey points,
+│   │                             sheets, views, viewports, cameras, scope boxes).
 │   ├── FederatorSettingsStore.cs Append-only shared settings (newest per key wins), e.g. "bake:<link uid>" -> models/BakeSettings.
 │   ├── PluginDataStorage.cs      Shared Extensible Storage helpers (All, EnsureSchema, CanDelete = author + not checked out, gzip).
 │   ├── LinkedElementRef.cs       Link instance UniqueId + linked UniqueId -> Element; stable link Reference string for SetReferences.
