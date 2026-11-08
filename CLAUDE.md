@@ -312,6 +312,9 @@ ProjectPerseus/
 │   │                             shown; unticked rows aren't drawn or baked ("shown" scope).
 │   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
+│   ├── TriageWindow.cs           NEW (2026-11-09). Modeless bulk review: ChangeTriage groups (largest first), value transitions,
+│   │                             tick groups -> Accept / Ignore / Resolved / Query + assign / hide-show preview / mark as noise;
+│   │                             noise rule list + move threshold. Calls FederatorWindow's Triage* API; refreshes on ReviewChanged.
 │   ├── ChangeRow.cs              NEW (2026-11-08). INotifyPropertyChanged row: ElementChange + ElementReviewState, kind/status brushes,
 │   │                             Preview flag (static PreviewChanged event for user ticks; SetPreviewQuietly for bulk).
 │   ├── MarkerSetsWindow.cs       NEW (2026-11-06). Modeless code-only WPF "Parameter Markers" panel: set library (enable,
@@ -412,6 +415,9 @@ ProjectPerseus/
 │   ├── ViewTargets.cs            Pure: target views = regex (view name / sheet number) ∪ ticked − unticked. Tested.
 │   ├── PreviewStateStore.cs      Per-user Preview column state (hidden change uids per comparison) in AppDataederator\n│   │                             preview_hidden.json; new comparisons start with DefaultHiddenCategories off (base/survey points,
 │   │                             sheets, views, viewports, cameras, scope boxes).
+│   ├── ChangeTriage.cs           Pure: groups changes that look alike (category, type, kind, aspects, changed parameter set,
+│   │                             move bucket ≤5/≤50/≤500/>500 mm; optional split by values) + top before→after transitions. Tested.
+│   ├── NoiseFilter.cs            Pure: a change is noise when only NoiseRules parameters changed and/or it moved < MinMoveMm.
 │   ├── FederatorSettingsStore.cs Append-only shared settings (newest per key wins), e.g. "bake:<link uid>" -> models/BakeSettings.
 │   ├── PluginDataStorage.cs      Shared Extensible Storage helpers (All, EnsureSchema, CanDelete = author + not checked out, gzip).
 │   ├── LinkedElementRef.cs       Link instance UniqueId + linked UniqueId -> Element; stable link Reference string for SetReferences.
@@ -436,8 +442,11 @@ ProjectPerseus/
 │   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft).
 │   ├── ElementChange.cs          NEW (2026-11-08). Federator diff result: ChangeKind, ChangeAspect flags, ParameterChange.
 │   ├── ComparisonRecord.cs       NEW (2026-11-08). Federator comparison header (+ [JsonIgnore] Changes, StorageId).
-│   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants.
+│   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants. Batch
+│   │                             events (Elements + per-element Signatures, ≤2000 per event) for bulk reviews.
 │   ├── ElementReviewState.cs     NEW (2026-11-08). Folded review state: status (+carried), open actions, assignees, thread.
+│   ├── NoiseRules.cs             NEW (2026-11-09). Per-link noise rules (parameter names, MinMoveMm), shared via FederatorSettingsStore.
+│   ├── TriageGroup.cs            NEW (2026-11-09). A ChangeTriage group + ParameterTransition.
 │   ├── ReviewAction.cs           NEW (2026-11-08). Extensible action (free-text Type, Assignee) opened by a ReviewEvent.
 │   ├── BakeSettings.cs           NEW (2026-11-08). Federator bake settings (target views, scope, style, labels), saved per link.
 │   ├── ViewCandidate.cs          NEW (2026-11-08). A view that can receive baked annotations.

@@ -156,6 +156,7 @@
     <Compile Include="ChangeFilterTest.cs" />
     <Compile Include="ViewTargetsTest.cs" />
     <Compile Include="OverlayShapesTest.cs" />
+    <Compile Include="ChangeTriageTest.cs" />
     <Compile Include="mocks\MockArdbDefinition.cs" />
     <Compile Include="mocks\MockArdbElement.cs" />
     <Compile Include="mocks\MockArdbElementId.cs" />

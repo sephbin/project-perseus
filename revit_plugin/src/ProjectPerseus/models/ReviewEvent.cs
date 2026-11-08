@@ -37,6 +37,14 @@ namespace ProjectPerseus.models
         /// <summary>ElementChange.Signature when the event was written: lets a status carry over to later comparisons.</summary>
         public string Signature { get; set; }
 
+        /// <summary>
+        /// Batch event (bulk review): the linked elements it applies to, instead of LinkedElementUid. One DataStorage
+        /// per up to ~2000 elements rather than one per element, so bulk-accepting thousands doesn't bloat the model.
+        /// </summary>
+        public System.Collections.Generic.List<string> Elements { get; set; }
+        /// <summary>Batch events: ElementChange.Signature per element UniqueId (carry-over).</summary>
+        public System.Collections.Generic.Dictionary<string, string> Signatures { get; set; }
+
         public string Author { get; set; }
         public DateTime CreatedUtc { get; set; }
 

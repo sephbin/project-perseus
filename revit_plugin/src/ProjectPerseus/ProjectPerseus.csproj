@@ -452,6 +452,11 @@
     <Compile Include="federator\LinkTransform.cs" />
     <Compile Include="federator\OverlayShapes.cs" />
     <Compile Include="federator\PreviewStateStore.cs" />
+    <Compile Include="federator\ChangeTriage.cs" />
+    <Compile Include="federator\NoiseFilter.cs" />
+    <Compile Include="models\NoiseRules.cs" />
+    <Compile Include="models\TriageGroup.cs" />
+    <Compile Include="ui\TriageWindow.cs" />
     <Compile Include="federator\ChangeHighlightServer.cs" />
     <Compile Include="federator\ChangeHighlightController.cs" />
     <Compile Include="federator\FederatorSettingsStore.cs" />

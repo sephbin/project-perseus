@@ -88,6 +88,16 @@ namespace ProjectPerseus.ui
         private CheckBox _allCheck;
         private bool _previewDirty;
         private LinkTransform _toHost = LinkTransform.Identity;
+        // Noise rules for the current link (shared in the model) and the triage group the grid is narrowed to.
+        private NoiseRules _noise = new NoiseRules();
+        private HashSet<string> _focusUids;
+        private string _focusLabel;
+        private CheckBox _hideNoiseBox;
+        private Button _clearFocus;
+        private TriageWindow _triage;
+        /// <summary>Raised after reviews, noise rules or the comparison change (the triage window refreshes).</summary>
+        internal event Action ReviewChanged;
+        private const int BatchSize = 2000;
 
         // ── Controls ──
         private readonly ComboBox _linkBox, _comparisonBox, _kindBox, _aspectBox, _categoryBox, _levelBox, _statusBox, _assigneeBox, _groupBox;
@@ -163,6 +173,9 @@ namespace ProjectPerseus.ui
             var refresh = MakeButton("Refresh", "Reload comparisons and reviews from the model (e.g. after Reload Latest).");
             headerButtons.Children.Add(_compareButton);
             headerButtons.Children.Add(_deleteButton);
+            var triage = MakeButton("Triage…", "Review changes in bulk: groups of elements with the same kind of change (e.g. 800 sprinklers with only Mark and Comments changed), with accept / ignore / query / noise rules.");
+            triage.Click += (s, e) => Safe(OpenTriage);
+            headerButtons.Children.Add(triage);
             headerButtons.Children.Add(refresh);
             AddAt(header, headerButtons, 4);
             DockPanel.SetDock(header, Dock.Top);
@@ -187,6 +200,17 @@ namespace ProjectPerseus.ui
             _inViewBox = new CheckBox { Content = "Only in active view", VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(4, 0, 0, 7),
                                         ToolTip = "Show only this link's elements visible in the active view (deleted elements are hidden)." };
             filters.Children.Add(_inViewBox);
+            _hideNoiseBox = new CheckBox { Content = "Hide noise", IsChecked = true, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(12, 0, 0, 7),
+                                           ToolTip = "Hide changes that are only noise: parameters marked as noise in Triage, and moves under the noise distance." };
+            _hideNoiseBox.Checked += (s, e) => Safe(ApplyFilter);
+            _hideNoiseBox.Unchecked += (s, e) => Safe(ApplyFilter);
+            filters.Children.Add(_hideNoiseBox);
+            _clearFocus = MakeButton("", "Show all changes again");
+            _clearFocus.VerticalAlignment = VerticalAlignment.Bottom;
+            _clearFocus.Margin = new Thickness(12, 0, 0, 4);
+            _clearFocus.Visibility = Visibility.Collapsed;
+            _clearFocus.Click += (s, e) => Safe(() => { _focusUids = null; _focusLabel = null; ApplyFilter(); });
+            filters.Children.Add(_clearFocus);
             DockPanel.SetDock(filters, Dock.Top);
             root.Children.Add(filters);
 
@@ -416,13 +440,99 @@ namespace ProjectPerseus.ui
             RebuildDetail();
 
             _toHost = LinkTransform.Identity;
+            _focusUids = null;
             if (rec != null)
                 RunApi(app =>
                 {
                     _toHost = ChangeHighlightController.Capture(LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid));
+                    _noise = FederatorSettingsStore.Load<NoiseRules>(_doc, NoiseKey) ?? new NoiseRules();
+                    ApplyNoise();
                     PushHighlight();
                 });
             else PushHighlight();
+            ReviewChanged?.Invoke();
+        }
+
+        // ═══════════════════════════ Noise + triage API (used by ui/TriageWindow) ═══════════════════════════
+
+        private string NoiseKey => "noise:" + _record?.LinkInstanceUid;
+
+        internal NoiseRules Noise => _noise;
+        internal ComparisonRecord Record => _record;
+        internal string Me => _me;
+        internal IEnumerable<string> KnownPeople => People();
+        internal IEnumerable<string> KnownActionTypes => ActionTypes();
+
+        private void ApplyNoise()
+        {
+            var set = NoiseFilter.ParameterSet(_noise);
+            foreach (var r in _rows) r.IsNoise = NoiseFilter.IsNoise(r.Change, _noise, set);
+            ApplyFilter();
+        }
+
+        /// <summary>Rows for triage: not noise; only Unreviewed unless includeReviewed.</summary>
+        internal List<ChangeRow> TriageSource(bool includeReviewed) =>
+            _rows.Where(r => !r.IsNoise && (includeReviewed || r.State.Status == ReviewStatus.Unreviewed)).ToList();
+
+        internal List<ChangeRow> RowsFor(IEnumerable<ElementChange> changes) =>
+            changes.Select(c => _rowByUid.TryGetValue(c.UniqueId ?? "", out var r) ? r : null).Where(r => r != null).ToList();
+
+        internal void TriageStatus(List<ChangeRow> rows, string status) => SetStatus(rows, status);
+        internal void TriageAssign(List<ChangeRow> rows, string type, string who) => AddAction(rows, type, who);
+        internal void TriageComment(List<ChangeRow> rows, string text) => PostComment(rows, text);
+        internal void TriagePreview(List<ChangeRow> rows, bool on) { SetPreview(rows, on); ReviewChanged?.Invoke(); }
+        internal void TriageShow(List<ChangeRow> rows, bool select) => ShowRows(rows, select);
+
+        /// <summary>Narrows the grid to these changes (clearable from the filter bar).</summary>
+        internal void TriageFocus(List<ChangeRow> rows, string label)
+        {
+            _focusUids = new HashSet<string>(rows.Select(r => r.Change.UniqueId));
+            _focusLabel = label;
+            ApplyFilter();
+            Activate();
+        }
+
+        /// <summary>Adds parameters (and / or a minimum move) to the link's noise rules, saved in the model for everyone.</summary>
+        internal void TriageAddNoise(IEnumerable<string> parameters, double? minMoveMm)
+        {
+            var rules = new NoiseRules
+            {
+                Parameters = _noise.Parameters.Union(parameters ?? Enumerable.Empty<string>()).Distinct().OrderBy(p => p).ToList(),
+                MinMoveMm = minMoveMm ?? _noise.MinMoveMm,
+            };
+            SaveNoise(rules, "Noise rules updated.");
+        }
+
+        internal void TriageRemoveNoise(string parameter)
+        {
+            var rules = new NoiseRules { Parameters = _noise.Parameters.Where(p => p != parameter).ToList(), MinMoveMm = _noise.MinMoveMm };
+            SaveNoise(rules, $"'{parameter}' is no longer noise.");
+        }
+
+        private void SaveNoise(NoiseRules rules, string done)
+        {
+            if (_record == null) return;
+            string key = NoiseKey;
+            RunApi(app =>
+            {
+                FederatorSettingsStore.Save(_doc, key, rules, _me);
+                _noise = rules;
+                ApplyNoise();
+                ReviewChanged?.Invoke();
+                Status(done);
+            });
+        }
+
+        private void OpenTriage()
+        {
+            if (_record == null || _rows.Count == 0) { Status("Open a comparison first."); return; }
+            if (_triage == null || !_triage.IsLoaded)
+            {
+                _triage = new TriageWindow(this) { Owner = this };
+                _triage.Closed += (s, e) => _triage = null;
+                _triage.Show();
+            }
+            else _triage.Activate();
         }
 
         /// <summary>Re-folds the review events into row states (after loading or writing events).</summary>
@@ -465,9 +575,18 @@ namespace ProjectPerseus.ui
                 InView = _inViewBox.IsChecked == true ? (_inView ?? new HashSet<long>()) : null,
             };
             var f = _filter;
-            _view.Filter = o => o is ChangeRow r && f.Matches(r.Change, r.State);
+            bool hideNoise = _hideNoiseBox.IsChecked == true;
+            var focus = _focusUids;
+            _view.Filter = o => o is ChangeRow r
+                                && (!hideNoise || !r.IsNoise)
+                                && (focus == null || focus.Contains(r.Change.UniqueId))
+                                && f.Matches(r.Change, r.State);
             int shown = _view.Count;
-            _count.Text = shown == _rows.Count ? $"{_rows.Count:N0} changes" : $"Showing {shown:N0} of {_rows.Count:N0}";
+            int noise = _rows.Count(r => r.IsNoise);
+            _count.Text = (shown == _rows.Count ? $"{_rows.Count:N0} changes" : $"Showing {shown:N0} of {_rows.Count:N0}")
+                          + (noise > 0 ? $" · {noise:N0} noise{(hideNoise ? " hidden" : "")}" : "");
+            _clearFocus.Visibility = focus == null ? Visibility.Collapsed : Visibility.Visible;
+            _clearFocus.Content = focus == null ? "" : $"✕  Group: {_focusLabel}";
             RefreshPreviewChecks();
             QueueHighlight();
         }
@@ -708,6 +827,7 @@ namespace ProjectPerseus.ui
             foreach (var r in keep) if (_view.PassesFilter(r)) _grid.SelectedItems.Add(r);
             _suppressSelection = false;
             RebuildDetail();
+            ReviewChanged?.Invoke();
         }
 
         // ═══════════════════════════ Revit events (API context) ═══════════════════════════
@@ -857,25 +977,44 @@ namespace ProjectPerseus.ui
             var rec = _record;
             if (rec == null || rows.Count == 0) return;
             var now = DateTime.UtcNow;
-            var events = rows.Select(r =>
+            List<ReviewEvent> events;
+            if (rows.Count == 1)
             {
+                var r = rows[0];
                 var e = make(r);
-                e.Id = Guid.NewGuid().ToString("N");
-                e.ComparisonId = rec.Id;
-                e.LinkInstanceUid = rec.LinkInstanceUid;
                 e.LinkedElementUid = r.Change.UniqueId;
                 e.LinkedElementId = r.Change.Id;
                 e.Signature = r.Change.Signature;
+                events = new List<ReviewEvent> { e };
+            }
+            else
+            {
+                // Bulk: batch events (one per BatchSize elements), so thousands of reviews stay a handful of DataStorages.
+                events = new List<ReviewEvent>();
+                for (int i = 0; i < rows.Count; i += BatchSize)
+                {
+                    var chunk = rows.Skip(i).Take(BatchSize).ToList();
+                    var e = make(chunk[0]);
+                    e.Elements = chunk.Select(x => x.Change.UniqueId).ToList();
+                    e.Signatures = chunk.Where(x => x.Change.Signature != null)
+                                        .GroupBy(x => x.Change.UniqueId).ToDictionary(g => g.Key, g => g.First().Change.Signature);
+                    events.Add(e);
+                }
+            }
+            foreach (var e in events)
+            {
+                e.Id = Guid.NewGuid().ToString("N");
+                e.ComparisonId = rec.Id;
+                e.LinkInstanceUid = rec.LinkInstanceUid;
                 e.Author = _me;
                 e.CreatedUtc = now;
-                return e;
-            }).ToList();
+            }
 
             RunApi(app =>
             {
                 var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
-                foreach (var e in events)
-                    if (_rowByUid.TryGetValue(e.LinkedElementUid, out var row) && row.Change.Kind != ChangeKind.Deleted)
+                foreach (var e in events.Where(x => x.Elements == null))
+                    if (_rowByUid.TryGetValue(e.LinkedElementUid ?? "", out var row) && row.Change.Kind != ChangeKind.Deleted)
                         e.StableRef = LinkedElementRef.StableRepresentation(_doc, inst, LinkedElementRef.Resolve(inst, e.LinkedElementUid));
                 ReviewStore.Add(_doc, events);
                 _events.AddRange(events);
@@ -1131,6 +1270,7 @@ namespace ProjectPerseus.ui
                     stack.Children.Add(Text($"{e.CloseOutcome ?? ReviewAction.Done}: {what}"));
                 }
                 if (!string.IsNullOrWhiteSpace(e.Text)) stack.Children.Add(Text(e.Text));
+                if (e.Elements != null && e.Elements.Count > 1) stack.Children.Add(Muted_($"(bulk: applied to {e.Elements.Count:N0} elements)"));
                 card.Child = stack;
                 _detail.Children.Add(card);
             }

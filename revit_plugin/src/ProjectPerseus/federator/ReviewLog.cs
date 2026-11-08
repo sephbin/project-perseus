@@ -31,7 +31,29 @@ namespace ProjectPerseus.federator
                                     .OrderBy(x => x.CreatedUtc)
                                     .ThenBy(x => x.Id, StringComparer.Ordinal))
             {
-                string key = Key(e.LinkInstanceUid, e.LinkedElementUid);
+                if (e.Action != null && !string.IsNullOrEmpty(e.Action.Id))
+                {
+                    e.Action.CreatedBy = e.Author;
+                    e.Action.CreatedUtc = e.CreatedUtc;
+                    e.Action.ComparisonId = e.ComparisonId;
+                }
+                // A batch event applies to each of its elements as if it had been written for that element.
+                IEnumerable<string> uids = e.Elements != null && e.Elements.Count > 0 ? (IEnumerable<string>)e.Elements : new[] { e.LinkedElementUid };
+                foreach (var uid in uids) Apply(states, e, uid, comparisonId, signatures);
+            }
+
+            foreach (var s in states.Values)
+                s.Assignees = string.Join(", ", s.OpenActions.Select(a => a.Assignee)
+                                                             .Where(a => !string.IsNullOrWhiteSpace(a))
+                                                             .Distinct(StringComparer.OrdinalIgnoreCase));
+            return states;
+        }
+
+        private static void Apply(Dictionary<string, ElementReviewState> states, ReviewEvent e, string uid, string comparisonId,
+                                  IDictionary<string, string> signatures)
+        {
+            {
+                string key = Key(e.LinkInstanceUid, uid);
                 if (!states.TryGetValue(key, out var s))
                 {
                     s = new ElementReviewState { Key = key };
@@ -45,8 +67,10 @@ namespace ProjectPerseus.federator
                     bool sameComparison = string.Equals(e.ComparisonId, comparisonId, StringComparison.Ordinal);
                     string current = null;
                     signatures?.TryGetValue(key, out current);
-                    bool unchangedSince = !sameComparison && !string.IsNullOrEmpty(e.Signature)
-                                          && string.Equals(e.Signature, current, StringComparison.Ordinal);
+                    string written = e.Signature;
+                    if (e.Signatures != null && e.Signatures.TryGetValue(uid ?? "", out var perElement)) written = perElement;
+                    bool unchangedSince = !sameComparison && !string.IsNullOrEmpty(written)
+                                          && string.Equals(written, current, StringComparison.Ordinal);
                     if (sameComparison || unchangedSince)
                     {
                         s.Status = e.Status;
@@ -57,22 +81,10 @@ namespace ProjectPerseus.federator
                     }
                 }
 
-                if (e.Action != null && !string.IsNullOrEmpty(e.Action.Id))
-                {
-                    e.Action.CreatedBy = e.Author;
-                    e.Action.CreatedUtc = e.CreatedUtc;
-                    e.Action.ComparisonId = e.ComparisonId;
-                    s.OpenActions.Add(e.Action);
-                }
+                if (e.Action != null && !string.IsNullOrEmpty(e.Action.Id)) s.OpenActions.Add(e.Action);
                 if (!string.IsNullOrEmpty(e.ClosesActionId))
                     s.OpenActions.RemoveAll(a => a.Id == e.ClosesActionId);
             }
-
-            foreach (var s in states.Values)
-                s.Assignees = string.Join(", ", s.OpenActions.Select(a => a.Assignee)
-                                                             .Where(a => !string.IsNullOrWhiteSpace(a))
-                                                             .Distinct(StringComparer.OrdinalIgnoreCase));
-            return states;
         }
     }
 }

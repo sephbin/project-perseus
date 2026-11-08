@@ -36,6 +36,9 @@ namespace ProjectPerseus.ui
             }
         }
 
+        /// <summary>Only noise under the link's NoiseRules (hidden by "Hide noise").</summary>
+        internal bool IsNoise { get; set; }
+
         internal void SetPreviewQuietly(bool value)
         {
             if (_preview == value) return;
