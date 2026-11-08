@@ -130,6 +130,7 @@ namespace ProjectPerseus.federator
                 if (visible.Count == 0) return;
 
                 var frame = new Frame(view, Place);
+                LogViewOnce(view, viewKey, version, frame, visible.Count);
                 string key = $"{version}|{frame.Key}";
                 if (!_cache.TryGetValue(viewKey, out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
                 {
@@ -162,6 +163,7 @@ namespace ProjectPerseus.federator
         private class Frame
         {
             internal readonly XYZ O, R, U, N;
+            internal readonly XYZ ReportedN;   // view.ViewDirection as Revit gave it (diagnostics)
             internal readonly double S;          // view scale
             internal readonly double? NearW;     // shapes must stay behind this depth (w grows toward the viewer)
             internal readonly double? FarW;      // ... and in front of this one (view depth / far clip)
@@ -172,6 +174,12 @@ namespace ProjectPerseus.federator
             internal Frame(View view, Placement place)
             {
                 O = view.Origin; R = view.RightDirection; U = view.UpDirection; N = view.ViewDirection;
+                ReportedN = N;
+                // Plans: the toward-the-viewer axis is fixed - up for floor / engineering / area plans, DOWN for reflected
+                // ceiling plans (you look up). ViewDirection isn't trusted for RCPs: with the wrong sign the white halo
+                // stacks in front of the coloured stroke (invisible on white) and "On top" lands behind the ceilings.
+                if (view.ViewType == ViewType.CeilingPlan) N = new XYZ(0, 0, -1);
+                else if (view is ViewPlan) N = XYZ.BasisZ;
                 S = Math.Max(1, view.Scale);
                 Place = place;
                 Clip(view, out NearW, out FarW);
@@ -320,6 +328,19 @@ namespace ProjectPerseus.federator
         // Hard ceiling per view build; past it the remaining changes aren't drawn (logged once per version).
         private const int MaxTrianglesPerView = 600000;
         private int _budgetLoggedVersion = -1;
+        private readonly Dictionary<long, int> _loggedViews = new Dictionary<long, int>();
+
+        // One line per view per set of items: what the renderer saw (view type, directions, clip depths, how many
+        // changes are in view) - enough to diagnose "nothing shows in this view" from the log.
+        private void LogViewOnce(View view, long viewKey, int version, Frame f, int visible)
+        {
+            if (_loggedViews.TryGetValue(viewKey, out int v) && v == version) return;
+            _loggedViews[viewKey] = version;
+            string V(XYZ p) => $"({p.X:F2},{p.Y:F2},{p.Z:F2})";
+            string D(double? d) => d.HasValue ? d.Value.ToString("F2") : "-";
+            Log.Info($"[Federator] highlight '{view.Name}' ({view.ViewType}, 1:{f.S}): viewDir {V(f.ReportedN)} -> using {V(f.N)}, " +
+                     $"right {V(f.R)}, near {D(f.NearW)}, far {D(f.FarW)}, eye {D(f.EyeW)}, place {f.Place}, {visible} change(s) in view");
+        }
 
         private List<Batch> Build(List<Item> items, List<int> visible, Frame f, int version)
         {
