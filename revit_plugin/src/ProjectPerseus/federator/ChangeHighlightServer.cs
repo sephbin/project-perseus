@@ -6,17 +6,20 @@ using Autodesk.Revit.DB.DirectContext3D;
 using Autodesk.Revit.DB.ExternalService;
 using ProjectPerseus.logging;
 using ProjectPerseus.revit;
+using Pt = ProjectPerseus.federator.OverlayShapes.Pt;
 
 namespace ProjectPerseus.federator
 {
     /// <summary>
     /// Draws the federator's changes in the model views (DirectContext3D: plans, sections, elevations, details and
-    /// 3D; on screen only, never printed - baking does that, see AnnotationBaker). Each change is a box in host
-    /// coordinates: green added, amber modified, red deleted (at its old position); a moved element also gets a grey
-    /// ghost of its old box and a connector from old to new. Edges are view-facing quads (DirectContext3D lines are
-    /// 1 px) sized from the view scale, plus 1 px lines so thin edges never break up; no face fill (it hid the plan
-    /// underlay). Geometry is
-    /// batched per colour and cached per view until the items, view direction or scale change.
+    /// 3D; on screen only, never printed - baking does that, see AnnotationBaker), SVG-style: each change is a flat
+    /// rounded rectangle on the view plane around the element's projected box, with a white halo, a coloured corner
+    /// badge (+ added, − deleted, ~ modified) and, for moved elements, a dashed grey outline at the old position and an
+    /// arrow from it to the new one. Solid green = added, solid amber = modified, dashed red = deleted (old position).
+    /// Shapes come from OverlayShapes (2D) and are placed just in front of the element, but behind the view's cut /
+    /// near clip so they aren't clipped away. Sizes are paper millimetres × view scale (like annotations); a 1 px line
+    /// runs under every stroke so it never breaks up when zoomed out. Only small badges/arrowheads are filled, so the
+    /// underlay stays visible. Batched per colour, cached per view until items, view direction, scale or clip change.
     /// </summary>
     internal class ChangeHighlightServer : IDirectContext3DServer
     {
@@ -24,21 +27,24 @@ namespace ProjectPerseus.federator
 
         internal struct Item
         {
-            internal double[] Min, Max;   // host coordinates (feet)
+            internal double[] Min, Max;       // host coordinates (feet)
             internal Kind Kind;
-            internal bool Emphasis;       // selected in the panel: wider edges, stronger fill
-            internal double[] From, To;   // move connector (old centre → new centre), or null
+            internal bool Emphasis;           // selected in the panel: heavier stroke, bigger badge
+            internal double[] OldMin, OldMax; // moved elements: old box (host) → dashed ghost + arrow
         }
 
         internal static readonly ChangeHighlightServer Instance = new ChangeHighlightServer();
         private static readonly Guid ServerId = new Guid("5B0E7C51-3C8A-4E59-9E61-7B2F4E0D9A13");
 
-        private const double EdgePaperFt = 0.35 / 304.8;   // edge half-width: 0.35 mm on paper
-        private const double MinHalfFt = 2 / 304.8;
-        // Boxes are pushed this far outside the element's own bounding box so their faces never sit in the same plane
-        // as the element's faces (coplanar faces z-fight: the fill turns into shimmering pixel noise).
-        private const double OffsetPaperFt = 1.0 / 304.8;
-        private const double MinOffsetFt = 15 / 304.8;
+        // Paper sizes (feet per unit of view scale).
+        private const double Mm = 1 / 304.8;
+        private const double StrokeHalf = 0.28 * Mm, StrokeHalfEmph = 0.5 * Mm, Halo = 0.35 * Mm;
+        private const double Pad = 1.2 * Mm, MinRect = 3 * Mm, Radius = 1.5 * Mm;
+        private const double DashLen = 1.8 * Mm, GapLen = 1.2 * Mm;
+        private const double BadgeR = 1.7 * Mm, BadgeREmph = 2.1 * Mm, GlyphSize = 0.9 * Mm, GlyphHalf = 0.2 * Mm;
+        private const double HeadLen = 2.6 * Mm, HeadHalf = 1.3 * Mm, ArrowGap = 0.8 * Mm, StartDot = 0.6 * Mm;
+        private const double Lift = 1.0 * Mm, Layer = 0.3 * Mm;   // depth: off the element, between drawing layers
+        private const double MinLiftFt = 15 / 304.8;
 
         private readonly object _lock = new object();
         private List<Item> _items = new List<Item>();
@@ -46,7 +52,6 @@ namespace ProjectPerseus.federator
         private int _version;
         private bool _loggedError;
 
-        // view id → cached batches for that view's current key
         private readonly Dictionary<long, KeyValuePair<string, List<Batch>>> _cache = new Dictionary<long, KeyValuePair<string, List<Batch>>>();
         private readonly Dictionary<long, KeyValuePair<int, List<int>>> _visible = new Dictionary<long, KeyValuePair<int, List<int>>>();
 
@@ -104,8 +109,7 @@ namespace ProjectPerseus.federator
         }
 
         public Outline GetBoundingBox(View view) => null;
-        // No translucent fill: faces drawn in the transparent pass still hide what Revit draws after them (the plan
-        // underlay vanished behind every box). Edges only; selected rows are told apart by wider edges.
+        // No translucent fills: faces drawn in the transparent pass hid the plan underlay drawn after them.
         public bool UseInTransparentPass(View view) => false;
 
         public void RenderScene(View view, DisplayStyle displayStyle)
@@ -121,26 +125,20 @@ namespace ProjectPerseus.federator
                 List<int> visible = VisibleFor(view, viewKey, items, version);
                 if (visible.Count == 0) return;
 
-                bool transparent = DrawContext.IsTransparentPass();
-                double scale = Math.Max(1, view.Scale);
-                double half = Math.Max(MinHalfFt, EdgePaperFt * scale);
-                double offset = Math.Max(MinOffsetFt, OffsetPaperFt * scale);
-                XYZ dir = view.ViewDirection;
-                string key = $"{version}|{transparent}|{dir.X:F3},{dir.Y:F3},{dir.Z:F3}|{half:F5}";
-
-                if (!_cache.TryGetValue(viewKey * 2 + (transparent ? 1 : 0), out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
+                var frame = new Frame(view);
+                string key = $"{version}|{frame.Key}";
+                if (!_cache.TryGetValue(viewKey, out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
                 {
                     if (cached.Value != null) foreach (var b in cached.Value) b.Dispose();
-                    var batches = transparent ? BuildFaces(items, visible, offset) : BuildEdges(items, visible, dir, half, offset);
-                    cached = new KeyValuePair<string, List<Batch>>(key, batches);
-                    _cache[viewKey * 2 + (transparent ? 1 : 0)] = cached;
+                    cached = new KeyValuePair<string, List<Batch>>(key, Build(items, visible, frame));
+                    _cache[viewKey] = cached;
                 }
                 foreach (var b in cached.Value)
                     DrawContext.FlushBuffer(b.Vb, b.Verts, b.Ib, b.Indices, b.Format, b.Effect, b.Primitive, 0, b.Prims);
             }
             catch (Exception ex)
             {
-                if (!_loggedError) { _loggedError = true; Log.Warn($"[Federator] change highlight render failed: {ex.Message}"); }
+                if (!_loggedError) { _loggedError = true; Log.Warn($"[Federator] change highlight render failed: {ex}"); }
             }
         }
 
@@ -155,7 +153,80 @@ namespace ProjectPerseus.federator
             return list;
         }
 
-        // ── Geometry ──
+        // ── View frame: screen axes, scale and the depth limit (cut plane / near clip) ──
+
+        private class Frame
+        {
+            internal readonly XYZ O, R, U, N;
+            internal readonly double S;        // view scale
+            internal readonly double? CapW;    // shapes must stay behind this depth (w grows toward the viewer)
+            internal readonly string Key;
+
+            internal Frame(View view)
+            {
+                O = view.Origin; R = view.RightDirection; U = view.UpDirection; N = view.ViewDirection;
+                S = Math.Max(1, view.Scale);
+                CapW = NearCap(view);
+                Key = $"{N.X:F3},{N.Y:F3},{N.Z:F3}|{R.X:F3},{R.Y:F3}|{S}|{(CapW.HasValue ? CapW.Value.ToString("F3") : "-")}";
+            }
+
+            internal double Wof(XYZ p) => (p - O).DotProduct(N);
+            internal XYZ At(double u, double v, double w) => O + R * u + U * v + N * w;
+
+            // Rectangle (u0, v0, u1, v1) and nearest depth of a host box on this view.
+            internal void Project(double[] min, double[] max, out double[] rect, out double wNear)
+            {
+                double u0 = double.MaxValue, v0 = double.MaxValue, u1 = double.MinValue, v1 = double.MinValue;
+                wNear = double.MinValue;
+                for (int i = 0; i < 8; i++)
+                {
+                    var p = new XYZ((i & 1) == 0 ? min[0] : max[0], (i & 2) == 0 ? min[1] : max[1], (i & 4) == 0 ? min[2] : max[2]) - O;
+                    double u = p.DotProduct(R), v = p.DotProduct(U), w = p.DotProduct(N);
+                    u0 = Math.Min(u0, u); u1 = Math.Max(u1, u);
+                    v0 = Math.Min(v0, v); v1 = Math.Max(v1, v);
+                    wNear = Math.Max(wNear, w);
+                }
+                rect = new[] { u0, v0, u1, v1 };
+            }
+
+            internal double Depth(double wNear)
+            {
+                double lift = Math.Max(MinLiftFt, Lift * S);
+                double w = wNear + lift;
+                if (CapW.HasValue) w = Math.Min(w, CapW.Value - lift - 3 * Layer * S);
+                return w;
+            }
+
+            private double? NearCap(View view)
+            {
+                try
+                {
+                    if (view is ViewPlan plan && plan.GenLevel != null)
+                    {
+                        var vr = plan.GetViewRange();
+                        var levelId = vr.GetLevelId(PlanViewPlane.CutPlane);
+                        var level = view.Document.GetElement(levelId) as Level ?? plan.GenLevel;
+                        double cutZ = level.Elevation + vr.GetOffset(PlanViewPlane.CutPlane);
+                        return Wof(new XYZ(O.X, O.Y, cutZ));
+                    }
+                    BoundingBoxXYZ box = null;
+                    if (view is View3D v3) { if (v3.IsSectionBoxActive) box = v3.GetSectionBox(); }
+                    else if (view.ViewType == ViewType.Section || view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Detail)
+                        box = view.CropBox;
+                    if (box == null) return null;
+                    var t = box.Transform ?? Transform.Identity;
+                    double best = double.MinValue;
+                    for (int i = 0; i < 8; i++)
+                        best = Math.Max(best, Wof(t.OfPoint(new XYZ((i & 1) == 0 ? box.Min.X : box.Max.X,
+                                                                    (i & 2) == 0 ? box.Min.Y : box.Max.Y,
+                                                                    (i & 4) == 0 ? box.Min.Z : box.Max.Z))));
+                    return best;
+                }
+                catch { return null; }
+            }
+        }
+
+        // ── Building the shapes ──
 
         private static Color ColorOf(Kind k)
         {
@@ -163,83 +234,144 @@ namespace ProjectPerseus.federator
             {
                 case Kind.Added: return new Color(46, 173, 75);
                 case Kind.Deleted: return new Color(210, 58, 58);
-                case Kind.Ghost: return new Color(140, 140, 140);
+                case Kind.Ghost: return new Color(128, 134, 145);
                 default: return new Color(224, 130, 0);
             }
         }
 
-        private static readonly int[] EdgeA = { 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3 };
-        private static readonly int[] EdgeB = { 1, 2, 3, 0, 5, 6, 7, 4, 4, 5, 6, 7 };
+        private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted ? '-' : '~';
 
-        private static XYZ[] Corners(Item it, double o)
+        /// <summary>Triangles + 1 px lines for one colour, at their depths.</summary>
+        private class Layer3D
         {
-            double x0 = it.Min[0] - o, y0 = it.Min[1] - o, z0 = it.Min[2] - o;
-            double x1 = it.Max[0] + o, y1 = it.Max[1] + o, z1 = it.Max[2] + o;
-            return new[]
+            internal readonly List<XYZ> Tris = new List<XYZ>();
+            internal readonly List<XYZ[]> Lines = new List<XYZ[]>();
+
+            internal void AddTris(Frame f, List<double> uv, double w)
             {
-                new XYZ(x0, y0, z0), new XYZ(x1, y0, z0), new XYZ(x1, y1, z0), new XYZ(x0, y1, z0),
-                new XYZ(x0, y0, z1), new XYZ(x1, y0, z1), new XYZ(x1, y1, z1), new XYZ(x0, y1, z1),
-            };
+                for (int i = 0; i + 1 < uv.Count; i += 2) Tris.Add(f.At(uv[i], uv[i + 1], w));
+            }
+
+            internal void AddLine(Frame f, IList<Pt> line, bool closed, double w)
+            {
+                int n = closed ? line.Count : line.Count - 1;
+                for (int i = 0; i < n; i++)
+                {
+                    var a = line[i]; var b = line[(i + 1) % line.Count];
+                    Lines.Add(new[] { f.At(a.U, a.V, w), f.At(b.U, b.V, w) });
+                }
+            }
         }
 
-        // Thick edges are view-facing quads; when zoomed out they get thinner than a pixel and break up into jagged
-        // dashes, so every edge is also drawn as a 1 px line, which the GPU always rasterises as a continuous line.
-        private List<Batch> BuildEdges(List<Item> items, List<int> visible, XYZ viewDir, double half, double offset)
+        private List<Batch> Build(List<Item> items, List<int> visible, Frame f)
         {
-            var batches = new List<Batch>();
-            foreach (var group in visible.GroupBy(i => items[i].Kind))
+            var layers = new Dictionary<Kind, Layer3D>();
+            var white = new Layer3D();
+            Layer3D LayerOf(Kind k) { if (!layers.TryGetValue(k, out var l)) layers[k] = l = new Layer3D(); return l; }
+            double s = f.S, eps = Layer * s;
+
+            foreach (int i in visible)
             {
-                var quads = new List<XYZ[]>();
-                var lines = new List<XYZ[]>();
-                foreach (int i in group)
+                var it = items[i];
+                f.Project(it.Min, it.Max, out var rect, out double wNear);
+                double w = f.Depth(wNear);
+                Grow(rect, Pad * s, MinRect * s);
+                bool dashed = it.Kind == Kind.Deleted;
+                double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s;
+                Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), white);
+
+                // Moved: dashed ghost at the old position + arrow old → new.
+                var badgeAt = new Pt(rect[0], rect[3]);
+                if (it.OldMin != null && it.OldMax != null)
                 {
-                    var it = items[i];
-                    double w = it.Emphasis ? half * 2.2 : half;
-                    var c = Corners(it, offset);
-                    for (int e = 0; e < 12; e++)
+                    f.Project(it.OldMin, it.OldMax, out var oldRect, out double wOld);
+                    double wg = f.Depth(wOld);
+                    Grow(oldRect, Pad * s, MinRect * s);
+                    Outline(f, oldRect, true, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), white);
+
+                    var a = Centre(oldRect); var b = Centre(rect);
+                    if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out var from, out var to)) { from = a; to = b; }
+                    var topRight = new Pt(rect[2], rect[3]);
+                    if ((to - badgeAt).Length < (to - topRight).Length) badgeAt = topRight;
+                    if ((to - from).Length > HeadLen * s * 0.5)
                     {
-                        AddQuad(quads, c[EdgeA[e]], c[EdgeB[e]], viewDir, w);
-                        lines.Add(new[] { c[EdgeA[e]], c[EdgeB[e]] });
-                    }
-                    if (it.From != null && it.To != null)
-                    {
-                        AddQuad(quads, P(it.From), P(it.To), viewDir, w * 0.8);
-                        lines.Add(new[] { P(it.From), P(it.To) });
+                        double aw = Math.Max(w, wg);
+                        var arrow = new List<double>();
+                        OverlayShapes.Arrow(arrow, from, to, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
+                        OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 12);
+                        white.AddTris(f, arrow, aw - eps);
+                        arrow.Clear();
+                        OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
+                        OverlayShapes.Disc(arrow, from, StartDot * s, 12);
+                        LayerOf(Kind.Modified).AddTris(f, arrow, aw);
+                        LayerOf(Kind.Modified).AddLine(f, new[] { from, to }, false, aw);
                     }
                 }
-                var colour = ColorOf(group.Key);
-                var l = Batch.FromLines(lines, colour);
-                if (l != null) batches.Add(l);
-                var b = Batch.FromQuads(quads, colour, 0);
-                if (b != null) batches.Add(b);
-            }
-            return batches;
-        }
+                // Badge on a top corner: the left one, unless the move arrow ends nearer to it.
+                double br = (it.Emphasis ? BadgeREmph : BadgeR) * s;
+                var c = badgeAt;
+                var t = new List<double>();
+                OverlayShapes.Disc(t, c, br + Halo * s, 20);
+                white.AddTris(f, t, w - eps);
+                t.Clear();
+                OverlayShapes.Disc(t, c, br, 20);
+                LayerOf(it.Kind).AddTris(f, t, w + eps);
+                t.Clear();
+                OverlayShapes.Glyph(t, GlyphOf(it.Kind), c, GlyphSize * s * (br / (BadgeR * s)), GlyphHalf * s);
+                white.AddTris(f, t, w + 2 * eps);
 
-        private List<Batch> BuildFaces(List<Item> items, List<int> visible, double offset)
-        {
+            }
+
             var batches = new List<Batch>();
-            foreach (var group in visible.Where(i => items[i].Kind != Kind.Ghost).GroupBy(i => new { items[i].Kind, items[i].Emphasis }))
-            {
-                var boxes = group.Select(i => Corners(items[i], offset)).ToList();
-                var b = Batch.FromBoxes(boxes, ColorOf(group.Key.Kind), group.Key.Emphasis ? 0.55 : 0.82);
-                if (b != null) batches.Add(b);
-            }
+            // Halo first (it's behind by depth anyway), then colours.
+            AddBatches(batches, white, new Color(255, 255, 255), lines: false);
+            foreach (var kv in layers) AddBatches(batches, kv.Value, ColorOf(kv.Key), lines: true);
             return batches;
         }
 
-        private static void AddQuad(List<XYZ[]> quads, XYZ a, XYZ b, XYZ viewDir, double half)
+        private static void Outline(Frame f, double[] rect, bool dashed, double half, double w, double eps, Layer3D colour, Layer3D white)
         {
-            XYZ v = b - a;
-            double len = v.GetLength();
-            if (len < 1e-9) return;
-            XYZ d = v / len;
-            XYZ perp = d.CrossProduct(viewDir);
-            if (perp.GetLength() < 1e-6) perp = d.CrossProduct(Math.Abs(d.X) < 0.9 ? XYZ.BasisX : XYZ.BasisY);
-            double pl = perp.GetLength();
-            if (pl < 1e-9) return;
-            perp = perp * (half / pl);
-            quads.Add(new[] { a + perp, a - perp, b + perp, b - perp });
+            double s = f.S;
+            var path = OverlayShapes.RoundedRect(rect[0], rect[1], rect[2], rect[3], Radius * s);
+            var halo = new List<double>();
+            var stroke = new List<double>();
+            if (dashed)
+            {
+                foreach (var dash in OverlayShapes.Dash(path, true, DashLen * s, GapLen * s))
+                {
+                    OverlayShapes.Stroke(halo, dash, false, half + Halo * s);
+                    OverlayShapes.Stroke(stroke, dash, false, half);
+                    colour.AddLine(f, dash, false, w);
+                }
+            }
+            else
+            {
+                OverlayShapes.Stroke(halo, path, true, half + Halo * s);
+                OverlayShapes.Stroke(stroke, path, true, half);
+                colour.AddLine(f, path, true, w);
+            }
+            white.AddTris(f, halo, w - eps);
+            colour.AddTris(f, stroke, w);
+        }
+
+        private static void Grow(double[] r, double pad, double min)
+        {
+            r[0] -= pad; r[1] -= pad; r[2] += pad; r[3] += pad;
+            if (r[2] - r[0] < min) { double c = (r[0] + r[2]) / 2; r[0] = c - min / 2; r[2] = c + min / 2; }
+            if (r[3] - r[1] < min) { double c = (r[1] + r[3]) / 2; r[1] = c - min / 2; r[3] = c + min / 2; }
+        }
+
+        private static Pt Centre(double[] r) => new Pt((r[0] + r[2]) / 2, (r[1] + r[3]) / 2);
+
+        private static void AddBatches(List<Batch> batches, Layer3D layer, Color colour, bool lines)
+        {
+            var t = Batch.FromTriangles(layer.Tris, colour);
+            if (t != null) batches.Add(t);
+            if (lines)
+            {
+                var l = Batch.FromLines(layer.Lines, colour);
+                if (l != null) batches.Add(l);
+            }
         }
 
         private static XYZ P(double[] p) => new XYZ(p[0], p[1], p[2]);
@@ -247,6 +379,8 @@ namespace ProjectPerseus.federator
         /// <summary>One colour's vertex + index buffers, ready to flush.</summary>
         private class Batch : IDisposable
         {
+            private const int MaxVerts = 3000000;
+
             internal VertexBuffer Vb;
             internal IndexBuffer Ib;
             internal VertexFormat Format;
@@ -261,29 +395,38 @@ namespace ProjectPerseus.federator
                 try { Vb?.Dispose(); Ib?.Dispose(); Format?.Dispose(); Effect?.Dispose(); } catch { /* already gone */ }
             }
 
-            // Quads (4 corners: a+p, a−p, b+p, b−p), both windings so they show from either side.
-            internal static Batch FromQuads(List<XYZ[]> quads, Color color, double transparency)
+            // Flat triangles (3 vertices each), both windings so they show whichever way the view faces.
+            internal static Batch FromTriangles(List<XYZ> verts, Color color)
             {
-                if (quads.Count == 0) return null;
-                int verts = quads.Count * 4, tris = quads.Count * 4;
-                var b = Begin(verts, tris, out var vs, out var ist);
-                for (int q = 0; q < quads.Count; q++)
+                int tris = verts.Count / 3;
+                if (tris == 0 || verts.Count > MaxVerts) return null;
+                var b = new Batch();
+                int floats = verts.Count * VertexPosition.GetSizeInFloats();
+                b.Vb = new VertexBuffer(floats);
+                b.Vb.Map(floats);
+                var vs = b.Vb.GetVertexStreamPosition();
+                foreach (var p in verts) vs.AddVertex(new VertexPosition(p));
+                int idx = tris * 2 * IndexTriangle.GetSizeInShortInts();
+                b.Ib = new IndexBuffer(idx);
+                b.Ib.Map(idx);
+                var ist = b.Ib.GetIndexStreamTriangle();
+                for (int k = 0; k < tris; k++)
                 {
-                    foreach (var p in quads[q]) vs.AddVertex(new VertexPosition(p));
-                    int v = q * 4;
-                    ist.AddTriangle(new IndexTriangle(v, v + 2, v + 1));
-                    ist.AddTriangle(new IndexTriangle(v + 1, v + 2, v + 3));
-                    ist.AddTriangle(new IndexTriangle(v, v + 1, v + 2));
-                    ist.AddTriangle(new IndexTriangle(v + 1, v + 3, v + 2));
+                    int o = k * 3;
+                    ist.AddTriangle(new IndexTriangle(o, o + 1, o + 2));
+                    ist.AddTriangle(new IndexTriangle(o, o + 2, o + 1));
                 }
-                return b.End(verts, tris, color, transparency);
+                b.Verts = verts.Count;
+                b.Prims = tris * 2;
+                b.Indices = idx;
+                return b.Finish(color);
             }
 
             internal static Batch FromLines(List<XYZ[]> lines, Color color)
             {
-                if (lines.Count == 0) return null;
-                int verts = lines.Count * 2;
+                if (lines.Count == 0 || lines.Count * 2 > MaxVerts) return null;
                 var b = new Batch { Primitive = PrimitiveType.LineList };
+                int verts = lines.Count * 2;
                 int floats = verts * VertexPosition.GetSizeInFloats();
                 b.Vb = new VertexBuffer(floats);
                 b.Vb.Map(floats);
@@ -298,71 +441,20 @@ namespace ProjectPerseus.federator
                     vs.AddVertex(new VertexPosition(lines[k][1]));
                     ils.AddLine(new IndexLine(k * 2, k * 2 + 1));
                 }
-                b.Vb.Unmap();
-                b.Ib.Unmap();
                 b.Verts = verts;
                 b.Prims = lines.Count;
                 b.Indices = idx;
-                b.Format = new VertexFormat(VertexFormatBits.Position);
-                b.Effect = new EffectInstance(VertexFormatBits.Position);
-                b.Effect.SetColor(color);
-                b.Effect.SetEmissiveColor(color);
-                return b;
+                return b.Finish(color);
             }
 
-            private static readonly int[][] Faces =
-            {
-                new[] { 0, 1, 2, 3 }, new[] { 4, 5, 6, 7 }, new[] { 0, 1, 5, 4 },
-                new[] { 1, 2, 6, 5 }, new[] { 2, 3, 7, 6 }, new[] { 3, 0, 4, 7 },
-            };
-
-            // Boxes (8 corners), 6 faces × 2 triangles × 2 windings.
-            internal static Batch FromBoxes(List<XYZ[]> boxes, Color color, double transparency)
-            {
-                if (boxes.Count == 0) return null;
-                int verts = boxes.Count * 8, tris = boxes.Count * 24;
-                var b = Begin(verts, tris, out var vs, out var ist);
-                for (int k = 0; k < boxes.Count; k++)
-                {
-                    foreach (var p in boxes[k]) vs.AddVertex(new VertexPosition(p));
-                    int o = k * 8;
-                    foreach (var f in Faces)
-                    {
-                        ist.AddTriangle(new IndexTriangle(o + f[0], o + f[1], o + f[2]));
-                        ist.AddTriangle(new IndexTriangle(o + f[0], o + f[2], o + f[3]));
-                        ist.AddTriangle(new IndexTriangle(o + f[0], o + f[2], o + f[1]));
-                        ist.AddTriangle(new IndexTriangle(o + f[0], o + f[3], o + f[2]));
-                    }
-                }
-                return b.End(verts, tris, color, transparency);
-            }
-
-            private static Batch Begin(int verts, int tris, out VertexStreamPosition vs, out IndexStreamTriangle ist)
-            {
-                var b = new Batch();
-                int floats = verts * VertexPosition.GetSizeInFloats();
-                b.Vb = new VertexBuffer(floats);
-                b.Vb.Map(floats);
-                vs = b.Vb.GetVertexStreamPosition();
-                int idx = tris * IndexTriangle.GetSizeInShortInts();
-                b.Ib = new IndexBuffer(idx);
-                b.Ib.Map(idx);
-                ist = b.Ib.GetIndexStreamTriangle();
-                return b;
-            }
-
-            private Batch End(int verts, int tris, Color color, double transparency)
+            private Batch Finish(Color color)
             {
                 Vb.Unmap();
                 Ib.Unmap();
-                Verts = verts;
-                Prims = tris;
-                Indices = tris * IndexTriangle.GetSizeInShortInts();
                 Format = new VertexFormat(VertexFormatBits.Position);
                 Effect = new EffectInstance(VertexFormatBits.Position);
                 Effect.SetColor(color);
                 Effect.SetEmissiveColor(color);
-                if (transparency > 0) Effect.SetTransparency(transparency);
                 return this;
             }
         }

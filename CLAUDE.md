@@ -389,8 +389,13 @@ ProjectPerseus/
 │   │                             - <user>" 3D view with a section box. VisibleLinkedIds (2024+ link view collector, 2023 boxes).
 │   ├── FederatorController.cs    Startup-subscribed ViewActivated + SelectionChanged, forwarded to FederatorWindow when open.
 │   ├── ChangeHighlightServer.cs  IDirectContext3DServer: changes drawn in model views (plans/sections/elevations/details/3D),
-│   │                             on screen only. Boxes green/amber/red, grey ghost + connector for moved; view-facing edge quads
-│   │                             (0.35 mm paper), translucent faces in the transparent pass; batched per colour, cached per view.
+│   │                             on screen only, SVG-style: flat rounded rectangles on the view plane with a white halo, solid
+│   │                             green added / amber modified, dashed red deleted, dashed grey old position + arrow for moved,
+│   │                             corner badge (+ − ~). Paper-mm sizes × view scale; 1 px line under strokes; no fills except
+│   │                             badges/arrowheads (transparent-pass fills hid the plan underlay). Depth: just in front of the
+│   │                             element, capped behind the plan cut plane / crop / section box near face. Cached per view.
+│   ├── OverlayShapes.cs          Pure 2D shapes for it: rounded rect, dashes, stroke (round joins), disc, arrow, rect-to-rect
+│   │                             arrow clipping, badge glyphs. Tested in OverlayShapesTest.cs. Reusable for P8 (markers/violations).
 │   ├── ChangeHighlightController.cs Registers the server; Show(doc, changes, LinkTransform, selected uids) -> items (max 6000).
 │   ├── LinkTransform.cs          Pure link total transform (captured in API context) so the panel can compute host boxes.
 │   ├── AnnotationBaker.cs        Bakes changes into chosen views: rectangle per visible change as detail lines (line styles

@@ -74,15 +74,12 @@ namespace ProjectPerseus.federator
             if (c.Kind == ChangeKind.Modified && c.Aspects.HasFlag(ChangeAspect.Moved) && c.OldMin != null && c.OldMax != null)
             {
                 t.Box(c.OldMin, c.OldMax, out var omin, out var omax);
-                items.Add(new ChangeHighlightServer.Item { Min = omin, Max = omax, Kind = ChangeHighlightServer.Kind.Ghost, Emphasis = emph });
-                item.From = Centre(omin, omax);
-                item.To = Centre(hmin, hmax);
+                item.OldMin = omin;
+                item.OldMax = omax;
             }
             items.Add(item);
             return true;
         }
-
-        private static double[] Centre(double[] a, double[] b) => new[] { (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2 };
 
         /// <summary>The link instance's transform as plain numbers (API context).</summary>
         internal static LinkTransform Capture(RevitLinkInstance instance)
