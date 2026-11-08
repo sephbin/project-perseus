@@ -14,7 +14,8 @@ namespace ProjectPerseus.federator
     /// 3D; on screen only, never printed - baking does that, see AnnotationBaker). Each change is a box in host
     /// coordinates: green added, amber modified, red deleted (at its old position); a moved element also gets a grey
     /// ghost of its old box and a connector from old to new. Edges are view-facing quads (DirectContext3D lines are
-    /// 1 px) sized from the view scale; faces are filled translucently in Revit's transparent pass. Geometry is
+    /// 1 px) sized from the view scale, plus 1 px lines so thin edges never break up; no face fill (it hid the plan
+    /// underlay). Geometry is
     /// batched per colour and cached per view until the items, view direction or scale change.
     /// </summary>
     internal class ChangeHighlightServer : IDirectContext3DServer
@@ -103,7 +104,9 @@ namespace ProjectPerseus.federator
         }
 
         public Outline GetBoundingBox(View view) => null;
-        public bool UseInTransparentPass(View view) => true;
+        // No translucent fill: faces drawn in the transparent pass still hide what Revit draws after them (the plan
+        // underlay vanished behind every box). Edges only; selected rows are told apart by wider edges.
+        public bool UseInTransparentPass(View view) => false;
 
         public void RenderScene(View view, DisplayStyle displayStyle)
         {

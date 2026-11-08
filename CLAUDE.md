@@ -615,6 +615,17 @@ root. Further structural changes (e.g. deleting the still-unwired EditSettingsCo
 InitialiseProjectCommand, moving BatchFailureHandler from revit/ to batch/) should be
 captured as new entries in §6.4 with their own [DONE] markers.
 
+P8  [TODO — after the federator, own branch off Element-Violations] Move parameter markers and violation symbols
+    from the WPF screen overlay (ui/ViolationOverlay + 200 ms ViolationScreenPositionEvent re-projection + mouse hook
+    that hides markers while navigating; plans/sections only) to DirectContext3D, the technique proven in
+    federator/ChangeHighlightServer (real geometry in Revit's pipeline: no lag, no hiding, works in 3D). Plan: extract
+    its batching / per-view cache / view-facing edge quads + 1 px lines / transparent-pass fills / offset-against-
+    z-fighting into one shared scene renderer fed by federator, violations and markers. Rings/squares = view-facing
+    tessellated loops; Outline mode = LineList of the element's view curves; MarkerIcons glyphs flattened to line
+    strips (DirectContext3D has no text/bitmaps). Sizes follow view scale (annotation-like), not screen pixels.
+    Keep only the legend as a screen-space WPF panel. Also replace violations/ViolationHighlightServer's per-frame
+    buffer allocation. Neither approach prints; baking (federator/AnnotationBaker) is the print route.
+
 Each priority should be its own commit/build so any breakage is localised. Update §6.1 and
 §6.3 in the same commit as the move.
 
