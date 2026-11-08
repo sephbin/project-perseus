@@ -205,6 +205,7 @@
       <HintPath>..\packages\System.Collections.Immutable.5.0.0\lib\net461\System.Collections.Immutable.dll</HintPath>
     </Reference>
     <Reference Include="System.Core" />
+    <Reference Include="System.IO.Compression" />
     <Reference Include="System.Diagnostics.DiagnosticSource, Version=6.0.0.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <HintPath>..\packages\System.Diagnostics.DiagnosticSource.6.0.1\lib\net461\System.Diagnostics.DiagnosticSource.dll</HintPath>
     </Reference>
@@ -429,6 +430,11 @@
     <Compile Include="markers\MarkerEngine.cs" />
     <Compile Include="markers\MarkerSetStore.cs" />
     <Compile Include="models\MarkerSet.cs" />
+    <Compile Include="models\LinkSnapshot.cs" />
+    <Compile Include="models\ElementChange.cs" />
+    <Compile Include="federator\LinkDiff.cs" />
+    <Compile Include="federator\SnapshotBuilder.cs" />
+    <Compile Include="federator\SnapshotCache.cs" />
     <Compile Include="commands\ShowMarkersCommand.cs" />
     <Compile Include="ui\StatusBadgeController.cs" />
     <Compile Include="util\ElementWatchList.cs" />

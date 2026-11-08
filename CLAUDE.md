@@ -352,6 +352,16 @@ ProjectPerseus/
 │                                 FilteredElementCollector(host, viewId, linkInstanceId); 2023: whole category + view-depth
 │                                 check (ViewDepth). Nested links not included. Hit.Key = "h:<id>" / "l<instance>:<id>".
 │                                 Pseudo field "Model" = the element's model title (for filtering by link).
+├── federator/                    NEW (2026-11-08, branch develop/federator). Consultant link comparison; plan in
+│   │                             /FEDERATOR_PLAN.md. Old version = archived .rvt the user picks; results + comments are
+│   │                             stored in the host model (Extensible Storage, F3 - not built yet).
+│   ├── LinkDiff.cs               Pure (no Revit API) compare of two models/LinkSnapshot by UniqueId -> models/ElementChange
+│   │                             (Added/Deleted/Modified + aspects Moved/Geometry/Type/Level/Parameters/...), DiffOptions
+│   │                             (1 mm tolerance, ignored bookkeeping params). Unit-tested in ProjectPerseusTests/LinkDiffTest.cs.
+│   ├── SnapshotBuilder.cs        Document -> LinkSnapshot: model-category, view-independent elements with a bbox; family/
+│   │                             type/level/workset, bbox, location, solid signature, instance + "[Type] " parameters.
+│   └── SnapshotCache.cs          %AppData%\ProjectPerseus\federator\snapshots\<sha1(path|size|mtime)>.json.gz (keeps 40).
+│                                 Only for archived files; a loaded link's snapshot is never cached (file may be newer).
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
 │   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
@@ -363,6 +373,8 @@ ProjectPerseus/
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
+│   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft).
+│   ├── ElementChange.cs          NEW (2026-11-08). Federator diff result: ChangeKind, ChangeAspect flags, ParameterChange.
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
 │   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty/>/>=/</<= (numeric: double params in internal units via UnitFormatUtils.TryParse of the threshold in host units; else first number in the text), Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
@@ -500,6 +512,7 @@ ProjectPerseus/
 │   ├── SentryContext.cs          Extracted from Utl.cs.
 │   └── CrashTrace.cs             [DONE 2026-11-05] Last-chance unhandled-exception logging.
 ├── models/                       Mostly unchanged (existing folder is healthy).
+├── federator/                    [IN PROGRESS 2026-11-08] Link comparison (see §6.1, FEDERATOR_PLAN.md).
 ├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).
