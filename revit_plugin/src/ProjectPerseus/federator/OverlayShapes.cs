@@ -85,31 +85,55 @@ namespace ProjectPerseus.federator
             return result;
         }
 
-        /// <summary>Stroke a polyline: one quad (2 triangles) per segment plus a disc at sharp joints (> ~45°) so corners don't notch.</summary>
-        public static void Stroke(List<double> tris, IList<Pt> line, bool closed, double half)
+        /// <summary>
+        /// Strokes a polyline SVG-style: one continuous ribbon with mitred joins (each vertex offset along the bisector
+        /// of its two segments, miter clamped to 4× the half-width), so arcs and corners have no notches. Open lines
+        /// can get round caps.
+        /// </summary>
+        public static void Stroke(List<double> tris, IList<Pt> line, bool closed, double half, bool roundCaps = false)
         {
-            int n = closed ? line.Count : line.Count - 1;
+            var pts = new List<Pt>(line.Count);
+            foreach (var p in line)
+                if (pts.Count == 0 || (p - pts[pts.Count - 1]).Length > 1e-12) pts.Add(p);
+            if (closed && pts.Count > 2 && (pts[0] - pts[pts.Count - 1]).Length <= 1e-12) pts.RemoveAt(pts.Count - 1);
+            int n = pts.Count;
+            if (n < 2) return;
+
+            var left = new Pt[n];
+            var right = new Pt[n];
             for (int i = 0; i < n; i++)
             {
-                Pt a = line[i], b = line[(i + 1) % line.Count];
-                Pt d = b - a;
-                double len = d.Length;
-                if (len < 1e-12) continue;
-                Pt p = new Pt(-d.V / len * half, d.U / len * half);
-                Tri(tris, a + p, a - p, b + p);
-                Tri(tris, a - p, b - p, b + p);
+                bool hasPrev = closed || i > 0, hasNext = closed || i < n - 1;
+                Pt dPrev = hasPrev ? Unit(pts[i] - pts[(i - 1 + n) % n]) : default(Pt);
+                Pt dNext = hasNext ? Unit(pts[(i + 1) % n] - pts[i]) : default(Pt);
+                if (!hasPrev) dPrev = dNext;
+                if (!hasNext) dNext = dPrev;
+                Pt nPrev = new Pt(-dPrev.V, dPrev.U), nNext = new Pt(-dNext.V, dNext.U);
+                Pt sum = nPrev + nNext;
+                Pt m = sum.Length < 1e-9 ? nNext : sum * (1 / sum.Length);
+                double cos = m.U * nNext.U + m.V * nNext.V;
+                double miter = half / Math.Max(cos, 0.25);
+                left[i] = pts[i] + m * miter;
+                right[i] = pts[i] - m * miter;
             }
-            // Round joins (cheap: 6-sided discs) where the direction turns sharply.
-            int first = closed ? 0 : 1, last = closed ? line.Count : line.Count - 1;
-            for (int i = first; i < last; i++)
+            int segs = closed ? n : n - 1;
+            for (int i = 0; i < segs; i++)
             {
-                Pt prev = line[(i - 1 + line.Count) % line.Count], cur = line[i], next = line[(i + 1) % line.Count];
-                Pt d1 = cur - prev, d2 = next - cur;
-                double l1 = d1.Length, l2 = d2.Length;
-                if (l1 < 1e-12 || l2 < 1e-12) continue;
-                double cos = (d1.U * d2.U + d1.V * d2.V) / (l1 * l2);
-                if (cos < 0.7) Disc(tris, cur, half, 6); // > ~45°: arcs (small steps) need no join discs
+                int j = (i + 1) % n;
+                Tri(tris, left[i], right[i], left[j]);
+                Tri(tris, right[i], right[j], left[j]);
             }
+            if (roundCaps && !closed)
+            {
+                Disc(tris, pts[0], half, 16);
+                Disc(tris, pts[n - 1], half, 16);
+            }
+        }
+
+        private static Pt Unit(Pt v)
+        {
+            double l = v.Length;
+            return l < 1e-12 ? new Pt(1, 0) : v * (1 / l);
         }
 
         public static void Disc(List<double> tris, Pt c, double r, int segments = 16)
@@ -171,20 +195,22 @@ namespace ProjectPerseus.federator
             switch (glyph)
             {
                 case '+':
-                    Stroke(tris, new[] { new Pt(c.U - size, c.V), new Pt(c.U + size, c.V) }, false, half);
-                    Stroke(tris, new[] { new Pt(c.U, c.V - size), new Pt(c.U, c.V + size) }, false, half);
+                    Stroke(tris, new[] { new Pt(c.U - size, c.V), new Pt(c.U + size, c.V) }, false, half, true);
+                    Stroke(tris, new[] { new Pt(c.U, c.V - size), new Pt(c.U, c.V + size) }, false, half, true);
                     break;
                 case '-':
-                    Stroke(tris, new[] { new Pt(c.U - size, c.V), new Pt(c.U + size, c.V) }, false, half);
+                    Stroke(tris, new[] { new Pt(c.U - size, c.V), new Pt(c.U + size, c.V) }, false, half, true);
                     break;
                 default:
+                    // One smooth period of a sine, finely sampled so the mitred ribbon reads as a curve.
                     var wave = new List<Pt>();
-                    for (int i = 0; i <= 10; i++)
+                    const int samples = 28;
+                    for (int i = 0; i <= samples; i++)
                     {
-                        double t = -1 + 2.0 * i / 10;
-                        wave.Add(new Pt(c.U + t * size, c.V + Math.Sin(t * Math.PI) * size * 0.45));
+                        double t = -1 + 2.0 * i / samples;
+                        wave.Add(new Pt(c.U + t * size, c.V + Math.Sin(t * Math.PI) * size * 0.42));
                     }
-                    Stroke(tris, wave, false, half);
+                    Stroke(tris, wave, false, half, true);
                     break;
             }
         }

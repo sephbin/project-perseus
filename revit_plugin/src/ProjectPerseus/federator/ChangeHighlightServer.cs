@@ -41,7 +41,7 @@ namespace ProjectPerseus.federator
         private const double StrokeHalf = 0.28 * Mm, StrokeHalfEmph = 0.5 * Mm, Halo = 0.35 * Mm;
         private const double Pad = 1.2 * Mm, MinRect = 3 * Mm, Radius = 1.5 * Mm;
         private const double DashLen = 1.8 * Mm, GapLen = 1.2 * Mm;
-        private const double BadgeR = 1.7 * Mm, BadgeREmph = 2.1 * Mm, GlyphSize = 0.9 * Mm, GlyphHalf = 0.2 * Mm;
+        private const double BadgeR = 1.7 * Mm, BadgeREmph = 2.1 * Mm, GlyphSize = 0.85 * Mm, GlyphHalf = 0.24 * Mm;
         private const double HeadLen = 2.6 * Mm, HeadHalf = 1.3 * Mm, ArrowGap = 0.8 * Mm, StartDot = 0.6 * Mm;
         private const double Lift = 1.0 * Mm, Layer = 0.3 * Mm;   // depth: off the element, between drawing layers
         private const double MinLiftFt = 15 / 304.8;
@@ -392,12 +392,12 @@ namespace ProjectPerseus.federator
                         if (!simple)
                         {
                             OverlayShapes.Arrow(arrow, from, to, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
-                            OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 12);
+                            OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 20);
                             white.AddTris(f, arrow, aw - eps);
                             arrow.Clear();
                         }
                         OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
-                        if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 12);
+                        if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 20);
                         LayerOf(Kind.Modified).AddTris(f, arrow, aw);
                         LayerOf(Kind.Modified).AddLine(f, new[] { from, to }, false, aw);
                     }
@@ -408,14 +408,14 @@ namespace ProjectPerseus.federator
                 var t = new List<double>();
                 if (simple && !it.Emphasis)
                 {
-                    OverlayShapes.Disc(t, badgeAt, br * 0.7, 8);
+                    OverlayShapes.Disc(t, badgeAt, br * 0.7, 16);
                     LayerOf(it.Kind).AddTris(f, t, w + eps);
                     continue;
                 }
-                OverlayShapes.Disc(t, badgeAt, br + Halo * s, 16);
+                OverlayShapes.Disc(t, badgeAt, br + Halo * s, 40);
                 white.AddTris(f, t, w - eps);
                 t.Clear();
-                OverlayShapes.Disc(t, badgeAt, br, 16);
+                OverlayShapes.Disc(t, badgeAt, br, 40);
                 LayerOf(it.Kind).AddTris(f, t, w + eps);
                 t.Clear();
                 OverlayShapes.Glyph(t, GlyphOf(it.Kind), badgeAt, GlyphSize * s * (br / (BadgeR * s)), GlyphHalf * s);
@@ -435,7 +435,7 @@ namespace ProjectPerseus.federator
                                     bool simple)
         {
             double s = f.S;
-            var path = OverlayShapes.RoundedRect(rect[0], rect[1], rect[2], rect[3], simple ? 0 : Radius * s, 4);
+            var path = OverlayShapes.RoundedRect(rect[0], rect[1], rect[2], rect[3], simple ? 0 : Radius * s, 10);
             var halo = new List<double>();
             var stroke = new List<double>();
             if (dashed)

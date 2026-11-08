@@ -68,5 +68,44 @@ namespace ProjectPerseusTests
             Assert.AreEqual(0, tris.Count % 6);
             Assert.IsFalse(tris.Any(double.IsNaN));
         }
+        [TestMethod]
+        public void ClosedStrokeIsOneMitredRibbon()
+        {
+            var tris = new List<double>();
+            var square = new List<Pt> { new Pt(0, 0), new Pt(10, 0), new Pt(10, 10), new Pt(0, 10) };
+            OverlayShapes.Stroke(tris, square, true, 1);
+            Assert.AreEqual(8 * 6, tris.Count); // 4 sides x 2 triangles, no extra join pieces
+
+            // Outer corners sit exactly on the mitre (corner +/- half-width on both axes), so the ribbon has no notch.
+            var us = Enumerable.Range(0, tris.Count / 2).Select(i => tris[2 * i]).ToList();
+            var vs = Enumerable.Range(0, tris.Count / 2).Select(i => tris[2 * i + 1]).ToList();
+            Assert.AreEqual(-1, us.Min(), 1e-9);
+            Assert.AreEqual(11, us.Max(), 1e-9);
+            Assert.AreEqual(-1, vs.Min(), 1e-9);
+            Assert.AreEqual(11, vs.Max(), 1e-9);
+        }
+
+        [TestMethod]
+        public void StrokeWidthIsConstantAlongACurve()
+        {
+            // Every ribbon vertex of a stroked circle sits half-width from the centre line (within the miter factor).
+            var circle = OverlayShapes.RoundedRect(-5, -5, 5, 5, 5, 16);
+            var tris = new List<double>();
+            OverlayShapes.Stroke(tris, circle, true, 0.5);
+            for (int i = 0; i < tris.Count; i += 2)
+            {
+                double r = Math.Sqrt(tris[i] * tris[i] + tris[i + 1] * tris[i + 1]);
+                Assert.IsTrue(Math.Abs(r - 5) <= 0.5 * 1.01 + 1e-9, $"vertex at radius {r}");
+            }
+        }
+
+        [TestMethod]
+        public void DuplicatePointsAndRoundCapsAreHandled()
+        {
+            var tris = new List<double>();
+            OverlayShapes.Stroke(tris, new List<Pt> { new Pt(0, 0), new Pt(0, 0), new Pt(5, 0) }, false, 0.5, true);
+            Assert.AreEqual((2 + 16 + 16) * 6, tris.Count); // one segment + two 16-sided caps
+            Assert.IsFalse(tris.Any(double.IsNaN));
+        }
     }
 }

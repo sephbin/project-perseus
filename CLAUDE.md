@@ -401,7 +401,7 @@ ProjectPerseus/
 │   │                             On top = just behind the cut plane / crop / section box near face (ortho 3D: in front of the
 │   │                             camera; perspective: in front of the element); Underneath = just behind each element, kept in
 │   │                             front of the view depth / far clip. Cached per view.
-│   ├── OverlayShapes.cs          Pure 2D shapes for it: rounded rect, dashes, stroke (round joins), disc, arrow, rect-to-rect
+│   ├── OverlayShapes.cs          Pure 2D shapes for it: rounded rect, dashes, stroke (one mitred ribbon, optional round caps), disc, arrow, rect-to-rect
 │   │                             arrow clipping, badge glyphs. Tested in OverlayShapesTest.cs. Reusable for P8 (markers/violations).
 │   ├── ChangeHighlightController.cs Registers the server; Show(doc, changes, LinkTransform, selected uids) -> items (max 6000).
 │   ├── LinkTransform.cs          Pure link total transform (captured in API context) so the panel can compute host boxes.
