@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -38,16 +39,20 @@ namespace ProjectPerseus.federator
 
             try
             {
+                string title = "Comparing " + linkDoc.Title;
+                // Bar: old version 0–55 % (unknown while copying / opening), current link 55–95 %, compare + save the rest.
                 var oldSnap = OldModelOpener.Snapshot(uiapp.Application, oldPath,
-                    (text, f) => SyncStatusToast.Progress("Comparing " + linkDoc.Title, f < 0 ? -1 : f * 0.6, text));
+                    (text, f) => SyncStatusToast.Progress(title, f < 0 ? -1 : 0.15 + 0.40 * f, text));
 
+                var readStart = DateTime.UtcNow;
                 var newSnap = SnapshotBuilder.Build(linkDoc, linkDoc.PathName, null,
-                    (done, total) => SyncStatusToast.Progress("Comparing " + linkDoc.Title,
-                        0.6 + 0.35 * (total == 0 ? 1 : (double)done / total), $"Reading the current link… {done:N0} / {total:N0}"));
+                    (done, total) => SyncStatusToast.Progress(title, 0.55 + 0.40 * (total == 0 ? 1 : (double)done / total),
+                        $"Step 4 of 5 · Reading the current link: {done:N0} of {total:N0} elements{Eta(readStart, done, total)}"));
 
-                SyncStatusToast.Progress("Comparing " + linkDoc.Title, 0.96, "Comparing…");
+                SyncStatusToast.Progress(title, 0.96, "Step 5 of 5 · Comparing and finding likely replacements…");
                 var changes = LinkDiff.Compare(oldSnap, newSnap, options);
                 ReplacementMatcher.Suggest(changes);
+                LogBreakdown(changes);
 
                 var rec = new ComparisonRecord
                 {
@@ -77,7 +82,7 @@ namespace ProjectPerseus.federator
                     result.Warning = $"Only {rec.Matched:N0} of {rec.OldCount:N0} elements in {oldSnap.Title} are in the " +
                                      $"current link. Is it really an earlier version of {linkDoc.Title}?";
 
-                SyncStatusToast.Progress("Comparing " + linkDoc.Title, 0.99, "Saving the results to the model…");
+                SyncStatusToast.Progress(title, 0.99, "Step 5 of 5 · Saving the results to the model…");
                 ComparisonStore.Save(host, rec);
                 SyncStatusToast.Show($"{linkDoc.Title}: {rec.Added:N0} added, {rec.Deleted:N0} deleted, {rec.Modified:N0} modified.", 6000);
                 return result;
@@ -87,6 +92,33 @@ namespace ProjectPerseus.federator
                 SyncStatusToast.Hide();
                 throw;
             }
+        }
+
+        /// <summary>" · about 2 min left" from the rate so far, or "" until there's enough to go on.</summary>
+        internal static string Eta(DateTime start, int done, int total)
+        {
+            double secs = (DateTime.UtcNow - start).TotalSeconds;
+            if (done < 200 || secs < 3 || total <= done) return "";
+            double left = secs / done * (total - done);
+            if (left < 50) return $" · about {Math.Max(5, Math.Round(left / 5) * 5):0} s left";
+            return $" · about {Math.Ceiling(left / 60):0} min left";
+        }
+
+        // Which aspects / parameters drive the result: a comparison dominated by one parameter usually means noise
+        // (a value Revit rewrites on every save) that belongs in DiffOptions.IgnoredParameters.
+        private static void LogBreakdown(List<ElementChange> changes)
+        {
+            try
+            {
+                var aspects = Enum.GetValues(typeof(ChangeAspect)).Cast<ChangeAspect>().Where(a => a != ChangeAspect.None)
+                    .Select(a => $"{a} {changes.Count(c => (c.Aspects & a) != 0):N0}");
+                var onlyParams = changes.Count(c => c.Kind == ChangeKind.Modified && c.Aspects == ChangeAspect.Parameters);
+                var top = changes.Where(c => c.ParameterChanges != null).SelectMany(c => c.ParameterChanges.Select(p => p.Name))
+                    .GroupBy(n => n).OrderByDescending(g => g.Count()).Take(15).Select(g => $"{g.Key} ({g.Count():N0})");
+                Log.Info($"[Federator] modified by aspect: {string.Join(", ", aspects)}; parameters-only: {onlyParams:N0}");
+                Log.Info($"[Federator] most changed parameters: {string.Join(", ", top)}");
+            }
+            catch (Exception ex) { Log.Info($"[Federator] breakdown failed: {ex.Message}"); }
         }
 
         private static string SafeFullPath(string p)

@@ -85,7 +85,7 @@ namespace ProjectPerseus.federator
             return result;
         }
 
-        /// <summary>Stroke a polyline: one quad (2 triangles) per segment plus a disc at each inner joint so corners don't notch.</summary>
+        /// <summary>Stroke a polyline: one quad (2 triangles) per segment plus a disc at sharp joints (> ~45°) so corners don't notch.</summary>
         public static void Stroke(List<double> tris, IList<Pt> line, bool closed, double half)
         {
             int n = closed ? line.Count : line.Count - 1;
@@ -108,7 +108,7 @@ namespace ProjectPerseus.federator
                 double l1 = d1.Length, l2 = d2.Length;
                 if (l1 < 1e-12 || l2 < 1e-12) continue;
                 double cos = (d1.U * d2.U + d1.V * d2.V) / (l1 * l2);
-                if (cos < 0.97) Disc(tris, cur, half, 6);
+                if (cos < 0.7) Disc(tris, cur, half, 6); // > ~45°: arcs (small steps) need no join discs
             }
         }
 

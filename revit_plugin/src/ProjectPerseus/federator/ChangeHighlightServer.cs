@@ -134,7 +134,7 @@ namespace ProjectPerseus.federator
                 if (!_cache.TryGetValue(viewKey, out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
                 {
                     if (cached.Value != null) foreach (var b in cached.Value) b.Dispose();
-                    cached = new KeyValuePair<string, List<Batch>>(key, Build(items, visible, frame));
+                    cached = new KeyValuePair<string, List<Batch>>(key, Build(items, visible, frame, version));
                     _cache[viewKey] = cached;
                 }
                 foreach (var b in cached.Value)
@@ -315,22 +315,41 @@ namespace ProjectPerseus.federator
             }
         }
 
-        private List<Batch> Build(List<Item> items, List<int> visible, Frame f)
+        // More changes than this in a view: simple style (square, no halo / glyph, solid lines) to keep the build cheap.
+        private const int FullDetailLimit = 400;
+        // Hard ceiling per view build; past it the remaining changes aren't drawn (logged once per version).
+        private const int MaxTrianglesPerView = 600000;
+        private int _budgetLoggedVersion = -1;
+
+        private List<Batch> Build(List<Item> items, List<int> visible, Frame f, int version)
         {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             var layers = new Dictionary<Kind, Layer3D>();
             var white = new Layer3D();
             Layer3D LayerOf(Kind k) { if (!layers.TryGetValue(k, out var l)) layers[k] = l = new Layer3D(); return l; }
             double s = f.S, eps = Layer * s;
+            bool simple = visible.Count > FullDetailLimit;
+            int drawn = 0;
 
             foreach (int i in visible)
             {
+                if ((white.Tris.Count + layers.Values.Sum(l => l.Tris.Count)) / 3 > MaxTrianglesPerView)
+                {
+                    if (_budgetLoggedVersion != version)
+                    {
+                        _budgetLoggedVersion = version;
+                        Log.Info($"[Federator] highlight budget reached: drew {drawn:N0} of {visible.Count:N0} changes in this view");
+                    }
+                    break;
+                }
+                drawn++;
                 var it = items[i];
                 f.Project(it.Min, it.Max, out var rect, out double wNear, out double wFar);
                 double w = f.Depth(wNear, wFar);
                 Grow(rect, Pad * s, MinRect * s);
-                bool dashed = it.Kind == Kind.Deleted;
+                bool dashed = it.Kind == Kind.Deleted && !simple;
                 double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s;
-                Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), white);
+                Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), simple && !it.Emphasis ? null : white, simple);
 
                 // Moved: dashed ghost at the old position + arrow old → new.
                 var badgeAt = new Pt(rect[0], rect[3]);
@@ -339,7 +358,7 @@ namespace ProjectPerseus.federator
                     f.Project(it.OldMin, it.OldMax, out var oldRect, out double wOld, out double wOldFar);
                     double wg = f.Depth(wOld, wOldFar);
                     Grow(oldRect, Pad * s, MinRect * s);
-                    Outline(f, oldRect, true, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), white);
+                    Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : white, simple);
 
                     var a = Centre(oldRect); var b = Centre(rect);
                     if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out var from, out var to)) { from = a; to = b; }
@@ -349,60 +368,71 @@ namespace ProjectPerseus.federator
                     {
                         double aw = f.Place == Placement.Underneath ? Math.Min(w, wg) : Math.Max(w, wg);
                         var arrow = new List<double>();
-                        OverlayShapes.Arrow(arrow, from, to, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
-                        OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 12);
-                        white.AddTris(f, arrow, aw - eps);
-                        arrow.Clear();
+                        if (!simple)
+                        {
+                            OverlayShapes.Arrow(arrow, from, to, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
+                            OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 12);
+                            white.AddTris(f, arrow, aw - eps);
+                            arrow.Clear();
+                        }
                         OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
-                        OverlayShapes.Disc(arrow, from, StartDot * s, 12);
+                        if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 12);
                         LayerOf(Kind.Modified).AddTris(f, arrow, aw);
                         LayerOf(Kind.Modified).AddLine(f, new[] { from, to }, false, aw);
                     }
                 }
+
                 // Badge on a top corner: the left one, unless the move arrow ends nearer to it.
                 double br = (it.Emphasis ? BadgeREmph : BadgeR) * s;
-                var c = badgeAt;
                 var t = new List<double>();
-                OverlayShapes.Disc(t, c, br + Halo * s, 20);
+                if (simple && !it.Emphasis)
+                {
+                    OverlayShapes.Disc(t, badgeAt, br * 0.7, 8);
+                    LayerOf(it.Kind).AddTris(f, t, w + eps);
+                    continue;
+                }
+                OverlayShapes.Disc(t, badgeAt, br + Halo * s, 16);
                 white.AddTris(f, t, w - eps);
                 t.Clear();
-                OverlayShapes.Disc(t, c, br, 20);
+                OverlayShapes.Disc(t, badgeAt, br, 16);
                 LayerOf(it.Kind).AddTris(f, t, w + eps);
                 t.Clear();
-                OverlayShapes.Glyph(t, GlyphOf(it.Kind), c, GlyphSize * s * (br / (BadgeR * s)), GlyphHalf * s);
+                OverlayShapes.Glyph(t, GlyphOf(it.Kind), badgeAt, GlyphSize * s * (br / (BadgeR * s)), GlyphHalf * s);
                 white.AddTris(f, t, w + 2 * eps);
-
             }
 
             var batches = new List<Batch>();
             // Halo first (it's behind by depth anyway), then colours.
             AddBatches(batches, white, new Color(255, 255, 255), lines: false);
             foreach (var kv in layers) AddBatches(batches, kv.Value, ColorOf(kv.Key), lines: true);
+            if (clock.ElapsedMilliseconds > 250)
+                Log.Info($"[Federator] highlight build took {clock.ElapsedMilliseconds} ms for {drawn:N0} changes ({(simple ? "simple" : "full")} style)");
             return batches;
         }
 
-        private static void Outline(Frame f, double[] rect, bool dashed, double half, double w, double eps, Layer3D colour, Layer3D white)
+        private static void Outline(Frame f, double[] rect, bool dashed, double half, double w, double eps, Layer3D colour, Layer3D white,
+                                    bool simple)
         {
             double s = f.S;
-            var path = OverlayShapes.RoundedRect(rect[0], rect[1], rect[2], rect[3], Radius * s);
+            var path = OverlayShapes.RoundedRect(rect[0], rect[1], rect[2], rect[3], simple ? 0 : Radius * s, 4);
             var halo = new List<double>();
             var stroke = new List<double>();
             if (dashed)
             {
                 foreach (var dash in OverlayShapes.Dash(path, true, DashLen * s, GapLen * s))
                 {
-                    OverlayShapes.Stroke(halo, dash, false, half + Halo * s);
+                    if (white != null) OverlayShapes.Stroke(halo, dash, false, half + Halo * s);
                     OverlayShapes.Stroke(stroke, dash, false, half);
                     colour.AddLine(f, dash, false, w);
                 }
             }
             else
             {
-                OverlayShapes.Stroke(halo, path, true, half + Halo * s);
+                if (white != null) OverlayShapes.Stroke(halo, path, true, half + Halo * s);
                 OverlayShapes.Stroke(stroke, path, true, half);
                 colour.AddLine(f, path, true, w);
             }
-            white.AddTris(f, halo, w - eps);
+            if (white != null) white.AddTris(f, halo, w - eps);
             colour.AddTris(f, stroke, w);
         }
 

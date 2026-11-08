@@ -90,21 +90,35 @@ namespace ProjectPerseus.federator
             return string.Join(", ", parts) + ".";
         }
 
-        /// <summary>Linked element ids (of this link instance) visible in the view; null when the view shows no model.</summary>
+        /// <summary>
+        /// Linked element ids (of this link instance) visible in the view; null when the view shows no model.
+        ///
+        /// Revit's linked-elements-in-view collector (FilteredElementCollector(host, view, link), 2024+) has crashed
+        /// Revit with an access violation - uncatchable in .NET 8 - when called for a 3D view / a view not showing the
+        /// link. So, like MarkerEngine: only for plan / section / elevation / detail views (IsProjectableView), and only
+        /// once the link instance is confirmed visible in that view. Every other case uses element boxes against the
+        /// view's extent (coarser, but safe).
+        /// </summary>
         internal static HashSet<long> VisibleLinkedIds(Document host, View view, RevitLinkInstance instance)
         {
             var ids = new HashSet<long>();
-            if (host == null || view == null || instance == null) return null;
+            if (host == null || view == null || instance == null || view.IsTemplate) return null;
+            if (!view.Document.Equals(host)) return null;
             var extent = ViewExtent.For(view);
             if (!extent.ShowsModel) return null;
             Document linkDoc = instance.GetLinkDocument();
             if (linkDoc == null) return ids;
+            if (!LinkShownIn(host, view, instance)) return ids; // hidden link / link category off: nothing of it is visible
             try
             {
 #if REVIT2024_OR_GREATER
-                foreach (ElementId id in new FilteredElementCollector(host, view.Id, instance.Id).WhereElementIsNotElementType().ToElementIds())
-                    ids.Add(id.GetIdValue());
-#else
+                if (queue.ViolationScreenPositionEvent.IsProjectableView(view.ViewType))
+                {
+                    foreach (ElementId id in new FilteredElementCollector(host, view.Id, instance.Id).WhereElementIsNotElementType().ToElementIds())
+                        ids.Add(id.GetIdValue());
+                    return ids;
+                }
+#endif
                 Transform toHost = instance.GetTotalTransform();
                 foreach (Element el in new FilteredElementCollector(linkDoc).WhereElementIsNotElementType().WhereElementIsViewIndependent())
                 {
@@ -113,10 +127,24 @@ namespace ProjectPerseus.federator
                     HostBox(new[] { bb.Min.X, bb.Min.Y, bb.Min.Z }, new[] { bb.Max.X, bb.Max.Y, bb.Max.Z }, toHost, out XYZ a, out XYZ b);
                     if (extent.Contains(a, b)) ids.Add(el.Id.GetIdValue());
                 }
-#endif
             }
             catch (Exception ex) { Log.Info($"[Federator] visible linked elements in '{view.Name}': {ex.Message}"); }
             return ids;
+        }
+
+        /// <summary>Is the link instance itself visible in the view (ordinary view-scoped collector, safe in any view)?</summary>
+        private static bool LinkShownIn(Document host, View view, RevitLinkInstance instance)
+        {
+            try
+            {
+                return new FilteredElementCollector(host, view.Id).OfClass(typeof(RevitLinkInstance))
+                    .ToElementIds().Contains(instance.Id);
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"[Federator] link visibility in '{view.Name}': {ex.Message}");
+                return false;
+            }
         }
 
         private static bool IsVisible(Document host, View view, RevitLinkInstance instance, List<ElementChange> existing, XYZ min, XYZ max)
@@ -125,12 +153,8 @@ namespace ProjectPerseus.federator
             var extent = ViewExtent.For(view);
             if (!extent.ShowsModel || !extent.Contains(min, max)) return false;
             if (existing.Count == 0) return true; // deleted only: their old box is in view
-#if REVIT2024_OR_GREATER
             var visible = VisibleLinkedIds(host, view, instance);
             return visible != null && existing.Any(c => visible.Contains(c.Id));
-#else
-            return true;
-#endif
         }
 
         private static void Zoom(UIDocument uidoc, View view, XYZ min, XYZ max)

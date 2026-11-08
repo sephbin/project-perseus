@@ -122,9 +122,14 @@ namespace ProjectPerseus.ui
             private const int CardWidth = 340;
             private readonly Label _title;
             private readonly Label _text;
-            private readonly ProgressBar _bar;
+            private readonly ActivityBar _bar;
             private readonly Label _detail;
             private readonly System.Windows.Forms.Timer _hideTimer;
+            // Animates the bar and updates the clock on this (the toast's own) thread, so the card visibly keeps going
+            // while Revit's UI thread is busy; a long gap since the last update is called out.
+            private readonly System.Windows.Forms.Timer _tick;
+            private DateTime _shownAt, _lastUpdate;
+            private const int StaleSeconds = 15;
 
             internal ToastForm()
             {
@@ -150,15 +155,12 @@ namespace ProjectPerseus.ui
 
                 _title = new Label { AutoSize = true, Text = "Perseus", ForeColor = Cyan, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 2) };
                 _text = new Label { AutoSize = true, ForeColor = Color.White, MaximumSize = new Size(CardWidth - 30, 0), Margin = new Padding(0) };
-                _bar = new ProgressBar
+                _bar = new ActivityBar
                 {
                     Width = CardWidth - 30,
                     Height = 8,
-                    Minimum = 0,
-                    Maximum = 1000,
                     Margin = new Padding(0, 8, 0, 0),
                     Visible = false,
-                    MarqueeAnimationSpeed = 30,
                 };
                 _detail = new Label
                 {
@@ -176,6 +178,12 @@ namespace ProjectPerseus.ui
                 Controls.Add(body);
                 Controls.Add(accent);
 
+                _tick = new System.Windows.Forms.Timer { Interval = 40 };
+                _tick.Tick += (s, e) =>
+                {
+                    try { Tick(); }
+                    catch (Exception ex) { _tick.Stop(); Log.Warn($"[SyncStatusToast] tick failed: {ex.Message}"); }
+                };
                 _hideTimer = new System.Windows.Forms.Timer();
                 _hideTimer.Tick += (s, e) =>
                 {
@@ -204,22 +212,15 @@ namespace ProjectPerseus.ui
 
                 bool hasBar = !double.IsNaN(fraction);
                 _bar.Visible = hasBar;
-                if (hasBar)
-                {
-                    if (fraction < 0)
-                    {
-                        if (_bar.Style != ProgressBarStyle.Marquee) _bar.Style = ProgressBarStyle.Marquee;
-                    }
-                    else
-                    {
-                        if (_bar.Style != ProgressBarStyle.Continuous) _bar.Style = ProgressBarStyle.Continuous;
-                        _bar.Value = (int)Math.Round(Math.Max(0, Math.Min(1, fraction)) * _bar.Maximum);
-                    }
-                }
+                if (hasBar) _bar.Fraction = fraction < 0 ? -1 : Math.Max(0, Math.Min(1, fraction));
                 _detail.Visible = !string.IsNullOrEmpty(detail);
                 _detail.Text = detail ?? "";
 
-                if (!Visible) Show();
+                _lastUpdate = DateTime.UtcNow;
+                if (!Visible) { _shownAt = _lastUpdate; Show(); }
+                if (hasBar) { if (!_tick.Enabled) _tick.Start(); }
+                else { _tick.Stop(); _title.Text = "Perseus"; }
+                UpdateClock();
                 PerformLayout();
                 Place(revit);
                 if (autoHideMs > 0) { _hideTimer.Interval = autoHideMs; _hideTimer.Start(); }
@@ -228,7 +229,32 @@ namespace ProjectPerseus.ui
             internal void HideNow()
             {
                 _hideTimer.Stop();
+                _tick.Stop();
+                _title.Text = "Perseus";
                 if (Visible) Hide();
+            }
+
+            private int _lastClockSecond = -1;
+
+            private void Tick()
+            {
+                if (!Visible || !_bar.Visible) { _tick.Stop(); return; }
+                _bar.Advance();
+                UpdateClock();
+            }
+
+            private void UpdateClock()
+            {
+                if (!_bar.Visible) return;
+                var now = DateTime.UtcNow;
+                int elapsed = (int)(now - _shownAt).TotalSeconds;
+                int quiet = (int)(now - _lastUpdate).TotalSeconds;
+                int key = elapsed * 2 + (quiet >= StaleSeconds ? 1 : 0);
+                if (key == _lastClockSecond) return;
+                _lastClockSecond = key;
+                string clock = $"Perseus  ·  {elapsed / 60}:{elapsed % 60:00}";
+                if (quiet >= StaleSeconds) clock += $"  ·  no update for {quiet} s (Revit is busy)";
+                _title.Text = clock;
             }
 
             // Bottom-right of the Revit window, clear of the status bar.
@@ -241,6 +267,68 @@ namespace ProjectPerseus.ui
             }
 
             [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+
+            /// <summary>
+            /// Owner-drawn progress bar: a filled part for known progress (or a sweeping segment when unknown) with a
+            /// highlight that slides across it on every tick, so it never looks frozen. No visual-styles dependency.
+            /// </summary>
+            private sealed class ActivityBar : Control
+            {
+                private static readonly Color Track = Color.FromArgb(0x3A, 0x44, 0x55);
+                private double _phase;
+                internal double Fraction = -1;   // < 0 = unknown
+
+                internal ActivityBar()
+                {
+                    SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint
+                             | ControlStyles.ResizeRedraw, true);
+                    BackColor = Color.FromArgb(0x26, 0x2E, 0x3B);
+                }
+
+                internal void Advance()
+                {
+                    _phase = (_phase + 0.018) % 1.0;
+                    Invalidate();
+                }
+
+                protected override void OnPaint(PaintEventArgs e)
+                {
+                    var g = e.Graphics;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    int w = Width, h = Height;
+                    using (var track = new SolidBrush(Track)) g.FillRectangle(track, 0, 0, w, h);
+                    if (Fraction < 0)
+                    {
+                        // Unknown: a cyan segment sweeping across the track.
+                        int seg = Math.Max(24, w / 4);
+                        int x = (int)(_phase * (w + seg)) - seg;
+                        using (var b = new SolidBrush(Cyan)) g.FillRectangle(b, x, 0, seg, h);
+                        return;
+                    }
+                    int fill = (int)Math.Round(w * Fraction);
+                    using (var b = new SolidBrush(Cyan)) g.FillRectangle(b, 0, 0, fill, h);
+                    // Highlight sliding over the filled part.
+                    if (fill > 6)
+                    {
+                        int band = Math.Max(18, w / 6);
+                        int x = (int)(_phase * (fill + band)) - band;
+                        var rect = new Rectangle(x, 0, band, h);
+                        using (var lg = new System.Drawing.Drawing2D.LinearGradientBrush(rect, Color.FromArgb(0, 255, 255, 255),
+                                                                                          Color.FromArgb(0, 255, 255, 255), 0f))
+                        {
+                            var blend = new System.Drawing.Drawing2D.ColorBlend
+                            {
+                                Colors = new[] { Color.FromArgb(0, 255, 255, 255), Color.FromArgb(140, 255, 255, 255), Color.FromArgb(0, 255, 255, 255) },
+                                Positions = new[] { 0f, 0.5f, 1f },
+                            };
+                            lg.InterpolationColors = blend;
+                            g.SetClip(new Rectangle(0, 0, fill, h));
+                            g.FillRectangle(lg, rect);
+                            g.ResetClip();
+                        }
+                    }
+                }
+            }
             [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT r);
         }
     }

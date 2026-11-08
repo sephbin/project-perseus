@@ -389,7 +389,8 @@ ProjectPerseus/
 │   │                             (Unassigned), in-view ids, search incl. parameters + comments). Tested in ChangeFilterTest.cs.
 │   ├── ViewExtent.cs             What a view shows (plan view range + crop, section/elevation crop depth, 3D section box).
 │   ├── ReviewNavigator.cs        Select linked elements (SetReferences) + zoom; not visible here -> user's own "Perseus Federator
-│   │                             - <user>" 3D view with a section box. VisibleLinkedIds (2024+ link view collector, 2023 boxes).
+│   │                             - <user>" 3D view with a section box. VisibleLinkedIds: link view collector ONLY for projectable
+│   │                             views with the link instance shown (it AV-crashed Revit otherwise - uncatchable), else boxes.
 │   ├── FederatorController.cs    Startup-subscribed ViewActivated + SelectionChanged, forwarded to FederatorWindow when open.
 │   ├── ChangeHighlightServer.cs  IDirectContext3DServer: changes drawn in model views (plans/sections/elevations/details/3D),
 │   │                             on screen only, SVG-style: flat rounded rectangles on the view plane with a white halo, solid

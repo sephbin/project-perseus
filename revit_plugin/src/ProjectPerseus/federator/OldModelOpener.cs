@@ -25,6 +25,7 @@ namespace ProjectPerseus.federator
             if (cached != null)
             {
                 Log.Info($"[Federator] using cached snapshot of {path}");
+                progress?.Invoke("Steps 1–3 of 5 · Using the saved snapshot of the old version", 1);
                 return cached;
             }
 
@@ -42,7 +43,8 @@ namespace ProjectPerseus.federator
             EventHandler<FailuresProcessingEventArgs> onFailures = (s, e) => DismissWarnings(e, temp);
             try
             {
-                progress?.Invoke("Copying the old version…", -1);
+                long mb = new FileInfo(path).Length / (1024 * 1024);
+                progress?.Invoke($"Step 1 of 5 · Copying the old version ({mb:N0} MB)…", -1);
                 File.Copy(path, temp);
                 ModelPath mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(temp);
                 SkipLinks(mp);
@@ -54,14 +56,17 @@ namespace ProjectPerseus.federator
                     options.SetOpenWorksetsConfiguration(new WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets));
                 }
 
-                progress?.Invoke("Opening the old version…", -1);
+                progress?.Invoke("Step 2 of 5 · Opening the old version in the background. Revit is busy; large models take a few minutes.", -1);
                 app.FailuresProcessing += onFailures;
                 var started = DateTime.UtcNow;
                 doc = app.OpenDocumentFile(mp, options);
                 Log.Info($"[Federator] opened {path} (as {Path.GetFileName(temp)}) in {(DateTime.UtcNow - started).TotalSeconds:F1} s");
 
+                var readStart = DateTime.UtcNow;
                 var snap = SnapshotBuilder.Build(doc, path, stamp,
-                    (done, total) => progress?.Invoke($"Reading the old version… {done:N0} / {total:N0}", total == 0 ? 1 : (double)done / total));
+                    (done, total) => progress?.Invoke(
+                        $"Step 3 of 5 · Reading the old version: {done:N0} of {total:N0} elements{ComparisonRunner.Eta(readStart, done, total)}",
+                        total == 0 ? 1 : (double)done / total));
                 snap.Title = Path.GetFileNameWithoutExtension(path); // not the temp copy's name
                 SnapshotCache.Save(snap);
                 return snap;

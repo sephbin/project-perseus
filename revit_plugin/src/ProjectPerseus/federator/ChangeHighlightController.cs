@@ -16,7 +16,7 @@ namespace ProjectPerseus.federator
     internal static class ChangeHighlightController
     {
         /// <summary>More than this and only the first ones (selected first) are drawn.</summary>
-        internal const int MaxItems = 6000;
+        internal const int MaxItems = 3000;
 
         internal static void Initialize()
         {
