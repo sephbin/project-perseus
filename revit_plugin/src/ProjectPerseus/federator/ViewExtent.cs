@@ -4,8 +4,8 @@ using Autodesk.Revit.DB;
 namespace ProjectPerseus.federator
 {
     /// <summary>
-    /// The part of model space a view shows, for "is this box visible here?": plan = view range (top clip to view
-    /// depth) and the crop region when cropped; section / elevation = crop box including its far clip depth;
+    /// The part of model space a view shows, for "is this box visible here?": floor plan = view range (top clip down to
+    /// view depth), reflected ceiling plan = cut plane up to top / view depth, plus the crop region when cropped; section / elevation = crop box including its far clip depth;
     /// 3D = section box when active, else everything. Other views (sheets, schedules, drafting) show no model.
     /// Coarse by design (axis boxes, no visibility/graphics overrides): good enough to decide whether to zoom in the
     /// current view or open the federator 3D view.
@@ -31,10 +31,25 @@ namespace ProjectPerseus.federator
                         break;
                     case ViewPlan plan when plan.GenLevel != null:
                         var vr = plan.GetViewRange();
-                        double top = PlaneZ(view.Document, plan, vr, PlanViewPlane.TopClipPlane);
-                        double bottom = PlaneZ(view.Document, plan, vr, PlanViewPlane.ViewDepthPlane);
-                        e._zMin = Math.Min(top, bottom);
-                        e._zMax = Math.Max(top, bottom);
+                        const double Far = double.MaxValue / 4;
+                        if (plan.ViewType == ViewType.CeilingPlan)
+                        {
+                            // Reflected ceiling plan: looks UP, from the cut plane to the top / view depth above it.
+                            double cut = PlaneZ(view.Document, plan, vr, PlanViewPlane.CutPlane, 0);
+                            double top = PlaneZ(view.Document, plan, vr, PlanViewPlane.TopClipPlane, Far);
+                            double depth = PlaneZ(view.Document, plan, vr, PlanViewPlane.ViewDepthPlane, Far);
+                            e._zMin = cut;
+                            e._zMax = Math.Max(cut, Math.Max(top, depth));
+                        }
+                        else
+                        {
+                            // Floor / engineering / area plan: looks DOWN, from the top clip to the view depth below.
+                            double top = PlaneZ(view.Document, plan, vr, PlanViewPlane.TopClipPlane, Far);
+                            double bottom = PlaneZ(view.Document, plan, vr, PlanViewPlane.BottomClipPlane, -Far);
+                            double depth = PlaneZ(view.Document, plan, vr, PlanViewPlane.ViewDepthPlane, -Far);
+                            e._zMin = Math.Min(bottom, depth);
+                            e._zMax = Math.Max(top, Math.Max(bottom, depth));
+                        }
                         if (plan.CropBoxActive) e.SetBox(plan.CropBox, false);
                         break;
                     default:
@@ -80,13 +95,18 @@ namespace ProjectPerseus.federator
             _checkLocalZ = checkZ;
         }
 
-        private static double PlaneZ(Document doc, ViewPlan plan, PlanViewRange vr, PlanViewPlane plane)
+        /// <param name="unlimited">Value for an unlimited / unset plane (far away in the direction the view looks).</param>
+        private static double PlaneZ(Document doc, ViewPlan plan, PlanViewRange vr, PlanViewPlane plane, double unlimited)
         {
             ElementId levelId = vr.GetLevelId(plane);
-            var level = levelId != null && levelId != ElementId.InvalidElementId ? doc.GetElement(levelId) as Level : null;
+            if (levelId == null || levelId == ElementId.InvalidElementId) return unlimited;
+            // Special ids (PlanViewRange.Unlimited / LevelBelow / LevelAbove...) aren't levels.
+            var level = doc.GetElement(levelId) as Level;
             if (level == null)
-                // Unlimited / unset: treat as far away in the plane's direction.
-                return plane == PlanViewPlane.TopClipPlane ? double.MaxValue / 4 : double.MinValue / 4;
+            {
+                if (plane == PlanViewPlane.CutPlane && plan.GenLevel != null) return plan.GenLevel.Elevation + vr.GetOffset(plane);
+                return unlimited;
+            }
             return level.Elevation + vr.GetOffset(plane);
         }
     }

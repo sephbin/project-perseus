@@ -387,7 +387,8 @@ ProjectPerseus/
 │   ├── ChangeDescriber.cs        Pure: Summary (grid) + Lines ("Moved 130 mm (120 mm horizontally, 50 mm up)", length/volume).
 │   ├── ChangeFilter.cs           Pure: panel filters (kind, aspect, category, level, status/Needs attention, assignee/(Me)/
 │   │                             (Unassigned), in-view ids, search incl. parameters + comments). Tested in ChangeFilterTest.cs.
-│   ├── ViewExtent.cs             What a view shows (plan view range + crop, section/elevation crop depth, 3D section box).
+│   ├── ViewExtent.cs             What a view shows (floor plan: top clip down to view depth; RCP: cut plane UP to top/view depth;
+│   │                             + crop; section/elevation crop depth; 3D section box).
 │   ├── ReviewNavigator.cs        Select linked elements (SetReferences) + zoom; not visible here -> user's own "Perseus Federator
 │   │                             - <user>" 3D view with a section box. VisibleLinkedIds: link view collector ONLY for projectable
 │   │                             views with the link instance shown (it AV-crashed Revit otherwise - uncatchable), else boxes.
