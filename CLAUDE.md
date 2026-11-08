@@ -354,7 +354,19 @@ ProjectPerseus/
 │                                 Pseudo field "Model" = the element's model title (for filtering by link).
 ├── federator/                    NEW (2026-11-08, branch develop/federator). Consultant link comparison; plan in
 │   │                             /FEDERATOR_PLAN.md. Old version = archived .rvt the user picks; results + comments are
-│   │                             stored in the host model (Extensible Storage, F3 - not built yet).
+│   │                             stored in the host model as plugin data (Extensible Storage). No UI yet (F4 next).
+│   ├── ComparisonRunner.cs       End to end: OldModelOpener + SnapshotBuilder(link) -> LinkDiff -> ComparisonStore.Save, progress
+│   │                             on ui/SyncStatusToast; warns when < 20 % of old elements match (wrong file picked).
+│   ├── OldModelOpener.cs         Archived .rvt -> LinkSnapshot: SnapshotCache hit, else copy to %TEMP% with a unique name (same-title
+│   │                             rule), TransmissionData unloads its links, open detached + all worksets, read, Close(false), delete.
+│   ├── ComparisonStore.cs        Schema PerseusFederatorComparison: one DataStorage per comparison, never edited. Header =
+│   │                             models/ComparisonRecord JSON (List() is cheap), changes = gzip JSON byte array (LoadChanges).
+│   ├── ReviewStore.cs            Schema PerseusFederatorReviewEvent: one DataStorage per models/ReviewEvent (comment and/or
+│   │                             status), append-only so users never edit each other's elements. Add (batch, one tx) / Load / Delete own.
+│   ├── ReviewLog.cs              Pure fold of events -> models/ElementReviewState: status = latest in the viewed comparison,
+│   │                             thread = all events on the element across comparisons. Tested in ReviewLogTest.cs.
+│   ├── PluginDataStorage.cs      Shared Extensible Storage helpers (All, EnsureSchema, CanDelete = author + not checked out, gzip).
+│   ├── LinkedElementRef.cs       Link instance UniqueId + linked UniqueId -> Element; stable link Reference string for SetReferences.
 │   ├── LinkDiff.cs               Pure (no Revit API) compare of two models/LinkSnapshot by UniqueId -> models/ElementChange
 │   │                             (Added/Deleted/Modified + aspects Moved/Geometry/Type/Level/Parameters/...), DiffOptions
 │   │                             (1 mm tolerance, ignored bookkeeping params). Unit-tested in ProjectPerseusTests/LinkDiffTest.cs.
@@ -375,6 +387,9 @@ ProjectPerseus/
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft).
 │   ├── ElementChange.cs          NEW (2026-11-08). Federator diff result: ChangeKind, ChangeAspect flags, ParameterChange.
+│   ├── ComparisonRecord.cs       NEW (2026-11-08). Federator comparison header (+ [JsonIgnore] Changes, StorageId).
+│   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants.
+│   ├── ElementReviewState.cs     NEW (2026-11-08). Folded review state of one linked element (status + thread).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
 │   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty/>/>=/</<= (numeric: double params in internal units via UnitFormatUtils.TryParse of the threshold in host units; else first number in the text), Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).

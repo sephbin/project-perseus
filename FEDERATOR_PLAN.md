@@ -70,9 +70,9 @@ versioned JSON / gzip payload — new fields go into the payload, never into a n
 
 | # | Phase | Status |
 |---|---|---|
-| F1 | `models/LinkSnapshot`, `models/ElementChange`, `federator/LinkDiff` (pure, tests), `federator/SnapshotBuilder` (Revit), `federator/SnapshotCache` (AppData gzip) | in progress |
-| F2 | `federator/OldModelOpener` — copy + detached open + snapshot + close, progress via `ui/SyncStatusToast`-style card | |
-| F3 | `federator/ComparisonStore` + `federator/ReviewStore` (Extensible Storage, append-only events) | |
+| F1 | `models/LinkSnapshot`, `models/ElementChange`, `federator/LinkDiff` (pure, tests), `federator/SnapshotBuilder` (Revit), `federator/SnapshotCache` (AppData gzip) | done (untested in Revit) |
+| F2 | `federator/OldModelOpener` — copy + unload its links + detached open + snapshot + close; `federator/ComparisonRunner` end to end with `ui/SyncStatusToast` progress | done (untested in Revit) |
+| F3 | `federator/ComparisonStore` + `federator/ReviewStore` (Extensible Storage, append-only events), `federator/ReviewLog` fold (tests), `federator/LinkedElementRef` | done (untested in Revit) |
 | F4 | `ui/FederatorWindow` — modeless WPF panel: link picker, "Compare against file…", comparisons list, change grid with filters (kind, aspect, category, level, review status, in active view, search), detail pane (parameter diffs old → new), status + comment thread, select / zoom to linked element (`SetReferences`, `ZoomAndCenterRectangle`) | |
 | F5 | Overlay layer: changed elements in the active view coloured by kind (added green / modified amber / deleted red ghost), reusing `MarkerEngine` hit projection in `queue/ViolationScreenPositionEvent` | |
 | F6 | `commands/ShowFederatorCommand` + "Federator" ribbon panel + icon in `tools/generate_icons.py` | |
@@ -81,8 +81,9 @@ versioned JSON / gzip payload — new fields go into the payload, never into a n
 ## Open points
 
 * Very large consultant models: geometry signatures need `get_Geometry` per element. Expect minutes on
-  100k elements for the old file; the current link's snapshot is cached by its file stamp, so only the
-  first comparison per link version pays that.
+  100k elements. Archived files are cached by path + size + mtime, so re-comparing against the same old
+  file is cheap. The loaded link's snapshot is *not* cached (its file on disk may already be newer than
+  what's loaded); if that proves slow, cache it in memory per link instance until the link reloads.
 * Nested links are ignored (same as markers).
 * Revit 2023 has no `FilteredElementCollector(host, view, linkInstance)`; "in active view" filtering falls
   back to `ViewDepth` as `MarkerEngine` does.

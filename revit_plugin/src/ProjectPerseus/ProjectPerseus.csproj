@@ -435,6 +435,16 @@
     <Compile Include="federator\LinkDiff.cs" />
     <Compile Include="federator\SnapshotBuilder.cs" />
     <Compile Include="federator\SnapshotCache.cs" />
+    <Compile Include="federator\ReviewLog.cs" />
+    <Compile Include="federator\PluginDataStorage.cs" />
+    <Compile Include="federator\ComparisonStore.cs" />
+    <Compile Include="federator\ReviewStore.cs" />
+    <Compile Include="federator\OldModelOpener.cs" />
+    <Compile Include="federator\LinkedElementRef.cs" />
+    <Compile Include="federator\ComparisonRunner.cs" />
+    <Compile Include="models\ComparisonRecord.cs" />
+    <Compile Include="models\ReviewEvent.cs" />
+    <Compile Include="models\ElementReviewState.cs" />
     <Compile Include="commands\ShowMarkersCommand.cs" />
     <Compile Include="ui\StatusBadgeController.cs" />
     <Compile Include="util\ElementWatchList.cs" />
