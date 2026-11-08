@@ -168,12 +168,22 @@ ICONS["markers"] = (
     '<path d="M24.8 8.2h3.4v2.4h-3.4z M25.6 8.2V7.3a.9.9 0 0 1 1.8 0v.9" fill="none" stroke="{sp}" stroke-width="1"/>'
 )
 
+# ---- Federator: old version (dashed) vs new version (solid), a changed element ringed
+ICONS["federator"] = (
+    '<rect x="4" y="4" width="16" height="16" rx="1.5" fill="none" stroke="{i}" stroke-width="1.6" stroke-dasharray="2.5 2"/>'
+    '<rect x="10" y="10" width="17" height="17" rx="1.5" fill="{bg}" stroke="{i}" stroke-width="1.8"/>'
+    '<path d="M14 23v-8h5" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<circle cx="21" cy="19" r="4" fill="none" stroke="{a}"/>'
+    '<path d="M24 22l3.5 3.5" fill="none" stroke="{a}"/>'
+)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
     ("Key Schedules",["schedule_manage", "schedule_export", "schedule_import"]),
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
+    ("Federator",    ["federator"]),
     ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "about"]),
 ]
 

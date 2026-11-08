@@ -151,6 +151,9 @@
     <Compile Include="LinkDiffTest.cs" />
     <Compile Include="PositionOrderTest.cs" />
     <Compile Include="ReviewLogTest.cs" />
+    <Compile Include="ChangeDescriberTest.cs" />
+    <Compile Include="ReplacementMatcherTest.cs" />
+    <Compile Include="ChangeFilterTest.cs" />
     <Compile Include="mocks\MockArdbDefinition.cs" />
     <Compile Include="mocks\MockArdbElement.cs" />
     <Compile Include="mocks\MockArdbElementId.cs" />

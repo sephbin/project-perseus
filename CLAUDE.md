@@ -107,7 +107,8 @@ ProjectPerseus/
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Calls ViolationHighlightController.Initialize() and
 │                                 ownership.OwnershipTracker.Subscribe() at startup.
-│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Setup.
+│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Federator, Setup.
+│                                 Calls federator.FederatorController.Subscribe() at startup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
 ├── auth/                         Split in P6 (2026-05-30).
@@ -218,7 +219,8 @@ ProjectPerseus/
 │   ├── ShowViolationListCommand.cs  NEW (2026-08-24). Ribbon: Button_ViolationList.
 │   │                             Opens modeless ViolationListForm; brings to front if already open.
 │   ├── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
-│   └── ShowMarkersCommand.cs     NEW (2026-11-06). Ribbon: Button_Markers (Markers panel). Opens ui/MarkerSetsWindow.
+│   ├── ShowMarkersCommand.cs     NEW (2026-11-06). Ribbon: Button_Markers (Markers panel). Opens ui/MarkerSetsWindow.
+│   └── ShowFederatorCommand.cs   NEW (2026-11-08). Ribbon: Button_Federator (Federator panel). Opens ui/FederatorWindow.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; the pre-sync hook only cancels + Queue()s the edits
@@ -298,6 +300,15 @@ ProjectPerseus/
 │   ├── MarkerIcons.cs            NEW (2026-11-06). Stroked 16x16 glyph geometries (lock, dropbolt, bolt, key, card, bell,
 │   │                             flame, shield...) keyed by string (stored in marker sets: never rename a key). Badge() =
 │   │                             white glyph on a coloured disc (overlay + panel), Glyph() = glyph alone.
+│   ├── FederatorWindow.cs        NEW (2026-11-08). Modeless code-only WPF "Federator" review panel: link + saved comparison
+│   │                             pickers, Compare against file…, DataGrid of ui/ChangeRow grouped by Category/Level/Kind/Status/
+│   │                             Assignee/Type (Expander groups, CustomSort), filters via federator/ChangeFilter (+ Only in active
+│   │                             view: ReviewNavigator.VisibleLinkedIds, refreshed on ViewActivated). Detail pane: ChangeDescriber
+│   │                             lines, parameter before/after, replacement candidates both ways, status buttons, actions (type +
+│   │                             assignee, Done/Cancel), comment box (any status), thread. Multi-select applies status/action/comment
+│   │                             to all. Double-click = ReviewNavigator.Show(select). Model work via queue/OwnershipUiEvent (RunApi).
+│   │                             Revit selection -> row highlight via FederatorController (OnRevitSelection).
+│   ├── ChangeRow.cs              NEW (2026-11-08). INotifyPropertyChanged row: ElementChange + ElementReviewState, kind/status brushes.
 │   ├── MarkerSetsWindow.cs       NEW (2026-11-06). Modeless code-only WPF "Parameter Markers" panel: set library (enable,
 │   │                             new/duplicate/delete, import/export) + editor (name, category checklist with search, filter,
 │   │                             parameter list with whole-model suggestions (rows pick from it; Auto-fill per parameter), legend rows with
@@ -363,8 +374,18 @@ ProjectPerseus/
 │   │                             models/ComparisonRecord JSON (List() is cheap), changes = gzip JSON byte array (LoadChanges).
 │   ├── ReviewStore.cs            Schema PerseusFederatorReviewEvent: one DataStorage per models/ReviewEvent (comment and/or
 │   │                             status), append-only so users never edit each other's elements. Add (batch, one tx) / Load / Delete own.
-│   ├── ReviewLog.cs              Pure fold of events -> models/ElementReviewState: status = latest in the viewed comparison,
-│   │                             thread = all events on the element across comparisons. Tested in ReviewLogTest.cs.
+│   ├── ReviewLog.cs              Pure fold of events -> models/ElementReviewState: status = latest in the viewed comparison, or
+│   │                             carried over from another when ElementChange.Signature is unchanged since (StatusCarried); open
+│   │                             actions (closed by ClosesActionId) + Assignees; thread = all events across comparisons. Tested.
+│   ├── ReplacementMatcher.cs     Pure: for each Deleted change, likely replacements among Added ones of the same category (box
+│   │                             overlap / covers-old / proximity + same type/family/level; spatial hash). Stored on the change.
+│   ├── ChangeDescriber.cs        Pure: Summary (grid) + Lines ("Moved 130 mm (120 mm horizontally, 50 mm up)", length/volume).
+│   ├── ChangeFilter.cs           Pure: panel filters (kind, aspect, category, level, status/Needs attention, assignee/(Me)/
+│   │                             (Unassigned), in-view ids, search incl. parameters + comments). Tested in ChangeFilterTest.cs.
+│   ├── ViewExtent.cs             What a view shows (plan view range + crop, section/elevation crop depth, 3D section box).
+│   ├── ReviewNavigator.cs        Select linked elements (SetReferences) + zoom; not visible here -> user's own "Perseus Federator
+│   │                             - <user>" 3D view with a section box. VisibleLinkedIds (2024+ link view collector, 2023 boxes).
+│   ├── FederatorController.cs    Startup-subscribed ViewActivated + SelectionChanged, forwarded to FederatorWindow when open.
 │   ├── PluginDataStorage.cs      Shared Extensible Storage helpers (All, EnsureSchema, CanDelete = author + not checked out, gzip).
 │   ├── LinkedElementRef.cs       Link instance UniqueId + linked UniqueId -> Element; stable link Reference string for SetReferences.
 │   ├── LinkDiff.cs               Pure (no Revit API) compare of two models/LinkSnapshot by UniqueId -> models/ElementChange
@@ -389,7 +410,9 @@ ProjectPerseus/
 │   ├── ElementChange.cs          NEW (2026-11-08). Federator diff result: ChangeKind, ChangeAspect flags, ParameterChange.
 │   ├── ComparisonRecord.cs       NEW (2026-11-08). Federator comparison header (+ [JsonIgnore] Changes, StorageId).
 │   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants.
-│   ├── ElementReviewState.cs     NEW (2026-11-08). Folded review state of one linked element (status + thread).
+│   ├── ElementReviewState.cs     NEW (2026-11-08). Folded review state: status (+carried), open actions, assignees, thread.
+│   ├── ReviewAction.cs           NEW (2026-11-08). Extensible action (free-text Type, Assignee) opened by a ReviewEvent.
+│   ├── ReplacementCandidate.cs   NEW (2026-11-08). Likely replacement of a deleted element (uid, type, score, reason).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
 │   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty/>/>=/</<= (numeric: double params in internal units via UnitFormatUtils.TryParse of the threshold in host units; else first number in the text), Value,
 │   │                             Color "#RRGGBB", Icon = ui/MarkerIcons key).
@@ -469,7 +492,7 @@ ProjectPerseus/
 │                                 (defaults "Bearer") so legacy "Token" call still works. Optional timeoutMs: default
 │                                 5 min is for background uploads; UI-thread / pre-sync calls pass SyncTimeoutMs (5 s).
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
-└── resources/                    Ribbon icons: 16 pairs <name>.png + <name>_dark.png, real 128px PNGs
+└── resources/                    Ribbon icons: 17 pairs <name>.png + <name>_dark.png, real 128px PNGs
                                   rendered from vector masters by revit_plugin/tools/generate_icons.py
                                   (pip install resvg-py; python generate_icons.py <resources dir> icons_svg).
                                   ThemeIconManager decodes them at 64px (large) / 32px (stacked small).

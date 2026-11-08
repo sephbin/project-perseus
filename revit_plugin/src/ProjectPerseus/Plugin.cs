@@ -27,6 +27,7 @@ namespace ProjectPerseus
             violations.ViolationHighlightController.Initialize();
             ownership.OwnershipTracker.Subscribe(application);
             markers.MarkerEngine.Subscribe(application);
+            federator.FederatorController.Subscribe(application);
             AddRibbonPanel(application);
             ThemeIconManager.Initialize(application);
 
@@ -58,6 +59,7 @@ namespace ProjectPerseus
             _orchestrator.Unsubscribe(application);
             ownership.OwnershipTracker.Unsubscribe(application);
             markers.MarkerEngine.Unsubscribe(application);
+            federator.FederatorController.Unsubscribe(application);
             ThemeIconManager.Shutdown(application);
             return Result.Succeeded;
         }
@@ -70,7 +72,7 @@ namespace ProjectPerseus
             string asm = Assembly.GetExecutingAssembly().Location;
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
 
-            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Markers / Setup.
+            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Markers / Federator / Setup.
             // Icon base names map to resources/<name>.png (+ <name>_dark.png); see revit_plugin/tools/generate_icons.py.
 
             // ---- Sync: moving data between the model and the Perseus server
@@ -113,6 +115,11 @@ namespace ProjectPerseus
             RibbonPanel markersPanel = application.CreateRibbonPanel(tabName, "Markers");
             AddButton(markersPanel, asm, "Button_Markers", "Parameter\nMarkers", "ShowMarkersCommand", "markers",
                 "Ring elements in the view by a parameter value, with a colour and icon per value and a legend: e.g. doors with mag locks in magenta and drop bolts in cyan. Define what to look for (categories, filter, parameter) in the panel.");
+
+            // ---- Federator: consultant link comparison + review
+            RibbonPanel federatorPanel = application.CreateRibbonPanel(tabName, "Federator");
+            AddButton(federatorPanel, asm, "Button_Federator", "Link\nChanges", "ShowFederatorCommand", "federator",
+                "Compare a consultant's linked model with an earlier version of it and review what changed: filter the changes, see how each one changed (and what probably replaced deleted elements), set a status, assign actions and comment. Reviews are saved in this model.");
 
             // ---- Setup: configuration up front, rarely used tools stacked small, About standalone
             RibbonPanel setupPanel = application.CreateRibbonPanel(tabName, "Setup");

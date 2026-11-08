@@ -47,6 +47,7 @@ namespace ProjectPerseus.federator
 
                 SyncStatusToast.Progress("Comparing " + linkDoc.Title, 0.96, "Comparing…");
                 var changes = LinkDiff.Compare(oldSnap, newSnap, options);
+                ReplacementMatcher.Suggest(changes);
 
                 var rec = new ComparisonRecord
                 {

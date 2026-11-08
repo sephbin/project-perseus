@@ -39,7 +39,11 @@ namespace ProjectPerseus.federator
             {
                 if (!oldById.TryGetValue(n.UniqueId, out var o))
                 {
-                    changes.Add(Describe(ChangeKind.Added, n, null, n));
+                    var added = Describe(ChangeKind.Added, n, null, n);
+                    added.Signature = Signature(n);
+                    added.NewVolume = n.Volume;
+                    added.NewLength = CurveLength(n);
+                    changes.Add(added);
                     continue;
                 }
                 var c = CompareElement(o, n, options);
@@ -47,7 +51,13 @@ namespace ProjectPerseus.federator
             }
             foreach (var o in oldById.Values)
                 if (!newById.ContainsKey(o.UniqueId))
-                    changes.Add(Describe(ChangeKind.Deleted, o, o, null));
+                {
+                    var deleted = Describe(ChangeKind.Deleted, o, o, null);
+                    deleted.Signature = DeletedPrefix + Signature(o);
+                    deleted.OldVolume = o.Volume;
+                    deleted.OldLength = CurveLength(o);
+                    changes.Add(deleted);
+                }
 
             return changes
                 .OrderBy(c => c.Kind)
@@ -95,9 +105,22 @@ namespace ProjectPerseus.federator
             if (!Same(o.Level, n.Level)) { a |= ChangeAspect.Level; c.OldLevel = o.Level; }
             if (!Same(o.Workset, n.Workset)) a |= ChangeAspect.Workset;
 
-            double moved = Distance(Centre(o), Centre(n));
-            if (moved > options.Tolerance) { a |= ChangeAspect.Moved; c.MoveDistance = moved; }
-            if (GeometryChanged(o, n, options)) a |= ChangeAspect.Geometry;
+            double[] co = Centre(o), cn = Centre(n);
+            double moved = Distance(co, cn);
+            if (moved > options.Tolerance)
+            {
+                a |= ChangeAspect.Moved;
+                c.MoveDistance = moved;
+                c.MoveVector = new[] { cn[0] - co[0], cn[1] - co[1], cn[2] - co[2] };
+            }
+            if (GeometryChanged(o, n, options))
+            {
+                a |= ChangeAspect.Geometry;
+                c.OldLength = CurveLength(o);
+                c.NewLength = CurveLength(n);
+                c.OldVolume = o.Volume;
+                c.NewVolume = n.Volume;
+            }
 
             if (options.CompareParameters)
             {
@@ -107,8 +130,46 @@ namespace ProjectPerseus.federator
 
             if (a == ChangeAspect.None) return null;
             c.Aspects = a;
+            c.Signature = Signature(n);
             return c;
         }
+
+        public const string DeletedPrefix = "deleted:";
+
+        /// <summary>
+        /// Fingerprint of an element's state: everything LinkDiff compares, rounded to 1 mm / 6 significant digits
+        /// so float noise between reads doesn't change it. Same fingerprint = the element hasn't changed.
+        /// </summary>
+        public static string Signature(ElementSnapshot e)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(e.Category).Append('|').Append(e.Family).Append('|').Append(e.Type).Append('|')
+              .Append(e.Level).Append('|').Append(e.Workset).Append('|');
+            AppendMm(sb, e.Min); AppendMm(sb, e.Max); AppendMm(sb, e.Location);
+            if (e.Volume.HasValue)
+                sb.Append(e.Volume.Value.ToString("G6", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                  .Append((e.Area ?? 0).ToString("G6", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                  .Append(e.FaceCount).Append(',').Append(e.EdgeCount);
+            sb.Append('|');
+            if (e.Parameters != null)
+                foreach (var kv in e.Parameters.OrderBy(k => k.Key, StringComparer.Ordinal))
+                    sb.Append(kv.Key).Append('=').Append(kv.Value).Append('\u001f');
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+            {
+                var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(sb.ToString()));
+                return string.Concat(hash.Take(10).Select(b => b.ToString("x2")));
+            }
+        }
+
+        private static void AppendMm(System.Text.StringBuilder sb, double[] v)
+        {
+            if (v != null)
+                foreach (var d in v) sb.Append(Math.Round(d * 304.8)).Append(',');
+            sb.Append('|');
+        }
+
+        public static double? CurveLength(ElementSnapshot e) =>
+            e.Location?.Length == 6 ? Distance(Pt(e.Location, 0), Pt(e.Location, 3)) : (double?)null;
 
         public static List<ParameterChange> ParameterChanges(Dictionary<string, string> o, Dictionary<string, string> n,
                                                              DiffOptions options)

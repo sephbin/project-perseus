@@ -442,6 +442,17 @@
     <Compile Include="federator\OldModelOpener.cs" />
     <Compile Include="federator\LinkedElementRef.cs" />
     <Compile Include="federator\ComparisonRunner.cs" />
+    <Compile Include="federator\ReplacementMatcher.cs" />
+    <Compile Include="federator\ChangeDescriber.cs" />
+    <Compile Include="federator\ChangeFilter.cs" />
+    <Compile Include="federator\ViewExtent.cs" />
+    <Compile Include="federator\ReviewNavigator.cs" />
+    <Compile Include="federator\FederatorController.cs" />
+    <Compile Include="models\ReplacementCandidate.cs" />
+    <Compile Include="models\ReviewAction.cs" />
+    <Compile Include="ui\ChangeRow.cs" />
+    <Compile Include="ui\FederatorWindow.cs" />
+    <Compile Include="commands\ShowFederatorCommand.cs" />
     <Compile Include="models\ComparisonRecord.cs" />
     <Compile Include="models\ReviewEvent.cs" />
     <Compile Include="models\ElementReviewState.cs" />
@@ -498,6 +509,8 @@
     <Resource Include="resources\ownership.png" />
     <Resource Include="resources\markers.png" />
     <Resource Include="resources\markers_dark.png" />
+    <Resource Include="resources\federator.png" />
+    <Resource Include="resources\federator_dark.png" />
     <Resource Include="resources\ownership_dark.png" />
     <Resource Include="resources\project_rules.png" />
     <Resource Include="resources\project_rules_dark.png" />

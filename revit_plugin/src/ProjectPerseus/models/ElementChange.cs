@@ -55,5 +55,23 @@ namespace ProjectPerseus.models
         public double[] NewMax { get; set; }
 
         public List<ParameterChange> ParameterChanges { get; set; } = new List<ParameterChange>();
+
+        /// <summary>Movement of the element's centre (dx, dy, dz in feet, link coordinates) when Moved.</summary>
+        public double[] MoveVector { get; set; }
+        /// <summary>Location curve length (feet) in each version, for curve-driven elements.</summary>
+        public double? OldLength { get; set; }
+        public double? NewLength { get; set; }
+        /// <summary>Solid volume (cubic feet) in each version, when the element has solids.</summary>
+        public double? OldVolume { get; set; }
+        public double? NewVolume { get; set; }
+
+        /// <summary>
+        /// Fingerprint of the element's state in the current version ("deleted:" + old state for deleted elements).
+        /// A review status carries over to a later comparison when the fingerprint is unchanged (federator/ReviewLog).
+        /// </summary>
+        public string Signature { get; set; }
+
+        /// <summary>Deleted elements only: added elements that probably replaced it, best first (federator/ReplacementMatcher).</summary>
+        public List<ReplacementCandidate> Replacements { get; set; }
     }
 }
