@@ -16,8 +16,10 @@ namespace ProjectPerseus.federator
     /// rounded rectangle on the view plane around the element's projected box, with a white halo, a coloured corner
     /// badge (+ added, − deleted, ~ modified) and, for moved elements, a dashed grey outline at the old position and an
     /// arrow from it to the new one. Solid green = added, solid amber = modified, dashed red = deleted (old position).
-    /// Shapes come from OverlayShapes (2D). Placement (panel setting): OnTop = just behind the view's cut plane /
-    /// near clip, over everything visible; Underneath = just behind each element, inside the view depth. Sizes are paper millimetres × view scale (like annotations); a 1 px line
+    /// Shapes come from OverlayShapes (2D). Placement (panel setting): AtElement (default) = on the element's own face
+    /// nearest the camera, so things in front of it still cover it but it is never pushed up to the cut plane; OnTop =
+    /// just behind the view's cut plane / near clip, over everything visible; Underneath = just behind each element,
+    /// inside the view depth. Sizes are paper millimetres × view scale (like annotations); a 1 px line
     /// runs under every stroke so it never breaks up when zoomed out. Only small badges/arrowheads are filled, so the
     /// underlay stays visible. Batched per colour, cached per view until items, view direction, scale or clip change.
     /// </summary>
@@ -57,9 +59,10 @@ namespace ProjectPerseus.federator
 
         internal volatile bool Enabled = true;
 
-        internal enum Placement { OnTop, Underneath }
-        /// <summary>Draw over everything visible (OnTop) or behind each changed element (Underneath).</summary>
-        internal volatile Placement Place = Placement.OnTop;
+        internal enum Placement { AtElement, OnTop, Underneath }
+        /// <summary>Draw at the element's near face (AtElement), over everything visible (OnTop) or behind each changed
+        /// element (Underneath).</summary>
+        internal volatile Placement Place = Placement.AtElement;
 
         private ChangeHighlightServer() { }
 
@@ -214,7 +217,10 @@ namespace ProjectPerseus.federator
             }
 
             /// <summary>
-            /// Base depth for an element's shapes (they occupy base − Layer … base + 2·Layer). On top: just behind the
+            /// Base depth for an element's shapes (they occupy base − Layer … base + 2·Layer). At element: on the face of
+            /// the element's box nearest the camera (lifted just off it against z-fighting), so whatever is in front of the
+            /// element in the view still covers the shapes; kept behind the cut plane / near clip and in front of the view
+            /// depth like the others. On top: just behind the
             /// cut plane / near clip / section box front, so nothing visible covers them (orthographic 3D without a
             /// section box: just in front of the camera; perspective: in front of the element). Underneath: just behind
             /// the element, so its own linework draws over them, but in front of the view depth so they aren't clipped.
@@ -226,6 +232,11 @@ namespace ProjectPerseus.federator
                 if (Place == Placement.Underneath)
                 {
                     w = wFar - lift - layers;
+                    if (FarW.HasValue) w = Math.Max(w, FarW.Value + lift + layers);
+                }
+                else if (Place == Placement.AtElement)
+                {
+                    w = wNear + lift;
                     if (FarW.HasValue) w = Math.Max(w, FarW.Value + lift + layers);
                 }
                 else

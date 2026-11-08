@@ -111,7 +111,7 @@ namespace ProjectPerseus.ui
         private readonly DispatcherTimer _highlightTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         private readonly CheckBox _highlightBox;
         private readonly ComboBox _highlightMode, _highlightPlace;
-        private const string PlaceOnTop = "On top", PlaceUnder = "Underneath";
+        private const string PlaceAtElement = "At element", PlaceOnTop = "On top", PlaceUnder = "Underneath";
         private const string HighlightShown = "Shown rows", HighlightSelected = "Selected rows";
 
         /// <summary>Opens the panel (or brings it to the front) on the active model. Needs an API context.</summary>
@@ -227,11 +227,16 @@ namespace ProjectPerseus.ui
             _highlightMode.SelectedIndex = 0;
             var bake = MakeButton("Bake to views…", "Draw the changes as printable annotations (outlines or revision clouds + labels) in the views you choose.");
             bake.Margin = new Thickness(14, 0, 0, 0);
-            _highlightPlace = new ComboBox { Width = 95, Margin = new Thickness(-8, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "On top: drawn over everything visible in the view.\nUnderneath: drawn behind each changed element, like an underlay." };
+            _highlightPlace = new ComboBox { Width = 100, Margin = new Thickness(-8, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "At element (default): drawn on the changed element's face nearest you, so things in front of it still cover it.\n" +
+                          "On top: drawn over everything visible in the view (at the cut plane).\n" +
+                          "Underneath: drawn behind each changed element, like an underlay." };
+            _highlightPlace.Items.Add(PlaceAtElement);
             _highlightPlace.Items.Add(PlaceOnTop);
             _highlightPlace.Items.Add(PlaceUnder);
-            _highlightPlace.SelectedItem = ChangeHighlightController.OnTop ? PlaceOnTop : PlaceUnder;
+            var place = ChangeHighlightController.Place;
+            _highlightPlace.SelectedItem = place == ChangeHighlightServer.Placement.OnTop ? PlaceOnTop
+                : place == ChangeHighlightServer.Placement.Underneath ? PlaceUnder : PlaceAtElement;
             footButtons.Children.Add(_highlightBox);
             footButtons.Children.Add(_highlightMode);
             footButtons.Children.Add(_highlightPlace);
@@ -288,7 +293,9 @@ namespace ProjectPerseus.ui
             _highlightMode.SelectionChanged += (s, e) => Safe(QueueHighlight);
             _highlightPlace.SelectionChanged += (s, e) => Safe(() =>
             {
-                ChangeHighlightController.OnTop = (_highlightPlace.SelectedItem as string) != PlaceUnder;
+                var sel = _highlightPlace.SelectedItem as string;
+                ChangeHighlightController.Place = sel == PlaceOnTop ? ChangeHighlightServer.Placement.OnTop
+                    : sel == PlaceUnder ? ChangeHighlightServer.Placement.Underneath : ChangeHighlightServer.Placement.AtElement;
                 QueueHighlight();
             });
             _highlightTimer.Tick += (s, e) => Safe(() => { _highlightTimer.Stop(); PushHighlight(); });

@@ -402,7 +402,7 @@ ProjectPerseus/
 │   │                             green added / amber modified, dashed red deleted, dashed grey old position + arrow for moved,
 │   │                             corner badge (+ − ~). Paper-mm sizes × view scale; 1 px line under strokes; no fills except
 │   │                             badges/arrowheads (transparent-pass fills hid the plan underlay). Placement (panel combo):
-│   │                             On top = just behind the cut plane / crop / section box near face (ortho 3D: in front of the
+│   │                             At element (default) = on the element box's face nearest the camera, below the cut plane; On top = just behind the cut plane / crop / section box near face (ortho 3D: in front of the
 │   │                             camera; perspective: in front of the element); Underneath = just behind each element, kept in
 │   │                             front of the view depth / far clip. Cached per view.
 │   ├── OverlayShapes.cs          Pure 2D shapes for it: rounded rect, dashes, stroke (one mitred ribbon, optional round caps), disc, arrow, rect-to-rect
