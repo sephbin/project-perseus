@@ -34,6 +34,10 @@ namespace ProjectPerseus.federator
 
         private const double EdgePaperFt = 0.35 / 304.8;   // edge half-width: 0.35 mm on paper
         private const double MinHalfFt = 2 / 304.8;
+        // Boxes are pushed this far outside the element's own bounding box so their faces never sit in the same plane
+        // as the element's faces (coplanar faces z-fight: the fill turns into shimmering pixel noise).
+        private const double OffsetPaperFt = 1.0 / 304.8;
+        private const double MinOffsetFt = 15 / 304.8;
 
         private readonly object _lock = new object();
         private List<Item> _items = new List<Item>();
@@ -115,19 +119,21 @@ namespace ProjectPerseus.federator
                 if (visible.Count == 0) return;
 
                 bool transparent = DrawContext.IsTransparentPass();
-                double half = Math.Max(MinHalfFt, EdgePaperFt * Math.Max(1, view.Scale));
+                double scale = Math.Max(1, view.Scale);
+                double half = Math.Max(MinHalfFt, EdgePaperFt * scale);
+                double offset = Math.Max(MinOffsetFt, OffsetPaperFt * scale);
                 XYZ dir = view.ViewDirection;
                 string key = $"{version}|{transparent}|{dir.X:F3},{dir.Y:F3},{dir.Z:F3}|{half:F5}";
 
                 if (!_cache.TryGetValue(viewKey * 2 + (transparent ? 1 : 0), out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
                 {
                     if (cached.Value != null) foreach (var b in cached.Value) b.Dispose();
-                    var batches = transparent ? BuildFaces(items, visible) : BuildEdges(items, visible, dir, half);
+                    var batches = transparent ? BuildFaces(items, visible, offset) : BuildEdges(items, visible, dir, half, offset);
                     cached = new KeyValuePair<string, List<Batch>>(key, batches);
                     _cache[viewKey * 2 + (transparent ? 1 : 0)] = cached;
                 }
                 foreach (var b in cached.Value)
-                    DrawContext.FlushBuffer(b.Vb, b.Verts, b.Ib, b.Indices, b.Format, b.Effect, PrimitiveType.TriangleList, 0, b.Prims);
+                    DrawContext.FlushBuffer(b.Vb, b.Verts, b.Ib, b.Indices, b.Format, b.Effect, b.Primitive, 0, b.Prims);
             }
             catch (Exception ex)
             {
@@ -162,40 +168,57 @@ namespace ProjectPerseus.federator
         private static readonly int[] EdgeA = { 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3 };
         private static readonly int[] EdgeB = { 1, 2, 3, 0, 5, 6, 7, 4, 4, 5, 6, 7 };
 
-        private static XYZ[] Corners(Item it) => new[]
+        private static XYZ[] Corners(Item it, double o)
         {
-            new XYZ(it.Min[0], it.Min[1], it.Min[2]), new XYZ(it.Max[0], it.Min[1], it.Min[2]),
-            new XYZ(it.Max[0], it.Max[1], it.Min[2]), new XYZ(it.Min[0], it.Max[1], it.Min[2]),
-            new XYZ(it.Min[0], it.Min[1], it.Max[2]), new XYZ(it.Max[0], it.Min[1], it.Max[2]),
-            new XYZ(it.Max[0], it.Max[1], it.Max[2]), new XYZ(it.Min[0], it.Max[1], it.Max[2]),
-        };
+            double x0 = it.Min[0] - o, y0 = it.Min[1] - o, z0 = it.Min[2] - o;
+            double x1 = it.Max[0] + o, y1 = it.Max[1] + o, z1 = it.Max[2] + o;
+            return new[]
+            {
+                new XYZ(x0, y0, z0), new XYZ(x1, y0, z0), new XYZ(x1, y1, z0), new XYZ(x0, y1, z0),
+                new XYZ(x0, y0, z1), new XYZ(x1, y0, z1), new XYZ(x1, y1, z1), new XYZ(x0, y1, z1),
+            };
+        }
 
-        private List<Batch> BuildEdges(List<Item> items, List<int> visible, XYZ viewDir, double half)
+        // Thick edges are view-facing quads; when zoomed out they get thinner than a pixel and break up into jagged
+        // dashes, so every edge is also drawn as a 1 px line, which the GPU always rasterises as a continuous line.
+        private List<Batch> BuildEdges(List<Item> items, List<int> visible, XYZ viewDir, double half, double offset)
         {
             var batches = new List<Batch>();
             foreach (var group in visible.GroupBy(i => items[i].Kind))
             {
                 var quads = new List<XYZ[]>();
+                var lines = new List<XYZ[]>();
                 foreach (int i in group)
                 {
                     var it = items[i];
                     double w = it.Emphasis ? half * 2.2 : half;
-                    var c = Corners(it);
-                    for (int e = 0; e < 12; e++) AddQuad(quads, c[EdgeA[e]], c[EdgeB[e]], viewDir, w);
-                    if (it.From != null && it.To != null) AddQuad(quads, P(it.From), P(it.To), viewDir, w * 0.8);
+                    var c = Corners(it, offset);
+                    for (int e = 0; e < 12; e++)
+                    {
+                        AddQuad(quads, c[EdgeA[e]], c[EdgeB[e]], viewDir, w);
+                        lines.Add(new[] { c[EdgeA[e]], c[EdgeB[e]] });
+                    }
+                    if (it.From != null && it.To != null)
+                    {
+                        AddQuad(quads, P(it.From), P(it.To), viewDir, w * 0.8);
+                        lines.Add(new[] { P(it.From), P(it.To) });
+                    }
                 }
-                var b = Batch.FromQuads(quads, ColorOf(group.Key), 0);
+                var colour = ColorOf(group.Key);
+                var l = Batch.FromLines(lines, colour);
+                if (l != null) batches.Add(l);
+                var b = Batch.FromQuads(quads, colour, 0);
                 if (b != null) batches.Add(b);
             }
             return batches;
         }
 
-        private List<Batch> BuildFaces(List<Item> items, List<int> visible)
+        private List<Batch> BuildFaces(List<Item> items, List<int> visible, double offset)
         {
             var batches = new List<Batch>();
             foreach (var group in visible.Where(i => items[i].Kind != Kind.Ghost).GroupBy(i => new { items[i].Kind, items[i].Emphasis }))
             {
-                var boxes = group.Select(i => Corners(items[i])).ToList();
+                var boxes = group.Select(i => Corners(items[i], offset)).ToList();
                 var b = Batch.FromBoxes(boxes, ColorOf(group.Key.Kind), group.Key.Emphasis ? 0.55 : 0.82);
                 if (b != null) batches.Add(b);
             }
@@ -226,6 +249,7 @@ namespace ProjectPerseus.federator
             internal VertexFormat Format;
             internal EffectInstance Effect;
             internal int Verts, Indices, Prims;
+            internal PrimitiveType Primitive = PrimitiveType.TriangleList;
 
             internal bool IsValid() => Vb.IsValid() && Ib.IsValid() && Format.IsValid() && Effect.IsValid();
 
@@ -250,6 +274,37 @@ namespace ProjectPerseus.federator
                     ist.AddTriangle(new IndexTriangle(v + 1, v + 3, v + 2));
                 }
                 return b.End(verts, tris, color, transparency);
+            }
+
+            internal static Batch FromLines(List<XYZ[]> lines, Color color)
+            {
+                if (lines.Count == 0) return null;
+                int verts = lines.Count * 2;
+                var b = new Batch { Primitive = PrimitiveType.LineList };
+                int floats = verts * VertexPosition.GetSizeInFloats();
+                b.Vb = new VertexBuffer(floats);
+                b.Vb.Map(floats);
+                var vs = b.Vb.GetVertexStreamPosition();
+                int idx = lines.Count * IndexLine.GetSizeInShortInts();
+                b.Ib = new IndexBuffer(idx);
+                b.Ib.Map(idx);
+                var ils = b.Ib.GetIndexStreamLine();
+                for (int k = 0; k < lines.Count; k++)
+                {
+                    vs.AddVertex(new VertexPosition(lines[k][0]));
+                    vs.AddVertex(new VertexPosition(lines[k][1]));
+                    ils.AddLine(new IndexLine(k * 2, k * 2 + 1));
+                }
+                b.Vb.Unmap();
+                b.Ib.Unmap();
+                b.Verts = verts;
+                b.Prims = lines.Count;
+                b.Indices = idx;
+                b.Format = new VertexFormat(VertexFormatBits.Position);
+                b.Effect = new EffectInstance(VertexFormatBits.Position);
+                b.Effect.SetColor(color);
+                b.Effect.SetEmissiveColor(color);
+                return b;
             }
 
             private static readonly int[][] Faces =
