@@ -343,7 +343,7 @@ namespace ProjectPerseus.federator
         }
 
         // More changes than this in a view: simple style (square, no halo / glyph, solid lines) to keep the build cheap.
-        private const int FullDetailLimit = 400;
+        private const int FullDetailLimit = 800;
         // Hard ceiling per view build; past it the remaining changes aren't drawn (logged once per version).
         private const int MaxTrianglesPerView = 600000;
         private int _budgetLoggedVersion = -1;
@@ -427,8 +427,12 @@ namespace ProjectPerseus.federator
                 var t = new List<double>();
                 if (simple && !it.Emphasis)
                 {
-                    OverlayShapes.Disc(t, badgeAt, br * 0.7, 16);
+                    // Simple style keeps the badge and its white glyph (cheap); only the halos are dropped.
+                    OverlayShapes.Disc(t, badgeAt, br, 24);
                     LayerOf(it.Kind).AddTris(f, t, w + eps);
+                    t.Clear();
+                    OverlayShapes.Glyph(t, GlyphOf(it.Kind), badgeAt, GlyphSize * s, GlyphHalf * s);
+                    white.AddTris(f, t, w + 2 * eps);
                     continue;
                 }
                 OverlayShapes.Disc(t, badgeAt, br + Halo * s, 40);
