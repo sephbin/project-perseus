@@ -18,6 +18,9 @@ namespace ProjectPerseus.models
         /// <summary>File size + last write time of SourcePath when read; the snapshot cache key.</summary>
         public string FileStamp { get; set; }
         public DateTime TakenUtc { get; set; }
+        /// <summary>DocumentVersion of the model when read (save GUID + number of saves); null in older snapshots.</summary>
+        public string VersionGuid { get; set; }
+        public int Saves { get; set; }
         public List<ElementSnapshot> Elements { get; set; } = new List<ElementSnapshot>();
     }
 

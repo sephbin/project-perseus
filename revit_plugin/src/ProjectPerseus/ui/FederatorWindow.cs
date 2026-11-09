@@ -22,7 +22,8 @@ using UIApplication = Autodesk.Revit.UI.UIApplication;
 namespace ProjectPerseus.ui
 {
     /// <summary>
-    /// Modeless "Federator" review panel. Top: link + saved comparison pickers, "Compare against file…". Middle: the
+    /// Modeless "Federator" review panel. Top: link + From / To version pickers (live link, cached versions ✓, files,
+    /// Browse…) + Compare, then the saved comparison picker. Middle: the
     /// changes grid (grouped, filtered: kind, what changed, category, level, status, assignee, search, only in the
     /// active view) beside a detail pane (description of the change, parameter before/after, likely replacements of
     /// deleted elements, status, actions with assignees, comment thread). Double-click selects the linked elements in
@@ -58,6 +59,9 @@ namespace ProjectPerseus.ui
         {
             internal string Uid, Name, Path;
             internal bool Loaded;
+            internal string ModelKey;       // federator/VersionCatalog identity of the consultant model
+            internal string LiveGuid;       // save GUID of the loaded version (null when unloaded / unknown)
+            internal int LiveSaves;
             public override string ToString() => Loaded ? Name : Name + "  (unloaded)";
         }
 
@@ -65,7 +69,17 @@ namespace ProjectPerseus.ui
         {
             internal ComparisonRecord Record;
             public override string ToString() =>
-                $"{Record.CreatedUtc.ToLocalTime():d MMM yyyy HH:mm}  vs  {Record.OldTitle}  ({Record.CreatedBy})";
+                $"{Record.CreatedUtc.ToLocalTime():d MMM yyyy HH:mm}   {Record.OldLabel ?? Record.OldTitle}  →  {Record.NewLabel ?? "Live"}   ({Record.CreatedBy})";
+        }
+
+        /// <summary>An entry of the From / To version pickers: the live link, a cached version (✓), a file, or "Browse…".</summary>
+        private class VersionItem
+        {
+            internal ComparisonRunner.Source Source;
+            internal string Key;       // identity, so From and To can't be the same version
+            internal string Text;
+            internal bool Browse;
+            public override string ToString() => Text;
         }
 
         // ── State ──
@@ -108,6 +122,11 @@ namespace ProjectPerseus.ui
         private readonly TextBox _search;
         private readonly CheckBox _inViewBox;
         private readonly Button _compareButton, _deleteButton;
+        private readonly ComboBox _fromBox, _toBox;
+        private object _lastFrom, _lastTo;
+        // Files picked with "Browse…" this session, per link instance (they stay in the pickers).
+        private readonly Dictionary<string, List<string>> _browsed = new Dictionary<string, List<string>>();
+        private const string Tick = "✓", NoTick = "    ";
         private readonly TextBlock _summary, _count, _statusLine;
         private readonly DataGrid _grid;
         private readonly StackPanel _detail;
@@ -158,30 +177,45 @@ namespace ProjectPerseus.ui
 
             var root = new DockPanel { Margin = new Thickness(12) };
 
-            // ── Header: link, comparison, compare ──
-            var header = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            // ── Header: link + From / To versions + Compare; saved comparisons below ──
+            var header = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var pick = new Grid();
+            foreach (var w in new[] { GridLength.Auto, new GridLength(240), GridLength.Auto, new GridLength(1, GridUnitType.Star),
+                                      GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
+                pick.ColumnDefinitions.Add(new ColumnDefinition { Width = w });
+            const string versionTip = "✓ = a snapshot of this version is saved on this computer: comparing it is quick (nothing to open or download).\n" +
+                                      "Live = the version currently loaded in this model. Browse… adds an archived / downloaded copy.";
             _linkBox = new ComboBox { Margin = new Thickness(6, 0, 16, 0), VerticalContentAlignment = VerticalAlignment.Center };
+            _fromBox = new ComboBox { Margin = new Thickness(6, 0, 12, 0), VerticalContentAlignment = VerticalAlignment.Center, ToolTip = versionTip };
+            _toBox = new ComboBox { Margin = new Thickness(6, 0, 8, 0), VerticalContentAlignment = VerticalAlignment.Center, ToolTip = versionTip };
+            AddAt(pick, Label("Link"), 0);
+            AddAt(pick, _linkBox, 1);
+            AddAt(pick, Label("From"), 2);
+            AddAt(pick, _fromBox, 3);
+            AddAt(pick, Label("To"), 4);
+            AddAt(pick, _toBox, 5);
+            _compareButton = MakeButton("Compare", "List what changed from the From version to the To version. Versions not yet saved on this computer are opened in the background (Revit is busy meanwhile).");
+            _compareButton.Margin = new Thickness(0);
+            AddAt(pick, _compareButton, 6);
+            header.Children.Add(pick);
+
+            var saved = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+            saved.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            saved.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            saved.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _comparisonBox = new ComboBox { Margin = new Thickness(6, 0, 8, 0), VerticalContentAlignment = VerticalAlignment.Center };
-            AddAt(header, Label("Link"), 0);
-            AddAt(header, _linkBox, 1);
-            AddAt(header, Label("Comparison"), 2);
-            AddAt(header, _comparisonBox, 3);
+            AddAt(saved, Label("Comparison"), 0);
+            AddAt(saved, _comparisonBox, 1);
             var headerButtons = new StackPanel { Orientation = Orientation.Horizontal };
-            _compareButton = MakeButton("Compare against file…", "Pick an archived copy of this consultant model; Perseus opens it in the background and lists what changed since.");
             _deleteButton = MakeButton("Delete", "Delete this comparison (only its author can). Review comments are kept.");
             var refresh = MakeButton("Refresh", "Reload comparisons and reviews from the model (e.g. after Reload Latest).");
-            headerButtons.Children.Add(_compareButton);
             headerButtons.Children.Add(_deleteButton);
             var triage = MakeButton("Triage…", "Review changes in bulk: groups of elements with the same kind of change (e.g. 800 sprinklers with only Mark and Comments changed), with accept / ignore / query / noise rules.");
             triage.Click += (s, e) => Safe(OpenTriage);
             headerButtons.Children.Add(triage);
             headerButtons.Children.Add(refresh);
-            AddAt(header, headerButtons, 4);
+            AddAt(saved, headerButtons, 2);
+            header.Children.Add(saved);
             DockPanel.SetDock(header, Dock.Top);
             root.Children.Add(header);
 
@@ -277,7 +311,9 @@ namespace ProjectPerseus.ui
             // ── Wiring ──
             _linkBox.SelectionChanged += (s, e) => Safe(() => { if (!_loading) FillComparisons(null); });
             _comparisonBox.SelectionChanged += (s, e) => Safe(() => { if (!_loading) LoadSelectedComparison(); });
-            _compareButton.Click += (s, e) => Safe(CompareAgainstFile);
+            _compareButton.Click += (s, e) => Safe(CompareVersions);
+            _fromBox.SelectionChanged += (s, e) => Safe(() => OnVersionPicked(_fromBox));
+            _toBox.SelectionChanged += (s, e) => Safe(() => OnVersionPicked(_toBox));
             _deleteButton.Click += (s, e) => Safe(DeleteComparison);
             refresh.Click += (s, e) => Safe(() => RunApi(Reload, reload: true));
             zoom.Click += (s, e) => Safe(() => ShowSelected(false));
@@ -341,7 +377,18 @@ namespace ProjectPerseus.ui
                 ARDB.Document linkDoc = null;
                 try { linkDoc = inst.GetLinkDocument(); } catch { /* unloaded */ }
                 string typeName = _doc.GetElement(inst.GetTypeId())?.Name ?? inst.Name;
-                _links.Add(new LinkItem { Uid = inst.UniqueId, Name = typeName, Path = linkDoc?.PathName, Loaded = linkDoc != null });
+                var item = new LinkItem { Uid = inst.UniqueId, Name = typeName, Path = linkDoc?.PathName, Loaded = linkDoc != null,
+                                          ModelKey = VersionCatalog.ModelKey(_doc, inst, typeName) };
+                if (linkDoc != null)
+                {
+                    try
+                    {
+                        var dv = ARDB.Document.GetDocumentVersion(linkDoc);
+                        if (dv != null) { item.LiveGuid = dv.VersionGUID.ToString(); item.LiveSaves = dv.NumberOfSaves; }
+                    }
+                    catch { /* no version info */ }
+                }
+                _links.Add(item);
             }
             // Several instances of one link: tell them apart.
             foreach (var g in _links.GroupBy(l => l.Name).Where(g => g.Count() > 1))
@@ -374,6 +421,7 @@ namespace ProjectPerseus.ui
         private void FillComparisons(string selectId)
         {
             var link = SelectedLink;
+            FillVersions((_fromBox.SelectedItem as VersionItem)?.Key, (_toBox.SelectedItem as VersionItem)?.Key);
             _loading = true;
             _comparisonBox.Items.Clear();
             if (link != null)
@@ -382,7 +430,7 @@ namespace ProjectPerseus.ui
             _comparisonBox.SelectedItem = _comparisonBox.Items.Cast<ComparisonItem>().FirstOrDefault(i => i.Record.Id == selectId)
                                           ?? _comparisonBox.Items.Cast<ComparisonItem>().FirstOrDefault();
             _loading = false;
-            _compareButton.IsEnabled = link != null && link.Loaded;
+            UpdateCompareEnabled();
             LoadSelectedComparison();
         }
 
@@ -394,8 +442,8 @@ namespace ProjectPerseus.ui
             {
                 ShowComparison(null, null);
                 _summary.Text = SelectedLink == null ? "" :
-                    SelectedLink.Loaded ? "No comparisons for this link yet. Use \"Compare against file…\" and pick an earlier version of it."
-                                        : "This link is unloaded. Reload it in Manage Links to compare.";
+                    SelectedLink.Loaded ? "No comparisons for this link yet. Pick a From version (or Browse… for an archived copy) and press Compare."
+                                        : "This link is unloaded: you can still compare two saved versions; reload it in Manage Links to compare the live one.";
                 return;
             }
             if (rec.Changes != null) { ShowComparison(rec, rec.Changes); return; }
@@ -437,7 +485,7 @@ namespace ProjectPerseus.ui
                         list.Add(row);
                     }
                 _summary.Text =
-                    $"{rec.LinkTitle}: compared with {rec.OldTitle} (file saved {rec.OldFileTimeUtc.ToLocalTime():d MMM yyyy HH:mm}) " +
+                    $"{rec.LinkTitle}: {rec.OldLabel ?? rec.OldTitle}  →  {rec.NewLabel ?? "live link"}, compared " +
                     $"by {rec.CreatedBy} on {rec.CreatedUtc.ToLocalTime():d MMM yyyy HH:mm}.   " +
                     $"+{rec.Added:N0} added   −{rec.Deleted:N0} deleted   ~{rec.Modified:N0} modified   " +
                     $"({rec.Matched:N0} of {rec.OldCount:N0} elements matched; tolerance {ChangeDescriber.Length(rec.Tolerance)})";
@@ -927,40 +975,165 @@ namespace ProjectPerseus.ui
 
         // ═══════════════════════════ Commands ═══════════════════════════
 
-        private void CompareAgainstFile()
+        // ── Version pickers ──
+
+        /// <summary>Fills From / To for the selected link, keeping the given picks when they're still there.</summary>
+        private void FillVersions(string keepFrom, string keepTo)
         {
             var link = SelectedLink;
-            if (link == null || !link.Loaded) { Status("Pick a loaded link first."); return; }
+            var items = new List<VersionItem>();
+            if (link != null)
+            {
+                var cached = VersionCatalog.List(link.ModelKey);
+                bool liveCached = link.LiveGuid != null && cached.Any(v => SameGuid(v.VersionGuid, link.LiveGuid));
+                if (link.Loaded)
+                {
+                    string label = "Live" + (link.LiveSaves > 0 ? $" · save {link.LiveSaves}" : "") + " · loaded now";
+                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Live(label), Key = "live", Text = (liveCached ? Tick : NoTick) + "  " + label });
+                }
+                var shownFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var v in cached)
+                {
+                    if (link.Loaded && SameGuid(v.VersionGuid, link.LiveGuid)) continue;   // that's the live one
+                    string label = VersionLabel(v);
+                    if (!v.FromLiveLink && !string.IsNullOrEmpty(v.SourcePath)) shownFiles.Add(SafeFull(v.SourcePath));
+                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Cached(v, label),
+                                                Key = v.VersionGuid != null ? "guid:" + v.VersionGuid.ToLowerInvariant() : "key:" + v.CacheKey,
+                                                Text = Tick + "  " + label });
+                }
+                // Files compared before (from this model's comparisons) and files picked this session.
+                var files = _records.Where(r => r.LinkInstanceUid == link.Uid).OrderByDescending(r => r.CreatedUtc)
+                    .SelectMany(r => new[] { r.OldPath, r.NewPath }).ToList();
+                if (_browsed.TryGetValue(link.Uid, out var picked)) files.InsertRange(0, picked);
+                foreach (var f in files.Where(f => !string.IsNullOrEmpty(f)))
+                {
+                    string full = SafeFull(f);
+                    if (shownFiles.Contains(full) || (link.Path != null && string.Equals(full, SafeFull(link.Path), StringComparison.OrdinalIgnoreCase))) continue;
+                    if (!System.IO.File.Exists(f)) continue;
+                    shownFiles.Add(full);
+                    string stamp = SnapshotCache.StampOf(f);
+                    bool isCached = stamp != null && SnapshotCache.Has(SnapshotCache.FileKey(f, stamp));
+                    string label = $"{Path.GetFileName(f)} · saved {System.IO.File.GetLastWriteTime(f):d MMM yyyy HH:mm}";
+                    items.Add(new VersionItem { Source = ComparisonRunner.Source.File(f, label), Key = "file:" + full.ToLowerInvariant(),
+                                                Text = (isCached ? Tick : NoTick) + "  " + label });
+                }
+            }
+            items.Add(new VersionItem { Browse = true, Key = "browse", Text = NoTick + "  Browse for a file…" });
+
+            _loading = true;
+            foreach (var box in new[] { _fromBox, _toBox })
+            {
+                box.Items.Clear();
+                foreach (var it in items) box.Items.Add(it);
+            }
+            var real = items.Where(i => !i.Browse).ToList();
+            var to = real.FirstOrDefault(i => i.Key == keepTo) ?? real.FirstOrDefault(i => i.Key == "live") ?? real.FirstOrDefault();
+            var from = real.FirstOrDefault(i => i.Key == keepFrom && i != to) ?? real.FirstOrDefault(i => i != to);
+            _toBox.SelectedItem = to;
+            _fromBox.SelectedItem = from;
+            _lastFrom = from; _lastTo = to;
+            _loading = false;
+            UpdateCompareEnabled();
+        }
+
+        private static string VersionLabel(LinkVersion v)
+        {
+            string saves = v.Saves > 0 ? $"save {v.Saves}" : "";
+            if (v.FromLiveLink)
+                return (saves.Length > 0 ? saves + " · " : "") + $"was loaded {v.SavedUtc.ToLocalTime():d MMM yyyy HH:mm}";
+            return $"{Path.GetFileName(v.SourcePath)} · saved {v.SavedUtc.ToLocalTime():d MMM yyyy HH:mm}" + (saves.Length > 0 ? " · " + saves : "");
+        }
+
+        private static bool SameGuid(string a, string b) => !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        private static string SafeFull(string p)
+        {
+            try { return Path.GetFullPath(p); } catch { return p ?? ""; }
+        }
+
+        private void OnVersionPicked(ComboBox box)
+        {
+            if (_loading) return;
+            if (box.SelectedItem is VersionItem v && v.Browse)
+            {
+                string path = PickVersionFile();
+                var link = SelectedLink;
+                if (path == null || link == null)
+                {
+                    _loading = true;
+                    box.SelectedItem = box == _fromBox ? _lastFrom : _lastTo;
+                    _loading = false;
+                }
+                else
+                {
+                    if (!_browsed.TryGetValue(link.Uid, out var list)) _browsed[link.Uid] = list = new List<string>();
+                    list.Remove(path);
+                    list.Insert(0, path);
+                    string key = "file:" + SafeFull(path).ToLowerInvariant();
+                    string otherKey = ((box == _fromBox ? _toBox : _fromBox).SelectedItem as VersionItem)?.Key;
+                    if (box == _fromBox) FillVersions(key, otherKey); else FillVersions(otherKey, key);
+                    // Already known (cached under the same save)? Then the picker shows that entry instead.
+                    return;
+                }
+            }
+            if (box == _fromBox) _lastFrom = box.SelectedItem; else _lastTo = box.SelectedItem;
+            UpdateCompareEnabled();
+        }
+
+        private string PickVersionFile()
+        {
+            var link = SelectedLink;
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title = $"Pick an earlier version of {link.Name}",
+                Title = $"Pick a version of {link?.Name}",
                 Filter = "Revit models (*.rvt)|*.rvt",
                 CheckFileExists = true,
             };
             try
             {
-                string dir = string.IsNullOrEmpty(link.Path) ? null : Path.GetDirectoryName(link.Path);
+                string dir = string.IsNullOrEmpty(link?.Path) ? null : Path.GetDirectoryName(link.Path);
                 if (dir != null && Directory.Exists(dir)) dlg.InitialDirectory = dir;
             }
             catch { /* cloud / odd path */ }
-            if (dlg.ShowDialog(this) != true) return;
-            string path = dlg.FileName;
+            return dlg.ShowDialog(this) == true ? dlg.FileName : null;
+        }
+
+        private void UpdateCompareEnabled()
+        {
+            var link = SelectedLink;
+            var from = _fromBox.SelectedItem as VersionItem;
+            var to = _toBox.SelectedItem as VersionItem;
+            bool needsLive = from?.Key == "live" || to?.Key == "live";
+            _compareButton.IsEnabled = link != null && from != null && to != null && !from.Browse && !to.Browse
+                                       && from.Key != to.Key && (!needsLive || link.Loaded);
+        }
+
+        // ── Compare ──
+
+        private void CompareVersions()
+        {
+            var link = SelectedLink;
+            var from = _fromBox.SelectedItem as VersionItem;
+            var to = _toBox.SelectedItem as VersionItem;
+            if (link == null || from?.Source == null || to?.Source == null) { Status("Pick a link and two versions."); return; }
+            if (from.Key == to.Key) { Status("From and To are the same version."); return; }
 
             _compareButton.IsEnabled = false;
-            Status($"Comparing with {Path.GetFileName(path)}… Revit is busy until it finishes.");
+            Status($"Comparing {from.Source.Label} → {to.Source.Label}… Revit is busy until it finishes.");
             RunApi(app =>
             {
                 try
                 {
                     var inst = LinkedElementRef.FindInstance(_doc, link.Uid);
                     if (inst == null) { Status("That link is no longer in the model. Press Refresh."); return; }
-                    var result = ComparisonRunner.Run(app, _doc, inst, path);
+                    var result = ComparisonRunner.Run(app, _doc, inst, link.ModelKey, from.Source, to.Source);
                     if (result.Warning != null &&
                         MessageBox.Show(this, result.Warning + "\n\nKeep this comparison?", "Federator",
                                         MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.No)
                     {
                         ComparisonStore.Delete(_doc, result.Record.Id, _me, out _);
                         Status("Comparison discarded.");
+                        FillVersions(from.Key, to.Key);   // the snapshots are cached now (✓)
                         return;
                     }
                     _records.Insert(0, result.Record);
@@ -972,7 +1145,7 @@ namespace ProjectPerseus.ui
                     Log.Warn($"[Federator] comparison failed: {ex}");
                     Status("Comparison failed: " + ex.Message, true);
                 }
-                finally { _compareButton.IsEnabled = SelectedLink?.Loaded == true; }
+                finally { UpdateCompareEnabled(); }
             });
         }
 
@@ -980,7 +1153,7 @@ namespace ProjectPerseus.ui
         {
             var rec = _record;
             if (rec == null) return;
-            if (MessageBox.Show(this, $"Delete the comparison with {rec.OldTitle}?\nReview comments and actions are kept.",
+            if (MessageBox.Show(this, $"Delete the comparison {rec.OldLabel ?? rec.OldTitle} → {rec.NewLabel ?? "Live"}?\nReview comments and actions are kept.",
                                 "Federator", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             RunApi(app =>
             {
@@ -1141,7 +1314,8 @@ namespace ProjectPerseus.ui
             }
             _detail.Children.Add(Text($"Needing attention: {attention:N0}"));
             _detail.Children.Add(Text($"Actions assigned to you: {mine:N0}"));
-            _detail.Children.Add(Muted_($"Old file: {_record.OldPath}"));
+            _detail.Children.Add(Muted_($"From: {_record.OldLabel ?? _record.OldTitle} ({_record.OldPath})"));
+            _detail.Children.Add(Muted_($"To: {_record.NewLabel ?? "live link"} ({_record.NewPath ?? _record.LinkPath})"));
         }
 
         private void BuildSingle(ChangeRow row)

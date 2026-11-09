@@ -431,10 +431,12 @@
     <Compile Include="markers\MarkerSetStore.cs" />
     <Compile Include="models\MarkerSet.cs" />
     <Compile Include="models\LinkSnapshot.cs" />
+    <Compile Include="models\LinkVersion.cs" />
     <Compile Include="models\ElementChange.cs" />
     <Compile Include="federator\LinkDiff.cs" />
     <Compile Include="federator\SnapshotBuilder.cs" />
     <Compile Include="federator\SnapshotCache.cs" />
+    <Compile Include="federator\VersionCatalog.cs" />
     <Compile Include="federator\ReviewLog.cs" />
     <Compile Include="federator\PluginDataStorage.cs" />
     <Compile Include="federator\ComparisonStore.cs" />

@@ -11,9 +11,12 @@ using ProjectPerseus.models;
 namespace ProjectPerseus.federator
 {
     /// <summary>
-    /// Per-user cache of snapshots of archived model files at %AppData%\ProjectPerseus\federator\snapshots\
-    /// (gzip JSON), keyed by the file's full path + size + last write time, so comparing against the same old file
-    /// again doesn't re-open it. Only a cache: comparison results live in the host model (ComparisonStore).
+    /// Per-user cache of model snapshots at %AppData%\ProjectPerseus\federator\snapshots\ (gzip JSON), so a version
+    /// that was compared once never has to be opened / downloaded again. Two kinds of key:
+    /// FileKey = an archived file's full path + size + last write time; VersionKey = the model's save GUID
+    /// (Document.GetDocumentVersion), used for snapshots of the loaded (live) link, whose file can't be stamped.
+    /// federator/VersionCatalog lists which versions of a link are cached. Only a cache: comparison results live in
+    /// the host model (ComparisonStore).
     /// </summary>
     internal static class SnapshotCache
     {
@@ -34,11 +37,23 @@ namespace ProjectPerseus.federator
             catch { return null; }
         }
 
+        internal static string FileKey(string path, string stamp) => Path.GetFullPath(path).ToLowerInvariant() + "|" + stamp;
+        internal static string VersionKey(string versionGuid) => "version|" + (versionGuid ?? "").ToLowerInvariant();
+
+        /// <summary>Is a snapshot stored under this key (cheap: file exists)?</summary>
+        internal static bool Has(string key) => !string.IsNullOrEmpty(key) && File.Exists(FileFor(key));
+
+        /// <summary>Snapshot of an archived file, if that exact file (path, size, time) was read before.</summary>
         internal static LinkSnapshot TryLoad(string sourcePath)
         {
             string stamp = StampOf(sourcePath);
-            if (stamp == null) return null;
-            string file = FileFor(sourcePath, stamp);
+            return stamp == null ? null : TryLoadKey(FileKey(sourcePath, stamp), stamp);
+        }
+
+        internal static LinkSnapshot TryLoadKey(string key, string expectStamp = null)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            string file = FileFor(key);
             if (!File.Exists(file)) return null;
             try
             {
@@ -48,7 +63,9 @@ namespace ProjectPerseus.federator
                 using (var jr = new JsonTextReader(sr))
                 {
                     var snap = new JsonSerializer().Deserialize<LinkSnapshot>(jr);
-                    if (snap == null || snap.Format != LinkSnapshot.CurrentFormat || snap.FileStamp != stamp) return null;
+                    if (snap == null || snap.Format != LinkSnapshot.CurrentFormat) return null;
+                    if (expectStamp != null && snap.FileStamp != expectStamp) return null;
+                    fs.Close();
                     File.SetLastWriteTimeUtc(file, DateTime.UtcNow); // most recently used survives pruning
                     return snap;
                 }
@@ -60,13 +77,21 @@ namespace ProjectPerseus.federator
             }
         }
 
-        internal static void Save(LinkSnapshot snap)
+        /// <summary>Caches a snapshot of an archived file under its FileKey; returns the key (null when not cached).</summary>
+        internal static string Save(LinkSnapshot snap)
         {
-            if (snap?.FileStamp == null || string.IsNullOrEmpty(snap.SourcePath)) return;
+            if (snap?.FileStamp == null || string.IsNullOrEmpty(snap.SourcePath)) return null;
+            string key = FileKey(snap.SourcePath, snap.FileStamp);
+            return SaveKey(snap, key) ? key : null;
+        }
+
+        internal static bool SaveKey(LinkSnapshot snap, string key)
+        {
+            if (snap == null || string.IsNullOrEmpty(key)) return false;
             try
             {
                 Directory.CreateDirectory(Folder);
-                string file = FileFor(snap.SourcePath, snap.FileStamp);
+                string file = FileFor(key);
                 string tmp = file + ".tmp";
                 using (var fs = File.Create(tmp))
                 using (var gz = new GZipStream(fs, CompressionLevel.Optimal))
@@ -77,10 +102,12 @@ namespace ProjectPerseus.federator
                 if (File.Exists(file)) File.Delete(file);
                 File.Move(tmp, file);
                 Prune();
+                return true;
             }
             catch (Exception ex)
             {
                 Log.Warn($"[Federator] could not cache snapshot of {snap.SourcePath}: {ex.Message}");
+                return false;
             }
         }
 
@@ -94,9 +121,8 @@ namespace ProjectPerseus.federator
             }
         }
 
-        private static string FileFor(string sourcePath, string stamp)
+        private static string FileFor(string key)
         {
-            string key = Path.GetFullPath(sourcePath).ToLowerInvariant() + "|" + stamp;
             using (var sha = SHA1.Create())
             {
                 var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(key));

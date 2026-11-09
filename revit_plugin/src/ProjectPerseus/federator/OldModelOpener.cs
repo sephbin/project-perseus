@@ -17,7 +17,15 @@ namespace ProjectPerseus.federator
     /// </summary>
     internal static class OldModelOpener
     {
-        internal static LinkSnapshot Snapshot(Application app, string path, Action<string, double> progress)
+        /// <summary>Save GUID + number of saves of a file without opening it (null when unreadable).</summary>
+        internal static DocumentVersion VersionOf(string path)
+        {
+            try { return BasicFileInfo.Extract(path)?.GetDocumentVersion(); }
+            catch { return null; }
+        }
+
+        /// <param name="cacheKey">The SnapshotCache key the snapshot is stored under (for VersionCatalog).</param>
+        internal static LinkSnapshot Snapshot(Application app, string path, Action<string, double> progress, out string cacheKey)
         {
             if (!File.Exists(path)) throw new FileNotFoundException("The selected model file wasn't found.", path);
 
@@ -25,7 +33,8 @@ namespace ProjectPerseus.federator
             if (cached != null)
             {
                 Log.Info($"[Federator] using cached snapshot of {path}");
-                progress?.Invoke("Steps 1–3 of 5 · Using the saved snapshot of the old version", 1);
+                progress?.Invoke("Using the saved snapshot of this version", 1);
+                cacheKey = SnapshotCache.FileKey(path, cached.FileStamp);
                 return cached;
             }
 
@@ -68,7 +77,13 @@ namespace ProjectPerseus.federator
                         $"Step 3 of 5 · Reading the old version: {done:N0} of {total:N0} elements{ComparisonRunner.Eta(readStart, done, total)}",
                         total == 0 ? 1 : (double)done / total));
                 snap.Title = Path.GetFileNameWithoutExtension(path); // not the temp copy's name
-                SnapshotCache.Save(snap);
+                try
+                {
+                    var dv = Document.GetDocumentVersion(doc);
+                    if (dv != null) { snap.VersionGuid = dv.VersionGUID.ToString(); snap.Saves = dv.NumberOfSaves; }
+                }
+                catch { /* no version info */ }
+                cacheKey = SnapshotCache.Save(snap);
                 return snap;
             }
             finally

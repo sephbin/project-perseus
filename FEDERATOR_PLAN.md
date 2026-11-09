@@ -97,6 +97,29 @@ versioned JSON / gzip payload — new fields go into the payload, never into a n
 * **Navigation**: double-click / Select in Revit selects the linked elements and zooms; when they aren't visible in
   the active view, the user's own "Perseus Federator - <user>" 3D view opens with a section box around them.
 
+## Version pickers (decided 2026-11-10)
+
+Links change often, there can be many of them, and on ACC / BIM 360 / Forma most people don't use the website's
+version history. So the panel compares **any two versions**: Link, then **From** and **To** pickers, then Compare.
+
+* **Stage 1 (built, 1.2.355+)**: the pickers list the live (loaded) link, every version with a cached snapshot
+  (✓ = nothing to open or download), files used in earlier comparisons of that link, files picked this session, and
+  "Browse for a file…". Versions are identified by the model's save GUID (`Document.GetDocumentVersion` /
+  `BasicFileInfo.GetDocumentVersion`), so the same version reached through the live link or a downloaded copy is one
+  entry and is never read twice. The live link's snapshot is now cached under its save GUID (it can't change), so
+  after Reload Latest the previous version stays comparable. Snapshots are only taken when a version is compared
+  (decision: no automatic snapshot on reload; it freezes Revit for minutes on big models).
+  Code: federator/VersionCatalog (per-model list in AppData), SnapshotCache (file + version keys),
+  ComparisonRunner.Source, ui/FederatorWindow version pickers.
+* **Stage 2 (todo)**: the full cloud version list (including versions nobody has opened) from the Autodesk Platform
+  Services Data Management API. The Revit API has no version history (2026: only `GetCloudModelUrn`, `GetProjectId`,
+  `GetHubId`; Revit only opens the latest version) and gives add-ins no Autodesk login token. Needs: an APS app
+  (client ID) registered at aps.autodesk.com; a one-time browser sign-in per user (3-legged PKCE, no secret, e.g. via
+  the bundled WebView2), or the token flow on the Django server; possibly the ACC account admin adding the app as a
+  custom integration. Then GET `projects/b.{projectId}/items/{urn}/versions` lists versions and their storage
+  object is downloaded to a temp .rvt, which OldModelOpener reads like any archived file (cached ✓ afterwards).
+  To check first: whether published Revit Cloud Worksharing versions expose a downloadable storage object.
+
 ## Later ideas
 
 * Geometry clash test of changed elements against a view's range (and other links) using their boxes, to rank
@@ -107,9 +130,8 @@ versioned JSON / gzip payload — new fields go into the payload, never into a n
 ## Open points
 
 * Very large consultant models: geometry signatures need `get_Geometry` per element. Expect minutes on
-  100k elements. Archived files are cached by path + size + mtime, so re-comparing against the same old
-  file is cheap. The loaded link's snapshot is *not* cached (its file on disk may already be newer than
-  what's loaded); if that proves slow, cache it in memory per link instance until the link reloads.
+  100k elements. Archived files are cached by path + size + mtime, and every version (live link included)
+  by its save GUID, so re-comparing a version is cheap (see Version pickers).
 * Nested links are ignored (same as markers).
 * Revit 2023 has no `FilteredElementCollector(host, view, linkInstance)`; "in active view" filtering falls
   back to `ViewDepth` as `MarkerEngine` does.

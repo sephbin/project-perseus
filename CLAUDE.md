@@ -300,8 +300,8 @@ ProjectPerseus/
 │   ├── MarkerIcons.cs            NEW (2026-11-06). Stroked 16x16 glyph geometries (lock, dropbolt, bolt, key, card, bell,
 │   │                             flame, shield...) keyed by string (stored in marker sets: never rename a key). Badge() =
 │   │                             white glyph on a coloured disc (overlay + panel), Glyph() = glyph alone.
-│   ├── FederatorWindow.cs        NEW (2026-11-08). Modeless code-only WPF "Federator" review panel: link + saved comparison
-│   │                             pickers, Compare against file…, DataGrid of ui/ChangeRow grouped by Category/Level/Kind/Status/
+│   ├── FederatorWindow.cs        NEW (2026-11-08). Modeless code-only WPF "Federator" review panel: link + From / To version
+│   │                             pickers (live, cached ✓, files, Browse…) + Compare, saved comparison picker, DataGrid of ui/ChangeRow grouped by Category/Level/Kind/Status/
 │   │                             Assignee/Type (Expander groups, CustomSort), filters via federator/ChangeFilter (+ Only in active
 │   │                             view: ReviewNavigator.VisibleLinkedIds, refreshed on ViewActivated). Detail pane: ChangeDescriber
 │   │                             lines, parameter before/after, replacement candidates both ways, status buttons, actions (type +
@@ -375,8 +375,10 @@ ProjectPerseus/
 ├── federator/                    NEW (2026-11-08, branch develop/federator). Consultant link comparison; plan in
 │   │                             /FEDERATOR_PLAN.md. Old version = archived .rvt the user picks; results + comments are
 │   │                             stored in the host model as plugin data (Extensible Storage). No UI yet (F4 next).
-│   ├── ComparisonRunner.cs       End to end: OldModelOpener + SnapshotBuilder(link) -> LinkDiff -> ComparisonStore.Save, progress
-│   │                             on ui/SyncStatusToast; warns when < 20 % of old elements match (wrong file picked).
+│   ├── ComparisonRunner.cs       End to end between two versions (Source = live link / cached version / file): snapshot each (cache
+│   │                             by save GUID first, else SnapshotBuilder / OldModelOpener; new snapshots cached + VersionCatalog
+│   │                             registered) -> LinkDiff -> ComparisonStore.Save, progress on ui/SyncStatusToast; warns when < 20 %
+│   │                             of old elements match (wrong file picked).
 │   ├── OldModelOpener.cs         Archived .rvt -> LinkSnapshot: SnapshotCache hit, else copy to %TEMP% with a unique name (same-title
 │   │                             rule), TransmissionData unloads its links, open detached + all worksets, read, Close(false), delete.
 │   ├── ComparisonStore.cs        Schema PerseusFederatorComparison: one DataStorage per comparison, never edited. Header =
@@ -431,8 +433,11 @@ ProjectPerseus/
 │   │                             (1 mm tolerance, ignored bookkeeping params). Unit-tested in ProjectPerseusTests/LinkDiffTest.cs.
 │   ├── SnapshotBuilder.cs        Document -> LinkSnapshot: model-category, view-independent elements with a bbox; family/
 │   │                             type/level/workset, bbox, location, solid signature, instance + "[Type] " parameters.
-│   └── SnapshotCache.cs          %AppData%\ProjectPerseus\federator\snapshots\<sha1(path|size|mtime)>.json.gz (keeps 40).
-│                                 Only for archived files; a loaded link's snapshot is never cached (file may be newer).
+│   ├── SnapshotCache.cs          %AppData%\ProjectPerseus\federator\snapshots\<sha1(key)>.json.gz (keeps 40). Keys: FileKey =
+│   │                             archived file path|size|mtime; VersionKey = save GUID (DocumentVersion), used for the live link.
+│   └── VersionCatalog.cs         Per-user list of cached versions per consultant model (models/LinkVersion) at AppData\federator\
+│                                 versions\<sha1(model key)>.json; model key = cloud model GUID / link path / name. Feeds the panel's
+│                                 From / To pickers (✓ = cached). Stage 2 (APS cloud version history) in FEDERATOR_PLAN.md.
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
 │   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
@@ -444,7 +449,8 @@ ProjectPerseus/
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
-│   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft).
+│   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft), save GUID.
+│   ├── LinkVersion.cs            NEW (2026-11-10). A cached version of a consultant model (cache key, save GUID + count, source).
 │   ├── ElementChange.cs          NEW (2026-11-08). Federator diff result: ChangeKind, ChangeAspect flags, ParameterChange.
 │   ├── ComparisonRecord.cs       NEW (2026-11-08). Federator comparison header (+ [JsonIgnore] Changes, StorageId).
 │   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants. Batch
