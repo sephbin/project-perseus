@@ -65,6 +65,23 @@ namespace ProjectPerseus.federator
 
         internal bool ShowsModel => !_none;
 
+        /// <summary>One-line description for diagnostics (feet): z range and crop / section box.</summary>
+        internal string Describe()
+        {
+            if (_none) return "no model";
+            if (_all) return "everything";
+            string Z(double d) => Math.Abs(d) > 1e30 ? "unlimited" : d.ToString("F2");
+            string s = $"z {Z(_zMin)}..{Z(_zMax)}";
+            if (_toLocal != null)
+            {
+                var o = _toLocal.Inverse;
+                s += $", box local ({_localMin.X:F1},{_localMin.Y:F1},{_localMin.Z:F1})..({_localMax.X:F1},{_localMax.Y:F1},{_localMax.Z:F1})" +
+                     $" origin ({o.Origin.X:F1},{o.Origin.Y:F1},{o.Origin.Z:F1}) x ({o.BasisX.X:F2},{o.BasisX.Y:F2},{o.BasisX.Z:F2})" +
+                     $" z ({o.BasisZ.X:F2},{o.BasisZ.Y:F2},{o.BasisZ.Z:F2}){(_checkLocalZ ? " +depth" : "")}";
+            }
+            return s;
+        }
+
         /// <summary>Does the axis-aligned host-coordinate box overlap what the view shows?</summary>
         internal bool Contains(XYZ min, XYZ max)
         {

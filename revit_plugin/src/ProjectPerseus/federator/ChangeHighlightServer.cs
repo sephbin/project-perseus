@@ -158,6 +158,14 @@ namespace ProjectPerseus.federator
             for (int i = 0; i < items.Count; i++)
                 if (extent.Contains(P(items[i].Min), P(items[i].Max))) list.Add(i);
             _visible[viewKey] = new KeyValuePair<int, List<int>>(version, list);
+            if (list.Count == 0)
+            {
+                // Diagnose "nothing shows in this view": what the view covers vs where the changes are (host feet).
+                double zLo = items.Min(it => it.Min[2]), zHi = items.Max(it => it.Max[2]);
+                var sample = items.Take(3).Select(it => $"({it.Min[0]:F1},{it.Min[1]:F1},{it.Min[2]:F2})..({it.Max[0]:F1},{it.Max[1]:F1},{it.Max[2]:F2})");
+                Log.Info($"[Federator] highlight '{view.Name}' ({view.ViewType}): none of {items.Count} change(s) in view. " +
+                         $"View covers {extent.Describe()}; changes span z {zLo:F2}..{zHi:F2}, e.g. {string.Join(" ", sample)}");
+            }
             return list;
         }
 
