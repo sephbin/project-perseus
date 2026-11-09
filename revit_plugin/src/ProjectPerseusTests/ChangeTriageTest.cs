@@ -91,6 +91,17 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void VerticalMovesGroupApartFromOtherMoves()
+        {
+            var up = Moved("a", 30); up.MoveVector = new[] { 0, 0, 30 * Mm };
+            var side = Moved("b", 30); side.MoveVector = new[] { 30 * Mm, 0, 0 };
+            var both = Moved("c", 30); both.MoveVector = new[] { 20 * Mm, 0, 22 * Mm };
+            var groups = ChangeTriage.Group(new[] { up, side, both });
+            CollectionAssert.AreEquivalent(new[] { "Moved vertically ≤ 50 mm", "Moved ≤ 50 mm" }, groups.Select(g => g.Description).ToArray());
+            Assert.AreEqual(2, groups.Single(g => g.Description == "Moved ≤ 50 mm").Changes.Count);
+        }
+
+        [TestMethod]
         public void NoiseIsOnlyNoiseWhenNothingElseChanged()
         {
             var rules = new NoiseRules { Parameters = new List<string> { "Mark", "Comments" }, MinMoveMm = 5 };

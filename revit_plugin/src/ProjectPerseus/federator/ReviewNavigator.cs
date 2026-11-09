@@ -23,6 +23,28 @@ namespace ProjectPerseus.federator
         private const double SectionPad = 1500 / 304.8; // section box: 1.5 m around them
         internal const string ViewPrefix = "Perseus Federator - ";
 
+        /// <summary>
+        /// Selects the existing (not deleted) changed elements in Revit without zooming; deleted ones have nothing to
+        /// select. Returns the linked element ids now selected (the panel ignores the SelectionChanged this causes).
+        /// </summary>
+        internal static HashSet<long> Select(UIDocument uidoc, RevitLinkInstance instance, IList<ElementChange> changes)
+        {
+            var ids = new HashSet<long>();
+            if (uidoc == null || instance == null || changes == null) return ids;
+            var refs = new List<Reference>();
+            foreach (var c in changes)
+            {
+                if (c.Kind == ChangeKind.Deleted) continue;
+                Element el = LinkedElementRef.Resolve(instance, c.UniqueId);
+                if (el == null) continue;
+                try { refs.Add(new Reference(el).CreateLinkReference(instance)); ids.Add(el.Id.GetIdValue()); }
+                catch { /* not referenceable */ }
+            }
+            try { uidoc.Selection.SetReferences(refs); }
+            catch (Exception ex) { Log.Info($"[Federator] couldn't select linked elements: {ex.Message}"); ids.Clear(); }
+            return ids;
+        }
+
         /// <summary>Returns a short message for the panel's status line.</summary>
         internal static string Show(UIDocument uidoc, RevitLinkInstance instance, IList<ElementChange> changes, bool select)
         {

@@ -519,6 +519,7 @@ namespace ProjectPerseus.federator
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var layers = new Dictionary<Kind, Layer3D>();
             var white = new Layer3D();
+            var selected = new Layer3D();   // selected rows: halo + glyph in Revit's selection colour instead of white
             Layer3D LayerOf(Kind k) { if (!layers.TryGetValue(k, out var l)) layers[k] = l = new Layer3D(); return l; }
             double s = f.S, eps = Layer * s;
             bool simple = visible.Count > FullDetailLimit;
@@ -526,7 +527,7 @@ namespace ProjectPerseus.federator
 
             foreach (int i in visible)
             {
-                if ((white.Tris.Count + layers.Values.Sum(l => l.Tris.Count)) / 3 > MaxTrianglesPerView)
+                if ((white.Tris.Count + selected.Tris.Count + layers.Values.Sum(l => l.Tris.Count)) / 3 > MaxTrianglesPerView)
                 {
                     if (_budgetLoggedVersion != version)
                     {
@@ -537,12 +538,13 @@ namespace ProjectPerseus.federator
                 }
                 drawn++;
                 var it = items[i];
+                var halo = it.Emphasis ? selected : white;
                 f.Project(it.Min, it.Max, out var rect, out double wNear, out double wFar);
                 double w = f.Depth(wNear, wFar);
                 Grow(rect, Pad * s, MinRect * s);
                 bool dashed = it.Kind == Kind.Deleted && !simple;
                 double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s;
-                Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), simple && !it.Emphasis ? null : white, simple);
+                Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), simple && !it.Emphasis ? null : halo, simple);
 
                 // Moved: dashed ghost at the old position + arrow old → new.
                 var badgeAt = new Pt(rect[0], rect[3]);
@@ -551,7 +553,7 @@ namespace ProjectPerseus.federator
                     f.Project(it.OldMin, it.OldMax, out var oldRect, out double wOld, out double wOldFar);
                     double wg = f.Depth(wOld, wOldFar);
                     Grow(oldRect, Pad * s, MinRect * s);
-                    Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : white, simple);
+                    Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : halo, simple);
 
                     var a = Centre(oldRect); var b = Centre(rect);
                     if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out var from, out var to)) { from = a; to = b; }
@@ -565,7 +567,7 @@ namespace ProjectPerseus.federator
                         {
                             OverlayShapes.Arrow(arrow, from, to, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
                             OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 20);
-                            white.AddTris(f, arrow, aw - eps);
+                            halo.AddTris(f, arrow, aw - eps);
                             arrow.Clear();
                         }
                         OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
@@ -589,18 +591,19 @@ namespace ProjectPerseus.federator
                     continue;
                 }
                 OverlayShapes.Disc(t, badgeAt, br + Halo * s, 40);
-                white.AddTris(f, t, w - eps);
+                halo.AddTris(f, t, w - eps);
                 t.Clear();
                 OverlayShapes.Disc(t, badgeAt, br, 40);
                 LayerOf(it.Kind).AddTris(f, t, w + eps);
                 t.Clear();
                 OverlayShapes.Glyph(t, GlyphOf(it.Kind), badgeAt, GlyphSize * s * (br / (BadgeR * s)), GlyphHalf * s);
-                white.AddTris(f, t, w + 2 * eps);
+                halo.AddTris(f, t, w + 2 * eps);
             }
 
             var batches = new List<Batch>();
             // Halo first (it's behind by depth anyway), then colours.
             AddBatches(batches, white, new Color(255, 255, 255), lines: false);
+            AddBatches(batches, selected, SelectionColor(), lines: false);
             foreach (var kv in layers) AddBatches(batches, kv.Value, ColorOf(kv.Key), lines: true);
             if (clock.ElapsedMilliseconds > 250)
                 Log.Info($"[Federator] highlight build took {clock.ElapsedMilliseconds} ms for {drawn:N0} changes ({(simple ? "simple" : "full")} style)");
@@ -638,6 +641,18 @@ namespace ProjectPerseus.federator
             r[0] -= pad; r[1] -= pad; r[2] += pad; r[3] += pad;
             if (r[2] - r[0] < min) { double c = (r[0] + r[2]) / 2; r[0] = c - min / 2; r[2] = c + min / 2; }
             if (r[3] - r[1] < min) { double c = (r[1] + r[3]) / 2; r[1] = c - min / 2; r[3] = c + min / 2; }
+        }
+
+        // Revit's own selection colour (Options > Graphics), so selected rows look selected; Revit blue if unavailable.
+        private static Color SelectionColor()
+        {
+            try
+            {
+                var c = ColorOptions.GetColorOptions().SelectionColor;
+                if (c != null && c.IsValid) return new Color(c.Red, c.Green, c.Blue);
+            }
+            catch { /* older API / not available */ }
+            return new Color(0, 59, 189);
         }
 
         private static Pt Centre(double[] r) => new Pt((r[0] + r[2]) / 2, (r[1] + r[3]) / 2);

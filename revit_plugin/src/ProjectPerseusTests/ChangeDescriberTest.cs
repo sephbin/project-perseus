@@ -27,7 +27,12 @@ namespace ProjectPerseusTests
             };
             Assert.AreEqual("Moved 130 mm (120 mm horizontally, 50 mm up).", ChangeDescriber.Lines(c)[0]);
             c.MoveVector = new[] { 0, 0, -50 * Mm };
-            Assert.AreEqual("Moved 50 mm down.", ChangeDescriber.Lines(c)[0]);
+            c.MoveDistance = 50 * Mm;
+            Assert.AreEqual("Moved vertically 50 mm down.", ChangeDescriber.Lines(c)[0]);
+            Assert.AreEqual("Moved vertically 50 mm", ChangeDescriber.Summary(c));
+            Assert.IsTrue(ChangeDescriber.IsVerticalMove(c));
+            c.MoveVector = new[] { 120 * Mm, 0, 50 * Mm };
+            Assert.IsFalse(ChangeDescriber.IsVerticalMove(c), "3D move is a plain move");
         }
 
         [TestMethod]

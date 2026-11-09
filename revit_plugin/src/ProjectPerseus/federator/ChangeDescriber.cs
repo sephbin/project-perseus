@@ -25,6 +25,17 @@ namespace ProjectPerseus.federator
                 : Math.Round(mm).ToString("0", CultureInfo.InvariantCulture) + " mm";
         }
 
+        /// <summary>A purely vertical move (no horizontal component); needs MoveVector (older comparisons: false).</summary>
+        public static bool IsVerticalMove(ElementChange c)
+        {
+            var v = c?.MoveVector;
+            if (v == null || v.Length != 3) return false;
+            return Math.Sqrt(v[0] * v[0] + v[1] * v[1]) <= Tol && Math.Abs(v[2]) > Tol;
+        }
+
+        /// <summary>"Moved" (3D or horizontal) or "Moved vertically" (Z only).</summary>
+        public static string MoveLabel(ElementChange c) => IsVerticalMove(c) ? "Moved vertically" : "Moved";
+
         public static string TypeName(string family, string type) =>
             string.IsNullOrEmpty(family) ? (type ?? "") : family + " : " + type;
 
@@ -38,7 +49,7 @@ namespace ProjectPerseus.federator
                     return c.Replacements != null && c.Replacements.Count > 0 ? "Deleted · replaced?" : "Deleted";
             }
             var parts = new List<string>();
-            if (c.Aspects.HasFlag(ChangeAspect.Moved)) parts.Add("Moved " + Length(c.MoveDistance));
+            if (c.Aspects.HasFlag(ChangeAspect.Moved)) parts.Add(MoveLabel(c) + " " + Length(c.MoveDistance));
             if (c.Aspects.HasFlag(ChangeAspect.Geometry)) parts.Add(GeometryShort(c));
             if (c.Aspects.HasFlag(ChangeAspect.Type)) parts.Add("Type");
             if (c.Aspects.HasFlag(ChangeAspect.Level)) parts.Add("Level");
@@ -96,7 +107,7 @@ namespace ProjectPerseus.federator
             bool horiz = h > Tol, vert = Math.Abs(z) > Tol;
             string up = z > 0 ? "up" : "down";
             if (horiz && vert) return $"Moved {Length(c.MoveDistance)} ({Length(h)} horizontally, {Length(Math.Abs(z))} {up}).";
-            if (vert) return $"Moved {Length(Math.Abs(z))} {up}.";
+            if (vert) return $"Moved vertically {Length(Math.Abs(z))} {up}.";
             return $"Moved {Length(h)} horizontally.";
         }
 

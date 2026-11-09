@@ -83,6 +83,10 @@ namespace ProjectPerseus.ui
         private readonly Dictionary<string, List<ChangeRow>> _replaces = new Dictionary<string, List<ChangeRow>>(); // added uid → deleted rows suggesting it
         private HashSet<long> _inView;
         private bool _loading, _suppressSelection;
+        // Grid selection -> Revit selection (debounced); the linked ids we pushed, so the echo from Revit is ignored.
+        private readonly DispatcherTimer _selectTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        private HashSet<long> _pushedSelection;
+        private const int MaxAutoSelect = 1000;
         // Preview column: group header / column header check boxes, kept to refresh their ticked / mixed state.
         private readonly List<WeakReference<CheckBox>> _groupChecks = new List<WeakReference<CheckBox>>();
         private CheckBox _allCheck;
@@ -285,7 +289,12 @@ namespace ProjectPerseus.ui
             _searchTimer.Tick += (s, e) => Safe(() => { _searchTimer.Stop(); ApplyFilter(); });
             _inViewBox.Checked += (s, e) => Safe(() => RunApi(UpdateInView, needActive: true));
             _inViewBox.Unchecked += (s, e) => Safe(() => { _inView = null; ApplyFilter(); });
-            _grid.SelectionChanged += (s, e) => Safe(() => { if (!_suppressSelection) RebuildDetail(); QueueHighlight(); });
+            _grid.SelectionChanged += (s, e) => Safe(() =>
+            {
+                if (!_suppressSelection) { RebuildDetail(); _selectTimer.Stop(); _selectTimer.Start(); }
+                QueueHighlight();
+            });
+            _selectTimer.Tick += (s, e) => Safe(() => { _selectTimer.Stop(); PushRevitSelection(); });
             _grid.MouseDoubleClick += (s, e) => Safe(() => { if (_grid.SelectedItems.Count > 0) ShowSelected(true); });
             bake.Click += (s, e) => Safe(OpenBake);
             _highlightBox.Checked += (s, e) => Safe(QueueHighlight);
@@ -857,17 +866,41 @@ namespace ProjectPerseus.ui
             ComputeInView(view);
         }
 
+        /// <summary>Selects the grid's selected changes in Revit (no zoom), so they show as selected in the view too.</summary>
+        private void PushRevitSelection()
+        {
+            var rows = _grid.SelectedItems.Cast<ChangeRow>().ToList();
+            if (_record == null || rows.Count == 0) return;
+            if (rows.Count > MaxAutoSelect) { Status($"{rows.Count:N0} rows selected: not selected in Revit (over {MaxAutoSelect:N0}). Use Select to do it anyway."); return; }
+            var rec = _record;
+            var changes = rows.Select(r => r.Change).ToList();
+            RunApi(app =>
+            {
+                var uidoc = app.ActiveUIDocument;
+                if (uidoc?.Document == null || !uidoc.Document.Equals(_doc)) return;   // another model is active: leave it
+                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
+                if (inst == null) return;
+                _pushedSelection = ReviewNavigator.Select(uidoc, inst, changes);
+            });
+        }
+
         internal void OnRevitSelection(ARDB.Document doc, IList<ARDB.Reference> refs)
         {
             if (_record == null || _doc == null || doc == null || refs == null || !doc.Equals(_doc)) return;
             var inst = LinkedElementRef.FindInstance(_doc, _record.LinkInstanceUid);
             if (inst == null) return;
             var rows = new List<ChangeRow>();
+            var ids = new HashSet<long>();
             foreach (var r in refs)
             {
                 if (r == null || r.LinkedElementId == ARDB.ElementId.InvalidElementId || r.ElementId != inst.Id) continue;
+                ids.Add(r.LinkedElementId.GetIdValue());
                 if (_rowById.TryGetValue(r.LinkedElementId.GetIdValue(), out var row)) rows.Add(row);
             }
+            // The echo of our own PushRevitSelection: keep the grid as the user left it (e.g. deleted rows selected).
+            var pushed = _pushedSelection;
+            if (pushed != null && pushed.SetEquals(ids) && refs.Count == ids.Count) { _pushedSelection = null; return; }
+            _pushedSelection = null;
             if (rows.Count == 0) return;
             var visible = rows.Where(r => _view != null && _view.PassesFilter(r)).ToList();
             _suppressSelection = true;
