@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -11,6 +13,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ProjectPerseus.aps;
 using ProjectPerseus.federator;
 using ProjectPerseus.logging;
 using ProjectPerseus.models;
@@ -62,6 +65,7 @@ namespace ProjectPerseus.ui
             internal string ModelKey;       // federator/VersionCatalog identity of the consultant model
             internal string LiveGuid;       // save GUID of the loaded version (null when unloaded / unknown)
             internal int LiveSaves;
+            internal string CloudProjectId, CloudItemUrn;   // cloud model (ACC / BIM 360): Data Management ids, else null
             public override string ToString() => Loaded ? Name : Name + "  (unloaded)";
         }
 
@@ -78,9 +82,12 @@ namespace ProjectPerseus.ui
             internal ComparisonRunner.Source Source;
             internal string Key;       // identity, so From and To can't be the same version
             internal string Text;
-            internal bool Browse;
+            internal VersionAction Action;
+            internal bool Browse => Action != VersionAction.None;   // not a version: picking it does something
             public override string ToString() => Text;
         }
+
+        private enum VersionAction { None, Browse, SetUpCloud, SignIn, Retry, Loading }
 
         // ── State ──
         private ARDB.Document _doc;
@@ -127,6 +134,10 @@ namespace ProjectPerseus.ui
         // Files picked with "Browse…" this session, per link instance (they stay in the pickers).
         private readonly Dictionary<string, List<string>> _browsed = new Dictionary<string, List<string>>();
         private const string Tick = "✓", NoTick = "    ";
+        // Cloud version lists per link instance (fetched in the background), and their state while not loaded:
+        // "loading", "signin" (not signed in), or an error message.
+        private readonly Dictionary<string, List<CloudVersion>> _cloudVersions = new Dictionary<string, List<CloudVersion>>();
+        private readonly Dictionary<string, string> _cloudState = new Dictionary<string, string>();
         private readonly TextBlock _summary, _count, _statusLine;
         private readonly DataGrid _grid;
         private readonly StackPanel _detail;
@@ -387,6 +398,11 @@ namespace ProjectPerseus.ui
                         if (dv != null) { item.LiveGuid = dv.VersionGUID.ToString(); item.LiveSaves = dv.NumberOfSaves; }
                     }
                     catch { /* no version info */ }
+                    try
+                    {
+                        if (linkDoc.IsModelInCloud) { item.CloudProjectId = linkDoc.GetProjectId(); item.CloudItemUrn = linkDoc.GetCloudModelUrn(); }
+                    }
+                    catch (Exception ex) { Log.Info($"[Federator] cloud ids of {typeName}: {ex.Message}"); }
                 }
                 _links.Add(item);
             }
@@ -400,6 +416,8 @@ namespace ProjectPerseus.ui
 
             _records = ComparisonStore.List(_doc);
             _events = ReviewStore.Load(_doc);
+            _cloudVersions.Clear();   // Refresh re-reads the cloud version lists too
+            _cloudState.Clear();
 
             _loading = true;
             _linkBox.Items.Clear();
@@ -985,20 +1003,42 @@ namespace ProjectPerseus.ui
             if (link != null)
             {
                 var cached = VersionCatalog.List(link.ModelKey);
-                bool liveCached = link.LiveGuid != null && cached.Any(v => SameGuid(v.VersionGuid, link.LiveGuid));
+                var liveEntry = link.LiveGuid == null ? null : cached.FirstOrDefault(v => SameGuid(v.VersionGuid, link.LiveGuid));
+                bool cloudLink = link.CloudItemUrn != null;
+                _cloudVersions.TryGetValue(link.Uid, out var cloudList);
                 if (link.Loaded)
                 {
-                    string label = "Live" + (link.LiveSaves > 0 ? $" · save {link.LiveSaves}" : "") + " · loaded now";
-                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Live(label), Key = "live", Text = (liveCached ? Tick : NoTick) + "  " + label });
+                    string label = "Live" + (liveEntry?.CloudVersionNumber > 0 ? $" · v{liveEntry.CloudVersionNumber}" : "")
+                                   + (link.LiveSaves > 0 ? $" · save {link.LiveSaves}" : "") + " · loaded now";
+                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Live(label), Key = "live", Text = (liveEntry != null ? Tick : NoTick) + "  " + label });
                 }
+
+                // Cloud versions (newest first): ✓ when downloaded + cached before, else downloaded on Compare.
+                var shownCloud = new HashSet<string>();
+                if (cloudList != null)
+                    foreach (var cv in cloudList)
+                    {
+                        string label = CloudLabel(cv);
+                        var entry = cached.FirstOrDefault(v => v.CloudVersionId == cv.Id);
+                        if (entry != null && link.Loaded && entry == liveEntry) { shownCloud.Add(cv.Id); continue; }   // that's Live
+                        shownCloud.Add(cv.Id);
+                        items.Add(new VersionItem
+                        {
+                            Source = entry != null ? ComparisonRunner.Source.Cached(entry, label) : ComparisonRunner.Source.FromCloud(cv, label),
+                            Key = "cloud:" + cv.Id, Text = (entry != null ? Tick : NoTick) + "  " + label,
+                        });
+                    }
+
                 var shownFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var v in cached)
                 {
-                    if (link.Loaded && SameGuid(v.VersionGuid, link.LiveGuid)) continue;   // that's the live one
+                    if (link.Loaded && v == liveEntry) continue;                                  // that's the live one
+                    if (v.CloudVersionId != null && shownCloud.Contains(v.CloudVersionId)) continue;   // in the cloud list
                     string label = VersionLabel(v);
                     if (!v.FromLiveLink && !string.IsNullOrEmpty(v.SourcePath)) shownFiles.Add(SafeFull(v.SourcePath));
                     items.Add(new VersionItem { Source = ComparisonRunner.Source.Cached(v, label),
-                                                Key = v.VersionGuid != null ? "guid:" + v.VersionGuid.ToLowerInvariant() : "key:" + v.CacheKey,
+                                                Key = v.CloudVersionId != null ? "cloud:" + v.CloudVersionId
+                                                    : v.VersionGuid != null ? "guid:" + v.VersionGuid.ToLowerInvariant() : "key:" + v.CacheKey,
                                                 Text = Tick + "  " + label });
                 }
                 // Files compared before (from this model's comparisons) and files picked this session.
@@ -1008,7 +1048,8 @@ namespace ProjectPerseus.ui
                 foreach (var f in files.Where(f => !string.IsNullOrEmpty(f)))
                 {
                     string full = SafeFull(f);
-                    if (shownFiles.Contains(full) || (link.Path != null && string.Equals(full, SafeFull(link.Path), StringComparison.OrdinalIgnoreCase))) continue;
+                    if (shownFiles.Contains(full) || full.StartsWith(ApsClient.DownloadFolder, StringComparison.OrdinalIgnoreCase)
+                        || (link.Path != null && string.Equals(full, SafeFull(link.Path), StringComparison.OrdinalIgnoreCase))) continue;
                     if (!System.IO.File.Exists(f)) continue;
                     shownFiles.Add(full);
                     string stamp = SnapshotCache.StampOf(f);
@@ -1017,8 +1058,27 @@ namespace ProjectPerseus.ui
                     items.Add(new VersionItem { Source = ComparisonRunner.Source.File(f, label), Key = "file:" + full.ToLowerInvariant(),
                                                 Text = (isCached ? Tick : NoTick) + "  " + label });
                 }
+
+                // Cloud list not there yet: why, and what picking the entry does.
+                if (cloudLink && cloudList == null)
+                {
+                    _cloudState.TryGetValue(link.Uid, out var state);
+                    if (!ApsConfig.Load().IsSet)
+                        items.Add(new VersionItem { Action = VersionAction.SetUpCloud, Key = "cloud-setup", Text = NoTick + "  ☁  Set up Autodesk access to list cloud versions…" });
+                    else if (state == "loading")
+                        items.Add(new VersionItem { Action = VersionAction.Loading, Key = "cloud-loading", Text = NoTick + "  ☁  Loading cloud versions…" });
+                    else if (state == null && ApsAuth.HasSession)
+                    {
+                        FetchCloudVersions(link, interactive: false);   // sets "loading" first, so no loop
+                        items.Add(new VersionItem { Action = VersionAction.Loading, Key = "cloud-loading", Text = NoTick + "  ☁  Loading cloud versions…" });
+                    }
+                    else if (state == null || state == "signin")
+                        items.Add(new VersionItem { Action = VersionAction.SignIn, Key = "cloud-signin", Text = NoTick + "  ☁  Sign in to Autodesk to list cloud versions…" });
+                    else
+                        items.Add(new VersionItem { Action = VersionAction.Retry, Key = "cloud-retry", Text = NoTick + "  ☁  Couldn't list cloud versions: retry" });
+                }
             }
-            items.Add(new VersionItem { Browse = true, Key = "browse", Text = NoTick + "  Browse for a file…" });
+            items.Add(new VersionItem { Action = VersionAction.Browse, Key = "browse", Text = NoTick + "  Browse for a file…" });
 
             _loading = true;
             foreach (var box in new[] { _fromBox, _toBox })
@@ -1028,7 +1088,8 @@ namespace ProjectPerseus.ui
             }
             var real = items.Where(i => !i.Browse).ToList();
             var to = real.FirstOrDefault(i => i.Key == keepTo) ?? real.FirstOrDefault(i => i.Key == "live") ?? real.FirstOrDefault();
-            var from = real.FirstOrDefault(i => i.Key == keepFrom && i != to) ?? real.FirstOrDefault(i => i != to);
+            var from = real.FirstOrDefault(i => i.Key == keepFrom && i != to)
+                       ?? real.FirstOrDefault(i => i != to && i.Text.StartsWith(Tick)) ?? real.FirstOrDefault(i => i != to);
             _toBox.SelectedItem = to;
             _fromBox.SelectedItem = from;
             _lastFrom = from; _lastTo = to;
@@ -1036,9 +1097,84 @@ namespace ProjectPerseus.ui
             UpdateCompareEnabled();
         }
 
+        private static string CloudLabel(CloudVersion v) =>
+            $"☁ v{v.Number} · {v.CreatedUtc.ToLocalTime():d MMM yyyy HH:mm}" + (string.IsNullOrEmpty(v.User) ? "" : " · " + v.User);
+
+        private void RefillVersions() =>
+            FillVersions((_fromBox.SelectedItem as VersionItem)?.Key, (_toBox.SelectedItem as VersionItem)?.Key);
+
+        /// <summary>Lists the link's cloud versions on a background thread (interactive: browser sign-in if needed).</summary>
+        private void FetchCloudVersions(LinkItem link, bool interactive)
+        {
+            if (link?.CloudItemUrn == null) return;
+            string uid = link.Uid, projectId = link.CloudProjectId, urn = link.CloudItemUrn;
+            _cloudState[uid] = "loading";
+            if (interactive) Status("Signing in to Autodesk in your browser…");
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var list = await ApsClient.ListVersionsAsync(projectId, urn, interactive, CancellationToken.None).ConfigureAwait(false);
+                    await Dispatcher.InvokeAsync(() => Safe(() =>
+                    {
+                        if (list == null) _cloudState[uid] = "signin";
+                        else { _cloudVersions[uid] = list; _cloudState.Remove(uid); Status($"{list.Count} cloud version(s) of {link.Name}."); }
+                        if (SelectedLink?.Uid == uid) RefillVersions();
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"[Federator] listing cloud versions failed: {ex.Message}");
+                    try
+                    {
+                        await Dispatcher.InvokeAsync(() => Safe(() =>
+                        {
+                            _cloudState[uid] = ex.Message;
+                            Status("Couldn't list cloud versions: " + ex.Message, true);
+                            if (SelectedLink?.Uid == uid) RefillVersions();
+                        }));
+                    }
+                    catch { /* window closed */ }
+                }
+            });
+        }
+
+        /// <summary>Asks for the APS app's client ID (once per user); returns true when one is set.</summary>
+        private bool SetUpCloudAccess()
+        {
+            var cfg = ApsConfig.Load();
+            var box = new TextBox { Text = cfg.ClientId ?? "", Margin = new Thickness(0, 6, 0, 10), Padding = new Thickness(3) };
+            var ok = MakeButton("Save", "Save the client ID for this Windows user");
+            ok.IsDefault = true;
+            var panel = new StackPanel { Margin = new Thickness(14) };
+            panel.Children.Add(new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap, Width = 460,
+                Text = "Listing and downloading cloud versions goes through Autodesk Platform Services (APS).\n\n" +
+                       "1. At aps.autodesk.com create an app of type \"Desktop, Mobile, Single-Page App\" with the Data Management API.\n" +
+                       $"2. Add this callback URL to it: {cfg.CallbackUrl}\n" +
+                       "3. On ACC / BIM 360 your account admin may need to add the client ID under Account Admin > Custom Integrations.\n" +
+                       "4. Paste the app's client ID below. You'll sign in with your own Autodesk account; nothing is shared.",
+            });
+            panel.Children.Add(Label("Client ID"));
+            panel.Children.Add(box);
+            panel.Children.Add(ok);
+            var dlg = new Window { Title = "Autodesk cloud versions", Content = panel, SizeToContent = SizeToContent.WidthAndHeight,
+                                   ResizeMode = ResizeMode.NoResize, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                                   FontFamily = FontFamily, FontSize = FontSize, ShowInTaskbar = false };
+            ok.Click += (s2, e2) => dlg.DialogResult = true;
+            if (dlg.ShowDialog() != true || string.IsNullOrWhiteSpace(box.Text)) return false;
+            cfg.ClientId = box.Text.Trim();
+            cfg.Save();
+            ApsAuth.SignOut();   // a new app: the old app's tokens don't apply
+            return true;
+        }
+
         private static string VersionLabel(LinkVersion v)
         {
             string saves = v.Saves > 0 ? $"save {v.Saves}" : "";
+            if (v.CloudVersionNumber > 0)
+                return $"☁ v{v.CloudVersionNumber} · {v.SavedUtc.ToLocalTime():d MMM yyyy HH:mm}";
             if (v.FromLiveLink)
                 return (saves.Length > 0 ? saves + " · " : "") + $"was loaded {v.SavedUtc.ToLocalTime():d MMM yyyy HH:mm}";
             return $"{Path.GetFileName(v.SourcePath)} · saved {v.SavedUtc.ToLocalTime():d MMM yyyy HH:mm}" + (saves.Length > 0 ? " · " + saves : "");
@@ -1054,6 +1190,26 @@ namespace ProjectPerseus.ui
         private void OnVersionPicked(ComboBox box)
         {
             if (_loading) return;
+            if (box.SelectedItem is VersionItem act && act.Action != VersionAction.None && act.Action != VersionAction.Browse)
+            {
+                _loading = true;
+                box.SelectedItem = box == _fromBox ? _lastFrom : _lastTo;
+                _loading = false;
+                var link = SelectedLink;
+                switch (act.Action)
+                {
+                    case VersionAction.SetUpCloud:
+                        if (SetUpCloudAccess()) { FetchCloudVersions(link, interactive: true); RefillVersions(); }
+                        break;
+                    case VersionAction.SignIn:
+                    case VersionAction.Retry:
+                        FetchCloudVersions(link, interactive: true);
+                        RefillVersions();
+                        break;
+                }
+                UpdateCompareEnabled();
+                return;
+            }
             if (box.SelectedItem is VersionItem v && v.Browse)
             {
                 string path = PickVersionFile();
@@ -1119,6 +1275,59 @@ namespace ProjectPerseus.ui
             if (from.Key == to.Key) { Status("From and To are the same version."); return; }
 
             _compareButton.IsEnabled = false;
+            if (from.Source.Kind == ComparisonRunner.Source.SourceKind.Cloud || to.Source.Kind == ComparisonRunner.Source.SourceKind.Cloud)
+            {
+                DownloadThenCompare(link, from, to);
+                return;
+            }
+            RunComparison(link, from, to, from.Source, to.Source, null);
+        }
+
+        /// <summary>Downloads the chosen cloud versions on a background thread, then compares them as files.</summary>
+        private void DownloadThenCompare(LinkItem link, VersionItem from, VersionItem to)
+        {
+            string projectId = link.CloudProjectId;
+            Task.Run(async () =>
+            {
+                var downloads = new List<string>();
+                try
+                {
+                    async Task<ComparisonRunner.Source> Get(ComparisonRunner.Source src)
+                    {
+                        if (src.Kind != ComparisonRunner.Source.SourceKind.Cloud) return src;
+                        var cv = src.Cloud;
+                        string title = $"Downloading {link.Name} v{cv.Number}";
+                        SyncStatusToast.Progress(title, -1, "Asking Autodesk for the file…");
+                        var progress = new Progress<double>(f => SyncStatusToast.Progress(title, f, f < 0 ? "Downloading…" : $"Downloading… {f:P0}"));
+                        string path = await ApsClient.DownloadAsync(projectId, cv, progress, CancellationToken.None).ConfigureAwait(false);
+                        downloads.Add(path);
+                        return ComparisonRunner.Source.Downloaded(path, cv, src.Label);
+                    }
+                    var f2 = await Get(from.Source).ConfigureAwait(false);
+                    var t2 = await Get(to.Source).ConfigureAwait(false);
+                    await Dispatcher.InvokeAsync(() => Safe(() => RunComparison(link, from, to, f2, t2, downloads)));
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"[Federator] cloud download failed: {ex}");
+                    foreach (var d in downloads) ApsClient.Discard(d);
+                    SyncStatusToast.Hide();
+                    try
+                    {
+                        await Dispatcher.InvokeAsync(() => Safe(() =>
+                        {
+                            Status("Download failed: " + ex.Message, true);
+                            UpdateCompareEnabled();
+                        }));
+                    }
+                    catch { /* window closed */ }
+                }
+            });
+        }
+
+        private void RunComparison(LinkItem link, VersionItem from, VersionItem to, ComparisonRunner.Source fromSrc,
+                                   ComparisonRunner.Source toSrc, List<string> downloads)
+        {
             Status($"Comparing {from.Source.Label} → {to.Source.Label}… Revit is busy until it finishes.");
             RunApi(app =>
             {
@@ -1126,7 +1335,7 @@ namespace ProjectPerseus.ui
                 {
                     var inst = LinkedElementRef.FindInstance(_doc, link.Uid);
                     if (inst == null) { Status("That link is no longer in the model. Press Refresh."); return; }
-                    var result = ComparisonRunner.Run(app, _doc, inst, link.ModelKey, from.Source, to.Source);
+                    var result = ComparisonRunner.Run(app, _doc, inst, link.ModelKey, fromSrc, toSrc);
                     if (result.Warning != null &&
                         MessageBox.Show(this, result.Warning + "\n\nKeep this comparison?", "Federator",
                                         MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.No)
@@ -1145,7 +1354,13 @@ namespace ProjectPerseus.ui
                     Log.Warn($"[Federator] comparison failed: {ex}");
                     Status("Comparison failed: " + ex.Message, true);
                 }
-                finally { UpdateCompareEnabled(); }
+                finally
+                {
+                    // Downloaded versions are cached as snapshots now (✓); the .rvt isn't needed any more.
+                    if (downloads != null) foreach (var d in downloads) ApsClient.Discard(d);
+                    if (downloads != null && downloads.Count > 0) RefillVersions();
+                    UpdateCompareEnabled();
+                }
             });
         }
 

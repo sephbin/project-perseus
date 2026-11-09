@@ -102,7 +102,7 @@ versioned JSON / gzip payload — new fields go into the payload, never into a n
 Links change often, there can be many of them, and on ACC / BIM 360 / Forma most people don't use the website's
 version history. So the panel compares **any two versions**: Link, then **From** and **To** pickers, then Compare.
 
-* **Stage 1 (built, 1.2.355+)**: the pickers list the live (loaded) link, every version with a cached snapshot
+* **Stage 1 (built, 1.2.359)**: the pickers list the live (loaded) link, every version with a cached snapshot
   (✓ = nothing to open or download), files used in earlier comparisons of that link, files picked this session, and
   "Browse for a file…". Versions are identified by the model's save GUID (`Document.GetDocumentVersion` /
   `BasicFileInfo.GetDocumentVersion`), so the same version reached through the live link or a downloaded copy is one
@@ -111,14 +111,21 @@ version history. So the panel compares **any two versions**: Link, then **From**
   (decision: no automatic snapshot on reload; it freezes Revit for minutes on big models).
   Code: federator/VersionCatalog (per-model list in AppData), SnapshotCache (file + version keys),
   ComparisonRunner.Source, ui/FederatorWindow version pickers.
-* **Stage 2 (todo)**: the full cloud version list (including versions nobody has opened) from the Autodesk Platform
+* **Stage 2 (built 2026-11-10, untested against a real hub until an APS app is set up)**: the full cloud version list
+  (including versions nobody has opened) from the Autodesk Platform
   Services Data Management API. The Revit API has no version history (2026: only `GetCloudModelUrn`, `GetProjectId`,
   `GetHubId`; Revit only opens the latest version) and gives add-ins no Autodesk login token. Needs: an APS app
   (client ID) registered at aps.autodesk.com; a one-time browser sign-in per user (3-legged PKCE, no secret, e.g. via
   the bundled WebView2), or the token flow on the Django server; possibly the ACC account admin adding the app as a
   custom integration. Then GET `projects/b.{projectId}/items/{urn}/versions` lists versions and their storage
   object is downloaded to a temp .rvt, which OldModelOpener reads like any archived file (cached ✓ afterwards).
-  To check first: whether published Revit Cloud Worksharing versions expose a downloadable storage object.
+  Download: since 15 Feb 2026 a published cloud workshared model downloads as the host .rvt only, via
+  `construction/rcm/v1/projects/{id}/published-versions/{versionId}/linked-files?includeHost=true` (versions published
+  since Feb 2025); older versions fall back to the storage object (a ZIP with the host inside); non-workshared cloud
+  files use the storage object (OSS signeds3download). Code: aps/ApsConfig (client ID + callback port, per user),
+  aps/ApsAuth (PKCE, browser + localhost listener, DPAPI refresh token), aps/ApsClient (versions, download), panel:
+  ☁ entries listed in the background (Set up / Sign in / retry entries when not available), download on Compare,
+  snapshot cached (✓, VersionCatalog keeps the cloud version id), download deleted.
 
 ## Later ideas
 

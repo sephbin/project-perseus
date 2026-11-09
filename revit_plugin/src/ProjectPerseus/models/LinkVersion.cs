@@ -24,5 +24,8 @@ namespace ProjectPerseus.models
         public DateTime SavedUtc { get; set; }
         public DateTime SnapshotUtc { get; set; }
         public int Elements { get; set; }
+        /// <summary>Cloud version URN / number when it was downloaded from ACC / BIM 360 (aps/ApsClient); else null / 0.</summary>
+        public string CloudVersionId { get; set; }
+        public int CloudVersionNumber { get; set; }
     }
 }

@@ -111,6 +111,14 @@ ProjectPerseus/
 │                                 Calls federator.FederatorController.Subscribe() + ChangeHighlightController.Initialize() at startup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
+├── aps/                          NEW (2026-11-10). Autodesk Platform Services for the federator's cloud versions.
+│   ├── ApsConfig.cs              %AppData%\ProjectPerseus\aps.json: APS app client ID (public "Desktop, Mobile, SPA" app) +
+│   │                             callback port (CallbackUrl http://localhost:8765/perseus/aps/callback must be registered).
+│   ├── ApsAuth.cs                3-legged OAuth v2 + PKCE (no secret): system browser + localhost HttpListener; refresh token
+│   │                             DPAPI-encrypted at aps_token.bin; scope data:read. Background threads only.
+│   └── ApsClient.cs              Data Management versions of a cloud model (Document.GetProjectId / GetCloudModelUrn) and
+│                                 download of one to AppData\federator\downloads (RCM linked-files host URL for cloud workshared
+│                                 models, else / older: storage object, ZIP -> host .rvt). Discard() after the snapshot is cached.
 ├── auth/                         Split in P6 (2026-05-30).
 │   ├── AuthService.cs            ~100 lines — server-driven coordinator: fetches auth-config
 │                                 from Django, dispatches to MsalAuth/JwtAuth/sandbox. PAT
@@ -450,7 +458,9 @@ ProjectPerseus/
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft), save GUID.
-│   ├── LinkVersion.cs            NEW (2026-11-10). A cached version of a consultant model (cache key, save GUID + count, source).
+│   ├── LinkVersion.cs            NEW (2026-11-10). A cached version of a consultant model (cache key, save GUID + count, source,
+│   │                             cloud version id / number when downloaded).
+│   ├── CloudVersion.cs           NEW (2026-11-10). A cloud model version from APS (URN, number, date, user, type, storage).
 │   ├── ElementChange.cs          NEW (2026-11-08). Federator diff result: ChangeKind, ChangeAspect flags, ParameterChange.
 │   ├── ComparisonRecord.cs       NEW (2026-11-08). Federator comparison header (+ [JsonIgnore] Changes, StorageId).
 │   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants. Batch
@@ -599,6 +609,7 @@ ProjectPerseus/
 │   ├── SentryContext.cs          Extracted from Utl.cs.
 │   └── CrashTrace.cs             [DONE 2026-11-05] Last-chance unhandled-exception logging.
 ├── models/                       Mostly unchanged (existing folder is healthy).
+├── aps/                          [DONE 2026-11-10] APS sign-in + cloud model versions (see §6.1).
 ├── federator/                    [IN PROGRESS 2026-11-08] Link comparison (see §6.1, FEDERATOR_PLAN.md).
 ├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).

@@ -54,6 +54,12 @@ namespace ProjectPerseus.federator
             return List(modelKey).FirstOrDefault(v => string.Equals(v.VersionGuid, versionGuid, StringComparison.OrdinalIgnoreCase));
         }
 
+        internal static LinkVersion FindByCloudId(string modelKey, string cloudVersionId)
+        {
+            if (string.IsNullOrEmpty(cloudVersionId)) return null;
+            return List(modelKey).FirstOrDefault(v => v.CloudVersionId == cloudVersionId);
+        }
+
         /// <summary>Adds or replaces (same save GUID, else same cache key) a cached version.</summary>
         internal static void Register(string modelKey, LinkVersion v)
         {
@@ -61,8 +67,12 @@ namespace ProjectPerseus.federator
             try
             {
                 var list = Read(modelKey).Where(x => SnapshotCache.Has(x.CacheKey)).ToList();
-                list.RemoveAll(x => x.CacheKey == v.CacheKey ||
-                                    (!string.IsNullOrEmpty(v.VersionGuid) && string.Equals(x.VersionGuid, v.VersionGuid, StringComparison.OrdinalIgnoreCase)));
+                var same = list.Where(x => x.CacheKey == v.CacheKey ||
+                                           (!string.IsNullOrEmpty(v.VersionGuid) && string.Equals(x.VersionGuid, v.VersionGuid, StringComparison.OrdinalIgnoreCase))).ToList();
+                // Keep what was known about the cloud version when the same save is met again (e.g. as the live link).
+                var cloud = same.FirstOrDefault(x => x.CloudVersionId != null);
+                if (v.CloudVersionId == null && cloud != null) { v.CloudVersionId = cloud.CloudVersionId; v.CloudVersionNumber = cloud.CloudVersionNumber; }
+                list.RemoveAll(x => same.Contains(x));
                 list.Add(v);
                 Directory.CreateDirectory(Folder);
                 File.WriteAllText(FileFor(modelKey), JsonConvert.SerializeObject(list, Formatting.Indented), new UTF8Encoding(false));

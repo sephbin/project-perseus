@@ -34,11 +34,16 @@ namespace ProjectPerseus.federator
         /// <summary>A version to compare: the loaded link, a cached version, or an archived file.</summary>
         internal class Source
         {
-            internal enum SourceKind { Live, Cached, File }
+            internal enum SourceKind { Live, Cached, File, Cloud }
             internal SourceKind Kind;
             internal LinkVersion Version;   // Cached
-            internal string Path;           // File
+            internal string Path;           // File (for a downloaded cloud version: the temp download)
             internal string Label;          // as shown in the picker (without the ✓)
+            internal CloudVersion Cloud;    // Cloud (not downloaded yet), or File downloaded from it
+
+            /// <summary>A cloud version that isn't cached: the panel downloads it, then compares it as a File.</summary>
+            internal static Source FromCloud(CloudVersion v, string label) => new Source { Kind = SourceKind.Cloud, Cloud = v, Label = label };
+            internal static Source Downloaded(string path, CloudVersion v, string label) => new Source { Kind = SourceKind.File, Path = path, Cloud = v, Label = label };
 
             internal static Source Live(string label) => new Source { Kind = SourceKind.Live, Label = label };
             internal static Source Cached(LinkVersion v, string label) => new Source { Kind = SourceKind.Cached, Version = v, Label = label };
@@ -50,6 +55,8 @@ namespace ProjectPerseus.federator
         {
             options = options ?? new DiffOptions();
             if (from == null || to == null) throw new InvalidOperationException("Pick both versions to compare.");
+            if (from.Kind == Source.SourceKind.Cloud || to.Kind == Source.SourceKind.Cloud)
+                throw new InvalidOperationException("Cloud versions must be downloaded before comparing.");
             Document linkDoc = null;
             try { linkDoc = instance.GetLinkDocument(); } catch { /* unloaded */ }
             if ((from.Kind == Source.SourceKind.Live || to.Kind == Source.SourceKind.Live) && linkDoc == null)
@@ -85,7 +92,8 @@ namespace ProjectPerseus.federator
                     OldTitle = oldSnap.Title,
                     OldLabel = from.Label,
                     OldVersionGuid = oldSnap.VersionGuid,
-                    OldFileTimeUtc = from.Kind == Source.SourceKind.File ? System.IO.File.GetLastWriteTimeUtc(from.Path) : oldSnap.TakenUtc,
+                    OldFileTimeUtc = from.Cloud != null ? from.Cloud.CreatedUtc
+                                   : from.Kind == Source.SourceKind.File ? System.IO.File.GetLastWriteTimeUtc(from.Path) : oldSnap.TakenUtc,
                     NewPath = newSnap.SourcePath,
                     NewTitle = newSnap.Title,
                     NewLabel = to.Label,
@@ -150,8 +158,10 @@ namespace ProjectPerseus.federator
                         VersionCatalog.Register(modelKey, new LinkVersion
                         {
                             CacheKey = key, VersionGuid = snap.VersionGuid, Saves = snap.Saves, Title = snap.Title,
-                            SourcePath = s.Path, SavedUtc = System.IO.File.GetLastWriteTimeUtc(s.Path),
+                            SourcePath = s.Cloud != null ? null : s.Path,
+                            SavedUtc = s.Cloud != null ? s.Cloud.CreatedUtc : System.IO.File.GetLastWriteTimeUtc(s.Path),
                             SnapshotUtc = snap.TakenUtc, Elements = snap.Elements.Count,
+                            CloudVersionId = s.Cloud?.Id, CloudVersionNumber = s.Cloud?.Number ?? 0,
                         });
                     return snap;
                 }
