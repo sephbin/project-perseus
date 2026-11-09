@@ -127,6 +127,20 @@ namespace ProjectPerseusTests
             Assert.AreEqual(ReviewStatus.Unreviewed, later[ReviewLog.Key("link", "e2")].Status);
         }
         [TestMethod]
+        public void NoiseCategoriesHideEveryKindOfChange()
+        {
+            var rules = new NoiseRules { Categories = new List<string> { "sprinklers" } };
+            var set = NoiseFilter.ParameterSet(rules);
+            var added = new ElementChange { Kind = ChangeKind.Added, Category = "Sprinklers" };
+            Assert.IsTrue(NoiseFilter.IsNoise(added, rules, set));
+            Assert.IsNull(NoiseFilter.Effective(added, rules, set));
+            Assert.IsNull(NoiseFilter.Effective(Params("a", "K80", "Flow", "60", "80"), rules, set));
+            var wall = new ElementChange { Kind = ChangeKind.Deleted, Category = "Walls" };
+            Assert.AreSame(wall, NoiseFilter.Effective(wall, rules, set));
+            Assert.IsFalse(NoiseFilter.IsNoise(wall, rules, set));
+        }
+
+        [TestMethod]
         public void EffectiveChangeDropsNoiseButKeepsTheRest()
         {
             var rules = new NoiseRules { Parameters = new List<string> { "Mark" }, MinMoveMm = 5 };

@@ -305,6 +305,18 @@ namespace ProjectPerseus.ui
             _owner.TriageAddNoise(parms, null);
         }
 
+        private void MarkCategoryNoise(string category)
+        {
+            if (string.IsNullOrEmpty(category)) return;
+            if (MessageBox.Show(this,
+                    $"Treat every change to {category} as noise for this link (for everyone)?\n\nAdded, deleted and modified " +
+                    $"{category} are hidden (not deleted). You can undo this from 'Noise rules' at any time.",
+                    "Triage", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            _checkedKeys.RemoveWhere(k => _groups.Any(r => r.G.Key == k && string.Equals(r.Category, category, StringComparison.OrdinalIgnoreCase)));
+            _owner.TriageAddNoise(null, null, new[] { category });
+        }
+
         // ── Detail ──
 
         private void BuildDetail()
@@ -321,6 +333,13 @@ namespace ProjectPerseus.ui
             var g = sel[0].G;
             _detail.Children.Add(Heading($"{g.Changes.Count:N0} × {(string.IsNullOrEmpty(g.Type) ? g.Category : g.Type)}"));
             _detail.Children.Add(MutedText($"{g.Category} · {g.Kind} · {g.Description}"));
+            if (!string.IsNullOrEmpty(g.Category))
+            {
+                var catNoise = Link($"mark all {g.Category} as noise", $"Treat every change to {g.Category} (added, deleted, modified) as noise for this link");
+                string cat = g.Category;
+                catNoise.Click += (s, e) => Safe(() => MarkCategoryNoise(cat));
+                _detail.Children.Add(catNoise);
+            }
 
             if (g.Transitions.Count > 0)
             {
@@ -382,7 +401,19 @@ namespace ProjectPerseus.ui
         {
             _noisePanel.Children.Clear();
             var n = _owner.Noise;
-            if (n.Parameters.Count == 0) _noisePanel.Children.Add(MutedText("No parameters are treated as noise yet."));
+            var cats = n.Categories ?? new List<string>();
+            if (n.Parameters.Count == 0 && cats.Count == 0) _noisePanel.Children.Add(MutedText("No categories or parameters are treated as noise yet."));
+            foreach (var c in cats)
+            {
+                var line = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+                var remove = Link("remove", $"{c} changes count again");
+                string cat = c;
+                remove.Click += (s, e) => Safe(() => _owner.TriageRemoveNoiseCategory(cat));
+                DockPanel.SetDock(remove, Dock.Right);
+                line.Children.Add(remove);
+                line.Children.Add(new TextBlock { Text = "Category: " + c, FontStyle = FontStyles.Italic, TextTrimming = TextTrimming.CharacterEllipsis });
+                _noisePanel.Children.Add(line);
+            }
             foreach (var p in n.Parameters)
             {
                 var line = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
@@ -440,8 +471,27 @@ namespace ProjectPerseus.ui
             var catText = new FrameworkElementFactory(typeof(TextBlock));
             catText.SetBinding(TextBlock.TextProperty, new Binding("Items[0]." + nameof(GroupRow.CategoryHeader)));
             catText.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+            // "mark as noise" link at the end of the header (a Button so the click doesn't toggle the expander).
+            var linkText = new FrameworkElementFactory(typeof(TextBlock));
+            linkText.SetValue(TextBlock.TextProperty, "mark category as noise");
+            linkText.SetValue(TextBlock.ForegroundProperty, Accent);
+            linkText.SetValue(TextBlock.FontSizeProperty, 11.0);
+            linkText.SetValue(TextBlock.TextDecorationsProperty, TextDecorations.Underline);
+            linkText.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+            var catNoise = new FrameworkElementFactory(typeof(Button));
+            catNoise.SetValue(Control.TemplateProperty, new ControlTemplate(typeof(Button)) { VisualTree = linkText });
+            catNoise.SetValue(FrameworkElement.CursorProperty, Cursors.Hand);
+            catNoise.SetValue(FrameworkElement.MarginProperty, new Thickness(14, 0, 0, 0));
+            catNoise.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            catNoise.SetValue(FrameworkElement.ToolTipProperty, "Treat every change in this category (added, deleted, modified) as noise for this link");
+            catNoise.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler((s, e) => Safe(() =>
+            {
+                e.Handled = true;
+                if (((FrameworkElement)s).DataContext is CollectionViewGroup cg) MarkCategoryNoise(cg.Name as string);
+            })));
             header.AppendChild(catCheck);
             header.AppendChild(catText);
+            header.AppendChild(catNoise);
             expander.SetValue(HeaderedContentControl.HeaderTemplateProperty, new DataTemplate { VisualTree = header });
             expander.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
             var containerStyle = new Style(typeof(GroupItem));

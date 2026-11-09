@@ -418,7 +418,7 @@ ProjectPerseus/
 │   │                             sheets, views, viewports, cameras, scope boxes).
 │   ├── ChangeTriage.cs           Pure: groups changes that look alike (category, type, kind, aspects, changed parameter set,
 │   │                             move bucket ≤5/≤50/≤500/>500 mm; optional split by values) + top before→after transitions. Tested.
-│   ├── NoiseFilter.cs            Pure: Effective(change) = change minus noise parameters / noise-sized move (copy; null = only noise;
+│   ├── NoiseFilter.cs            Pure: Effective(change) = null for a noise category (any kind), else change minus noise parameters / noise-sized move (copy; null = only noise;
 │   │                             stored change untouched). ChangeRow.Shown holds it; panel summary/filters/detail, triage and bake
 │   │                             labels all use Shown, so marking one parameter as noise removes it everywhere.
 │   ├── FederatorSettingsStore.cs Append-only shared settings (newest per key wins), e.g. "bake:<link uid>" -> models/BakeSettings.
@@ -448,7 +448,7 @@ ProjectPerseus/
 │   ├── ReviewEvent.cs            NEW (2026-11-08). Federator review comment/status event + ReviewStatus string constants. Batch
 │   │                             events (Elements + per-element Signatures, ≤2000 per event) for bulk reviews.
 │   ├── ElementReviewState.cs     NEW (2026-11-08). Folded review state: status (+carried), open actions, assignees, thread.
-│   ├── NoiseRules.cs             NEW (2026-11-09). Per-link noise rules (parameter names, MinMoveMm), shared via FederatorSettingsStore.
+│   ├── NoiseRules.cs             NEW (2026-11-09). Per-link noise rules (categories, parameter names, MinMoveMm), shared via FederatorSettingsStore.
 │   ├── TriageGroup.cs            NEW (2026-11-09). A ChangeTriage group + ParameterTransition.
 │   ├── ReviewAction.cs           NEW (2026-11-08). Extensible action (free-text Type, Assignee) opened by a ReviewEvent.
 │   ├── BakeSettings.cs           NEW (2026-11-08). Federator bake settings (target views, scope, style, labels), saved per link.

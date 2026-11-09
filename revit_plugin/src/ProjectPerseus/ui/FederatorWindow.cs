@@ -201,7 +201,7 @@ namespace ProjectPerseus.ui
                                         ToolTip = "Show only this link's elements visible in the active view (deleted elements are hidden)." };
             filters.Children.Add(_inViewBox);
             _hideNoiseBox = new CheckBox { Content = "Hide noise", IsChecked = true, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(12, 0, 0, 7),
-                                           ToolTip = "Hide changes that are only noise: parameters marked as noise in Triage, and moves under the noise distance." };
+                                           ToolTip = "Hide changes that are only noise: categories and parameters marked as noise in Triage, and moves under the noise distance." };
             _hideNoiseBox.Checked += (s, e) => Safe(ApplyFilter);
             _hideNoiseBox.Unchecked += (s, e) => Safe(ApplyFilter);
             filters.Children.Add(_hideNoiseBox);
@@ -500,12 +500,14 @@ namespace ProjectPerseus.ui
             Activate();
         }
 
-        /// <summary>Adds parameters (and / or a minimum move) to the link's noise rules, saved in the model for everyone.</summary>
-        internal void TriageAddNoise(IEnumerable<string> parameters, double? minMoveMm)
+        /// <summary>Adds parameters, categories and / or a minimum move to the link's noise rules, saved in the model for everyone.</summary>
+        internal void TriageAddNoise(IEnumerable<string> parameters, double? minMoveMm, IEnumerable<string> categories = null)
         {
             var rules = new NoiseRules
             {
                 Parameters = _noise.Parameters.Union(parameters ?? Enumerable.Empty<string>()).Distinct().OrderBy(p => p).ToList(),
+                Categories = (_noise.Categories ?? new List<string>()).Union(categories ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase)
+                                 .OrderBy(c => c).ToList(),
                 MinMoveMm = minMoveMm ?? _noise.MinMoveMm,
             };
             SaveNoise(rules, "Noise rules updated.");
@@ -513,8 +515,17 @@ namespace ProjectPerseus.ui
 
         internal void TriageRemoveNoise(string parameter)
         {
-            var rules = new NoiseRules { Parameters = _noise.Parameters.Where(p => p != parameter).ToList(), MinMoveMm = _noise.MinMoveMm };
+            var rules = new NoiseRules { Parameters = _noise.Parameters.Where(p => p != parameter).ToList(),
+                                         Categories = _noise.Categories ?? new List<string>(), MinMoveMm = _noise.MinMoveMm };
             SaveNoise(rules, $"'{parameter}' is no longer noise.");
+        }
+
+        internal void TriageRemoveNoiseCategory(string category)
+        {
+            var rules = new NoiseRules { Parameters = _noise.Parameters,
+                                         Categories = (_noise.Categories ?? new List<string>()).Where(c => !string.Equals(c, category, StringComparison.OrdinalIgnoreCase)).ToList(),
+                                         MinMoveMm = _noise.MinMoveMm };
+            SaveNoise(rules, $"{category} changes count again.");
         }
 
         private void SaveNoise(NoiseRules rules, string done)
@@ -1111,7 +1122,9 @@ namespace ProjectPerseus.ui
 
             _detail.Children.Add(Section("What changed"));
             var shown = row.Shown;
-            if (row.IsNoise) _detail.Children.Add(Muted_("Only noise: everything that changed is covered by this link's noise rules."));
+            if (row.IsNoise) _detail.Children.Add(Muted_(NoiseFilter.IsNoiseCategory(c, _noise)
+                ? $"Noise: {c.Category} is marked as a noise category for this link."
+                : "Only noise: everything that changed is covered by this link's noise rules."));
             else foreach (var line in ChangeDescriber.Lines(shown)) _detail.Children.Add(Text(line));
             var noiseParams = NoiseFilter.NoiseParameters(c, NoiseFilter.ParameterSet(_noise));
             bool smallMove = c.Aspects.HasFlag(ChangeAspect.Moved) && !shown.Aspects.HasFlag(ChangeAspect.Moved) && !row.IsNoise;

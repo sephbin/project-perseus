@@ -19,7 +19,9 @@ namespace ProjectPerseus.federator
         /// </summary>
         public static ElementChange Effective(ElementChange c, NoiseRules rules, HashSet<string> parameters)
         {
-            if (c == null || rules == null || c.Kind != ChangeKind.Modified) return c;
+            if (c == null || rules == null) return c;
+            if (IsNoiseCategory(c, rules)) return null;
+            if (c.Kind != ChangeKind.Modified) return c;
             var aspects = c.Aspects;
             List<ParameterChange> kept = c.ParameterChanges;
             if (aspects.HasFlag(ChangeAspect.Parameters) && c.ParameterChanges != null && parameters.Count > 0)
@@ -53,9 +55,16 @@ namespace ProjectPerseus.federator
             NewVolume = c.NewVolume, Signature = c.Signature, Replacements = c.Replacements,
         };
 
+        /// <summary>Is the change's category one of the rules' noise categories (any kind of change)?</summary>
+        public static bool IsNoiseCategory(ElementChange c, NoiseRules rules) =>
+            c != null && rules?.Categories != null && rules.Categories.Count > 0
+            && rules.Categories.Contains(c.Category ?? "", StringComparer.OrdinalIgnoreCase);
+
         public static bool IsNoise(ElementChange c, NoiseRules rules, HashSet<string> parameters)
         {
-            if (c == null || rules == null || c.Kind != ChangeKind.Modified) return false;
+            if (c == null || rules == null) return false;
+            if (IsNoiseCategory(c, rules)) return true;
+            if (c.Kind != ChangeKind.Modified) return false;
             var rest = c.Aspects;
             if (rest.HasFlag(ChangeAspect.Parameters) && c.ParameterChanges != null && c.ParameterChanges.Count > 0
                 && c.ParameterChanges.All(p => parameters.Contains(p.Name)))
