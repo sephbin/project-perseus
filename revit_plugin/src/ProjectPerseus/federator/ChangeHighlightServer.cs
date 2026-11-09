@@ -134,11 +134,17 @@ namespace ProjectPerseus.federator
 
                 var frame = new Frame(view, Place);
                 LogViewOnce(view, viewKey, version, frame, visible.Count);
-                string key = $"{version}|{frame.Key}";
+
+                // Level of detail from the live camera: zoomed in = full shapes (only around the visible area when the
+                // view holds too many to build at once), zoomed out / crowded = screen-sized dots with the glyph.
+                var win = CameraWindow(frame);
+                var lod = Choose(viewKey, version, frame, items, visible, win);
+                string key = $"{version}|{frame.Key}|{lod.Key}";
                 if (!_cache.TryGetValue(viewKey, out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
                 {
                     if (cached.Value != null) foreach (var b in cached.Value) b.Dispose();
-                    cached = new KeyValuePair<string, List<Batch>>(key, Build(items, visible, frame, version));
+                    var built = lod.Dots ? BuildDots(items, visible, frame, version, lod.Fpp) : Build(items, lod.Build, frame, version);
+                    cached = new KeyValuePair<string, List<Batch>>(key, built);
                     _cache[viewKey] = cached;
                 }
                 foreach (var b in cached.Value)
@@ -148,6 +154,153 @@ namespace ProjectPerseus.federator
             {
                 if (!_loggedError) { _loggedError = true; Log.Warn($"[Federator] change highlight render failed: {ex}"); }
             }
+        }
+
+        // ── Level of detail ──
+
+        // Zoomed out past this (badge radius on screen, px) or more changes than FullDetailLimit on screen: dots.
+        private const double MinBadgePx = 5;
+        private const double DotPx = 6.5, DotHaloPx = 1.6;   // dot radius / white rim, screen pixels
+        private const double DotBucket = 1.25;               // dots are rebuilt when the zoom changes by this factor
+
+        /// <summary>The visible part of the view in Frame (u, v) coordinates and feet per screen pixel.</summary>
+        private struct Window
+        {
+            internal bool Ok;
+            internal double U0, V0, U1, V1, Fpp;
+            internal bool Overlaps(double[] r) => r[2] >= U0 && r[0] <= U1 && r[3] >= V0 && r[1] <= V1;
+            internal bool Inside(double[] region) => U0 >= region[0] && U1 <= region[2] && V0 >= region[1] && V1 <= region[3];
+        }
+
+        private struct Lod
+        {
+            internal bool Dots;
+            internal double Fpp;
+            internal List<int> Build;
+            internal string Key;
+        }
+
+        private readonly Dictionary<long, KeyValuePair<string, double[][]>> _rects = new Dictionary<long, KeyValuePair<string, double[][]>>();
+        private readonly Dictionary<long, KeyValuePair<string, double[]>> _regions = new Dictionary<long, KeyValuePair<string, double[]>>();
+        private readonly Dictionary<long, string> _loggedLod = new Dictionary<long, string>();
+
+        // Orthographic camera only (perspective: no window; the old count-based style applies).
+        private static Window CameraWindow(Frame f)
+        {
+            var w = new Window();
+            try
+            {
+                var cam = DrawContext.GetCamera();
+                if (cam == null || cam.ProjectionMethod != ProjectionMethod.Orthographic) return w;
+                var vr = DrawContext.GetViewRectangle();
+                double px = Math.Abs(vr.Right - vr.Left);
+                double he = cam.HorizontalExtent, ve = cam.VerticalExtent;
+                if (!(px > 0) || !(he > 0) || !(ve > 0) || double.IsInfinity(he) || double.IsInfinity(ve)) return w;
+                var dir = cam.ViewDirection.Normalize();
+                var up = cam.UpDirection.Normalize();
+                var right = dir.CrossProduct(up);
+                var c = cam.EyePosition + dir * cam.TargetDistance + right * cam.HorizontalOffset + up * cam.VerticalOffset;
+                double cu = (c - f.O).DotProduct(f.R), cv = (c - f.O).DotProduct(f.U);
+                double hu = (Math.Abs(right.DotProduct(f.R)) * he + Math.Abs(up.DotProduct(f.R)) * ve) / 2;
+                double hv = (Math.Abs(right.DotProduct(f.U)) * he + Math.Abs(up.DotProduct(f.U)) * ve) / 2;
+                w.U0 = cu - hu; w.U1 = cu + hu; w.V0 = cv - hv; w.V1 = cv + hv;
+                w.Fpp = he / px;
+                w.Ok = true;
+            }
+            catch { w.Ok = false; }
+            return w;
+        }
+
+        // Projected rectangles of the visible changes, cached per view until the items or the frame change.
+        private double[][] RectsFor(long viewKey, int version, Frame f, List<Item> items, List<int> visible)
+        {
+            string key = $"{version}|{f.Key}";
+            if (_rects.TryGetValue(viewKey, out var c) && c.Key == key) return c.Value;
+            var rects = new double[visible.Count][];
+            for (int k = 0; k < visible.Count; k++)
+            {
+                f.Project(items[visible[k]].Min, items[visible[k]].Max, out var r, out _, out _);
+                rects[k] = r;
+            }
+            _rects[viewKey] = new KeyValuePair<string, double[][]>(key, rects);
+            return rects;
+        }
+
+        private Lod Choose(long viewKey, int version, Frame f, List<Item> items, List<int> visible, Window win)
+        {
+            var lod = new Lod { Build = visible, Key = "all" };
+            if (!win.Ok) return lod;
+            var rects = RectsFor(viewKey, version, f, items, visible);
+            int inWin = 0;
+            foreach (var r in rects) if (win.Overlaps(r)) inWin++;
+            double badgePx = BadgeR * f.S / win.Fpp;
+            string why;
+            if (inWin > FullDetailLimit || badgePx < MinBadgePx)
+            {
+                lod.Dots = true;
+                double step = Math.Round(Math.Log(win.Fpp) / Math.Log(DotBucket));
+                lod.Fpp = Math.Pow(DotBucket, step);
+                lod.Key = "dots" + step;
+                why = $"dots ({inWin:N0} on screen, badge {badgePx:F1} px)";
+            }
+            else if (visible.Count > FullDetailLimit)
+            {
+                // Too many in the view to build at once: build around the window, rebuilt when the window leaves it.
+                string prefix = $"{version}|{f.Key}|";
+                if (_regions.TryGetValue(viewKey, out var reg) && reg.Key.StartsWith(prefix, StringComparison.Ordinal) && win.Inside(reg.Value))
+                    lod.Key = reg.Key.Substring(prefix.Length);
+                else
+                {
+                    double mu = (win.U1 - win.U0) * 0.5, mv = (win.V1 - win.V0) * 0.5;
+                    var region = new[] { win.U0 - mu, win.V0 - mv, win.U1 + mu, win.V1 + mv };
+                    lod.Key = $"region{region[0]:F1},{region[1]:F1},{region[2]:F1},{region[3]:F1}";
+                    _regions[viewKey] = new KeyValuePair<string, double[]>(prefix + lod.Key, region);
+                }
+                var r0 = _regions[viewKey].Value;
+                var near = new Window { Ok = true, U0 = r0[0], V0 = r0[1], U1 = r0[2], V1 = r0[3] };
+                lod.Build = new List<int>();
+                for (int k = 0; k < rects.Length; k++) if (near.Overlaps(rects[k])) lod.Build.Add(visible[k]);
+                why = $"full, {lod.Build.Count:N0} near the screen";
+            }
+            else why = "full";
+
+            string tier = lod.Dots ? "dots" : "full";
+            if (!_loggedLod.TryGetValue(viewKey, out var last) || last != tier)
+            {
+                _loggedLod[viewKey] = tier;
+                Log.Info($"[Federator] highlight detail: {why}; {inWin:N0} of {visible.Count:N0} in the window, {win.Fpp * 304.8:F1} mm/px");
+            }
+            return lod;
+        }
+
+        /// <summary>
+        /// Zoomed-out style: every change is a dot of fixed screen size (white rim, colour, white + − ~ glyph) at the
+        /// element's centre. Selected changes keep their full outline. Cheap enough to draw all of them.
+        /// </summary>
+        private List<Batch> BuildDots(List<Item> items, List<int> visible, Frame f, int version, double fpp)
+        {
+            var layers = new Dictionary<Kind, Layer3D>();
+            var white = new Layer3D();
+            Layer3D LayerOf(Kind k) { if (!layers.TryGetValue(k, out var l)) layers[k] = l = new Layer3D(); return l; }
+            double eps = Layer * f.S, r = DotPx * fpp, rim = DotHaloPx * fpp;
+            var emphasised = new List<int>();
+            var t = new List<double>();
+            foreach (int i in visible)
+            {
+                var it = items[i];
+                if (it.Emphasis) { emphasised.Add(i); continue; }
+                f.Project(it.Min, it.Max, out var rect, out double wNear, out double wFar);
+                double w = f.Depth(wNear, wFar);
+                var c = Centre(rect);
+                t.Clear(); OverlayShapes.Disc(t, c, r + rim, 20); white.AddTris(f, t, w - eps);
+                t.Clear(); OverlayShapes.Disc(t, c, r, 20); LayerOf(it.Kind).AddTris(f, t, w + eps);
+                t.Clear(); OverlayShapes.Glyph(t, GlyphOf(it.Kind), c, r * 0.5, r * 0.14); white.AddTris(f, t, w + 2 * eps);
+            }
+            var batches = new List<Batch>();
+            AddBatches(batches, white, new Color(255, 255, 255), lines: false);
+            foreach (var kv in layers) AddBatches(batches, kv.Value, ColorOf(kv.Key), lines: false);
+            if (emphasised.Count > 0) batches.AddRange(Build(items, emphasised, f, version));
+            return batches;
         }
 
         private List<int> VisibleFor(View view, long viewKey, List<Item> items, int version)

@@ -404,7 +404,9 @@ ProjectPerseus/
 │   │                             badges/arrowheads (transparent-pass fills hid the plan underlay). Placement (panel combo):
 │   │                             At element (default) = on the element box's face nearest the camera, below the cut plane; On top = just behind the cut plane / crop / section box near face (ortho 3D: in front of the
 │   │                             camera; perspective: in front of the element); Underneath = just behind each element, kept in
-│   │                             front of the view depth / far clip. Cached per view.
+│   │                             front of the view depth / far clip. Cached per view. Level of detail from the live camera
+│   │                             (DrawContext.GetCamera): zoomed in = full shapes (built around the screen past 800 changes), zoomed
+│   │                             out / crowded = screen-sized dots with the glyph (rebuilt per 25 % zoom step); selected keep outlines.
 │   ├── OverlayShapes.cs          Pure 2D shapes for it: rounded rect, dashes, stroke (one mitred ribbon, optional round caps), disc, arrow, rect-to-rect
 │   │                             arrow clipping, badge glyphs. Tested in OverlayShapesTest.cs. Reusable for P8 (markers/violations).
 │   ├── ChangeHighlightController.cs Registers the server; Show(doc, changes, LinkTransform, selected uids) -> items (max 6000).
