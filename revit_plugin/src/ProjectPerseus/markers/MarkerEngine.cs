@@ -466,7 +466,7 @@ namespace ProjectPerseus.markers
                     if (view is ViewPlan plan && plan.GenLevel != null)
                     {
                         var vr = plan.GetViewRange();
-                        double lz = plan.GenLevel.Elevation;
+                        double lz = plan.GenLevel.ProjectElevation; // internal coordinates (Elevation is relative to the base point)
                         double a = lz + vr.GetOffset(PlanViewPlane.TopClipPlane);
                         double b = lz + vr.GetOffset(PlanViewPlane.BottomClipPlane);
                         d._kind = Kind.PlanZ; d._min = Math.Min(a, b); d._max = Math.Max(a, b);

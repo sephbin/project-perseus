@@ -121,10 +121,10 @@ namespace ProjectPerseus.federator
             var level = doc.GetElement(levelId) as Level;
             if (level == null)
             {
-                if (plane == PlanViewPlane.CutPlane && plan.GenLevel != null) return plan.GenLevel.Elevation + vr.GetOffset(plane);
+                if (plane == PlanViewPlane.CutPlane && plan.GenLevel != null) return plan.GenLevel.ProjectElevation + vr.GetOffset(plane);
                 return unlimited;
             }
-            return level.Elevation + vr.GetOffset(plane);
+            return level.ProjectElevation + vr.GetOffset(plane);
         }
     }
 }

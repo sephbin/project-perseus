@@ -342,7 +342,7 @@ namespace ProjectPerseus.queue
                     if (level == null) return f;
 
                     var    vr   = planView.GetViewRange();
-                    double lz   = level.Elevation;
+                    double lz   = level.ProjectElevation; // internal coordinates (Elevation is relative to the base point)
                     double topZ = lz + vr.GetOffset(PlanViewPlane.TopClipPlane);
                     double btmZ = lz + vr.GetOffset(PlanViewPlane.BottomClipPlane);
 

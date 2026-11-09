@@ -301,7 +301,7 @@ namespace ProjectPerseus.federator
                     if (plane == PlanViewPlane.ViewDepthPlane) return double.NaN; // unlimited
                     level = plan.GenLevel;
                 }
-                return level.Elevation + vr.GetOffset(plane);
+                return level.ProjectElevation + vr.GetOffset(plane);
             }
         }
 
