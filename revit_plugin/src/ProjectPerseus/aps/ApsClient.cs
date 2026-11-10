@@ -59,6 +59,56 @@ namespace ProjectPerseus.aps
             return list.OrderByDescending(v => v.Number).ToList();
         }
 
+        /// <summary>
+        /// Finds a cloud model's Data Management ids from its cloud project + model GUIDs (ModelPath, read locally), for
+        /// when Revit's Document.GetProjectId / GetCloudModelUrn fail: the hub holding project "b.&lt;guid&gt;", its top
+        /// folders, then a folder search for the model GUID (else the file name, checked against the GUID).
+        /// Returns (projectId, itemUrn); throws with the reason when not found / not accessible.
+        /// </summary>
+        internal static async Task<Tuple<string, string>> ResolveItemAsync(Guid projectGuid, Guid modelGuid, string fileName, CancellationToken ct)
+        {
+            string token = await ApsAuth.GetTokenAsync(false, ct).ConfigureAwait(false)
+                           ?? throw new InvalidOperationException("Not signed in to Autodesk.");
+            string pid = "b." + projectGuid.ToString("D");
+            string model = modelGuid.ToString("D");
+            var hubs = await GetJson($"{Base}/project/v1/hubs", token, ct).ConfigureAwait(false);
+            string lastError = "this project isn't in any hub your Autodesk account can see";
+            foreach (var hub in (JArray)hubs["data"] ?? new JArray())
+            {
+                JObject top;
+                try { top = await GetJson($"{Base}/project/v1/hubs/{Uri.EscapeDataString((string)hub["id"])}/projects/{pid}/topFolders", token, ct).ConfigureAwait(false); }
+                catch (Exception ex) { lastError = ex.Message; continue; }   // not this hub
+                foreach (var folder in (JArray)top["data"] ?? new JArray())
+                {
+                    string fid = Uri.EscapeDataString((string)folder["id"]);
+                    foreach (string filter in new[]
+                             {
+                                 $"filter[attributes.extension.data.modelGuid]={Uri.EscapeDataString(model)}",
+                                 string.IsNullOrEmpty(fileName) ? null : $"filter[attributes.displayName]={Uri.EscapeDataString(fileName)}",
+                             })
+                    {
+                        if (filter == null) continue;
+                        JObject found;
+                        try { found = await GetJson($"{Base}/data/v1/projects/{pid}/folders/{fid}/search?{filter}", token, ct).ConfigureAwait(false); }
+                        catch (Exception ex) { lastError = ex.Message; continue; }
+                        foreach (var v in (JArray)found["data"] ?? new JArray())
+                        {
+                            string guid = (string)v["attributes"]?["extension"]?["data"]?["modelGuid"];
+                            if (guid != null && !string.Equals(guid, model, StringComparison.OrdinalIgnoreCase)) continue;
+                            string item = (string)v["relationships"]?["item"]?["data"]?["id"];
+                            if (item != null)
+                            {
+                                Log.Info($"[APS] resolved {fileName} -> {pid} / {item}");
+                                return Tuple.Create(pid, item);
+                            }
+                        }
+                    }
+                }
+                lastError = "the model wasn't found in its project's folders";
+            }
+            throw new InvalidOperationException($"Couldn't find {fileName} in Autodesk Docs: {lastError}");
+        }
+
         /// <summary>Downloads a version to DownloadFolder and returns the local .rvt path. progress: fraction or -1.</summary>
         internal static async Task<string> DownloadAsync(string projectId, CloudVersion v, IProgress<double> progress, CancellationToken ct)
         {

@@ -66,6 +66,8 @@ namespace ProjectPerseus.ui
             internal string LiveGuid;       // save GUID of the loaded version (null when unloaded / unknown)
             internal int LiveSaves;
             internal string CloudProjectId, CloudItemUrn;   // cloud model (ACC / BIM 360): Data Management ids, else null
+            internal Guid CloudProjectGuid, CloudModelGuid;  // from the cloud model path (local); ids resolved via APS when Revit can't
+            internal bool IsCloud => CloudItemUrn != null || CloudModelGuid != Guid.Empty;
             public override string ToString() => Loaded ? Name : Name + "  (unloaded)";
         }
 
@@ -389,7 +391,7 @@ namespace ProjectPerseus.ui
                 try { linkDoc = inst.GetLinkDocument(); } catch { /* unloaded */ }
                 string typeName = _doc.GetElement(inst.GetTypeId())?.Name ?? inst.Name;
                 var item = new LinkItem { Uid = inst.UniqueId, Name = typeName, Path = linkDoc?.PathName, Loaded = linkDoc != null,
-                                          ModelKey = VersionCatalog.ModelKey(_doc, inst, typeName) };
+                                          ModelKey = VersionCatalog.ModelKey(_doc, inst, linkDoc, typeName) };
                 if (linkDoc != null)
                 {
                     try
@@ -398,11 +400,17 @@ namespace ProjectPerseus.ui
                         if (dv != null) { item.LiveGuid = dv.VersionGUID.ToString(); item.LiveSaves = dv.NumberOfSaves; }
                     }
                     catch { /* no version info */ }
+                    if (VersionCatalog.TryCloudGuids(linkDoc, out Guid pg, out Guid mg)) { item.CloudProjectGuid = pg; item.CloudModelGuid = mg; }
                     try
                     {
                         if (linkDoc.IsModelInCloud) { item.CloudProjectId = linkDoc.GetProjectId(); item.CloudItemUrn = linkDoc.GetCloudModelUrn(); }
                     }
-                    catch (Exception ex) { Log.Info($"[Federator] cloud ids of {typeName}: {ex.Message}"); }
+                    catch (Exception ex)
+                    {
+                        // Seen for links: "unauthorized to access this hub/project". The GUIDs above let APS find it instead.
+                        item.CloudProjectId = item.CloudItemUrn = null;
+                        Log.Info($"[Federator] cloud ids of {typeName} not available from Revit ({ex.Message}); will look it up in Autodesk Docs");
+                    }
                 }
                 _links.Add(item);
             }
@@ -1004,7 +1012,7 @@ namespace ProjectPerseus.ui
             {
                 var cached = VersionCatalog.List(link.ModelKey);
                 var liveEntry = link.LiveGuid == null ? null : cached.FirstOrDefault(v => SameGuid(v.VersionGuid, link.LiveGuid));
-                bool cloudLink = link.CloudItemUrn != null;
+                bool cloudLink = link.IsCloud;
                 _cloudVersions.TryGetValue(link.Uid, out var cloudList);
                 if (link.Loaded)
                 {
@@ -1106,17 +1114,32 @@ namespace ProjectPerseus.ui
         /// <summary>Lists the link's cloud versions on a background thread (interactive: browser sign-in if needed).</summary>
         private void FetchCloudVersions(LinkItem link, bool interactive)
         {
-            if (link?.CloudItemUrn == null) return;
+            if (link == null || !link.IsCloud) return;
             string uid = link.Uid, projectId = link.CloudProjectId, urn = link.CloudItemUrn;
+            Guid pg = link.CloudProjectGuid, mg = link.CloudModelGuid;
+            string fileName = link.Name.Split(new[] { "  #" }, StringSplitOptions.None)[0];
+            if (!fileName.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase)) fileName += ".rvt";
             _cloudState[uid] = "loading";
             if (interactive) Status("Signing in to Autodesk in your browser…");
             Task.Run(async () =>
             {
                 try
                 {
-                    var list = await ApsClient.ListVersionsAsync(projectId, urn, interactive, CancellationToken.None).ConfigureAwait(false);
+                    // Signed in? (interactive: browser if needed)
+                    if (await ApsAuth.GetTokenAsync(interactive, CancellationToken.None).ConfigureAwait(false) == null)
+                    {
+                        await Dispatcher.InvokeAsync(() => Safe(() => { _cloudState[uid] = "signin"; if (SelectedLink?.Uid == uid) RefillVersions(); }));
+                        return;
+                    }
+                    if (urn == null)
+                    {
+                        var ids = await ApsClient.ResolveItemAsync(pg, mg, fileName, CancellationToken.None).ConfigureAwait(false);
+                        projectId = ids.Item1; urn = ids.Item2;
+                    }
+                    var list = await ApsClient.ListVersionsAsync(projectId, urn, false, CancellationToken.None).ConfigureAwait(false);
                     await Dispatcher.InvokeAsync(() => Safe(() =>
                     {
+                        link.CloudProjectId = projectId; link.CloudItemUrn = urn;   // for downloads
                         if (list == null) _cloudState[uid] = "signin";
                         else { _cloudVersions[uid] = list; _cloudState.Remove(uid); Status($"{list.Count} cloud version(s) of {link.Name}."); }
                         if (SelectedLink?.Uid == uid) RefillVersions();

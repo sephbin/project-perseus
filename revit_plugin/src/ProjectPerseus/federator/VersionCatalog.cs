@@ -24,21 +24,51 @@ namespace ProjectPerseus.federator
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ProjectPerseus", "federator", "versions");
 
         /// <summary>Identity of the consultant model behind a link instance, the same across its versions. API context.</summary>
-        internal static string ModelKey(Document host, RevitLinkInstance instance, string fallbackName)
+        /// <param name="linkDoc">The loaded link document (null when unloaded).</param>
+        internal static string ModelKey(Document host, RevitLinkInstance instance, Document linkDoc, string fallbackName)
         {
+            // Loaded: from the document itself (cloud links are external resources, not external file references).
+            if (TryCloudGuids(linkDoc, out _, out Guid model)) return "cloud|" + model.ToString("N");
             try
             {
-                var ext = ExternalFileUtils.GetExternalFileReference(host, instance.GetTypeId());
-                var mp = ext?.GetAbsolutePath();
-                if (mp != null)
+                if (linkDoc != null && !linkDoc.IsModelInCloud && !string.IsNullOrEmpty(linkDoc.PathName))
+                    return "file|" + Path.GetFullPath(linkDoc.PathName).ToLowerInvariant();
+            }
+            catch { /* odd path */ }
+            // Unloaded file link: its saved path.
+            try
+            {
+                var typeId = instance.GetTypeId();
+                if (ExternalFileUtils.IsExternalFileReference(host, typeId))
                 {
-                    if (mp.CloudPath) return "cloud|" + mp.GetModelGUID().ToString("N");
-                    string p = ModelPathUtils.ConvertModelPathToUserVisiblePath(mp);
-                    if (!string.IsNullOrEmpty(p)) return "file|" + p.ToLowerInvariant();
+                    var mp = ExternalFileUtils.GetExternalFileReference(host, typeId)?.GetAbsolutePath();
+                    if (mp != null && mp.CloudPath) return "cloud|" + mp.GetModelGUID().ToString("N");
+                    string p = mp == null ? null : ModelPathUtils.ConvertModelPathToUserVisiblePath(mp);
+                    if (!string.IsNullOrEmpty(p)) return "file|" + Path.GetFullPath(p).ToLowerInvariant();
                 }
             }
             catch (Exception ex) { Log.Info($"[Federator] link model key: {ex.Message}"); }
             return "name|" + (fallbackName ?? "").ToLowerInvariant();
+        }
+
+        /// <summary>Cloud project + model GUIDs of a loaded cloud model, read locally (no cloud lookup).</summary>
+        internal static bool TryCloudGuids(Document linkDoc, out Guid project, out Guid model)
+        {
+            project = model = Guid.Empty;
+            try
+            {
+                if (linkDoc == null || !linkDoc.IsModelInCloud) return false;
+                var mp = linkDoc.GetCloudModelPath();
+                if (mp == null || !mp.CloudPath) return false;
+                project = mp.GetProjectGUID();
+                model = mp.GetModelGUID();
+                return model != Guid.Empty;
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"[Federator] cloud path of {linkDoc?.Title}: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>Cached versions, newest (most saves, then latest) first.</summary>
