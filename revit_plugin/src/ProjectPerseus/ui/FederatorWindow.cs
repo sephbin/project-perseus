@@ -398,6 +398,7 @@ namespace ProjectPerseus.ui
             string keepLink = (_linkBox.SelectedItem as LinkItem)?.Uid;
             string keepComparison = _record?.Id;
 
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             _links.Clear();
             foreach (ARDB.RevitLinkInstance inst in new ARDB.FilteredElementCollector(_doc).OfClass(typeof(ARDB.RevitLinkInstance)))
             {
@@ -414,20 +415,14 @@ namespace ProjectPerseus.ui
                         if (dv != null) { item.LiveGuid = dv.VersionGUID.ToString(); item.LiveSaves = dv.NumberOfSaves; }
                     }
                     catch { /* no version info */ }
+                    // Cloud GUIDs are read locally. Not Document.GetProjectId / GetCloudModelUrn: for consultants' links they
+                    // block ~30 s each before failing ("unauthorized to access this hub/project"), freezing the panel's open.
+                    // The Data Management ids are looked up via APS (ApsClient.ResolveItemAsync, background) when needed.
                     if (VersionCatalog.TryCloudGuids(linkDoc, out Guid pg, out Guid mg)) { item.CloudProjectGuid = pg; item.CloudModelGuid = mg; }
-                    try
-                    {
-                        if (linkDoc.IsModelInCloud) { item.CloudProjectId = linkDoc.GetProjectId(); item.CloudItemUrn = linkDoc.GetCloudModelUrn(); }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Seen for links: "unauthorized to access this hub/project". The GUIDs above let APS find it instead.
-                        item.CloudProjectId = item.CloudItemUrn = null;
-                        Log.Info($"[Federator] cloud ids of {typeName} not available from Revit ({ex.Message}); will look it up in Autodesk Docs");
-                    }
                 }
                 _links.Add(item);
             }
+            long tLinks = clock.ElapsedMilliseconds;
             // Several instances of one link: tell them apart.
             foreach (var g in _links.GroupBy(l => l.Name).Where(g => g.Count() > 1))
             {
@@ -437,8 +432,11 @@ namespace ProjectPerseus.ui
             _links.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
             _records = ComparisonStore.List(_doc);
+            long tRecords = clock.ElapsedMilliseconds;
             _events = ReviewStore.Load(_doc);
+            long tEvents = clock.ElapsedMilliseconds;
             _archiveRoot = LinkArchive.RootFor(_doc);
+            long tArchive = clock.ElapsedMilliseconds;
             _cloudVersions.Clear();   // Refresh re-reads the cloud version lists too
             _cloudState.Clear();
 
@@ -455,6 +453,8 @@ namespace ProjectPerseus.ui
             if (_links.Count == 0) Status("This model has no Revit links.");
             else Status($"Loaded {_records.Count} comparison(s) and {_events.Count} review event(s).");
             FillComparisons(keepComparison);
+            Log.Info($"[Federator] panel load {clock.ElapsedMilliseconds} ms: links {tLinks} ({_links.Count}), comparisons {tRecords - tLinks}, " +
+                     $"reviews {tEvents - tRecords} ({_events.Count}), archive folder {tArchive - tEvents}, pickers + list {clock.ElapsedMilliseconds - tArchive}");
         }
 
         private LinkItem SelectedLink => _linkBox.SelectedItem as LinkItem;
