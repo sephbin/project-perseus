@@ -77,6 +77,7 @@ namespace ProjectPerseus.sync
             ViolationDetector.Subscribe(application, _config.BaseUrl);
             ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
             ids.IdIndexMaintainer.Subscribe(application);
+            violations.ElementCategoryCache.Subscribe(application);
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
@@ -112,6 +113,7 @@ namespace ProjectPerseus.sync
             ViolationDetector.Unsubscribe(application);
             ids.IdAutoAssignController.Unsubscribe(application);
             ids.IdIndexMaintainer.Unsubscribe(application);
+            violations.ElementCategoryCache.Unsubscribe(application);
             _alertPoller?.Stop();
             _queueWebForm?.Close();
             ui.ViolationOverlayController.Stop();
@@ -720,11 +722,12 @@ namespace ProjectPerseus.sync
                 string jsonPayload = JsonConvert.SerializeObject(payload);
 
                 var preSyncEndpoint = $"{baseUrl}/presync/{docGuid}";
-                string preSyncToken = AuthService.GetAuthTokenSafely();
                 System.Threading.Tasks.Task.Run(() =>
                 {
                     try
                     {
+                        // Token fetched here, not on the UI thread: an expired sign-in can wait minutes for the browser.
+                        string preSyncToken = AuthService.GetAuthTokenSafely();
                         string response = WebHelper.Post(preSyncEndpoint, preSyncToken, jsonPayload, timeoutMs: 30000);
                         Log.Info($"Preliminary sync request sent. Response: {response}");
                     }

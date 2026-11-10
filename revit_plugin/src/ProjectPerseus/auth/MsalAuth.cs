@@ -53,7 +53,8 @@ namespace ProjectPerseus.auth
             {
                 try
                 {
-                    result = await AcquireTokenInteractiveOnStaAsync();
+                    result = await SharedInteractiveAsync();
+                    if (result == null) return null;
                 }
                 catch (Exception ex)
                 {
@@ -62,6 +63,49 @@ namespace ProjectPerseus.auth
                 }
             }
             return result.AccessToken;
+        }
+
+        // Many callers (pollers, caches, doc-open warm-up) ask for a token at once. Without this each one opened
+        // its own browser sign-in, every poll, each waiting 3 minutes: a user who did not finish signing in got a
+        // new browser window every minute or two (seen on a Revit 2023 machine, 2026-11-06). Now: one sign-in at
+        // a time, shared by every caller, and after a failed / cancelled one no new prompt for InteractiveCooldown.
+        private static readonly TimeSpan InteractiveCooldown = TimeSpan.FromMinutes(15);
+        private static readonly object _interactiveLock = new object();
+        private static Task<AuthenticationResult> _interactiveTask;
+        private static DateTime _interactiveBlockedUntil = DateTime.MinValue;
+
+        private static async Task<AuthenticationResult> SharedInteractiveAsync()
+        {
+            Task<AuthenticationResult> task;
+            lock (_interactiveLock)
+            {
+                if (_interactiveTask == null)
+                {
+                    if (DateTime.UtcNow < _interactiveBlockedUntil) return null;
+                    _interactiveTask = AcquireTokenInteractiveOnStaAsync();
+                }
+                task = _interactiveTask;
+            }
+            try
+            {
+                return await task.ConfigureAwait(false);
+            }
+            catch
+            {
+                lock (_interactiveLock)
+                {
+                    if (_interactiveTask == task)
+                        _interactiveBlockedUntil = DateTime.UtcNow + InteractiveCooldown;
+                }
+                throw;
+            }
+            finally
+            {
+                lock (_interactiveLock)
+                {
+                    if (_interactiveTask == task) _interactiveTask = null;
+                }
+            }
         }
 
         // Silent-only variant — returns null rather than triggering interactive login.

@@ -520,6 +520,8 @@ ProjectPerseus/
 │                                 Not UI-thread-only: on cloud models it's CloudWorksharing's WPF CollaborateSWCView on
 │                                 its own thread. Every cancel path must also tell the user why (own dialog or SyncStatusToast).
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
+│   ├── ElementCategoryCache.cs   Category/name/type per element so deletions can be described. Prime() (DocumentOpened)
+│   │                             only queues: filled in 40 ms Idling slices (blocking scan froze 700k-element models ~60 s).
 │   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
 │   │                             via ControlledApplication (called from SyncOrchestrator).
 │   │                             Detects: element_deleted, ungroup, unpin, link_unload (provisional),
