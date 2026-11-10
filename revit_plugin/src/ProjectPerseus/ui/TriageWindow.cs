@@ -181,9 +181,18 @@ namespace ProjectPerseus.ui
 
         // ── Data ──
 
+        // Categories the user collapsed (kept across refreshes, e.g. after marking noise).
+        private readonly HashSet<string> _collapsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         private void Refresh()
         {
             var keepSelected = new HashSet<string>(_grid.SelectedItems.Cast<GroupRow>().Select(g => g.G.Key));
+            // Keep the user's column sort and scroll position: the list is rebuilt with a new view.
+            var oldView = _grid.ItemsSource as ListCollectionView;
+            var keepSorts = oldView != null && oldView.CustomSort == null ? oldView.SortDescriptions.ToList() : new List<SortDescription>();
+            var keepDirections = _grid.Columns.Select(c => c.SortDirection).ToList();
+            var gridScroll = FindChild<ScrollViewer>(_grid);
+            double keepOffset = gridScroll?.VerticalOffset ?? 0;
             var source = _owner.TriageSource(_includeReviewed.IsChecked == true);
             var groups = ChangeTriage.Group(source.Select(r => r.Shown), new TriageOptions
             {
@@ -203,12 +212,14 @@ namespace ProjectPerseus.ui
                 }
             }
             var view = new ListCollectionView(_groups);
-            if (_byCategory.IsChecked == true)
-            {
-                view.CustomSort = new CategoryOrder();
-                view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(GroupRow.Category)));
-            }
+            if (keepSorts.Count > 0) foreach (var sd in keepSorts) view.SortDescriptions.Add(sd);
+            else if (_byCategory.IsChecked == true) view.CustomSort = new CategoryOrder();
+            if (_byCategory.IsChecked == true) view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(GroupRow.Category)));
             _grid.ItemsSource = view;
+            for (int i = 0; i < _grid.Columns.Count && i < keepDirections.Count; i++) _grid.Columns[i].SortDirection = keepDirections[i];
+            if (keepOffset > 0)
+                Dispatcher.BeginInvoke(new Action(() => Safe(() => FindChild<ScrollViewer>(_grid)?.ScrollToVerticalOffset(keepOffset))),
+                                       System.Windows.Threading.DispatcherPriority.Loaded);
             foreach (var g in _groups.Where(g => keepSelected.Contains(g.G.Key))) _grid.SelectedItems.Add(g);
             _summary.Text = $"{_groups.Count:N0} groups · {source.Count:N0} changes" +
                             (_includeReviewed.IsChecked == true ? "" : " still unreviewed") + " (noise excluded)";
@@ -459,6 +470,20 @@ namespace ProjectPerseus.ui
             // Category groups: expander header = [check box] "Sprinklers · 1,240 change(s) in 6 group(s)".
             var expander = new FrameworkElementFactory(typeof(Expander));
             expander.SetValue(Expander.IsExpandedProperty, true);
+            // Remember collapsed categories so a refresh (e.g. after marking noise) doesn't open them all again.
+            expander.AddHandler(FrameworkElement.LoadedEvent, new RoutedEventHandler((s, e) => Safe(() =>
+            {
+                var ex = (Expander)s;
+                if (ex.DataContext is CollectionViewGroup cg && _collapsed.Contains(cg.Name as string ?? "")) ex.IsExpanded = false;
+            })));
+            expander.AddHandler(Expander.CollapsedEvent, new RoutedEventHandler((s, e) => Safe(() =>
+            {
+                if (e.OriginalSource == s && ((FrameworkElement)s).DataContext is CollectionViewGroup cg) _collapsed.Add(cg.Name as string ?? "");
+            })));
+            expander.AddHandler(Expander.ExpandedEvent, new RoutedEventHandler((s, e) => Safe(() =>
+            {
+                if (e.OriginalSource == s && ((FrameworkElement)s).DataContext is CollectionViewGroup cg) _collapsed.Remove(cg.Name as string ?? "");
+            })));
             expander.SetBinding(HeaderedContentControl.HeaderProperty, new Binding());
             var header = new FrameworkElementFactory(typeof(StackPanel));
             header.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
@@ -501,6 +526,19 @@ namespace ProjectPerseus.ui
             g.Columns.Add(Text("Type", nameof(GroupRow.Type), new DataGridLength(1, DataGridLengthUnitType.Star)));
             g.Columns.Add(Text("Change", nameof(GroupRow.Change), new DataGridLength(1.6, DataGridLengthUnitType.Star)));
             return g;
+        }
+
+        private static T FindChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null) return null;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T t) return t;
+                var found = FindChild<T>(child);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static DataGridTextColumn Text(string header, string path, DataGridLength width)
