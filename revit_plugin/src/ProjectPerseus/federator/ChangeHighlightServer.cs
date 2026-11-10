@@ -389,15 +389,19 @@ namespace ProjectPerseus.federator
             internal double Depth(double wNear, double wFar)
             {
                 double lift = Math.Max(MinLiftFt, Lift * S), layers = 3 * Layer * S;
+                // Per-element depths (At element / Underneath) are snapped to steps larger than one element's layer stack
+                // (halo, colour, glyph): changes at similar heights then share a depth and always stack halo < colour <
+                // glyph, instead of interleaving by a few mm (neighbours' badges hid glyphs; overlapping shapes tore).
+                double step = lift + layers;
                 double w;
                 if (Place == Placement.Underneath)
                 {
-                    w = wFar - lift - layers;
+                    w = Math.Floor((wFar - lift - layers) / step) * step;
                     if (FarW.HasValue) w = Math.Max(w, FarW.Value + lift + layers);
                 }
                 else if (Place == Placement.AtElement)
                 {
-                    w = wNear + lift;
+                    w = Math.Ceiling((wNear + lift) / step) * step;
                     if (FarW.HasValue) w = Math.Max(w, FarW.Value + lift + layers);
                 }
                 else
