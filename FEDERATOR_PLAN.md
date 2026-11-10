@@ -114,8 +114,8 @@ version history. So the panel compares **any two versions**: Link, then **From**
 * **Version archive (built 2026-11-10, no APS needed)**: Revit keeps one local copy of each cloud link it loads
   (CollaborationCache\...\LinkedModels\<model GUID>.rvt), overwritten by Reload Latest. Perseus copies it into an archive
   whenever a link shows a save GUID it hasn't archived (checked at idle every 20 s; background file copy, no snapshot), so
-  every version anyone loads stays comparable without downloading. Archive folder per project (a shared network folder
-  saved in the host model, so everyone on the project archives into it), else each user's own folder; newest 10 per link by default. History starts when installed and only holds versions someone loaded.
+  every version anyone loads stays comparable without downloading. One Perseus archive root (a shared network folder;
+  IT can deploy it machine-wide in %ProgramData%), each project in its own automatic subfolder; newest 10 per link by default. History starts when installed and only holds versions someone loaded.
   APS (below) can replace it or fill the gaps once an APS app is approved.
 * **Stage 2 (built 2026-11-10, untested against a real hub until an APS app is set up)**: the full cloud version list
   (including versions nobody has opened) from the Autodesk Platform

@@ -447,9 +447,9 @@ ProjectPerseus/
 │   ├── LinkArchive.cs            Automatic version history without APS: when a loaded link shows a save GUID not archived yet
 │   │                             (FederatorController Idling, every 20 s), copies the .rvt Revit loaded it from (cloud: Revit's
 │   │                             CollaborationCache\<account>\<project>\LinkedModels\<model GUID>.rvt; file link: its file) into
-│   │                             <archive>\<title>_<hash>\<saves>_<guid>.rvt + .json (background copy; save checked with BasicFileInfo
-│   │                             in the API context). Folder: the project's shared folder (ProjectSettings in the host model, FederatorSettingsStore
-│   │                             key "archive"), else the user's (archive.json; default %LOCALAPPDATA%); keeps
+│   │                             <root>\<project>_<hash>\<link>_<hash>\<saves>_<guid>.rvt + .json (background copy; save checked with BasicFileInfo
+│   │                             in the API context). One root for all projects (user archive.json, else machine-wide %ProgramData%\ProjectPerseus\
+│   │                             federator\archive.json from IT, else %LOCALAPPDATA%); project subfolder automatic; keeps
 │   │                             newest N per link. Listed in the panel's From / To pickers.
 │   └── VersionCatalog.cs         Per-user list of cached versions per consultant model (models/LinkVersion) at AppData\federator\
 │                                 versions\<sha1(model key)>.json; model key = cloud model GUID / link path / name. Feeds the panel's

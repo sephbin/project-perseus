@@ -20,66 +20,82 @@ namespace ProjectPerseus.federator
     /// overwritten on the next Reload Latest), for a file link its file. The copy is checked to be that exact save
     /// (BasicFileInfo) and runs on a background thread: seconds, no snapshot. Archived versions appear in the panel's
     /// From / To pickers; comparing one opens the copy (no download), after which its snapshot is cached (✓).
-    /// Layout: &lt;Folder&gt;\&lt;title&gt;_&lt;hash of model key&gt;\&lt;saves&gt;_&lt;guid&gt;.rvt + .json (no shared index, so a team
-    /// network folder works: anyone's Revit adds what it loads). Keeps the newest KeepPerLink per link.
-    /// Folder: the PROJECT's shared folder when one is set (ProjectSettings, saved in the host model via
-    /// FederatorSettingsStore key "archive", so everyone on the project uses it), else this user's Settings folder.
-    /// Replaceable by / complementary to APS cloud history (aps/ApsClient) once that's set up.
+    /// Layout: &lt;root&gt;\&lt;project&gt;_&lt;hash&gt;\&lt;link title&gt;_&lt;hash of model key&gt;\&lt;saves&gt;_&lt;guid&gt;.rvt + .json. One Perseus root
+    /// for every project (a shared network folder gives the team one history; no shared index, anyone's Revit adds what it
+    /// loads); the project subfolder is made automatically from the host model (Project Number + Name, hashed with its
+    /// cloud project GUID / central folder, so renaming the project doesn't split it). Keeps the newest KeepPerLink per link.
+    /// Root: this user's setting, else the machine-wide one IT can deploy (%ProgramData%\ProjectPerseus\federator\
+    /// archive.json), else %LOCALAPPDATA%. Replaceable by / complementary to APS cloud history (aps/ApsClient).
     /// </summary>
     internal static class LinkArchive
     {
         internal class Settings
         {
             public bool Enabled { get; set; } = true;
-            /// <summary>Archive root; empty = %LOCALAPPDATA%\ProjectPerseus\federator\archive. A network share gives a team history.</summary>
+            /// <summary>Perseus archive root for all projects; empty = machine-wide setting, else %LOCALAPPDATA%.</summary>
             public string Folder { get; set; }
             public int KeepPerLink { get; set; } = 10;
 
-            [JsonIgnore] internal string Root => string.IsNullOrWhiteSpace(Folder) ? DefaultFolder : Folder;
+            /// <summary>Root actually used (after the machine-wide default).</summary>
+            [JsonIgnore] internal string Root => !string.IsNullOrWhiteSpace(Folder) ? Folder : !string.IsNullOrWhiteSpace(MachineFolder) ? MachineFolder : DefaultFolder;
+            [JsonIgnore] internal string MachineFolder { get; set; }
         }
 
-        /// <summary>Per-project archive settings, stored in the host model (shared with everyone opening it).</summary>
-        internal class ProjectSettings
+        // Project subfolder per host document (cheap to recompute, but Idling asks often).
+        private static readonly ConcurrentDictionary<string, string> ProjectFolders = new ConcurrentDictionary<string, string>();
+
+        /// <summary>This host model's archive folder: &lt;root&gt;\&lt;project&gt;_&lt;hash&gt;. API context.</summary>
+        internal static string RootFor(Document host, Settings settings = null)
         {
-            /// <summary>Shared (network) folder for this project's archive; empty = each user's own folder.</summary>
-            public string Folder { get; set; }
-            /// <summary>Versions kept per link in that folder; 0 = the user's setting.</summary>
-            public int KeepPerLink { get; set; }
+            string root = (settings ?? LoadSettings()).Root;
+            if (host == null) return root;
+            // Cached for 5 minutes: listing a slow / unreachable share on every idle check would stall Revit.
+            string cacheKey = root + "|" + DocKey(host);
+            if (Resolved.TryGetValue(cacheKey, out var hit) && DateTime.UtcNow - hit.Key < TimeSpan.FromMinutes(5)) return hit.Value;
+            string resolved = Resolve(host, root);
+            Resolved[cacheKey] = new KeyValuePair<DateTime, string>(DateTime.UtcNow, resolved);
+            return resolved;
         }
 
-        internal const string ProjectKey = "archive";
+        private static readonly ConcurrentDictionary<string, KeyValuePair<DateTime, string>> Resolved =
+            new ConcurrentDictionary<string, KeyValuePair<DateTime, string>>();
 
-        // Project settings per host document, re-read at most once a minute (Idling calls Capture often).
-        private static readonly Dictionary<string, KeyValuePair<DateTime, ProjectSettings>> ProjectCache =
-            new Dictionary<string, KeyValuePair<DateTime, ProjectSettings>>();
-
-        /// <summary>The host model's archive settings (null when none). API context.</summary>
-        internal static ProjectSettings ProjectSettingsOf(Document host)
+        private static string Resolve(Document host, string root)
         {
-            if (host == null) return null;
-            string key = DocKey(host);
-            lock (ProjectCache)
-                if (ProjectCache.TryGetValue(key, out var c) && DateTime.UtcNow - c.Key < TimeSpan.FromMinutes(1)) return c.Value;
-            ProjectSettings ps = null;
-            try { ps = FederatorSettingsStore.Load<ProjectSettings>(host, ProjectKey); }
-            catch (Exception ex) { Log.Info($"[Federator] archive project settings: {ex.Message}"); }
-            lock (ProjectCache) ProjectCache[key] = new KeyValuePair<DateTime, ProjectSettings>(DateTime.UtcNow, ps);
-            return ps;
+            string name = ProjectFolders.GetOrAdd(DocKey(host), _ => ProjectFolderName(host));
+            // Reuse an existing folder with the same identity (the project may have been renamed since).
+            string suffix = name.Substring(name.LastIndexOf('_'));
+            try
+            {
+                if (Directory.Exists(root))
+                {
+                    var existing = Directory.GetDirectories(root).FirstOrDefault(d => d.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+                    if (existing != null) return existing;
+                }
+            }
+            catch { /* unreachable share: use the computed path */ }
+            return Path.Combine(root, name);
         }
 
-        /// <summary>Saves the host model's archive settings (shared). API context, no open transaction.</summary>
-        internal static void SaveProjectSettings(Document host, ProjectSettings ps, string author)
+        // "<Project Number> <Project Name>_<hash of project identity>".
+        private static string ProjectFolderName(Document host)
         {
-            FederatorSettingsStore.Save(host, ProjectKey, ps, author);
-            lock (ProjectCache) ProjectCache.Remove(DocKey(host));
-            Known.Clear();
-        }
-
-        /// <summary>Archive folder for links of this host model: the project's shared folder, else the user's.</summary>
-        internal static string RootFor(Document host, Settings user = null)
-        {
-            var ps = ProjectSettingsOf(host);
-            return !string.IsNullOrWhiteSpace(ps?.Folder) ? ps.Folder : (user ?? LoadSettings()).Root;
+            string label = null, identity;
+            try
+            {
+                var pi = host.ProjectInformation;
+                label = string.Join(" ", new[] { pi?.Number, pi?.Name }.Where(x => !string.IsNullOrWhiteSpace(x) && x != "Project Number" && x != "Project Name"));
+            }
+            catch { /* no project info */ }
+            if (string.IsNullOrWhiteSpace(label)) label = host.Title;
+            if (VersionCatalog.TryCloudGuids(host, out Guid project, out _) && project != Guid.Empty) identity = "cloud|" + project.ToString("N");
+            else
+            {
+                string path = DocKey(host);
+                try { identity = "folder|" + (Path.GetDirectoryName(path) ?? path).ToLowerInvariant(); }
+                catch { identity = "title|" + host.Title.ToLowerInvariant(); }
+            }
+            return Safe(label) + "_" + Hash(identity);
         }
 
         private static string DocKey(Document doc)
@@ -108,6 +124,9 @@ namespace ProjectPerseus.federator
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProjectPerseus", "federator", "archive");
         private static string SettingsPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ProjectPerseus", "federator", "archive.json");
+        /// <summary>Machine-wide defaults IT can deploy (same format; only Folder / KeepPerLink / Enabled are read).</summary>
+        internal static string MachineSettingsPath => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ProjectPerseus", "federator", "archive.json");
 
         // Save GUIDs already archived or being copied (this session), so Idling checks stay cheap.
         private static readonly ConcurrentDictionary<string, bool> Known = new ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -117,12 +136,17 @@ namespace ProjectPerseus.federator
 
         internal static Settings LoadSettings()
         {
-            try
-            {
-                if (File.Exists(SettingsPath)) return JsonConvert.DeserializeObject<Settings>(File.ReadAllText(SettingsPath)) ?? new Settings();
-            }
-            catch (Exception ex) { Log.Info($"[Federator] archive.json unreadable: {ex.Message}"); }
-            return new Settings();
+            Settings machine = Read(MachineSettingsPath), user = Read(SettingsPath);
+            var s = user ?? machine ?? new Settings();
+            s.MachineFolder = machine?.Folder;
+            if (user == null && machine != null) s.Folder = null;   // machine root shows as the default, not the user's own
+            return s;
+        }
+
+        private static Settings Read(string path)
+        {
+            try { return File.Exists(path) ? JsonConvert.DeserializeObject<Settings>(File.ReadAllText(path)) : null; }
+            catch (Exception ex) { Log.Info($"[Federator] {path} unreadable: {ex.Message}"); return null; }
         }
 
         internal static void SaveSettings(Settings s)
@@ -130,6 +154,7 @@ namespace ProjectPerseus.federator
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath));
             File.WriteAllText(SettingsPath, JsonConvert.SerializeObject(s, Formatting.Indented), new UTF8Encoding(false));
             Known.Clear();
+            Resolved.Clear();
         }
 
         /// <summary>Archived versions of a model in an archive folder (RootFor the host), newest first.</summary>
@@ -170,12 +195,11 @@ namespace ProjectPerseus.federator
             try { dv = Document.GetDocumentVersion(linkDoc); } catch { return; }
             if (dv == null) return;
             string guid = dv.VersionGUID.ToString();
-            string knownKey = DocKey(host) + "|" + guid;   // per host: each project has its own archive folder
+            string knownKey = DocKey(host) + "|" + guid;   // per host model: each project has its own subfolder
             if (Known.ContainsKey(knownKey)) return;
 
             string typeName = host.GetElement(instance.GetTypeId())?.Name ?? linkDoc.Title;
             string modelKey = VersionCatalog.ModelKey(host, instance, linkDoc, typeName);
-            var project = ProjectSettingsOf(host);
             string root = RootFor(host, s);
             string modelDir = ModelFolder(root, modelKey, linkDoc.Title);
             string stem = $"{dv.NumberOfSaves:D6}_{dv.VersionGUID:N}";
@@ -191,7 +215,7 @@ namespace ProjectPerseus.federator
             }
             Known[knownKey] = true;
             string user = app.Username, title = linkDoc.Title;
-            int saves = dv.NumberOfSaves, keep = Math.Max(1, project?.KeepPerLink > 0 ? project.KeepPerLink : s.KeepPerLink);
+            int saves = dv.NumberOfSaves, keep = Math.Max(1, s.KeepPerLink);
 
             // The cache can already hold a newer version than the one loaded: only archive that exact save.
             // (Revit API: checked here in the API context, from the file header; only the copy runs in the background.)
