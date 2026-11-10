@@ -151,7 +151,7 @@ namespace ProjectPerseus.federator
                     var dv = OldModelOpener.VersionOf(s.Path);
                     var known = dv == null ? null : VersionCatalog.FindByGuid(modelKey, dv.VersionGUID.ToString());
                     var hit = known == null ? null : SnapshotCache.TryLoadKey(known.CacheKey);
-                    if (hit != null) { Report("Same version as a saved snapshot; not opening the file", 1); return hit; }
+                    if (hit != null && hit.Format >= LinkSnapshot.CurrentFormat) { Report("Same version as a saved snapshot; not opening the file", 1); return hit; }
 
                     var snap = OldModelOpener.Snapshot(uiapp.Application, s.Path, Report, out string key);
                     if (key != null)
@@ -176,7 +176,7 @@ namespace ProjectPerseus.federator
                     catch { /* no version info */ }
                     var known = VersionCatalog.FindByGuid(modelKey, guid);
                     var hit = known == null ? null : SnapshotCache.TryLoadKey(known.CacheKey);
-                    if (hit != null) { Report("Using the saved snapshot of the loaded version", 1); return hit; }
+                    if (hit != null && hit.Format >= LinkSnapshot.CurrentFormat) { Report("Using the saved snapshot of the loaded version", 1); return hit; }
 
                     var readStart = DateTime.UtcNow;
                     var snap = SnapshotBuilder.Build(linkDoc, linkDoc.PathName, null,

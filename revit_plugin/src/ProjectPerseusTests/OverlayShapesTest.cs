@@ -21,6 +21,32 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void ConvexHullDropsInteriorPointsAndRunsCounterClockwise()
+        {
+            var hull = OverlayShapes.ConvexHull(new[] { new Pt(0, 0), new Pt(2, 0), new Pt(1, 1), new Pt(2, 2), new Pt(0, 2), new Pt(2, 0) });
+            Assert.AreEqual(4, hull.Count);
+            double area = 0;
+            for (int i = 0; i < hull.Count; i++) { var a = hull[i]; var b = hull[(i + 1) % hull.Count]; area += a.U * b.V - b.U * a.V; }
+            Assert.AreEqual(8, area, 1e-9);   // 2 x signed area: positive = counter-clockwise
+        }
+
+        [TestMethod]
+        public void InflateGrowsARotatedSquareEvenlyWithRoundCorners()
+        {
+            // Square of side 2 rotated 45 degrees, inflated by 1: every point at distance >= 1 from the square, bounds grow by 1.
+            double h = Math.Sqrt(2);
+            var hull = OverlayShapes.ConvexHull(new[] { new Pt(h, 0), new Pt(0, h), new Pt(-h, 0), new Pt(0, -h) });
+            var path = OverlayShapes.Inflate(hull, 1, 6);
+            Assert.AreEqual(h + 1, path.Max(p => p.U), 1e-9);
+            Assert.AreEqual(-(h + 1), path.Min(p => p.V), 1e-9);
+            // Perimeter = square + circle of radius 1 (polygon approximation, slightly shorter).
+            Assert.AreEqual(8 + 2 * Math.PI, OverlayShapes.PathLength(path, true), 0.05);
+            // A segment becomes a capsule, a point a circle.
+            Assert.AreEqual(2 * 4 + 2 * Math.PI, OverlayShapes.PathLength(OverlayShapes.Inflate(OverlayShapes.ConvexHull(new[] { new Pt(0, 0), new Pt(4, 0) }), 1, 8), true), 0.05);
+            Assert.AreEqual(2 * Math.PI, OverlayShapes.PathLength(OverlayShapes.Inflate(new[] { new Pt(3, 3) }, 1, 8), true), 0.05);
+        }
+
+        [TestMethod]
         public void RadiusIsClampedToHalfTheShortSide()
         {
             var path = OverlayShapes.RoundedRect(0, 0, 10, 2, 5, 8);

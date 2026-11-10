@@ -33,6 +33,7 @@ namespace ProjectPerseus.federator
             internal Kind Kind;
             internal bool Emphasis;           // selected in the panel: heavier stroke, bigger badge
             internal double[] OldMin, OldMax; // moved elements: old box (host) → dashed ghost + arrow
+            internal double[] Corners, OldCorners; // oriented box corners (8 × xyz, host) when tighter than Min / Max; else null
         }
 
         internal static readonly ChangeHighlightServer Instance = new ChangeHighlightServer();
@@ -545,23 +546,25 @@ namespace ProjectPerseus.federator
                 var halo = it.Emphasis ? selected : white;
                 f.Project(it.Min, it.Max, out var rect, out double wNear, out double wFar);
                 double w = f.Depth(wNear, wFar);
-                Grow(rect, Pad * s, MinRect * s);
+                var shape = Shape(f, it.Corners, Pad * s, MinRect * s);
+                if (shape != null) rect = Bounds(shape); else Grow(rect, Pad * s, MinRect * s);
                 bool dashed = it.Kind == Kind.Deleted && !simple;
                 double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s;
-                Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), simple && !it.Emphasis ? null : halo, simple);
+                Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), simple && !it.Emphasis ? null : halo, simple, shape);
 
                 // Moved: dashed ghost at the old position + arrow old → new.
-                var badgeAt = new Pt(rect[0], rect[3]);
+                var badgeAt = TopCorner(shape, rect, left: true);
                 if (it.OldMin != null && it.OldMax != null)
                 {
                     f.Project(it.OldMin, it.OldMax, out var oldRect, out double wOld, out double wOldFar);
                     double wg = f.Depth(wOld, wOldFar);
-                    Grow(oldRect, Pad * s, MinRect * s);
-                    Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : halo, simple);
+                    var oldShape = Shape(f, it.OldCorners, Pad * s, MinRect * s);
+                    if (oldShape != null) oldRect = Bounds(oldShape); else Grow(oldRect, Pad * s, MinRect * s);
+                    Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : halo, simple, oldShape);
 
                     var a = Centre(oldRect); var b = Centre(rect);
                     if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out var from, out var to)) { from = a; to = b; }
-                    var topRight = new Pt(rect[2], rect[3]);
+                    var topRight = TopCorner(shape, rect, left: false);
                     if ((to - badgeAt).Length < (to - topRight).Length) badgeAt = topRight;
                     if ((to - from).Length > HeadLen * s * 0.5)
                     {
@@ -614,11 +617,51 @@ namespace ProjectPerseus.federator
             return batches;
         }
 
+        /// <summary>
+        /// Outline of an oriented box on this view: its 8 corners projected, convex hull, padded with round corners. Null when
+        /// there's no oriented box or it projects smaller than the minimum size (then the padded rectangle is used).
+        /// </summary>
+        private static List<Pt> Shape(Frame f, double[] corners, double pad, double min)
+        {
+            if (corners == null || corners.Length < 24) return null;
+            var pts = new List<Pt>(8);
+            for (int i = 0; i < 8; i++)
+            {
+                var p = new XYZ(corners[i * 3], corners[i * 3 + 1], corners[i * 3 + 2]) - f.O;
+                pts.Add(new Pt(p.DotProduct(f.R), p.DotProduct(f.U)));
+            }
+            var hull = OverlayShapes.ConvexHull(pts);
+            var b = Bounds(hull);
+            if (b[2] - b[0] + 2 * pad < min && b[3] - b[1] + 2 * pad < min) return null;
+            return OverlayShapes.Inflate(hull, pad, 3);
+        }
+
+        private static double[] Bounds(IList<Pt> path)
+        {
+            double u0 = double.MaxValue, v0 = double.MaxValue, u1 = double.MinValue, v1 = double.MinValue;
+            foreach (var p in path) { u0 = Math.Min(u0, p.U); v0 = Math.Min(v0, p.V); u1 = Math.Max(u1, p.U); v1 = Math.Max(v1, p.V); }
+            return new[] { u0, v0, u1, v1 };
+        }
+
+        // Badge spot: the shape's top-left (or top-right) extreme; the rectangle's corner when there's no oriented shape.
+        private static Pt TopCorner(List<Pt> shape, double[] rect, bool left)
+        {
+            if (shape == null) return new Pt(left ? rect[0] : rect[2], rect[3]);
+            Pt best = shape[0];
+            double bestScore = double.MinValue;
+            foreach (var p in shape)
+            {
+                double score = p.V + (left ? -p.U : p.U);
+                if (score > bestScore) { bestScore = score; best = p; }
+            }
+            return best;
+        }
+
         private static void Outline(Frame f, double[] rect, bool dashed, double half, double w, double eps, Layer3D colour, Layer3D white,
-                                    bool simple)
+                                    bool simple, List<Pt> shape = null)
         {
             double s = f.S;
-            var path = OverlayShapes.RoundedRect(rect[0], rect[1], rect[2], rect[3], simple ? 0 : Radius * s, 10);
+            var path = shape ?? OverlayShapes.RoundedRect(rect[0], rect[1], rect[2], rect[3], simple ? 0 : Radius * s, 10);
             var halo = new List<double>();
             var stroke = new List<double>();
             if (dashed)

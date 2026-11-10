@@ -30,6 +30,7 @@ namespace ProjectPerseus.federator
             if (!File.Exists(path)) throw new FileNotFoundException("The selected model file wasn't found.", path);
 
             var cached = SnapshotCache.TryLoad(path);
+            if (cached != null && cached.Format < LinkSnapshot.CurrentFormat) cached = null;   // older format: read it again
             if (cached != null)
             {
                 Log.Info($"[Federator] using cached snapshot of {path}");

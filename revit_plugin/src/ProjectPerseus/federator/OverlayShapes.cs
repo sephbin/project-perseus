@@ -48,6 +48,71 @@ namespace ProjectPerseus.federator
             return path;
         }
 
+        /// <summary>Convex hull, counter-clockwise, no repeated point (monotone chain). 1-2 points for degenerate input.</summary>
+        public static List<Pt> ConvexHull(IEnumerable<Pt> points)
+        {
+            var p = new List<Pt>(points);
+            p.Sort((a, b) => a.U != b.U ? a.U.CompareTo(b.U) : a.V.CompareTo(b.V));
+            if (p.Count < 3)
+            {
+                if (p.Count == 2 && (p[1] - p[0]).Length < 1e-12) p.RemoveAt(1);
+                return p;
+            }
+            var h = new Pt[2 * p.Count];
+            int k = 0;
+            for (int i = 0; i < p.Count; i++)
+            {
+                while (k >= 2 && Cross(h[k - 2], h[k - 1], p[i]) <= 1e-18) k--;
+                h[k++] = p[i];
+            }
+            for (int i = p.Count - 2, t = k + 1; i >= 0; i--)
+            {
+                while (k >= t && Cross(h[k - 2], h[k - 1], p[i]) <= 1e-18) k--;
+                h[k++] = p[i];
+            }
+            var hull = new List<Pt>();
+            for (int i = 0; i < Math.Max(1, k - 1); i++) hull.Add(h[i]);
+            if (hull.Count == 2 && (hull[1] - hull[0]).Length < 1e-12) hull.RemoveAt(1);
+            return hull;
+        }
+
+        private static double Cross(Pt o, Pt a, Pt b) => (a.U - o.U) * (b.V - o.V) - (a.V - o.V) * (b.U - o.U);
+
+        /// <summary>
+        /// Closed path at distance r around a convex counter-clockwise polygon (its Minkowski sum with a disc): every
+        /// edge moved out by r, corners rounded with radius r. A segment gives a capsule, a point a circle.
+        /// </summary>
+        public static List<Pt> Inflate(IList<Pt> hull, double r, int segmentsPerQuarter = 4)
+        {
+            var path = new List<Pt>();
+            int n = hull.Count;
+            if (n == 0) return path;
+            if (n == 1)
+            {
+                for (int i = 0; i < 4 * segmentsPerQuarter; i++)
+                {
+                    double a = 2 * Math.PI * i / (4 * segmentsPerQuarter);
+                    path.Add(new Pt(hull[0].U + r * Math.Cos(a), hull[0].V + r * Math.Sin(a)));
+                }
+                return path;
+            }
+            for (int i = 0; i < n; i++)
+            {
+                Pt prev = hull[(i + n - 1) % n], cur = hull[i], next = hull[(i + 1) % n];
+                Pt d0 = cur - prev, d1 = next - cur;
+                double a0 = Math.Atan2(-d0.U, d0.V);   // outward normal of prev -> cur (CCW polygon): (dv, -du)
+                double a1 = Math.Atan2(-d1.U, d1.V);
+                while (a1 < a0 - 1e-12) a1 += 2 * Math.PI;
+                int steps = Math.Max(1, (int)Math.Ceiling((a1 - a0) / (Math.PI / 2) * segmentsPerQuarter));
+                for (int s = 0; s <= steps; s++)
+                {
+                    double a = a0 + (a1 - a0) * s / steps;
+                    path.Add(new Pt(cur.U + r * Math.Cos(a), cur.V + r * Math.Sin(a)));
+                }
+            }
+            return path;
+        }
+
         public static double PathLength(IList<Pt> path, bool closed)
         {
             double len = 0;

@@ -441,7 +441,9 @@ ProjectPerseus/
 │   │                             (Added/Deleted/Modified + aspects Moved/Geometry/Type/Level/Parameters/...), DiffOptions
 │   │                             (1 mm tolerance, ignored bookkeeping params). Unit-tested in ProjectPerseusTests/LinkDiffTest.cs.
 │   ├── SnapshotBuilder.cs        Document -> LinkSnapshot: model-category, view-independent elements with a bbox; family/
-│   │                             type/level/workset, bbox, location, solid signature, instance + "[Type] " parameters.
+│   │                             type/level/workset, bbox, oriented box (Obb: family rotation / curve direction, when tighter;
+│   │                             drawn as a padded convex hull by ChangeHighlightServer), location, solid signature,
+│   │                             instance + "[Type] " parameters. Snapshot format 2 (format 1 loads, re-read when the source is at hand).
 │   ├── SnapshotCache.cs          %AppData%\ProjectPerseus\federator\snapshots\<sha1(key)>.json.gz (keeps 40). Keys: FileKey =
 │   │                             archived file path|size|mtime; VersionKey = save GUID (DocumentVersion), used for the live link.
 │   ├── LinkArchive.cs            Automatic version history without APS: when a loaded link shows a save GUID not archived yet

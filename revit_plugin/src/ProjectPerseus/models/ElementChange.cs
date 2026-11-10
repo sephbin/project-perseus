@@ -53,6 +53,9 @@ namespace ProjectPerseus.models
         public double[] OldMax { get; set; }
         public double[] NewMin { get; set; }
         public double[] NewMax { get; set; }
+        /// <summary>Oriented boxes (ElementSnapshot.Obb) of the old / new element, when tighter than the boxes above.</summary>
+        public double[] OldObb { get; set; }
+        public double[] NewObb { get; set; }
 
         public List<ParameterChange> ParameterChanges { get; set; } = new List<ParameterChange>();
 

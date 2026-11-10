@@ -87,6 +87,7 @@ namespace ProjectPerseus.federator
                 Level = e.Level,
                 OldMin = o?.Min, OldMax = o?.Max,
                 NewMin = n?.Min, NewMax = n?.Max,
+                OldObb = o?.Obb, NewObb = n?.Obb,
             };
 
         /// <summary>The change between two versions of one element, or null when nothing relevant differs.</summary>

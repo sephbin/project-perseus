@@ -106,7 +106,10 @@ namespace ProjectPerseus.federator
                     break;
             }
 
-            ReadSolids(el, options, e);
+            GeometryElement geo = null;
+            try { geo = el.get_Geometry(options); } catch { /* no geometry */ }
+            ReadSolids(geo, e);
+            if (geo != null) e.Obb = OrientedBox(el, geo, bb);
             ReadParameters(el.Parameters, e.Parameters, "");
             if (typeId != ElementId.InvalidElementId)
             {
@@ -123,10 +126,93 @@ namespace ProjectPerseus.federator
             return e;
         }
 
-        private static void ReadSolids(Element el, Options options, ElementSnapshot e)
+        // Oriented box: frame from the element itself (family instance rotation, else its location curve direction), extents
+        // from its geometry (solid edges, meshes, curves; a nested family's symbol box with its transform). Kept only when
+        // clearly tighter in plan than the axis-aligned box. Rotation about Z only: plans are where the boxes get messy.
+        private const int MaxObbPoints = 20000;
+
+        private static double[] OrientedBox(Element el, GeometryElement geo, BoundingBoxXYZ bb)
         {
-            GeometryElement geo;
-            try { geo = el.get_Geometry(options); } catch { return; }
+            XYZ dir = null;
+            try
+            {
+                if (el is FamilyInstance fi) dir = fi.GetTransform().BasisX;
+                else if (el.Location is LocationCurve lc && lc.Curve != null && lc.Curve.IsBound)
+                    dir = lc.Curve.GetEndPoint(1) - lc.Curve.GetEndPoint(0);
+            }
+            catch { return null; }
+            if (dir == null) return null;
+            double len = Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y);
+            if (len < 1e-9) return null;
+            double cx = dir.X / len, cy = dir.Y / len;
+            if (Math.Abs(cx) > 0.9998 || Math.Abs(cy) > 0.9998) return null;   // square to the axes (within ~1 degree)
+            double boxArea = (bb.Max.X - bb.Min.X) * (bb.Max.Y - bb.Min.Y);
+            if (boxArea < 1e-9) return null;
+
+            var pts = new List<XYZ>();
+            if (!CollectPoints(geo, pts, 0) || pts.Count == 0) return null;
+            double a0 = double.MaxValue, a1 = double.MinValue, b0 = double.MaxValue, b1 = double.MinValue, z0 = double.MaxValue, z1 = double.MinValue;
+            foreach (var p in pts)
+            {
+                double a = p.X * cx + p.Y * cy, b = -p.X * cy + p.Y * cx;
+                a0 = Math.Min(a0, a); a1 = Math.Max(a1, a);
+                b0 = Math.Min(b0, b); b1 = Math.Max(b1, b);
+                z0 = Math.Min(z0, p.Z); z1 = Math.Max(z1, p.Z);
+            }
+            if ((a1 - a0) * (b1 - b0) > 0.85 * boxArea) return null;
+            double la = a1 - a0, lb = b1 - b0;
+            return new[]
+            {
+                a0 * cx - b0 * cy, a0 * cy + b0 * cx, z0,
+                la * cx, la * cy, 0,
+                -lb * cy, lb * cx, 0,
+                0, 0, z1 - z0,
+            };
+        }
+
+        // False when the geometry has too many points to read (then no oriented box: a partial set would be too small).
+        private static bool CollectPoints(GeometryElement geo, List<XYZ> pts, int depth)
+        {
+            if (depth > 4) return true;
+            foreach (GeometryObject g in geo)
+            {
+                switch (g)
+                {
+                    case Solid s when s.Volume > 1e-9:
+                        foreach (Edge ed in s.Edges) pts.AddRange(ed.Tessellate());
+                        break;
+                    case Mesh m:
+                        for (int i = 0; i < m.Vertices.Count; i++) pts.Add(m.Vertices[i]);
+                        break;
+                    case Curve c when c.IsBound:
+                        pts.AddRange(c.Tessellate());
+                        break;
+                    case GeometryInstance gi:
+                        // The symbol's own box moved by the instance transform: exact for the usual family whose geometry is
+                        // square to its own axes, and cheap.
+                        var box = gi.SymbolGeometry?.GetBoundingBox();
+                        if (box != null)
+                        {
+                            var t = gi.Transform.Multiply(box.Transform ?? Transform.Identity);
+                            for (int i = 0; i < 8; i++)
+                                pts.Add(t.OfPoint(new XYZ((i & 1) == 0 ? box.Min.X : box.Max.X,
+                                                          (i & 2) == 0 ? box.Min.Y : box.Max.Y,
+                                                          (i & 4) == 0 ? box.Min.Z : box.Max.Z)));
+                        }
+                        else
+                        {
+                            var inner = gi.GetInstanceGeometry();
+                            if (inner != null && !CollectPoints(inner, pts, depth + 1)) return false;
+                        }
+                        break;
+                }
+                if (pts.Count > MaxObbPoints) return false;
+            }
+            return true;
+        }
+
+        private static void ReadSolids(GeometryElement geo, ElementSnapshot e)
+        {
             if (geo == null) return;
             double volume = 0, area = 0;
             int faces = 0, edges = 0, solids = 0;

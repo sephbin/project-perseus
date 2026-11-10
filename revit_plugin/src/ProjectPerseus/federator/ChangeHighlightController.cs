@@ -75,6 +75,7 @@ namespace ProjectPerseus.federator
                 Min = hmin,
                 Max = hmax,
                 Emphasis = emph,
+                Corners = Corners(t, deleted ? c.OldObb : c.NewObb),
                 Kind = c.Kind == ChangeKind.Added ? ChangeHighlightServer.Kind.Added
                      : deleted ? ChangeHighlightServer.Kind.Deleted : ChangeHighlightServer.Kind.Modified,
             };
@@ -83,9 +84,27 @@ namespace ProjectPerseus.federator
                 t.Box(c.OldMin, c.OldMax, out var omin, out var omax);
                 item.OldMin = omin;
                 item.OldMax = omax;
+                item.OldCorners = Corners(t, c.OldObb);
             }
             items.Add(item);
             return true;
+        }
+
+        // Oriented box (corner + 3 edge vectors, link coords) -> its 8 corners in host coords (24 values); null stays null.
+        private static double[] Corners(LinkTransform t, double[] obb)
+        {
+            if (obb == null || obb.Length < 12) return null;
+            var c = new double[24];
+            for (int i = 0; i < 8; i++)
+            {
+                double x = obb[0], y = obb[1], z = obb[2];
+                if ((i & 1) != 0) { x += obb[3]; y += obb[4]; z += obb[5]; }
+                if ((i & 2) != 0) { x += obb[6]; y += obb[7]; z += obb[8]; }
+                if ((i & 4) != 0) { x += obb[9]; y += obb[10]; z += obb[11]; }
+                var p = t.OfPoint(x, y, z);
+                c[i * 3] = p[0]; c[i * 3 + 1] = p[1]; c[i * 3 + 2] = p[2];
+            }
+            return c;
         }
 
         /// <summary>The link instance's transform as plain numbers (API context).</summary>

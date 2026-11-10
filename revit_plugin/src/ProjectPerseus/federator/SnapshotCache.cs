@@ -63,7 +63,7 @@ namespace ProjectPerseus.federator
                 using (var jr = new JsonTextReader(sr))
                 {
                     var snap = new JsonSerializer().Deserialize<LinkSnapshot>(jr);
-                    if (snap == null || snap.Format != LinkSnapshot.CurrentFormat) return null;
+                    if (snap == null || snap.Format > LinkSnapshot.CurrentFormat) return null;   // older formats load; callers may rebuild them
                     if (expectStamp != null && snap.FileStamp != expectStamp) return null;
                     fs.Close();
                     File.SetLastWriteTimeUtc(file, DateTime.UtcNow); // most recently used survives pruning

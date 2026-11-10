@@ -10,7 +10,8 @@ namespace ProjectPerseus.models
     /// </summary>
     public class LinkSnapshot
     {
-        public const int CurrentFormat = 1;
+        /// <summary>2: ElementSnapshot.Obb. Format 1 snapshots still load (axis-aligned boxes); rebuilt when the source is at hand.</summary>
+        public const int CurrentFormat = 2;
 
         public int Format { get; set; } = CurrentFormat;
         public string Title { get; set; }
@@ -37,6 +38,12 @@ namespace ProjectPerseus.models
         /// <summary>Bounding box min / max (x, y, z), null when the element has none.</summary>
         public double[] Min { get; set; }
         public double[] Max { get; set; }
+
+        /// <summary>
+        /// Oriented box when it is clearly tighter than Min / Max (rotated family instances, diagonal pipes / ducts / walls):
+        /// corner + three edge vectors (12 values, x y z each). Null = the axis-aligned box is tight enough.
+        /// </summary>
+        public double[] Obb { get; set; }
 
         /// <summary>Location point (3 values) or location curve end points (6 values); null otherwise.</summary>
         public double[] Location { get; set; }
