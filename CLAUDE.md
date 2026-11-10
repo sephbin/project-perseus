@@ -406,7 +406,8 @@ ProjectPerseus/
 │   ├── ReviewNavigator.cs        Select linked elements (SetReferences) + zoom; not visible here -> user's own "Perseus Federator
 │   │                             - <user>" 3D view with a section box. VisibleLinkedIds: link view collector ONLY for projectable
 │   │                             views with the link instance shown (it AV-crashed Revit otherwise - uncatchable), else boxes.
-│   ├── FederatorController.cs    Startup-subscribed ViewActivated + SelectionChanged, forwarded to FederatorWindow when open.
+│   ├── FederatorController.cs    Startup-subscribed ViewActivated + SelectionChanged, forwarded to FederatorWindow when open;
+│   │                             Idling (20 s) -> LinkArchive.Capture for every loaded link.
 │   ├── ChangeHighlightServer.cs  IDirectContext3DServer: changes drawn in model views (plans/sections/elevations/details/3D),
 │   │                             on screen only, SVG-style: flat rounded rectangles on the view plane with a white halo, solid
 │   │                             green added / amber modified, dashed red deleted, dashed grey old position + arrow for moved,
@@ -443,6 +444,12 @@ ProjectPerseus/
 │   │                             type/level/workset, bbox, location, solid signature, instance + "[Type] " parameters.
 │   ├── SnapshotCache.cs          %AppData%\ProjectPerseus\federator\snapshots\<sha1(key)>.json.gz (keeps 40). Keys: FileKey =
 │   │                             archived file path|size|mtime; VersionKey = save GUID (DocumentVersion), used for the live link.
+│   ├── LinkArchive.cs            Automatic version history without APS: when a loaded link shows a save GUID not archived yet
+│   │                             (FederatorController Idling, every 20 s), copies the .rvt Revit loaded it from (cloud: Revit's
+│   │                             CollaborationCache\<account>\<project>\LinkedModels\<model GUID>.rvt; file link: its file) into
+│   │                             <archive>\<title>_<hash>\<saves>_<guid>.rvt + .json (background copy; save checked with BasicFileInfo
+│   │                             in the API context). Folder: %LOCALAPPDATA% default or a shared network folder (archive.json); keeps
+│   │                             newest N per link. Listed in the panel's From / To pickers.
 │   └── VersionCatalog.cs         Per-user list of cached versions per consultant model (models/LinkVersion) at AppData\federator\
 │                                 versions\<sha1(model key)>.json; model key = cloud model GUID / link path / name. Feeds the panel's
 │                                 From / To pickers (✓ = cached). Stage 2 (APS cloud version history) in FEDERATOR_PLAN.md.

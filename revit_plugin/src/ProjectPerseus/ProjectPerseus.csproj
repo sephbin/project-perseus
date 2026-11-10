@@ -442,6 +442,7 @@
     <Compile Include="federator\SnapshotBuilder.cs" />
     <Compile Include="federator\SnapshotCache.cs" />
     <Compile Include="federator\VersionCatalog.cs" />
+    <Compile Include="federator\LinkArchive.cs" />
     <Compile Include="federator\ReviewLog.cs" />
     <Compile Include="federator\PluginDataStorage.cs" />
     <Compile Include="federator\ComparisonStore.cs" />

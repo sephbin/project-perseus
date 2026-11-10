@@ -209,7 +209,13 @@ namespace ProjectPerseus.ui
             AddAt(pick, _toBox, 5);
             _compareButton = MakeButton("Compare", "List what changed from the From version to the To version. Versions not yet saved on this computer are opened in the background (Revit is busy meanwhile).");
             _compareButton.Margin = new Thickness(0);
-            AddAt(pick, _compareButton, 6);
+            var archive = MakeButton("Archive…", "Version archive: Perseus copies each new version of a link when Revit loads it, so it can be compared later without downloading. Set a shared folder for a team history.");
+            archive.Margin = new Thickness(6, 0, 0, 0);
+            archive.Click += (s, e) => Safe(EditArchiveSettings);
+            var compareButtons = new StackPanel { Orientation = Orientation.Horizontal };
+            compareButtons.Children.Add(_compareButton);
+            compareButtons.Children.Add(archive);
+            AddAt(pick, compareButtons, 6);
             header.Children.Add(pick);
 
             var saved = new Grid { Margin = new Thickness(0, 6, 0, 0) };
@@ -344,6 +350,12 @@ namespace ProjectPerseus.ui
                 QueueHighlight();
             });
             _selectTimer.Tick += (s, e) => Safe(() => { _selectTimer.Stop(); PushRevitSelection(); });
+            Action<string> onArchived = key => Dispatcher.BeginInvoke(new Action(() => Safe(() =>
+            {
+                if (SelectedLink?.ModelKey == key) { RefillVersions(); Status("A new version of this link was archived."); }
+            })));
+            LinkArchive.Archived += onArchived;
+            Closed += (s, e) => LinkArchive.Archived -= onArchived;
             _grid.MouseDoubleClick += (s, e) => Safe(() => { if (_grid.SelectedItems.Count > 0) ShowSelected(true); });
             bake.Click += (s, e) => Safe(OpenBake);
             _highlightBox.Checked += (s, e) => Safe(QueueHighlight);
@@ -1049,6 +1061,25 @@ namespace ProjectPerseus.ui
                                                     : v.VersionGuid != null ? "guid:" + v.VersionGuid.ToLowerInvariant() : "key:" + v.CacheKey,
                                                 Text = Tick + "  " + label });
                 }
+                // Archived copies (LinkArchive: Revit's cache / the link file, copied when a new version was loaded).
+                var shownKeys = new HashSet<string>(items.Select(i => i.Key));
+                foreach (var a in LinkArchive.List(link.ModelKey))
+                {
+                    if (link.Loaded && SameGuid(a.VersionGuid, link.LiveGuid)) continue;   // that's Live
+                    string key = "guid:" + a.VersionGuid.ToLowerInvariant();
+                    var entry = cached.FirstOrDefault(v => SameGuid(v.VersionGuid, a.VersionGuid));
+                    if (entry?.CloudVersionId != null) key = "cloud:" + entry.CloudVersionId;
+                    if (shownKeys.Contains(key)) continue;   // already listed (cached snapshot / cloud list)
+                    shownKeys.Add(key);
+                    shownFiles.Add(SafeFull(a.RvtPath));
+                    string label = (a.FromCloud ? "☁ " : "") + $"save {a.Saves} · loaded {a.SourceTimeUtc.ToLocalTime():d MMM yyyy HH:mm} · archived";
+                    items.Add(new VersionItem
+                    {
+                        Source = entry != null ? ComparisonRunner.Source.Cached(entry, label) : ComparisonRunner.Source.File(a.RvtPath, label),
+                        Key = key, Text = (entry != null ? Tick : NoTick) + "  " + label,
+                    });
+                }
+
                 // Files compared before (from this model's comparisons) and files picked this session.
                 var files = _records.Where(r => r.LinkInstanceUid == link.Uid).OrderByDescending(r => r.CreatedUtc)
                     .SelectMany(r => new[] { r.OldPath, r.NewPath }).ToList();
@@ -1057,6 +1088,7 @@ namespace ProjectPerseus.ui
                 {
                     string full = SafeFull(f);
                     if (shownFiles.Contains(full) || full.StartsWith(ApsClient.DownloadFolder, StringComparison.OrdinalIgnoreCase)
+                        || full.StartsWith(LinkArchive.LoadSettings().Root, StringComparison.OrdinalIgnoreCase)
                         || (link.Path != null && string.Equals(full, SafeFull(link.Path), StringComparison.OrdinalIgnoreCase))) continue;
                     if (!System.IO.File.Exists(f)) continue;
                     shownFiles.Add(full);
@@ -1103,6 +1135,68 @@ namespace ProjectPerseus.ui
             _lastFrom = from; _lastTo = to;
             _loading = false;
             UpdateCompareEnabled();
+        }
+
+        /// <summary>Version archive settings: on / off, folder (local or a shared network folder), versions kept per link.</summary>
+        private void EditArchiveSettings()
+        {
+            var cfg = LinkArchive.LoadSettings();
+            var enabled = new CheckBox { Content = "Archive each new version of a link when Revit loads it", IsChecked = cfg.Enabled, Margin = new Thickness(0, 0, 0, 10) };
+            var folder = new TextBox { Text = cfg.Folder ?? "", Padding = new Thickness(3), Width = 380 };
+            var browse = MakeButton("Browse…", "Pick the archive folder");
+            browse.Margin = new Thickness(6, 0, 0, 0);
+            browse.Click += (s2, e2) =>
+            {
+                using (var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "Version archive folder", SelectedPath = string.IsNullOrWhiteSpace(folder.Text) ? cfg.Root : folder.Text })
+                    if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) folder.Text = dlg.SelectedPath;
+            };
+            var keep = new TextBox { Text = cfg.KeepPerLink.ToString(CultureInfo.CurrentCulture), Width = 50, Padding = new Thickness(3) };
+            var open = LinkButton("Open the archive folder", "Show the archived versions in Explorer");
+            open.Click += (s2, e2) => { try { Directory.CreateDirectory(cfg.Root); System.Diagnostics.Process.Start("explorer.exe", cfg.Root); } catch { } };
+            var ok = MakeButton("Save", "Save the archive settings for this Windows user");
+            ok.IsDefault = true;
+            ok.Margin = new Thickness(0, 12, 0, 0);
+
+            var panel = new StackPanel { Margin = new Thickness(14) };
+            panel.Children.Add(new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap, Width = 470, Margin = new Thickness(0, 0, 0, 10),
+                Text = "When Revit loads a new version of a link (opening the model, Reload Latest), Perseus copies the file Revit loaded " +
+                       "(for cloud links Revit's own local copy) into this archive in the background. Archived versions appear in From / To " +
+                       "and are compared without downloading anything. Versions are only captured when someone loads them.\n\n" +
+                       "Leave the folder empty for a folder on this computer, or pick a shared network folder so everyone's Revit adds to one history.",
+            });
+            panel.Children.Add(enabled);
+            panel.Children.Add(Label("Folder (empty = this computer)"));
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+            row.Children.Add(folder);
+            row.Children.Add(browse);
+            panel.Children.Add(row);
+            panel.Children.Add(new TextBlock { Text = "Default: " + LinkArchive.DefaultFolder, Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 0, 0, 8) });
+            var keepRow = new StackPanel { Orientation = Orientation.Horizontal };
+            keepRow.Children.Add(new TextBlock { Text = "Keep the newest ", VerticalAlignment = VerticalAlignment.Center });
+            keepRow.Children.Add(keep);
+            keepRow.Children.Add(new TextBlock { Text = " versions of each link (about 100–300 MB each)", VerticalAlignment = VerticalAlignment.Center });
+            panel.Children.Add(keepRow);
+            panel.Children.Add(new ContentControl { Content = open, Margin = new Thickness(0, 8, 0, 0) });
+            panel.Children.Add(ok);
+
+            var win = new Window { Title = "Version archive", Content = panel, SizeToContent = SizeToContent.WidthAndHeight,
+                                   ResizeMode = ResizeMode.NoResize, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                                   FontFamily = FontFamily, FontSize = FontSize, ShowInTaskbar = false };
+            ok.Click += (s2, e2) => win.DialogResult = true;
+            if (win.ShowDialog() != true) return;
+            cfg.Enabled = enabled.IsChecked == true;
+            cfg.Folder = string.IsNullOrWhiteSpace(folder.Text) ? null : folder.Text.Trim();
+            if (int.TryParse(keep.Text, NumberStyles.Integer, CultureInfo.CurrentCulture, out int n) && n > 0) cfg.KeepPerLink = n;
+            try
+            {
+                Directory.CreateDirectory(cfg.Root);
+                LinkArchive.SaveSettings(cfg);
+                Status(cfg.Enabled ? $"Version archive: {cfg.Root} (newest {cfg.KeepPerLink} per link)." : "Version archive turned off.");
+                RefillVersions();
+            }
+            catch (Exception ex) { Status("Couldn't use that folder: " + ex.Message, true); }
         }
 
         private static string CloudLabel(CloudVersion v) =>
