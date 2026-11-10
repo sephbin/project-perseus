@@ -222,9 +222,15 @@ namespace ProjectPerseus.federator
             try
             {
                 var fileVersion = BasicFileInfo.Extract(source)?.GetDocumentVersion();
-                if (fileVersion == null || !string.Equals(fileVersion.VersionGUID.ToString(), guid, StringComparison.OrdinalIgnoreCase))
+                // Workshared cloud links: Revit's cached copy can carry a different version GUID for the same save, so an
+                // equal save count also counts as the loaded version.
+                bool same = fileVersion != null &&
+                            (string.Equals(fileVersion.VersionGUID.ToString(), guid, StringComparison.OrdinalIgnoreCase)
+                             || fileVersion.NumberOfSaves == saves);
+                if (!same)
                 {
-                    Log.Info($"[Federator] archive: {Path.GetFileName(source)} isn't save {saves} of {title}; skipped");
+                    Log.Info($"[Federator] archive: {Path.GetFileName(source)} isn't save {saves} of {title} " +
+                             $"(file: save {fileVersion?.NumberOfSaves.ToString() ?? "?"}, {fileVersion?.VersionGUID.ToString() ?? "no version"}; loaded {guid}); skipped");
                     return;
                 }
             }
