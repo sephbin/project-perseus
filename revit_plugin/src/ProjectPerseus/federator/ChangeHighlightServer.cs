@@ -663,12 +663,20 @@ namespace ProjectPerseus.federator
 
         private static void AddBatches(List<Batch> batches, Layer3D layer, Color colour, bool lines)
         {
-            var t = Batch.FromTriangles(layer.Tris, colour);
-            if (t != null) batches.Add(t);
+            // Index buffers hold 16-bit indices: past 65,535 vertices in one buffer they wrap onto earlier vertices
+            // (stray slivers across the view, broken strokes, later changes' halos / glyphs missing). Chunk each colour.
+            for (int start = 0; start < layer.Tris.Count; start += Batch.ChunkTriVerts)
+            {
+                var t = Batch.FromTriangles(layer.Tris.GetRange(start, Math.Min(Batch.ChunkTriVerts, layer.Tris.Count - start)), colour);
+                if (t != null) batches.Add(t);
+            }
             if (lines)
             {
-                var l = Batch.FromLines(layer.Lines, colour);
-                if (l != null) batches.Add(l);
+                for (int start = 0; start < layer.Lines.Count; start += Batch.ChunkLines)
+                {
+                    var l = Batch.FromLines(layer.Lines.GetRange(start, Math.Min(Batch.ChunkLines, layer.Lines.Count - start)), colour);
+                    if (l != null) batches.Add(l);
+                }
             }
         }
 
@@ -678,6 +686,8 @@ namespace ProjectPerseus.federator
         private class Batch : IDisposable
         {
             private const int MaxVerts = 3000000;
+            internal const int ChunkTriVerts = 65532;   // < 65,536 (16-bit indices), multiple of 3
+            internal const int ChunkLines = 32767;      // 2 vertices each
 
             internal VertexBuffer Vb;
             internal IndexBuffer Ib;
