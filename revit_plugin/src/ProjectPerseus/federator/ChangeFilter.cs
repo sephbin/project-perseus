@@ -59,7 +59,7 @@ namespace ProjectPerseus.federator
                 }
             }
 
-            // Deleted elements aren't in the link any more, so they can't be "in the view": the filter hides them.
+            // InView holds the visible linked ids plus deleted elements whose old box is in the view (FederatorWindow.ComputeInView).
             if (InView != null && !InView.Contains(c.Id)) return false;
 
             if (!string.IsNullOrWhiteSpace(Search) && !MatchesSearch(c, s, Search.Trim())) return false;

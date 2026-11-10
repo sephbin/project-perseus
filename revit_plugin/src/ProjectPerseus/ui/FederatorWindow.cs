@@ -552,6 +552,8 @@ namespace ProjectPerseus.ui
                     _toHost = ChangeHighlightController.Capture(LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid));
                     _noise = FederatorSettingsStore.Load<NoiseRules>(_doc, NoiseKey) ?? new NoiseRules();
                     ApplyNoise();
+                    // Only in active view: recompute for this comparison (its link instance and its deleted elements).
+                    if (_inViewBox.IsChecked == true) UpdateInView(app);
                     PushHighlight();
                 });
             else PushHighlight();
@@ -1009,9 +1011,31 @@ namespace ProjectPerseus.ui
             if (inst == null || view == null) { _inView = new HashSet<long>(); ApplyFilter(); return; }
             var ids = ReviewNavigator.VisibleLinkedIds(_doc, view, inst);
             _inView = ids ?? new HashSet<long>();
+            // Deleted elements aren't in the live link, so Revit can't report them visible: count them in view when their
+            // old box (in host coordinates) falls inside what the view shows. Revit doesn't reuse element ids, so a
+            // deleted id can't clash with a live one.
+            int deletedInView = 0;
+            if (ids != null && _rows != null)
+            {
+                try
+                {
+                    var extent = ViewExtent.For(view);
+                    var toHost = ChangeHighlightController.Capture(inst);
+                    foreach (var row in _rows)
+                    {
+                        var c = row.Change;
+                        if (c.Kind != ChangeKind.Deleted || c.OldMin == null || c.OldMax == null) continue;
+                        toHost.Box(c.OldMin, c.OldMax, out var hmin, out var hmax);
+                        if (extent.Contains(new ARDB.XYZ(hmin[0], hmin[1], hmin[2]), new ARDB.XYZ(hmax[0], hmax[1], hmax[2])) && _inView.Add(c.Id))
+                            deletedInView++;
+                    }
+                }
+                catch (Exception ex) { Log.Info($"[Federator] deleted elements in view: {ex.Message}"); }
+            }
             ApplyFilter();
             Status(ids == null ? $"'{view.Name}' doesn't show the model; nothing is in view."
-                               : $"{_inView.Count:N0} elements of this link are visible in '{view.Name}'.");
+                               : $"{_inView.Count - deletedInView:N0} elements of this link are visible in '{view.Name}'" +
+                                 (deletedInView > 0 ? $", plus {deletedInView:N0} deleted ones that were here." : "."));
         }
 
         // ═══════════════════════════ Commands ═══════════════════════════
