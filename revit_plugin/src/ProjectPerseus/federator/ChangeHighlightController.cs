@@ -75,6 +75,7 @@ namespace ProjectPerseus.federator
                 Min = hmin,
                 Max = hmax,
                 Emphasis = emph,
+                Key = c.UniqueId,
                 Corners = Corners(t, deleted ? c.OldObb : c.NewObb),
                 Kind = c.Kind == ChangeKind.Added ? ChangeHighlightServer.Kind.Added
                      : deleted ? ChangeHighlightServer.Kind.Deleted : ChangeHighlightServer.Kind.Modified,

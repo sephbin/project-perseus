@@ -175,6 +175,7 @@ namespace ProjectPerseus.ui
             new WindowInteropHelper(w).Owner = app.MainWindowHandle;
             w.Reload(app);
             w.Show();
+            w.StartBadges(app.MainWindowHandle);
         }
 
         private FederatorWindow()
@@ -381,6 +382,7 @@ namespace ProjectPerseus.ui
             {
                 _searchTimer.Stop();
                 _highlightTimer.Stop();
+                StopBadges();
                 ChangeRow.PreviewChanged -= OnRowPreviewChanged;
                 SavePreview();
                 Instance = null;
@@ -963,6 +965,166 @@ namespace ProjectPerseus.ui
             _suppressSelection = false;
             RebuildDetail();
             ReviewChanged?.Invoke();
+        }
+
+        // ═══════════════════════════ Badge clicks ═══════════════════════════
+        // Invisible click targets over the drawn badges (ui/BadgeHitOverlay): click = select the row (Ctrl / Shift adds or
+        // removes), right-click = review menu. Placed from an API-context tick; hidden while the view moves (pan / zoom).
+
+        private BadgeHitOverlay _badges;
+        private readonly DispatcherTimer _badgeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        private bool _badgeBusy, _badgeLogged;
+        private string _badgeViewSig;
+
+        private static readonly HashSet<ARDB.ViewType> BadgeViewTypes = new HashSet<ARDB.ViewType>
+        {
+            ARDB.ViewType.FloorPlan, ARDB.ViewType.CeilingPlan, ARDB.ViewType.EngineeringPlan, ARDB.ViewType.AreaPlan,
+            ARDB.ViewType.Section, ARDB.ViewType.Elevation, ARDB.ViewType.Detail,
+        };
+
+        private void StartBadges(IntPtr revitMain)
+        {
+            _badges = new BadgeHitOverlay(revitMain, OnBadgeClicked, BadgeTip, BadgeMenu);
+            _badgeTimer.Tick += (s, e) => Safe(BadgeTick);
+            _badgeTimer.Start();
+        }
+
+        private void StopBadges()
+        {
+            _badgeTimer.Stop();
+            try { _badges?.Close(); } catch { }
+            _badges = null;
+        }
+
+        private void BadgeTick()
+        {
+            if (_badges == null || _badgeBusy) return;
+            bool on = _highlightBox.IsChecked == true && _record != null && ChangeHighlightServer.Instance.Count > 0
+                      && BadgeHitOverlay.RevitIsForeground();
+            if (!on) { _badges.HideTargets(); _badgeViewSig = null; return; }
+            _badgeBusy = true;
+            OwnershipUiEvent.Run(app =>
+            {
+                try { Safe(() => PlaceBadges(app)); }
+                finally { _badgeBusy = false; }
+            });
+        }
+
+        /// <summary>Badge spots from the last highlight build -> screen pixels of the active view (API context).</summary>
+        private void PlaceBadges(UIApplication app)
+        {
+            if (_badges == null) return;
+            var uidoc = app.ActiveUIDocument;
+            var view = uidoc?.ActiveView;
+            if (view == null || _doc == null || !uidoc.Document.Equals(_doc) || !BadgeViewTypes.Contains(view.ViewType))
+            { _badges.HideTargets(); return; }
+            Autodesk.Revit.UI.UIView uiView = null;
+            foreach (var uv in uidoc.GetOpenUIViews()) if (uv.ViewId == view.Id) { uiView = uv; break; }
+            if (uiView == null) { _badges.HideTargets(); return; }
+            var rect = uiView.GetWindowRectangle();
+            var zc = uiView.GetZoomCorners();
+            if (zc == null || zc.Count < 2) { _badges.HideTargets(); return; }
+            ARDB.XYZ c0 = zc[0], c1 = zc[1], right = view.RightDirection, up = view.UpDirection;
+
+            // Moving (pan / zoom / resize): stay hidden until the view has been still for one tick.
+            string viewSig = $"{view.Id.GetIdValue()}|{rect.Left},{rect.Top},{rect.Right},{rect.Bottom}|" +
+                             $"{c0.X:F4},{c0.Y:F4},{c0.Z:F4}|{c1.X:F4},{c1.Y:F4},{c1.Z:F4}";
+            if (viewSig != _badgeViewSig) { _badgeViewSig = viewSig; _badges.HideTargets(); return; }
+
+            var hits = ChangeHighlightServer.Instance.HitsFor(view.Id.GetIdValue(), out int stamp);
+            if (hits == null || hits.Count == 0) { _badges.HideTargets(); return; }
+            double spanU = (c1 - c0).DotProduct(right), spanV = (c1 - c0).DotProduct(up);
+            int w = rect.Right - rect.Left, h = rect.Bottom - rect.Top;
+            if (!(spanU > 0) || !(spanV > 0) || w <= 0 || h <= 0) { _badges.HideTargets(); return; }
+            double pxU = w / spanU, pxV = h / spanV;
+
+            // Leave out badges under this panel (the overlay would take the panel's clicks there).
+            bool panelShown = IsVisible && WindowState != WindowState.Minimized;
+            BadgeHitOverlay.TryGetRect(new WindowInteropHelper(this).Handle, out int pl, out int pt, out int pr, out int pb);
+            var targets = new List<BadgeHitOverlay.Target>();
+            foreach (var hit in hits)
+            {
+                var d = new ARDB.XYZ(hit.X, hit.Y, hit.Z) - c0;
+                double x = rect.Left + d.DotProduct(right) * pxU, y = rect.Bottom - d.DotProduct(up) * pxV;
+                if (x < rect.Left || x > rect.Right || y < rect.Top || y > rect.Bottom) continue;
+                if (panelShown && x >= pl && x <= pr && y >= pt && y <= pb) continue;
+                targets.Add(new BadgeHitOverlay.Target { Key = hit.Key, X = x, Y = y, R = hit.R * pxU + 2 });
+            }
+            if (!_badgeLogged)
+            {
+                _badgeLogged = true;
+                Log.Info($"[Federator] badge targets: view rect {rect.Left},{rect.Top}..{rect.Right},{rect.Bottom} px, " +
+                         $"{targets.Count} of {hits.Count} on screen, {pxU:F2} x {pxV:F2} px/ft");
+            }
+            _badges.Place(rect.Left, rect.Top, rect.Right, rect.Bottom, targets, $"{viewSig}|{stamp}|{pl},{pt},{pr},{pb}");
+        }
+
+        private void OnBadgeClicked(string key, bool add)
+        {
+            Safe(() =>
+            {
+                if (_view == null || !_rowByUid.TryGetValue(key ?? "", out var row)) return;
+                if (!_view.PassesFilter(row)) { Status("That change is hidden by the panel's filters."); return; }
+                if (add)
+                {
+                    if (_grid.SelectedItems.Contains(row)) _grid.SelectedItems.Remove(row);
+                    else _grid.SelectedItems.Add(row);
+                }
+                else
+                {
+                    _grid.SelectedItems.Clear();
+                    _grid.SelectedItem = row;
+                }
+                _grid.ScrollIntoView(row);
+            });
+        }
+
+        private string BadgeTip(string key)
+        {
+            if (!_rowByUid.TryGetValue(key ?? "", out var row)) return null;
+            var c = row.Shown ?? row.Change;
+            string name = string.Join(": ", new[] { c.Family, c.Type }.Where(x => !string.IsNullOrEmpty(x)));
+            return $"{c.Kind} · {c.Category}{(name.Length > 0 ? " · " + name : "")}\n{ChangeDescriber.Summary(c)}\n" +
+                   $"{row.State.Status}{(string.IsNullOrEmpty(row.State.Assignees) ? "" : " · " + row.State.Assignees)}\n" +
+                   "Click to select · Ctrl+click to add · right-click to review";
+        }
+
+        /// <summary>Right-click on a badge: review menu for that change, or for the whole selection when it's part of it.</summary>
+        private ContextMenu BadgeMenu(string key)
+        {
+            if (_view == null || !_rowByUid.TryGetValue(key ?? "", out var row)) return null;
+            if (!_grid.SelectedItems.Contains(row)) OnBadgeClicked(key, false);
+            var rows = _grid.SelectedItems.Cast<ChangeRow>().ToList();
+            if (rows.Count == 0) rows.Add(row);
+            string what = rows.Count == 1 ? $"{row.Change.Kind} · {row.Change.Category}" : $"{rows.Count:N0} selected changes";
+
+            var cm = new ContextMenu();
+            void Add(string header, Action act) =>
+                cm.Items.Add(MenuItemFor(header, () => Safe(act)));
+            cm.Items.Add(new MenuItem { Header = what, IsEnabled = false, FontWeight = FontWeights.SemiBold });
+            cm.Items.Add(new Separator());
+            foreach (var st in new[] { ReviewStatus.Accepted, ReviewStatus.Query, ReviewStatus.Resolved, ReviewStatus.Ignored })
+            {
+                string status = st;
+                Add(status, () => SetStatus(rows, status));
+            }
+            cm.Items.Add(new Separator());
+            Add("Comment…", () =>
+            {
+                string text = _badges?.AskText("Comment", what);
+                if (!string.IsNullOrWhiteSpace(text)) PostComment(rows, text);
+            });
+            Add("Zoom to", () => ShowRows(rows, true));
+            Add("Hide from preview", () => { SetPreview(rows, false); ReviewChanged?.Invoke(); });
+            Add("Show in panel", () => { if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); });
+            return cm;
+        }
+
+        private static MenuItem MenuItemFor(string header, Action act)
+        {
+            var mi = new MenuItem { Header = header };
+            mi.Click += (s, e) => act();
+            return mi;
         }
 
         // ═══════════════════════════ Revit events (API context) ═══════════════════════════

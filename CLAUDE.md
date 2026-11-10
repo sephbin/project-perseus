@@ -320,6 +320,11 @@ ProjectPerseus/
 │   │                             shown; unticked rows aren't drawn or baked ("shown" scope).
 │   ├── MultiPick.cs              NEW (2026-11-11). Drop-down tick list (All / None / presets, parent items with mixed state) for the
 │   │                             FederatorWindow filters (Change = Added / Deleted / Modified > aspects, Category, Level, Status, Assignee).
+│   ├── BadgeHitOverlay.cs        NEW (2026-11-11). Invisible click targets over the federator badges in the active 2D view: per-pixel
+│   │                             transparent, non-activating window owned by Revit; only alpha-1 discs take clicks (select row, Ctrl adds;
+│   │                             right-click = review menu from the panel). Wheel / middle / right elsewhere re-posted to the Revit view.
+│   │                             FederatorWindow places it from a 150 ms API-context tick (UIView rect + zoom corners; hidden while moving)
+│   │                             using ChangeHighlightServer.HitsFor (badge spots recorded per view at build).
 │   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
 │   ├── TriageWindow.cs           NEW (2026-11-09). Modeless bulk review: ChangeTriage groups (largest first), value transitions,

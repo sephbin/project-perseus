@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -34,6 +34,44 @@ namespace ProjectPerseus.federator
             internal bool Emphasis;           // selected in the panel: heavier stroke, bigger badge
             internal double[] OldMin, OldMax; // moved elements: old box (host) → dashed ghost + arrow
             internal double[] Corners, OldCorners; // oriented box corners (8 × xyz, host) when tighter than Min / Max; else null
+            internal string Key;              // the change's UniqueId (badge clicks -> panel row)
+        }
+
+        /// <summary>Where a badge (or zoomed-out dot) was drawn: host point on the view plane + radius (feet).</summary>
+        internal struct BadgeHit
+        {
+            internal string Key;
+            internal double X, Y, Z, R;
+        }
+
+        // Badge spots per view from the last build (read by the panel's click overlay on the UI thread).
+        private readonly Dictionary<long, KeyValuePair<int, List<BadgeHit>>> _hits = new Dictionary<long, KeyValuePair<int, List<BadgeHit>>>();
+        private int _hitsStamp;
+
+        /// <summary>The badges drawn in this view by the last build, and a stamp that changes with every rebuild.</summary>
+        internal List<BadgeHit> HitsFor(long viewId, out int stamp)
+        {
+            lock (_hits)
+            {
+                if (_hits.TryGetValue(viewId, out var h)) { stamp = h.Key; return h.Value; }
+                stamp = 0;
+                return null;
+            }
+        }
+
+        private void SetHits(long viewKey, List<BadgeHit> hits)
+        {
+            lock (_hits)
+            {
+                if (hits == null && (!_hits.TryGetValue(viewKey, out var old) || old.Value == null)) return;
+                _hits[viewKey] = new KeyValuePair<int, List<BadgeHit>>(++_hitsStamp, hits);
+            }
+        }
+
+        private static BadgeHit Hit(Frame f, string key, Pt at, double w, double r)
+        {
+            var p = f.At(at.U, at.V, w);
+            return new BadgeHit { Key = key, X = p.X, Y = p.Y, Z = p.Z, R = r };
         }
 
         internal static readonly ChangeHighlightServer Instance = new ChangeHighlightServer();
@@ -127,11 +165,11 @@ namespace ProjectPerseus.federator
                 List<Item> items;
                 int version;
                 lock (_lock) { items = _items; version = _version; }
-                if (items.Count == 0) return;
-
                 long viewKey = view.Id.GetIdValue();
+                if (items.Count == 0) { SetHits(viewKey, null); return; }
+
                 List<int> visible = VisibleFor(view, viewKey, items, version);
-                if (visible.Count == 0) return;
+                if (visible.Count == 0) { SetHits(viewKey, null); return; }
 
                 var frame = new Frame(view, Place);
                 LogViewOnce(view, viewKey, version, frame, visible.Count);
@@ -144,7 +182,9 @@ namespace ProjectPerseus.federator
                 if (!_cache.TryGetValue(viewKey, out var cached) || cached.Key != key || !cached.Value.All(b => b.IsValid()))
                 {
                     if (cached.Value != null) foreach (var b in cached.Value) b.Dispose();
-                    var built = lod.Dots ? BuildDots(items, visible, frame, version, lod.Fpp) : Build(items, lod.Build, frame, version);
+                    var hits = new List<BadgeHit>();
+                    var built = lod.Dots ? BuildDots(items, visible, frame, version, lod.Fpp, hits) : Build(items, lod.Build, frame, version, hits);
+                    SetHits(viewKey, hits);
                     cached = new KeyValuePair<string, List<Batch>>(key, built);
                     _cache[viewKey] = cached;
                 }
@@ -278,7 +318,7 @@ namespace ProjectPerseus.federator
         /// Zoomed-out style: every change is a dot of fixed screen size (white rim, colour, white + − ~ glyph) at the
         /// element's centre. Selected changes keep their full outline. Cheap enough to draw all of them.
         /// </summary>
-        private List<Batch> BuildDots(List<Item> items, List<int> visible, Frame f, int version, double fpp)
+        private List<Batch> BuildDots(List<Item> items, List<int> visible, Frame f, int version, double fpp, List<BadgeHit> hits)
         {
             var layers = new Dictionary<Kind, Layer3D>();
             var white = new Layer3D();
@@ -296,11 +336,12 @@ namespace ProjectPerseus.federator
                 t.Clear(); OverlayShapes.Disc(t, c, r + rim, 20); white.AddTris(f, t, w - eps);
                 t.Clear(); OverlayShapes.Disc(t, c, r, 20); LayerOf(it.Kind).AddTris(f, t, w + eps);
                 t.Clear(); OverlayShapes.Glyph(t, GlyphOf(it.Kind), c, r * 0.5, r * 0.14); white.AddTris(f, t, w + 2 * eps);
+                hits.Add(Hit(f, it.Key, c, w, r + rim));
             }
             var batches = new List<Batch>();
             AddBatches(batches, white, new Color(255, 255, 255), lines: false);
             foreach (var kv in layers) AddBatches(batches, kv.Value, ColorOf(kv.Key), lines: false);
-            if (emphasised.Count > 0) batches.AddRange(Build(items, emphasised, f, version));
+            if (emphasised.Count > 0) batches.AddRange(Build(items, emphasised, f, version, hits));
             return batches;
         }
 
@@ -519,7 +560,7 @@ namespace ProjectPerseus.federator
                      $"right {V(f.R)}, near {D(f.NearW)}, far {D(f.FarW)}, eye {D(f.EyeW)}, place {f.Place}, {visible} change(s) in view");
         }
 
-        private List<Batch> Build(List<Item> items, List<int> visible, Frame f, int version)
+        private List<Batch> Build(List<Item> items, List<int> visible, Frame f, int version, List<BadgeHit> hits)
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var layers = new Dictionary<Kind, Layer3D>();
@@ -586,6 +627,7 @@ namespace ProjectPerseus.federator
 
                 // Badge on a top corner: the left one, unless the move arrow ends nearer to it.
                 double br = (it.Emphasis ? BadgeREmph : BadgeR) * s;
+                hits.Add(Hit(f, it.Key, badgeAt, w, br + Halo * s));
                 var t = new List<double>();
                 if (simple && !it.Emphasis)
                 {
