@@ -136,6 +136,9 @@ namespace ProjectPerseus.ui
         // Files picked with "Browse…" this session, per link instance (they stay in the pickers).
         private readonly Dictionary<string, List<string>> _browsed = new Dictionary<string, List<string>>();
         private const string Tick = "✓", NoTick = "    ";
+        // This model's archive folder (its project's shared folder, else the user's) and its project settings; set in Reload.
+        private string _archiveRoot;
+        private LinkArchive.ProjectSettings _archiveProject;
         // Cloud version lists per link instance (fetched in the background), and their state while not loaded:
         // "loading", "signin" (not signed in), or an error message.
         private readonly Dictionary<string, List<CloudVersion>> _cloudVersions = new Dictionary<string, List<CloudVersion>>();
@@ -436,6 +439,8 @@ namespace ProjectPerseus.ui
 
             _records = ComparisonStore.List(_doc);
             _events = ReviewStore.Load(_doc);
+            _archiveProject = LinkArchive.ProjectSettingsOf(_doc);
+            _archiveRoot = LinkArchive.RootFor(_doc);
             _cloudVersions.Clear();   // Refresh re-reads the cloud version lists too
             _cloudState.Clear();
 
@@ -1063,7 +1068,7 @@ namespace ProjectPerseus.ui
                 }
                 // Archived copies (LinkArchive: Revit's cache / the link file, copied when a new version was loaded).
                 var shownKeys = new HashSet<string>(items.Select(i => i.Key));
-                foreach (var a in LinkArchive.List(link.ModelKey))
+                foreach (var a in LinkArchive.List(_archiveRoot ?? LinkArchive.LoadSettings().Root, link.ModelKey))
                 {
                     if (link.Loaded && SameGuid(a.VersionGuid, link.LiveGuid)) continue;   // that's Live
                     string key = "guid:" + a.VersionGuid.ToLowerInvariant();
@@ -1088,7 +1093,7 @@ namespace ProjectPerseus.ui
                 {
                     string full = SafeFull(f);
                     if (shownFiles.Contains(full) || full.StartsWith(ApsClient.DownloadFolder, StringComparison.OrdinalIgnoreCase)
-                        || full.StartsWith(LinkArchive.LoadSettings().Root, StringComparison.OrdinalIgnoreCase)
+                        || full.StartsWith(_archiveRoot ?? LinkArchive.LoadSettings().Root, StringComparison.OrdinalIgnoreCase)
                         || (link.Path != null && string.Equals(full, SafeFull(link.Path), StringComparison.OrdinalIgnoreCase))) continue;
                     if (!System.IO.File.Exists(f)) continue;
                     shownFiles.Add(full);
@@ -1137,23 +1142,45 @@ namespace ProjectPerseus.ui
             UpdateCompareEnabled();
         }
 
-        /// <summary>Version archive settings: on / off, folder (local or a shared network folder), versions kept per link.</summary>
+        /// <summary>
+        /// Version archive settings. This project: shared folder + versions kept, saved in the model for everyone.
+        /// This computer: on / off and the folder used for projects without a shared one.
+        /// </summary>
         private void EditArchiveSettings()
         {
-            var cfg = LinkArchive.LoadSettings();
-            var enabled = new CheckBox { Content = "Archive each new version of a link when Revit loads it", IsChecked = cfg.Enabled, Margin = new Thickness(0, 0, 0, 10) };
-            var folder = new TextBox { Text = cfg.Folder ?? "", Padding = new Thickness(3), Width = 380 };
-            var browse = MakeButton("Browse…", "Pick the archive folder");
-            browse.Margin = new Thickness(6, 0, 0, 0);
-            browse.Click += (s2, e2) =>
+            if (_doc == null) { Status("Open a model first."); return; }
+            var user = LinkArchive.LoadSettings();
+            var proj = _archiveProject ?? new LinkArchive.ProjectSettings();
+
+            TextBox Box(string text, double width) => new TextBox { Text = text ?? "", Padding = new Thickness(3), Width = width };
+            Button BrowseFor(TextBox target, string fallback)
             {
-                using (var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "Version archive folder", SelectedPath = string.IsNullOrWhiteSpace(folder.Text) ? cfg.Root : folder.Text })
-                    if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) folder.Text = dlg.SelectedPath;
-            };
-            var keep = new TextBox { Text = cfg.KeepPerLink.ToString(CultureInfo.CurrentCulture), Width = 50, Padding = new Thickness(3) };
-            var open = LinkButton("Open the archive folder", "Show the archived versions in Explorer");
-            open.Click += (s2, e2) => { try { Directory.CreateDirectory(cfg.Root); System.Diagnostics.Process.Start("explorer.exe", cfg.Root); } catch { } };
-            var ok = MakeButton("Save", "Save the archive settings for this Windows user");
+                var b = MakeButton("Browse…", "Pick a folder");
+                b.Margin = new Thickness(6, 0, 0, 0);
+                b.Click += (s2, e2) =>
+                {
+                    using (var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "Version archive folder",
+                                                                                     SelectedPath = string.IsNullOrWhiteSpace(target.Text) ? fallback : target.Text })
+                        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) target.Text = dlg.SelectedPath;
+                };
+                return b;
+            }
+            StackPanel Row(params UIElement[] els)
+            {
+                var r = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+                foreach (var el in els) r.Children.Add(el);
+                return r;
+            }
+            TextBlock Note(string t) => new TextBlock { Text = t, Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Width = 470, Margin = new Thickness(0, 0, 0, 6) };
+
+            var projFolder = Box(proj.Folder, 380);
+            var projKeep = Box(proj.KeepPerLink > 0 ? proj.KeepPerLink.ToString(CultureInfo.CurrentCulture) : "", 50);
+            var enabled = new CheckBox { Content = "Archive each new version of a link when my Revit loads it", IsChecked = user.Enabled, Margin = new Thickness(0, 4, 0, 6) };
+            var userFolder = Box(user.Folder, 380);
+            var userKeep = Box(user.KeepPerLink.ToString(CultureInfo.CurrentCulture), 50);
+            var open = LinkButton("Open this project's archive folder", "Show the archived versions in Explorer");
+            open.Click += (s2, e2) => { try { Directory.CreateDirectory(_archiveRoot); System.Diagnostics.Process.Start("explorer.exe", _archiveRoot); } catch { } };
+            var ok = MakeButton("Save", "Save the archive settings");
             ok.IsDefault = true;
             ok.Margin = new Thickness(0, 12, 0, 0);
 
@@ -1162,22 +1189,20 @@ namespace ProjectPerseus.ui
             {
                 TextWrapping = TextWrapping.Wrap, Width = 470, Margin = new Thickness(0, 0, 0, 10),
                 Text = "When Revit loads a new version of a link (opening the model, Reload Latest), Perseus copies the file Revit loaded " +
-                       "(for cloud links Revit's own local copy) into this archive in the background. Archived versions appear in From / To " +
-                       "and are compared without downloading anything. Versions are only captured when someone loads them.\n\n" +
-                       "Leave the folder empty for a folder on this computer, or pick a shared network folder so everyone's Revit adds to one history.",
+                       "(for cloud links Revit's own local copy) into the archive in the background. Archived versions appear in From / To " +
+                       "and are compared without downloading anything. Versions are only captured when someone loads them.",
             });
+            panel.Children.Add(Section("This project: " + _doc.Title));
+            panel.Children.Add(Note("Saved in this model, so everyone who opens it archives into the same folder. Use a network folder the whole team can reach; leave empty for everyone's own folder."));
+            panel.Children.Add(Row(projFolder, BrowseFor(projFolder, _archiveRoot)));
+            panel.Children.Add(Row(new TextBlock { Text = "Keep the newest ", VerticalAlignment = VerticalAlignment.Center }, projKeep,
+                                   new TextBlock { Text = " versions of each link (empty = each user's setting)", VerticalAlignment = VerticalAlignment.Center }));
+            panel.Children.Add(Section("This computer"));
             panel.Children.Add(enabled);
-            panel.Children.Add(Label("Folder (empty = this computer)"));
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
-            row.Children.Add(folder);
-            row.Children.Add(browse);
-            panel.Children.Add(row);
-            panel.Children.Add(new TextBlock { Text = "Default: " + LinkArchive.DefaultFolder, Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 0, 0, 8) });
-            var keepRow = new StackPanel { Orientation = Orientation.Horizontal };
-            keepRow.Children.Add(new TextBlock { Text = "Keep the newest ", VerticalAlignment = VerticalAlignment.Center });
-            keepRow.Children.Add(keep);
-            keepRow.Children.Add(new TextBlock { Text = " versions of each link (about 100–300 MB each)", VerticalAlignment = VerticalAlignment.Center });
-            panel.Children.Add(keepRow);
+            panel.Children.Add(Note("Folder for projects without a shared folder (empty = " + LinkArchive.DefaultFolder + ")."));
+            panel.Children.Add(Row(userFolder, BrowseFor(userFolder, user.Root)));
+            panel.Children.Add(Row(new TextBlock { Text = "Keep the newest ", VerticalAlignment = VerticalAlignment.Center }, userKeep,
+                                   new TextBlock { Text = " versions of each link (about 100–300 MB each)", VerticalAlignment = VerticalAlignment.Center }));
             panel.Children.Add(new ContentControl { Content = open, Margin = new Thickness(0, 8, 0, 0) });
             panel.Children.Add(ok);
 
@@ -1186,17 +1211,35 @@ namespace ProjectPerseus.ui
                                    FontFamily = FontFamily, FontSize = FontSize, ShowInTaskbar = false };
             ok.Click += (s2, e2) => win.DialogResult = true;
             if (win.ShowDialog() != true) return;
-            cfg.Enabled = enabled.IsChecked == true;
-            cfg.Folder = string.IsNullOrWhiteSpace(folder.Text) ? null : folder.Text.Trim();
-            if (int.TryParse(keep.Text, NumberStyles.Integer, CultureInfo.CurrentCulture, out int n) && n > 0) cfg.KeepPerLink = n;
-            try
+
+            // This computer
+            user.Enabled = enabled.IsChecked == true;
+            user.Folder = string.IsNullOrWhiteSpace(userFolder.Text) ? null : userFolder.Text.Trim();
+            if (int.TryParse(userKeep.Text, NumberStyles.Integer, CultureInfo.CurrentCulture, out int uk) && uk > 0) user.KeepPerLink = uk;
+            try { LinkArchive.SaveSettings(user); }
+            catch (Exception ex) { Status("Couldn't save your archive settings: " + ex.Message, true); return; }
+
+            // This project (in the model), only when it changed
+            var newProj = new LinkArchive.ProjectSettings
             {
-                Directory.CreateDirectory(cfg.Root);
-                LinkArchive.SaveSettings(cfg);
-                Status(cfg.Enabled ? $"Version archive: {cfg.Root} (newest {cfg.KeepPerLink} per link)." : "Version archive turned off.");
-                RefillVersions();
+                Folder = string.IsNullOrWhiteSpace(projFolder.Text) ? null : projFolder.Text.Trim(),
+                KeepPerLink = int.TryParse(projKeep.Text, NumberStyles.Integer, CultureInfo.CurrentCulture, out int pk) && pk > 0 ? pk : 0,
+            };
+            bool projChanged = newProj.Folder != proj.Folder || newProj.KeepPerLink != proj.KeepPerLink;
+            if (newProj.Folder != null)
+            {
+                try { Directory.CreateDirectory(newProj.Folder); }
+                catch (Exception ex) { Status($"Can't use {newProj.Folder}: {ex.Message}", true); return; }
             }
-            catch (Exception ex) { Status("Couldn't use that folder: " + ex.Message, true); }
+            RunApi(app =>
+            {
+                if (projChanged) LinkArchive.SaveProjectSettings(_doc, newProj, _me);
+                _archiveProject = LinkArchive.ProjectSettingsOf(_doc);
+                _archiveRoot = LinkArchive.RootFor(_doc);
+                RefillVersions();
+                Status(!user.Enabled ? "Version archive is off on this computer."
+                       : $"Version archive for {_doc.Title}: {_archiveRoot}" + (newProj.Folder != null ? " (shared, saved in the model)." : " (this computer)."));
+            });
         }
 
         private static string CloudLabel(CloudVersion v) =>
