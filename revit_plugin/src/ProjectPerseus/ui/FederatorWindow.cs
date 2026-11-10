@@ -110,6 +110,7 @@ namespace ProjectPerseus.ui
         // Grid selection -> Revit selection (debounced); the linked ids we pushed, so the echo from Revit is ignored.
         private readonly DispatcherTimer _selectTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         private HashSet<long> _pushedSelection;
+        private DateTime _pushedAt;   // the echo of a push only counts shortly after it (a push that changed nothing never echoes)
         private const int MaxAutoSelect = 1000;
         // Preview column: group header / column header check boxes, kept to refresh their ticked / mixed state.
         private readonly List<WeakReference<CheckBox>> _groupChecks = new List<WeakReference<CheckBox>>();
@@ -1150,6 +1151,7 @@ namespace ProjectPerseus.ui
                 var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
                 if (inst == null) return;
                 _pushedSelection = ReviewNavigator.Select(uidoc, inst, changes);
+                _pushedAt = DateTime.UtcNow;
             });
         }
 
@@ -1168,9 +1170,19 @@ namespace ProjectPerseus.ui
             }
             // The echo of our own PushRevitSelection: keep the grid as the user left it (e.g. deleted rows selected).
             var pushed = _pushedSelection;
-            if (pushed != null && pushed.SetEquals(ids) && refs.Count == ids.Count) { _pushedSelection = null; return; }
+            bool recent = (DateTime.UtcNow - _pushedAt).TotalSeconds < 2;
+            if (pushed != null && recent && pushed.SetEquals(ids) && refs.Count == ids.Count) { _pushedSelection = null; return; }
             _pushedSelection = null;
-            if (rows.Count == 0) return;
+            if (rows.Count == 0)
+            {
+                // Clicked empty space or something that isn't one of these changes: deselect the panel too.
+                if (_grid.SelectedItems.Count == 0) return;
+                _suppressSelection = true;
+                _grid.SelectedItems.Clear();
+                _suppressSelection = false;
+                RebuildDetail();
+                return;
+            }
             var visible = rows.Where(r => _view != null && _view.PassesFilter(r)).ToList();
             _suppressSelection = true;
             _grid.SelectedItems.Clear();
