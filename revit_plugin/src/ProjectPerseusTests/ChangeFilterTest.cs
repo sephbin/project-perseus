@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using ProjectPerseus.federator;
 using ProjectPerseus.models;
@@ -50,6 +50,34 @@ namespace ProjectPerseusTests
             Assert.IsFalse(new ChangeFilter { Assignee = ChangeFilter.AssigneeMe, Me = "alice" }.Matches(c, State(ReviewStatus.Query, "bob")));
             Assert.IsTrue(new ChangeFilter { Assignee = ChangeFilter.Unassigned }.Matches(c, State()));
             Assert.IsFalse(new ChangeFilter { Assignee = ChangeFilter.Unassigned }.Matches(c, State(ReviewStatus.Query, "bob")));
+        }
+
+        [TestMethod]
+        public void TickListsMatchAnyTickedValue()
+        {
+            var moved = Mod(ChangeAspect.Moved);
+            var param = Mod(ChangeAspect.Parameters);
+            var added = new ElementChange { Kind = ChangeKind.Added, Category = "Doors" };
+
+            var f = new ChangeFilter { Kinds = new HashSet<ChangeKind> { ChangeKind.Added, ChangeKind.Modified }, ModifiedAspects = ChangeAspect.Moved };
+            Assert.IsTrue(f.Matches(moved, State()));
+            Assert.IsFalse(f.Matches(param, State()));
+            Assert.IsTrue(f.Matches(added, State()));
+            Assert.IsFalse(new ChangeFilter { Kinds = new HashSet<ChangeKind>() }.Matches(added, State()));
+
+            var cats = new ChangeFilter { Categories = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) { "walls" } };
+            Assert.IsTrue(cats.Matches(moved, State()));
+            Assert.IsFalse(cats.Matches(added, State()));
+            Assert.IsTrue(new ChangeFilter { Levels = new HashSet<string> { ChangeFilter.NoValue } }.Matches(added, State()));
+
+            var st = new ChangeFilter { Statuses = new HashSet<string> { ReviewStatus.Unreviewed, ReviewStatus.Query } };
+            Assert.IsTrue(st.Matches(moved, State()));
+            Assert.IsFalse(st.Matches(moved, State(ReviewStatus.Accepted)));
+
+            var who = new ChangeFilter { Assignees = new HashSet<string> { ChangeFilter.AssigneeMe, ChangeFilter.Unassigned }, Me = "alice" };
+            Assert.IsTrue(who.Matches(moved, State()));
+            Assert.IsTrue(who.Matches(moved, State(ReviewStatus.Query, "alice")));
+            Assert.IsFalse(who.Matches(moved, State(ReviewStatus.Query, "bob")));
         }
 
         [TestMethod]

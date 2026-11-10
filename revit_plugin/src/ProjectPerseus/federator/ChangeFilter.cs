@@ -30,10 +30,31 @@ namespace ProjectPerseus.federator
         /// <summary>Linked element ids visible in the active view, or null when that filter is off.</summary>
         public HashSet<long> InView { get; set; }
 
+        // Multi-select filters (the panel's tick lists). Null = any; an empty set matches nothing. ANDed with the single ones above.
+        /// <summary>Label for an empty category / level value in the tick lists.</summary>
+        public const string NoValue = "(none)";
+        /// <summary>Kinds shown.</summary>
+        public HashSet<ChangeKind> Kinds { get; set; }
+        /// <summary>Modified changes must have one of these aspects (None = any). Only used when Modified is in Kinds (or Kinds is null).</summary>
+        public ChangeAspect ModifiedAspects { get; set; }
+        public HashSet<string> Categories { get; set; }
+        public HashSet<string> Levels { get; set; }
+        /// <summary>ReviewStatus values.</summary>
+        public HashSet<string> Statuses { get; set; }
+        /// <summary>Names, AssigneeMe and / or Unassigned: matches when any of them matches.</summary>
+        public HashSet<string> Assignees { get; set; }
+
         public bool Matches(ElementChange c, ElementReviewState s)
         {
             if (c == null) return false;
             s = s ?? new ElementReviewState();
+
+            if (Kinds != null && !Kinds.Contains(c.Kind)) return false;
+            if (ModifiedAspects != ChangeAspect.None && c.Kind == ChangeKind.Modified && (c.Aspects & ModifiedAspects) == 0) return false;
+            if (Categories != null && !Categories.Contains(OrNone(c.Category))) return false;
+            if (Levels != null && !Levels.Contains(OrNone(c.Level))) return false;
+            if (Statuses != null && !Statuses.Contains(s.Status ?? ReviewStatus.Unreviewed)) return false;
+            if (Assignees != null && !Assignees.Any(a => AssigneeMatches(a, s))) return false;
 
             if (Kind.HasValue && c.Kind != Kind.Value) return false;
             if (Aspect != ChangeAspect.None && (c.Kind != ChangeKind.Modified || (c.Aspects & Aspect) == 0)) return false;
@@ -49,15 +70,7 @@ namespace ProjectPerseus.federator
                 else if (!Eq(s.Status, Status)) return false;
             }
 
-            if (!string.IsNullOrEmpty(Assignee))
-            {
-                if (Assignee == Unassigned) { if (s.OpenActions.Count > 0) return false; }
-                else
-                {
-                    string who = Assignee == AssigneeMe ? Me : Assignee;
-                    if (!s.OpenActions.Any(a => Eq(a.Assignee, who))) return false;
-                }
-            }
+            if (!string.IsNullOrEmpty(Assignee) && !AssigneeMatches(Assignee, s)) return false;
 
             // InView holds the visible linked ids plus deleted elements whose old box is in the view (FederatorWindow.ComputeInView).
             if (InView != null && !InView.Contains(c.Id)) return false;
@@ -75,6 +88,16 @@ namespace ProjectPerseus.federator
                 return true;
             return s.Events.Any(e => Has(e.Text, q) || Has(e.Author, q) || Has(e.Action?.Assignee, q) || Has(e.Action?.Type, q));
         }
+
+        private bool AssigneeMatches(string assignee, ElementReviewState s)
+        {
+            if (assignee == Unassigned) return s.OpenActions.Count == 0;
+            string who = assignee == AssigneeMe ? Me : assignee;
+            return s.OpenActions.Any(a => Eq(a.Assignee, who));
+        }
+
+        /// <summary>The tick-list key of a category / level value.</summary>
+        public static string OrNone(string v) => string.IsNullOrEmpty(v) ? NoValue : v;
 
         private static bool Has(string s, string q) => s != null && s.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0;
         private static bool Eq(string a, string b) => string.Equals(a ?? "", b ?? "", StringComparison.OrdinalIgnoreCase);

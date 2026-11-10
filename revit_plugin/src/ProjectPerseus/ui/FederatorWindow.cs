@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -45,6 +45,7 @@ namespace ProjectPerseus.ui
         private static readonly Brush ActiveFill = Frozen(0xE8, 0xF1, 0xFC);
 
         private const string All = "All";
+        private const string ModifiedKey = "Modified";
         private static readonly string[] GroupModes = { "Category", "Level", "Kind", "Status", "Assignee", "Type", "None" };
         private static readonly KeyValuePair<string, ChangeAspect>[] Aspects =
         {
@@ -127,7 +128,9 @@ namespace ProjectPerseus.ui
         private const int BatchSize = 2000;
 
         // ── Controls ──
-        private readonly ComboBox _linkBox, _comparisonBox, _kindBox, _aspectBox, _categoryBox, _levelBox, _statusBox, _assigneeBox, _groupBox;
+        private readonly ComboBox _linkBox, _comparisonBox, _groupBox;
+        // Filters: tick lists (all ticked = no filter). Change = kind + what changed on modified elements.
+        private readonly MultiPick _changeBox, _categoryBox, _levelBox, _statusBox, _assigneeBox;
         private readonly TextBox _search;
         private readonly CheckBox _inViewBox;
         private readonly Button _compareButton, _deleteButton;
@@ -249,15 +252,18 @@ namespace ProjectPerseus.ui
             _search = new TextBox { Width = 190, Margin = new Thickness(0, 0, 10, 4), VerticalContentAlignment = VerticalAlignment.Center,
                                     ToolTip = "Search type, family, level, id, parameter names/values, comments, assignees" };
             filters.Children.Add(Captioned("Search", _search));
-            _kindBox = Combo(filters, "Kind", new[] { All, "Added", "Deleted", "Modified" }, 95);
-            _aspectBox = Combo(filters, "Changed", Aspects.Select(a => a.Key), 110);
-            _categoryBox = Combo(filters, "Category", new[] { All }, 150);
-            _levelBox = Combo(filters, "Level", new[] { All }, 110);
-            _statusBox = Combo(filters, "Status", new[] { All, ChangeFilter.NeedsAttention }.Concat(ReviewStatus.All), 120);
-            _assigneeBox = Combo(filters, "Assignee", new[] { All, ChangeFilter.AssigneeMe, ChangeFilter.Unassigned }, 120);
+            _changeBox = Pick(filters, "Change", 130);
+            _changeBox.SetItems(new[] { new MultiPick.Item("Added"), new MultiPick.Item("Deleted"), new MultiPick.Item(ModifiedKey, "Modified") }
+                .Concat(Aspects.Where(a => a.Value != ChangeAspect.None).Select(a => new MultiPick.Item(a.Key, a.Key, ModifiedKey))));
+            _categoryBox = Pick(filters, "Category", 150);
+            _levelBox = Pick(filters, "Level", 110);
+            _statusBox = Pick(filters, "Status", 120);
+            _statusBox.SetItems(ReviewStatus.All.Select(x => new MultiPick.Item(x)));
+            _statusBox.AddPreset(ChangeFilter.NeedsAttention, "Unreviewed and Query only", ReviewStatus.Unreviewed, ReviewStatus.Query);
+            _assigneeBox = Pick(filters, "Assignee", 120);
             _groupBox = Combo(filters, "Group by", GroupModes, 95);
             _inViewBox = new CheckBox { Content = "Only in active view", VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(4, 0, 0, 7),
-                                        ToolTip = "Show only this link's elements visible in the active view (deleted elements are hidden)." };
+                                        ToolTip = "Show only this link's elements visible in the active view, plus deleted elements whose old position is in it." };
             filters.Children.Add(_inViewBox);
             _hideNoiseBox = new CheckBox { Content = "Hide noise", IsChecked = true, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(12, 0, 0, 7),
                                            ToolTip = "Hide changes that are only noise: categories and parameters marked as noise in Triage, and moves under the noise distance." };
@@ -339,8 +345,8 @@ namespace ProjectPerseus.ui
             refresh.Click += (s, e) => Safe(() => RunApi(Reload, reload: true));
             zoom.Click += (s, e) => Safe(() => ShowSelected(false));
             select.Click += (s, e) => Safe(() => ShowSelected(true));
-            foreach (var box in new[] { _kindBox, _aspectBox, _categoryBox, _levelBox, _statusBox, _assigneeBox })
-                box.SelectionChanged += (s, e) => Safe(() => { if (!_loading) ApplyFilter(); });
+            foreach (var box in new[] { _changeBox, _categoryBox, _levelBox, _statusBox, _assigneeBox })
+                box.Changed += () => Safe(() => { if (!_loading) ApplyFilter(); });
             _groupBox.SelectionChanged += (s, e) => Safe(() => { if (!_loading) Regroup(); });
             _search.TextChanged += (s, e) => { _searchTimer.Stop(); _searchTimer.Start(); };
             _searchTimer.Tick += (s, e) => Safe(() => { _searchTimer.Stop(); ApplyFilter(); });
@@ -662,16 +668,13 @@ namespace ProjectPerseus.ui
             var states = ReviewLog.Fold(_events, _record?.Id, signatures);
             foreach (var r in _rows) r.SetState(states.TryGetValue(r.Key, out var s) ? s : null);
 
-            string keep = _assigneeBox.SelectedItem as string;
             _loading = true;
-            _assigneeBox.Items.Clear();
-            foreach (var x in new[] { All, ChangeFilter.AssigneeMe, ChangeFilter.Unassigned }
-                         .Concat(_rows.SelectMany(r => r.State.OpenActions.Select(a => a.Assignee))
-                                      .Where(a => !string.IsNullOrWhiteSpace(a))
-                                      .Distinct(StringComparer.OrdinalIgnoreCase)
-                                      .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)))
-                _assigneeBox.Items.Add(x);
-            _assigneeBox.SelectedItem = _assigneeBox.Items.Contains(keep) ? keep : All;
+            _assigneeBox.SetItems(new[] { ChangeFilter.AssigneeMe, ChangeFilter.Unassigned }
+                .Concat(_rows.SelectMany(r => r.State.OpenActions.Select(a => a.Assignee))
+                             .Where(a => !string.IsNullOrWhiteSpace(a))
+                             .Distinct(StringComparer.OrdinalIgnoreCase)
+                             .OrderBy(a => a, StringComparer.OrdinalIgnoreCase))
+                .Select(x => new MultiPick.Item(x)));
             _loading = false;
         }
 
@@ -680,16 +683,29 @@ namespace ProjectPerseus.ui
         private void ApplyFilter()
         {
             if (_view == null) { _count.Text = ""; return; }
-            string kind = _kindBox.SelectedItem as string;
+            // Change: Added / Deleted / aspects of Modified. All aspects ticked = any modification (also ones with no aspect).
+            HashSet<ChangeKind> kinds = null;
+            var modAspects = ChangeAspect.None;
+            var change = _changeBox.Selected;
+            if (change != null)
+            {
+                kinds = new HashSet<ChangeKind>();
+                if (change.Contains("Added")) kinds.Add(ChangeKind.Added);
+                if (change.Contains("Deleted")) kinds.Add(ChangeKind.Deleted);
+                var aspects = Aspects.Where(a => a.Value != ChangeAspect.None).ToList();
+                foreach (var a in aspects) if (change.Contains(a.Key)) modAspects |= a.Value;
+                if (modAspects != ChangeAspect.None) kinds.Add(ChangeKind.Modified);
+                if (aspects.All(a => change.Contains(a.Key))) modAspects = ChangeAspect.None;
+            }
             _filter = new ChangeFilter
             {
                 Search = _search.Text,
-                Kind = kind == null || kind == All ? (ChangeKind?)null : (ChangeKind)Enum.Parse(typeof(ChangeKind), kind),
-                Aspect = Aspects.FirstOrDefault(a => a.Key == (_aspectBox.SelectedItem as string)).Value,
-                Category = Value(_categoryBox),
-                Level = Value(_levelBox),
-                Status = Value(_statusBox),
-                Assignee = Value(_assigneeBox),
+                Kinds = kinds,
+                ModifiedAspects = modAspects,
+                Categories = _categoryBox.Selected,
+                Levels = _levelBox.Selected,
+                Statuses = _statusBox.Selected,
+                Assignees = _assigneeBox.Selected,
                 Me = _me,
                 InView = _inViewBox.IsChecked == true ? (_inView ?? new HashSet<long>()) : null,
             };
@@ -2073,21 +2089,20 @@ namespace ProjectPerseus.ui
             }
         }
 
-        private static string Value(ComboBox box)
+        // Tick list of the distinct values (empty -> "(none)", listed last); unticked values stay unticked.
+        private static void Refill(MultiPick box, IEnumerable<string> values)
         {
-            string v = box.SelectedItem as string;
-            return string.IsNullOrEmpty(v) || v == All ? null : v;
+            var keys = values.Select(ChangeFilter.OrNone).Distinct(StringComparer.OrdinalIgnoreCase)
+                             .OrderBy(v => v == ChangeFilter.NoValue ? 1 : 0)
+                             .ThenBy(v => v, StringComparer.OrdinalIgnoreCase);
+            box.SetItems(keys.Select(v => new MultiPick.Item(v)));
         }
 
-        private static void Refill(ComboBox box, IEnumerable<string> values)
+        private static MultiPick Pick(Panel parent, string caption, double width)
         {
-            string keep = box.SelectedItem as string;
-            box.Items.Clear();
-            box.Items.Add(All);
-            foreach (var v in values.Where(v => !string.IsNullOrEmpty(v)).Distinct(StringComparer.OrdinalIgnoreCase)
-                                    .OrderBy(v => v, StringComparer.OrdinalIgnoreCase))
-                box.Items.Add(v);
-            box.SelectedItem = keep != null && box.Items.Contains(keep) ? keep : All;
+            var box = new MultiPick(width);
+            parent.Children.Add(Captioned(caption, box));
+            return box;
         }
 
         private ComboBox Combo(Panel parent, string caption, IEnumerable<string> items, double width)

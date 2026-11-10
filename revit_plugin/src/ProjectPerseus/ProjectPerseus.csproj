@@ -428,6 +428,7 @@
     <Compile Include="ui\StatusBadge.cs" />
     <Compile Include="ui\MarkerIcons.cs" />
     <Compile Include="ui\MarkerSetsWindow.cs" />
+    <Compile Include="ui\MultiPick.cs" />
     <Compile Include="markers\MarkerEngine.cs" />
     <Compile Include="markers\MarkerSetStore.cs" />
     <Compile Include="models\MarkerSet.cs" />

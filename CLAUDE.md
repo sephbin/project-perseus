@@ -310,7 +310,7 @@ ProjectPerseus/
 │   │                             white glyph on a coloured disc (overlay + panel), Glyph() = glyph alone.
 │   ├── FederatorWindow.cs        NEW (2026-11-08). Modeless code-only WPF "Federator" review panel: link + From / To version
 │   │                             pickers (live, cached ✓, files, Browse…) + Compare, saved comparison picker, DataGrid of ui/ChangeRow grouped by Category/Level/Kind/Status/
-│   │                             Assignee/Type (Expander groups, CustomSort), filters via federator/ChangeFilter (+ Only in active
+│   │                             Assignee/Type (Expander groups, CustomSort), tick-list filters (ui/MultiPick) via federator/ChangeFilter (+ Only in active
 │   │                             view: ReviewNavigator.VisibleLinkedIds, refreshed on ViewActivated). Detail pane: ChangeDescriber
 │   │                             lines, parameter before/after, replacement candidates both ways, status buttons, actions (type +
 │   │                             assignee, Done/Cancel), comment box (any status), thread. Multi-select applies status/action/comment
@@ -318,6 +318,8 @@ ProjectPerseus/
 │   │                             Revit selection -> row highlight via FederatorController (OnRevitSelection).
 │   │                             Preview column: row check boxes + group header (ticked/unticked/mixed) + column header for all
 │   │                             shown; unticked rows aren't drawn or baked ("shown" scope).
+│   ├── MultiPick.cs              NEW (2026-11-11). Drop-down tick list (All / None / presets, parent items with mixed state) for the
+│   │                             FederatorWindow filters (Change = Added / Deleted / Modified > aspects, Category, Level, Status, Assignee).
 │   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
 │   ├── TriageWindow.cs           NEW (2026-11-09). Modeless bulk review: ChangeTriage groups (largest first), value transitions,
@@ -399,7 +401,7 @@ ProjectPerseus/
 │   ├── ReplacementMatcher.cs     Pure: for each Deleted change, likely replacements among Added ones of the same category (box
 │   │                             overlap / covers-old / proximity + same type/family/level; spatial hash). Stored on the change.
 │   ├── ChangeDescriber.cs        Pure: Summary (grid) + Lines ("Moved 130 mm (120 mm horizontally, 50 mm up)", length/volume).
-│   ├── ChangeFilter.cs           Pure: panel filters (kind, aspect, category, level, status/Needs attention, assignee/(Me)/
+│   ├── ChangeFilter.cs           Pure: panel filters (kind, aspect, category, level, status/Needs attention, assignee/(Me)/ + multi-select sets for the tick lists;
 │   │                             (Unassigned), in-view ids, search incl. parameters + comments). Tested in ChangeFilterTest.cs.
 │   ├── ViewExtent.cs             What a view shows (floor plan: top clip down to view depth; RCP: cut plane UP to top/view depth;
 │   │                             + crop; section/elevation crop depth; 3D section box).
