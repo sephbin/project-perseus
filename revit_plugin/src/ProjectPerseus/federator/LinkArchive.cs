@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -107,7 +107,8 @@ namespace ProjectPerseus.federator
 
         internal class Entry
         {
-            public string VersionGuid { get; set; }
+            public string VersionGuid { get; set; }    // the archived file's save GUID (older entries: the loaded link's)
+            public string LoadedGuid { get; set; }     // the loaded link's GUID when archived (diagnostics)
             public int Saves { get; set; }
             public string Title { get; set; }
             public string ModelKey { get; set; }
@@ -204,6 +205,8 @@ namespace ProjectPerseus.federator
             string modelDir = ModelFolder(root, modelKey, linkDoc.Title);
             string stem = $"{dv.NumberOfSaves:D6}_{dv.VersionGUID:N}";
             if (File.Exists(Path.Combine(modelDir, stem + ".json"))) { Known[knownKey] = true; return; }
+            // The loaded link's version GUID isn't stable across sessions for cloud links (the same save was archived
+            // again on every open), so below the copy is named and matched by the FILE: its own GUID, save count, size.
 
             bool cloud = linkDoc.IsModelInCloud;
             string source = cloud ? CloudCacheFile(app, linkDoc) : linkDoc.PathName;
@@ -219,9 +222,11 @@ namespace ProjectPerseus.federator
 
             // The cache can already hold a newer version than the one loaded: only archive that exact save.
             // (Revit API: checked here in the API context, from the file header; only the copy runs in the background.)
+            string fileGuid = null;
             try
             {
                 var fileVersion = BasicFileInfo.Extract(source)?.GetDocumentVersion();
+                fileGuid = fileVersion?.VersionGUID.ToString();
                 // Workshared cloud links: Revit's cached copy can carry a different version GUID for the same save, so an
                 // equal save count also counts as the loaded version.
                 bool same = fileVersion != null &&
@@ -241,10 +246,24 @@ namespace ProjectPerseus.federator
                 return;
             }
 
+            if (!string.IsNullOrEmpty(fileGuid)) stem = $"{saves:D6}_{Guid.Parse(fileGuid):N}";
+            long size;
+            try { size = new FileInfo(source).Length; } catch { size = -1; }
+            string loadedGuid = guid;
+
             Task.Run(() =>
             {
                 try
                 {
+                    // Already archived (any GUID): same save count and same size = the same file.
+                    var same = Existing(modelDir).FirstOrDefault(e => e.Entry.Saves == saves && e.Entry.Bytes == size && size > 0);
+                    if (same != null || File.Exists(Path.Combine(modelDir, stem + ".json")))
+                    {
+                        Log.Info($"[Federator] archive: {title} save {saves} already archived" +
+                                 (same != null ? $" as {Path.GetFileName(same.Json)} (loaded GUID {loadedGuid}, file {fileGuid ?? "?"})" : ""));
+                        RemoveDuplicates(modelDir);
+                        return;
+                    }
                     Directory.CreateDirectory(modelDir);
                     string rvt = Path.Combine(modelDir, stem + ".rvt"), tmp = rvt + ".part";
                     var started = DateTime.UtcNow;
@@ -255,12 +274,14 @@ namespace ProjectPerseus.federator
                     File.Move(tmp, rvt);
                     var entry = new Entry
                     {
-                        VersionGuid = guid, Saves = saves, Title = title, ModelKey = modelKey, SourcePath = source, FromCloud = cloud,
+                        VersionGuid = fileGuid ?? guid, LoadedGuid = loadedGuid, Saves = saves, Title = title, ModelKey = modelKey, SourcePath = source, FromCloud = cloud,
                         SourceTimeUtc = File.GetLastWriteTimeUtc(source), ArchivedUtc = DateTime.UtcNow, ArchivedBy = user,
                         Bytes = new FileInfo(rvt).Length,
                     };
                     File.WriteAllText(Path.Combine(modelDir, stem + ".json"), JsonConvert.SerializeObject(entry, Formatting.Indented), new UTF8Encoding(false));
-                    Log.Info($"[Federator] archived {title} save {saves} ({entry.Bytes / (1024 * 1024):N0} MB) in {(DateTime.UtcNow - started).TotalSeconds:F1} s");
+                    Log.Info($"[Federator] archived {title} save {saves} ({entry.Bytes / (1024 * 1024):N0} MB) in {(DateTime.UtcNow - started).TotalSeconds:F1} s " +
+                             $"to {Path.Combine(Path.GetFileName(Path.GetDirectoryName(modelDir) ?? ""), Path.GetFileName(modelDir), stem)} (loaded GUID {loadedGuid})");
+                    RemoveDuplicates(modelDir);
                     Prune(modelDir, keep);
                     Archived?.Invoke(modelKey);
                 }
@@ -306,6 +327,53 @@ namespace ProjectPerseus.federator
                 Log.Info($"[Federator] cloud cache lookup for {linkDoc.Title}: {ex.Message}");
                 return null;
             }
+        }
+
+        private class ArchivedFile
+        {
+            internal Entry Entry;
+            internal string Json;
+        }
+
+        private static List<ArchivedFile> Existing(string modelDir)
+        {
+            var list = new List<ArchivedFile>();
+            if (!Directory.Exists(modelDir)) return list;
+            foreach (var json in Directory.GetFiles(modelDir, "*.json"))
+            {
+                try
+                {
+                    var e = JsonConvert.DeserializeObject<Entry>(File.ReadAllText(json));
+                    if (e != null && File.Exists(Path.ChangeExtension(json, ".rvt"))) list.Add(new ArchivedFile { Entry = e, Json = json });
+                }
+                catch { /* half-written: skip */ }
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Removes copies of the same file archived more than once (same save count and size; older builds named them by
+        /// the loaded link's GUID, which changed per session). Keeps the first one archived.
+        /// </summary>
+        private static void RemoveDuplicates(string modelDir)
+        {
+            try
+            {
+                foreach (var g in Existing(modelDir).Where(a => a.Entry.Bytes > 0).GroupBy(a => new { a.Entry.Saves, a.Entry.Bytes }))
+                {
+                    foreach (var extra in g.OrderBy(a => a.Entry.ArchivedUtc).Skip(1))
+                    {
+                        try
+                        {
+                            File.Delete(Path.ChangeExtension(extra.Json, ".rvt"));
+                            File.Delete(extra.Json);
+                            Log.Info($"[Federator] archive: removed duplicate {Path.GetFileName(extra.Json)} of save {g.Key.Saves}");
+                        }
+                        catch { /* in use (being compared): next time */ }
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Info($"[Federator] archive duplicate check: {ex.Message}"); }
         }
 
         private static void Prune(string modelDir, int keep)
