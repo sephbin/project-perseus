@@ -148,6 +148,15 @@ namespace ProjectPerseus.ui
         private readonly Dictionary<string, List<CloudVersion>> _cloudVersions = new Dictionary<string, List<CloudVersion>>();
         private readonly Dictionary<string, string> _cloudState = new Dictionary<string, string>();
         private readonly TextBlock _summary, _count, _statusLine;
+        // Orphan fix (federator/ReplacementLinks): stored changes before links, folded links, pick mode, suggestions window.
+        private List<ElementChange> _stored;
+        private ReplacementLinks.State _replacementLinks = new ReplacementLinks.State();
+        private ChangeRow _linkSource;
+        private readonly Border _linkBanner;
+        private readonly TextBlock _linkBannerText;
+        private readonly Button _linkPickRevit;
+        private Button _replacementsButton;
+        private ReplacementWindow _replacementWindow;
         private readonly DataGrid _grid;
         private readonly StackPanel _detail;
         private readonly DispatcherTimer _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
@@ -246,6 +255,10 @@ namespace ProjectPerseus.ui
             var triage = MakeButton("Triage…", "Review changes in bulk: groups of elements with the same kind of change (e.g. 800 sprinklers with only Mark and Comments changed), with accept / ignore / query / noise rules.");
             triage.Click += (s, e) => Safe(OpenTriage);
             headerButtons.Children.Add(triage);
+            _replacementsButton = MakeButton("Replacements…", "Deleted elements that look replaced by a new element (consultant deleted and re-modelled it). " +
+                                                              "Confirm them to treat each pair as one Replaced change.");
+            _replacementsButton.Click += (s, e) => Safe(OpenReplacements);
+            headerButtons.Children.Add(_replacementsButton);
             headerButtons.Children.Add(refresh);
             AddAt(saved, headerButtons, 2);
             header.Children.Add(saved);
@@ -262,7 +275,7 @@ namespace ProjectPerseus.ui
                                     ToolTip = "Search type, family, level, id, parameter names/values, comments, assignees" };
             filters.Children.Add(Captioned("Search", _search));
             _changeBox = Pick(filters, "Change", 130);
-            _changeBox.SetItems(new[] { new MultiPick.Item("Added"), new MultiPick.Item("Deleted"), new MultiPick.Item(ModifiedKey, "Modified") }
+            _changeBox.SetItems(new[] { new MultiPick.Item("Added"), new MultiPick.Item("Deleted"), new MultiPick.Item("Replaced"), new MultiPick.Item(ModifiedKey, "Modified") }
                 .Concat(Aspects.Where(a => a.Value != ChangeAspect.None).Select(a => new MultiPick.Item(a.Key, a.Key, ModifiedKey))));
             _categoryBox = Pick(filters, "Category", 150);
             _levelBox = Pick(filters, "Level", 110);
@@ -287,6 +300,25 @@ namespace ProjectPerseus.ui
             filters.Children.Add(_clearFocus);
             DockPanel.SetDock(filters, Dock.Top);
             root.Children.Add(filters);
+
+            // ── Replacement pick banner (Link to replacement… mode) ──
+            _linkBannerText = new TextBlock { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, Foreground = Ink };
+            _linkPickRevit = MakeButton("Pick in Revit…", "Pick the replacing element in the Revit view (any element of this link, also ones that aren't changes).");
+            var linkCancel = MakeButton("Cancel", "Stop linking (Esc)");
+            _linkPickRevit.Click += (s, e) => Safe(PickReplacementInRevit);
+            linkCancel.Click += (s, e) => Safe(EndLinkPick);
+            var bannerButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 0, 0) };
+            bannerButtons.Children.Add(_linkPickRevit);
+            bannerButtons.Children.Add(linkCancel);
+            var bannerDock = new DockPanel();
+            DockPanel.SetDock(bannerButtons, Dock.Right);
+            bannerDock.Children.Add(bannerButtons);
+            bannerDock.Children.Add(_linkBannerText);
+            _linkBanner = new Border { Child = bannerDock, Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed,
+                                       Background = new SolidColorBrush(Color.FromRgb(0xEF, 0xEA, 0xFF)), BorderBrush = ChangeRow.ReplacedBrush, BorderThickness = new Thickness(1) };
+            DockPanel.SetDock(_linkBanner, Dock.Top);
+            root.Children.Add(_linkBanner);
+            PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape && _linkSource != null) { e.Handled = true; Safe(EndLinkPick); } };
 
             // ── Footer ──
             var footer = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -363,6 +395,7 @@ namespace ProjectPerseus.ui
             _inViewBox.Unchecked += (s, e) => Safe(() => { _inView = null; ApplyFilter(); });
             _grid.SelectionChanged += (s, e) => Safe(() =>
             {
+                if (!_suppressSelection && _linkSource != null && _grid.SelectedItems.Count == 1 && TryCompleteLinkPick(_grid.SelectedItem as ChangeRow)) return;
                 if (!_suppressSelection) { RebuildDetail(); _selectTimer.Stop(); _selectTimer.Start(); }
                 QueueHighlight();
             });
@@ -374,6 +407,14 @@ namespace ProjectPerseus.ui
             LinkArchive.Archived += onArchived;
             Closed += (s, e) => LinkArchive.Archived -= onArchived;
             _grid.MouseDoubleClick += (s, e) => Safe(() => { if (_grid.SelectedItems.Count > 0) ShowSelected(true); });
+            _grid.ContextMenu = new ContextMenu();
+            _grid.ContextMenuOpening += (s, e) => Safe(() =>
+            {
+                var rows = _grid.SelectedItems.Cast<ChangeRow>().ToList();
+                if (rows.Count == 0 || _record == null) { e.Handled = true; return; }
+                FillReviewMenu(_grid.ContextMenu, rows, rows[0], (title, prompt) =>
+                    TextPrompt.Ask(new WindowInteropHelper(this).Handle, title, prompt, multiline: true, okText: "Post"));
+            });
             bake.Click += (s, e) => Safe(OpenBake);
             _highlightBox.Checked += (s, e) => Safe(QueueHighlight);
             _highlightBox.Unchecked += (s, e) => Safe(QueueHighlight);
@@ -516,6 +557,11 @@ namespace ProjectPerseus.ui
         private void ShowComparison(ComparisonRecord rec, List<ElementChange> changes)
         {
             SavePreview();
+            if (_linkSource != null) EndLinkPick();
+            _stored = changes;
+            _replacementLinks = ReplacementLinks.Fold(_events, rec?.LinkInstanceUid);
+            if (rec != null && changes != null)
+                changes = ReplacementLinks.Apply(changes, _replacementLinks, rec.Tolerance > 0 ? rec.Tolerance : 1 / 304.8);
             _record = rec;
             _rows = new List<ChangeRow>();
             _rowByUid.Clear();
@@ -546,7 +592,10 @@ namespace ProjectPerseus.ui
                     $"by {rec.CreatedBy} on {rec.CreatedUtc.ToLocalTime():d MMM yyyy HH:mm}.   " +
                     $"+{rec.Added:N0} added   −{rec.Deleted:N0} deleted   ~{rec.Modified:N0} modified   " +
                     $"({rec.Matched:N0} of {rec.OldCount:N0} elements matched; tolerance {ChangeDescriber.Length(rec.Tolerance)})";
+                int replaced = _rows.Count(r => r.Change.Kind == ChangeKind.Replaced);
+                if (replaced > 0) _summary.Text += $"   ⇄{replaced:N0} replaced (linked)";
             }
+            UpdateReplacementsButton();
 
             _loading = true;
             Refill(_categoryBox, _rows.Select(r => r.Category));
@@ -676,7 +725,14 @@ namespace ProjectPerseus.ui
             var signatures = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var r in _rows) signatures[r.Key] = r.Change.Signature;
             var states = ReviewLog.Fold(_events, _record?.Id, signatures);
-            foreach (var r in _rows) r.SetState(states.TryGetValue(r.Key, out var s) ? s : null);
+            foreach (var r in _rows)
+            {
+                states.TryGetValue(r.Key, out var s);
+                if (r.Change.Kind == ChangeKind.Replaced && _record != null
+                    && states.TryGetValue(ReviewLog.Key(_record.LinkInstanceUid, r.Change.OldUniqueId), out var old))
+                    s = WithHistoryOf(s, old, r.Key);
+                r.SetState(s);
+            }
 
             _loading = true;
             _assigneeBox.SetItems(new[] { ChangeFilter.AssigneeMe, ChangeFilter.Unassigned }
@@ -702,6 +758,7 @@ namespace ProjectPerseus.ui
                 kinds = new HashSet<ChangeKind>();
                 if (change.Contains("Added")) kinds.Add(ChangeKind.Added);
                 if (change.Contains("Deleted")) kinds.Add(ChangeKind.Deleted);
+                if (change.Contains("Replaced")) kinds.Add(ChangeKind.Replaced);
                 var aspects = Aspects.Where(a => a.Value != ChangeAspect.None).ToList();
                 foreach (var a in aspects) if (change.Contains(a.Key)) modAspects |= a.Value;
                 if (modAspects != ChangeAspect.None) kinds.Add(ChangeKind.Modified);
@@ -1072,6 +1129,7 @@ namespace ProjectPerseus.ui
             Safe(() =>
             {
                 if (_view == null || !_rowByUid.TryGetValue(key ?? "", out var row)) return;
+                if (_linkSource != null && TryCompleteLinkPick(row)) return;
                 if (!_view.PassesFilter(row)) { Status("That change is hidden by the panel's filters."); return; }
                 if (add)
                 {
@@ -1101,12 +1159,20 @@ namespace ProjectPerseus.ui
         private ContextMenu BadgeMenu(string key)
         {
             if (_view == null || !_rowByUid.TryGetValue(key ?? "", out var row)) return null;
+            if (_linkSource != null) { TryCompleteLinkPick(row); return null; }
             if (!_grid.SelectedItems.Contains(row)) OnBadgeClicked(key, false);
             var rows = _grid.SelectedItems.Cast<ChangeRow>().ToList();
             if (rows.Count == 0) rows.Add(row);
-            string what = rows.Count == 1 ? $"{row.Change.Kind} · {row.Change.Category}" : $"{rows.Count:N0} selected changes";
-
             var cm = new ContextMenu();
+            FillReviewMenu(cm, rows, row, (title, prompt) => _badges?.AskText(title, prompt));
+            return cm;
+        }
+
+        /// <summary>Review menu (badge right-click and the grid's context menu): statuses, comment, replacement links, zoom.</summary>
+        private void FillReviewMenu(ContextMenu cm, List<ChangeRow> rows, ChangeRow row, Func<string, string, string> ask)
+        {
+            cm.Items.Clear();
+            string what = rows.Count == 1 ? $"{row.Change.Kind} · {row.Change.Category}" : $"{rows.Count:N0} selected changes";
             void Add(string header, Action act) =>
                 cm.Items.Add(MenuItemFor(header, () => Safe(act)));
             cm.Items.Add(new MenuItem { Header = what, IsEnabled = false, FontWeight = FontWeights.SemiBold });
@@ -1119,13 +1185,264 @@ namespace ProjectPerseus.ui
             cm.Items.Add(new Separator());
             Add("Comment…", () =>
             {
-                string text = _badges?.AskText("Comment", what);
+                string text = ask("Comment", what);
                 if (!string.IsNullOrWhiteSpace(text)) PostComment(rows, text);
             });
+            var replacement = ReplacementMenuItems(rows, row);
+            if (replacement.Count > 0)
+            {
+                cm.Items.Add(new Separator());
+                foreach (var mi in replacement) cm.Items.Add(mi);
+            }
+            cm.Items.Add(new Separator());
             Add("Zoom to", () => ShowRows(rows, true));
             Add("Hide from preview", () => { SetPreview(rows, false); ReviewChanged?.Invoke(); });
             Add("Show in panel", () => { if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); });
-            return cm;
+        }
+
+        // ═══════════════════════════ Orphan fix: replacement links ═══════════════════════════
+        // A consultant deleting an element and modelling a new one (new UniqueId) is one change for us: confirmed links
+        // (federator/ReplacementLinks, stored as review events) merge the Deleted + Added rows into one Replaced row, and
+        // later let references to the old element move to the new one.
+
+        private List<MenuItem> ReplacementMenuItems(List<ChangeRow> rows, ChangeRow row)
+        {
+            var items = new List<MenuItem>();
+            void Add(string header, Action act) => items.Add(MenuItemFor(header, () => Safe(act)));
+            if (rows.Count == 2)
+            {
+                var del = rows.FirstOrDefault(r => r.Change.Kind == ChangeKind.Deleted);
+                var add = rows.FirstOrDefault(r => r.Change.Kind == ChangeKind.Added);
+                if (del != null && add != null)
+                    Add($"⇄  Link as replacement: Id {del.Change.Id} replaced by Id {add.Change.Id}", () => LinkPair(del, add.Change.UniqueId, add.Change.Id));
+            }
+            if (rows.Count > 1)
+            {
+                var suggested = rows.Select(SuggestionFor).Where(x => x != null).ToList();
+                if (suggested.Count > 0)
+                {
+                    Add($"⇄  Link each to its suggested replacement ({suggested.Count})", () => ConfirmReplacements(suggested));
+                    Add($"Not replacements ({suggested.Count})", () => RejectReplacements(suggested.Select(x => x.Deleted).ToList()));
+                }
+                var linked = rows.Where(r => r.Change.Kind == ChangeKind.Replaced).ToList();
+                if (linked.Count > 0) Add($"Break replacement links ({linked.Count})", () => RejectReplacements(linked));
+                return items;
+            }
+
+            var c = row.Change;
+            switch (c.Kind)
+            {
+                case ChangeKind.Deleted:
+                    foreach (var cand in c.Replacements ?? new List<ReplacementCandidate>())
+                        if (_rowByUid.TryGetValue(cand.UniqueId ?? "", out var candRow) && candRow.Change.Kind == ChangeKind.Added)
+                        {
+                            var target = candRow;
+                            Add($"⇄  Replaced by {ChangeDescriber.TypeName(cand.Family, cand.Type)} · Id {cand.Id} ({cand.Score * 100:0} %)",
+                                () => LinkPair(row, target.Change.UniqueId, target.Change.Id));
+                        }
+                    Add("⇄  Link to replacement…", () => StartLinkPick(row));
+                    if (c.Replacements != null && c.Replacements.Count > 0 && !_replacementLinks.Rejected.Contains(c.UniqueId ?? ""))
+                        Add("Not a replacement", () => RejectReplacements(new List<ChangeRow> { row }));
+                    break;
+                case ChangeKind.Added:
+                    if (_replaces.TryGetValue(c.UniqueId ?? "", out var olds))
+                        foreach (var old in olds.Where(o => o.Change.Kind == ChangeKind.Deleted))
+                        {
+                            var o2 = old;
+                            Add($"⇄  Replaces deleted {o2.Element} · Id {o2.Change.Id}", () => LinkPair(o2, c.UniqueId, c.Id));
+                        }
+                    Add("⇄  Link as replacement of…", () => StartLinkPick(row));
+                    break;
+                case ChangeKind.Replaced:
+                    Add($"Break replacement link (Id {c.OldId} ⇄ Id {c.Id})", () => RejectReplacements(new List<ChangeRow> { row }));
+                    break;
+            }
+            return items;
+        }
+
+        /// <summary>A deleted row's best suggested replacement that is still an unlinked Added row; null when none / rejected.</summary>
+        internal ReplacementSuggestion SuggestionFor(ChangeRow row)
+        {
+            var c = row.Change;
+            if (c.Kind != ChangeKind.Deleted || c.Replacements == null || _replacementLinks.Rejected.Contains(c.UniqueId ?? "")) return null;
+            foreach (var cand in c.Replacements)
+                if (_rowByUid.TryGetValue(cand.UniqueId ?? "", out var add) && add.Change.Kind == ChangeKind.Added)
+                    return new ReplacementSuggestion { Deleted = row, Replacement = add, Candidate = cand, Alternatives = c.Replacements.Count - 1 };
+            return null;
+        }
+
+        /// <summary>Unconfirmed suggestions in this comparison, best match first (ui/ReplacementWindow).</summary>
+        internal List<ReplacementSuggestion> ReplacementSuggestions() =>
+            _rows.Select(SuggestionFor).Where(x => x != null).OrderByDescending(x => x.Candidate.Score).ToList();
+
+        internal List<ChangeRow> LinkedReplacements() => _rows.Where(r => r.Change.Kind == ChangeKind.Replaced).ToList();
+
+        private void UpdateReplacementsButton()
+        {
+            if (_replacementsButton == null) return;
+            int n = _record == null ? 0 : ReplacementSuggestions().Count;
+            _replacementsButton.Content = n > 0 ? $"Replacements ({n:N0})…" : "Replacements…";
+        }
+
+        private void OpenReplacements()
+        {
+            if (_record == null || _rows.Count == 0) { Status("Open a comparison first."); return; }
+            if (_replacementWindow == null || !_replacementWindow.IsLoaded)
+            {
+                _replacementWindow = new ReplacementWindow(this) { Owner = this };
+                _replacementWindow.Closed += (s, e) => _replacementWindow = null;
+                _replacementWindow.Show();
+            }
+            else _replacementWindow.Activate();
+        }
+
+        private ReviewEvent ReplacementEvent(string oldUid, long oldId, string op, string newUid = null, long newId = 0) =>
+            new ReviewEvent { LinkedElementUid = oldUid, LinkedElementId = oldId, ReplacementOp = op, ReplacedByUid = newUid, ReplacedById = newId };
+
+        private void LinkPair(ChangeRow deleted, string newUid, long newId)
+        {
+            if (deleted == null || deleted.Change.Kind != ChangeKind.Deleted || string.IsNullOrEmpty(newUid)) return;
+            WriteReplacementEvents(new List<ReviewEvent> { ReplacementEvent(deleted.Change.UniqueId, deleted.Change.Id, ReplacementLinks.OpLink, newUid, newId) },
+                                   $"Linked: Id {deleted.Change.Id} replaced by Id {newId}.", newUid);
+        }
+
+        internal void ConfirmReplacements(List<ReplacementSuggestion> pairs)
+        {
+            var events = pairs.Where(p => p != null).GroupBy(p => p.Replacement.Change.UniqueId).Select(g => g.First())   // one-to-one
+                .Select(p => ReplacementEvent(p.Deleted.Change.UniqueId, p.Deleted.Change.Id, ReplacementLinks.OpLink,
+                                              p.Replacement.Change.UniqueId, p.Replacement.Change.Id)).ToList();
+            if (events.Count == 0) return;
+            WriteReplacementEvents(events, events.Count == 1 ? "Replacement linked." : $"{events.Count:N0} replacements linked.",
+                                   events.Count == 1 ? events[0].ReplacedByUid : null);
+        }
+
+        /// <summary>Deleted rows: not a replacement (no longer suggested). Replaced rows: link broken (back to Deleted + Added).</summary>
+        internal void RejectReplacements(List<ChangeRow> rows)
+        {
+            var events = new List<ReviewEvent>();
+            foreach (var r in rows)
+            {
+                if (r.Change.Kind == ChangeKind.Replaced) events.Add(ReplacementEvent(r.Change.OldUniqueId, r.Change.OldId, ReplacementLinks.OpReject));
+                else if (r.Change.Kind == ChangeKind.Deleted) events.Add(ReplacementEvent(r.Change.UniqueId, r.Change.Id, ReplacementLinks.OpReject));
+            }
+            if (events.Count == 0) return;
+            bool broke = rows.Any(r => r.Change.Kind == ChangeKind.Replaced);
+            WriteReplacementEvents(events, broke ? (events.Count == 1 ? "Replacement link broken." : $"{events.Count:N0} replacement links broken.")
+                                                 : (events.Count == 1 ? "Marked as not a replacement." : $"{events.Count:N0} marked as not replacements."),
+                                   events.Count == 1 ? events[0].LinkedElementUid : null);
+        }
+
+        private void WriteReplacementEvents(List<ReviewEvent> events, string done, string selectUid)
+        {
+            var rec = _record;
+            if (rec == null || events.Count == 0) return;
+            var now = DateTime.UtcNow;
+            foreach (var e in events)
+            {
+                e.Id = Guid.NewGuid().ToString("N");
+                e.ComparisonId = rec.Id;
+                e.LinkInstanceUid = rec.LinkInstanceUid;
+                e.Author = _me;
+                e.CreatedUtc = now;
+            }
+            RunApi(app =>
+            {
+                ReviewStore.Add(_doc, events);
+                _events.AddRange(events);
+                if (_record != rec) return;
+                ShowComparison(rec, _stored);   // re-applies the links: rows merge / split
+                if (selectUid != null && _rowByUid.ContainsKey(selectUid)) SelectRow(selectUid);
+                Status(done);
+            });
+        }
+
+        private void StartLinkPick(ChangeRow source)
+        {
+            _linkSource = source;
+            bool fromDeleted = source.Change.Kind == ChangeKind.Deleted;
+            _linkBannerText.Text = fromDeleted
+                ? $"⇄  Pick the element that replaced {source.Element} (Id {source.Change.Id}): click an added (+) change in the list or its badge in the view, or Pick in Revit…   Esc cancels."
+                : $"⇄  Pick the deleted element that {source.Element} (Id {source.Change.Id}) replaces: click a deleted (−) change in the list or its badge in the view.   Esc cancels.";
+            _linkPickRevit.Visibility = fromDeleted ? Visibility.Visible : Visibility.Collapsed;
+            _linkBanner.Visibility = Visibility.Visible;
+            Status("");
+        }
+
+        private void EndLinkPick()
+        {
+            _linkSource = null;
+            _linkBanner.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>In pick mode: links the source with this row when one is deleted and the other added. True when linked.</summary>
+        private bool TryCompleteLinkPick(ChangeRow target)
+        {
+            var src = _linkSource;
+            if (src == null || target == null || target == src) return false;
+            var del = src.Change.Kind == ChangeKind.Deleted ? src : target;
+            var add = src.Change.Kind == ChangeKind.Deleted ? target : src;
+            if (del.Change.Kind != ChangeKind.Deleted || add.Change.Kind != ChangeKind.Added)
+            {
+                Status(src.Change.Kind == ChangeKind.Deleted ? "Pick an added (+) change, or Pick in Revit… for any element of the link."
+                                                             : "Pick a deleted (−) change.", true);
+                return false;
+            }
+            EndLinkPick();
+            LinkPair(del, add.Change.UniqueId, add.Change.Id);
+            return true;
+        }
+
+        private void PickReplacementInRevit()
+        {
+            var src = _linkSource;
+            var rec = _record;
+            if (src == null || rec == null) return;
+            RunApi(app =>
+            {
+                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
+                var linkDoc = inst?.GetLinkDocument();
+                if (linkDoc == null) { Status("The link isn't loaded: pick the replacement in the list instead.", true); return; }
+                ARDB.Reference picked;
+                try
+                {
+                    picked = app.ActiveUIDocument.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.LinkedElement, new InLinkFilter(inst.Id),
+                                                                       $"Pick the element that replaced Id {src.Change.Id} (Esc to cancel)");
+                }
+                catch (Autodesk.Revit.Exceptions.OperationCanceledException) { Status("Pick cancelled."); return; }
+                if (_linkSource != src) return;   // linked from the list meanwhile, or cancelled
+                var el = picked == null ? null : linkDoc.GetElement(picked.LinkedElementId);
+                if (el == null) { Status("That isn't an element of this link.", true); return; }
+                if (el.UniqueId == src.Change.UniqueId) { Status("That's the deleted element itself.", true); return; }
+                EndLinkPick();
+                LinkPair(src, el.UniqueId, el.Id.GetIdValue());
+            }, needActive: true);
+        }
+
+        /// <summary>Revit pick filter: only elements of one link instance.</summary>
+        private class InLinkFilter : Autodesk.Revit.UI.Selection.ISelectionFilter
+        {
+            private readonly ARDB.ElementId _instance;
+            internal InLinkFilter(ARDB.ElementId instance) { _instance = instance; }
+            public bool AllowElement(ARDB.Element elem) => elem != null && elem.Id == _instance;
+            public bool AllowReference(ARDB.Reference reference, ARDB.XYZ position) => reference != null && reference.ElementId == _instance;
+        }
+
+        /// <summary>A Replaced row's state: its own (new element) status / actions plus the deleted element's history.</summary>
+        private static ElementReviewState WithHistoryOf(ElementReviewState own, ElementReviewState old, string key)
+        {
+            var s = new ElementReviewState
+            {
+                Key = key,
+                Status = own?.Status ?? ReviewStatus.Unreviewed,
+                StatusBy = own?.StatusBy, StatusUtc = own?.StatusUtc, StatusCarried = own?.StatusCarried ?? false,
+                StatusComparisonId = own?.StatusComparisonId,
+                CommentCount = (own?.CommentCount ?? 0) + old.CommentCount,
+            };
+            s.OpenActions.AddRange(old.OpenActions);
+            if (own != null) s.OpenActions.AddRange(own.OpenActions);
+            s.Events.AddRange((own?.Events ?? new List<ReviewEvent>()).Concat(old.Events).Distinct().OrderBy(e => e.CreatedUtc));
+            s.Assignees = string.Join(", ", s.OpenActions.Select(a => a.Assignee).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.OrdinalIgnoreCase));
+            return s;
         }
 
         private static MenuItem MenuItemFor(string header, Action act)
@@ -1221,7 +1538,8 @@ namespace ProjectPerseus.ui
                     foreach (var row in _rows)
                     {
                         var c = row.Change;
-                        if (c.Kind != ChangeKind.Deleted || c.OldMin == null || c.OldMax == null) continue;
+                        bool oldOnly = c.Kind == ChangeKind.Deleted || (c.Kind == ChangeKind.Replaced && c.NewMin == null);
+                        if (!oldOnly || c.OldMin == null || c.OldMax == null) continue;
                         toHost.Box(c.OldMin, c.OldMax, out var hmin, out var hmax);
                         if (extent.Contains(new ARDB.XYZ(hmin[0], hmin[1], hmin[2]), new ARDB.XYZ(hmax[0], hmax[1], hmax[2])) && _inView.Add(c.Id))
                             deletedInView++;
@@ -1966,11 +2284,36 @@ namespace ProjectPerseus.ui
             var tableParams = row.IsNoise ? c.ParameterChanges : shown.ParameterChanges;
             if (tableParams != null && tableParams.Count > 0) _detail.Children.Add(ParameterTable(tableParams));
 
+            if (c.Kind == ChangeKind.Replaced) BuildReplacedSection(row);
+            if (c.Kind == ChangeKind.Deleted)
+            {
+                bool rejected = _replacementLinks.Rejected.Contains(c.UniqueId ?? "");
+                _detail.Children.Add(Section("Replacement"));
+                _detail.Children.Add(Muted_(rejected ? "Marked as not a replacement (or its link was broken)."
+                                                     : "If the consultant deleted this element and modelled a new one instead, link them: they become one Replaced change."));
+                var replaceRow = new WrapPanel { Margin = new Thickness(0, 2, 0, 4) };
+                var linkB = MakeButton("Link to replacement…", "Pick the new element: in the list, by its badge in the view, or in Revit.");
+                linkB.Click += (s, e) => Safe(() => StartLinkPick(row));
+                replaceRow.Children.Add(linkB);
+                if (!rejected && c.Replacements != null && c.Replacements.Count > 0)
+                {
+                    var notB = MakeButton("Not a replacement", "Stop suggesting replacements for this deleted element.");
+                    notB.Click += (s, e) => Safe(() => RejectReplacements(new List<ChangeRow> { row }));
+                    replaceRow.Children.Add(notB);
+                }
+                _detail.Children.Add(replaceRow);
+            }
             if (c.Kind == ChangeKind.Deleted && c.Replacements != null && c.Replacements.Count > 0)
             {
                 _detail.Children.Add(Section("Possibly replaced by"));
-                foreach (var cand in c.Replacements) _detail.Children.Add(CandidateLink(cand.UniqueId,
-                    $"{ChangeDescriber.TypeName(cand.Family, cand.Type)} · Id {cand.Id}", $"{cand.Reason} · {cand.Score * 100:0} % match"));
+                foreach (var cand in c.Replacements)
+                {
+                    bool canLink = _rowByUid.TryGetValue(cand.UniqueId ?? "", out var candRow) && candRow.Change.Kind == ChangeKind.Added;
+                    var target = candRow;
+                    _detail.Children.Add(CandidateLink(cand.UniqueId, $"{ChangeDescriber.TypeName(cand.Family, cand.Type)} · Id {cand.Id}",
+                        $"{cand.Reason} · {cand.Score * 100:0} % match" + (canLink ? "" : " · already linked to another element"),
+                        canLink ? (Action)(() => LinkPair(row, target.Change.UniqueId, target.Change.Id)) : null));
+                }
                 var both = MakeButton("Show old and replacement", "Zoom to the deleted element's old position and its best replacement.");
                 both.HorizontalAlignment = HorizontalAlignment.Left;
                 both.Margin = new Thickness(0, 4, 0, 0);
@@ -1988,13 +2331,41 @@ namespace ProjectPerseus.ui
                 foreach (var old in olds)
                 {
                     var cand = old.Change.Replacements.First(x => x.UniqueId == c.UniqueId);
+                    var o2 = old;
                     _detail.Children.Add(CandidateLink(old.Change.UniqueId, $"{old.Element} · Id {old.Change.Id} (deleted)",
-                                                       $"{cand.Reason} · {cand.Score * 100:0} % match"));
+                                                       $"{cand.Reason} · {cand.Score * 100:0} % match",
+                                                       old.Change.Kind == ChangeKind.Deleted ? (Action)(() => LinkPair(o2, c.UniqueId, c.Id)) : null));
                 }
+            }
+            if (c.Kind == ChangeKind.Added)
+            {
+                var linkB = MakeButton("Link as replacement of…", "This element replaces a deleted one: pick the deleted element in the list or by its badge.");
+                linkB.HorizontalAlignment = HorizontalAlignment.Left;
+                linkB.Margin = new Thickness(0, 6, 0, 0);
+                linkB.Click += (s, e) => Safe(() => StartLinkPick(row));
+                _detail.Children.Add(linkB);
             }
 
             BuildReview(new List<ChangeRow> { row });
             BuildThread(row);
+        }
+
+        private void BuildReplacedSection(ChangeRow row)
+        {
+            var c = row.Change;
+            _detail.Children.Add(Section("Replacement"));
+            _replacementLinks.ByOld.TryGetValue(c.OldUniqueId ?? "", out var link);
+            _detail.Children.Add(Text($"Id {c.OldId} (deleted)  ⇄  Id {c.Id} (new)", ChangeRow.ReplacedBrush));
+            if (link != null) _detail.Children.Add(Muted_($"Linked by {link.Author}, {link.Utc.ToLocalTime():d MMM yyyy HH:mm}. " +
+                                                          "References to the old element can be moved to the new one."));
+            var buttons = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+            var breakB = MakeButton("Break link", "Not the same element: show the deleted and added elements separately again.");
+            breakB.Click += (s, e) => Safe(() => RejectReplacements(new List<ChangeRow> { row }));
+            var showB = MakeButton("Show old and new", "Zoom to the old position and the new element.");
+            showB.Click += (s, e) => Safe(() => ShowRows(new List<ChangeRow> { row }, true));
+            buttons.Children.Add(breakB);
+            buttons.Children.Add(showB);
+            _detail.Children.Add(buttons);
         }
 
         private void BuildMulti(List<ChangeRow> rows)
@@ -2124,6 +2495,8 @@ namespace ProjectPerseus.ui
                 stack.Children.Add(head);
                 if (!string.IsNullOrEmpty(e.Status)) stack.Children.Add(Text("Set status: " + e.Status, ChangeRow.StatusBrushOf(e.Status)));
                 if (e.Action != null) stack.Children.Add(Text($"Assigned {e.Action.Type} to {e.Action.Assignee}"));
+                if (e.ReplacementOp == ReplacementLinks.OpLink) stack.Children.Add(Text($"⇄ Linked: Id {e.LinkedElementId} replaced by Id {e.ReplacedById}", ChangeRow.ReplacedBrush));
+                if (e.ReplacementOp == ReplacementLinks.OpReject) stack.Children.Add(Text($"Id {e.LinkedElementId}: not a replacement / link broken"));
                 if (!string.IsNullOrEmpty(e.ClosesActionId))
                 {
                     string what = actionsById.TryGetValue(e.ClosesActionId, out var a) ? $"{a.Type} ({a.Assignee})" : "an action";
@@ -2169,12 +2542,22 @@ namespace ProjectPerseus.ui
             return g;
         }
 
-        private UIElement CandidateLink(string uniqueId, string text, string detail)
+        private UIElement CandidateLink(string uniqueId, string text, string detail, Action linkIt = null)
         {
             var panel = new StackPanel { Margin = new Thickness(0, 2, 0, 4) };
             var link = LinkButton(text, "Go to this element in the list");
             link.Click += (s, e) => Safe(() => SelectRow(uniqueId));
-            panel.Children.Add(link);
+            if (linkIt != null)
+            {
+                var line = new StackPanel { Orientation = Orientation.Horizontal };
+                line.Children.Add(link);
+                var confirm = LinkButton("⇄ Link", "Confirm: the deleted element was replaced by this one (one Replaced change).");
+                confirm.Margin = new Thickness(10, 0, 0, 0);
+                confirm.Click += (s, e) => Safe(linkIt);
+                line.Children.Add(confirm);
+                panel.Children.Add(line);
+            }
+            else panel.Children.Add(link);
             panel.Children.Add(Muted_(detail));
             return panel;
         }

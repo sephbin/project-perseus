@@ -57,7 +57,7 @@ namespace ProjectPerseus.ui
             }
             internal void Raise() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Checked)));
             public int Count => G.Changes.Count;
-            public string Kind => G.Kind == ChangeKind.Added ? "+" : G.Kind == ChangeKind.Deleted ? "−" : "~";
+            public string Kind => ChangeRow.GlyphOf(G.Kind);
             public Brush KindBrush => ChangeRow.KindBrushOf(G.Kind);
             public string Category => G.Category;
             public string Type => G.Type;

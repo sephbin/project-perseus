@@ -64,6 +64,7 @@ namespace ProjectPerseus.federator
                 case ChangeKind.Deleted: return "Deleted";
             }
             var parts = new List<string>();
+            if (c.Kind == ChangeKind.Replaced) parts.Add("Replaced");
             if (c.Aspects.HasFlag(ChangeAspect.Moved)) parts.Add(ChangeDescriber.MoveLabel(c) + " " + MoveBucket(c.MoveDistance));
             if (c.Aspects.HasFlag(ChangeAspect.Geometry)) parts.Add("Geometry");
             if (c.Aspects.HasFlag(ChangeAspect.Type)) parts.Add("Type");

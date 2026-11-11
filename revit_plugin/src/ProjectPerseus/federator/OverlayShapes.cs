@@ -254,7 +254,7 @@ namespace ProjectPerseus.federator
             return t < 0 ? double.NaN : t;
         }
 
-        /// <summary>Badge glyph strokes centred on c: '+' added, '−' deleted, '~' modified.</summary>
+        /// <summary>Badge glyph strokes centred on c: '+' added, '−' deleted, 'r' replaced (⇌), '~' modified.</summary>
         public static void Glyph(List<double> tris, char glyph, Pt c, double size, double half)
         {
             switch (glyph)
@@ -265,6 +265,12 @@ namespace ProjectPerseus.federator
                     break;
                 case '-':
                     Stroke(tris, new[] { new Pt(c.U - size, c.V), new Pt(c.U + size, c.V) }, false, half, true);
+                    break;
+                case 'r':
+                    // ⇌: upper arrow to the right (barb up), lower arrow to the left (barb down).
+                    double dy = size * 0.36, barb = size * 0.5;
+                    Stroke(tris, new[] { new Pt(c.U - size, c.V + dy), new Pt(c.U + size, c.V + dy), new Pt(c.U + size - barb, c.V + dy + barb) }, false, half, true);
+                    Stroke(tris, new[] { new Pt(c.U + size, c.V - dy), new Pt(c.U - size, c.V - dy), new Pt(c.U - size + barb, c.V - dy - barb) }, false, half, true);
                     break;
                 default:
                     // One smooth period of a sine, finely sampled so the mitred ribbon reads as a curve.

@@ -25,7 +25,7 @@ namespace ProjectPerseus.federator
     /// </summary>
     internal class ChangeHighlightServer : IDirectContext3DServer
     {
-        internal enum Kind : byte { Added, Modified, Deleted, Ghost }
+        internal enum Kind : byte { Added, Modified, Deleted, Ghost, Replaced }
 
         internal struct Item
         {
@@ -513,11 +513,12 @@ namespace ProjectPerseus.federator
                 case Kind.Added: return new Color(46, 173, 75);
                 case Kind.Deleted: return new Color(210, 58, 58);
                 case Kind.Ghost: return new Color(128, 134, 145);
+                case Kind.Replaced: return new Color(124, 77, 255);
                 default: return new Color(224, 130, 0);
             }
         }
 
-        private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted ? '-' : '~';
+        private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted ? '-' : k == Kind.Replaced ? 'r' : '~';
 
         /// <summary>Triangles + 1 px lines for one colour, at their depths.</summary>
         private class Layer3D
@@ -620,8 +621,9 @@ namespace ProjectPerseus.federator
                         }
                         OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
                         if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 20);
-                        LayerOf(Kind.Modified).AddTris(f, arrow, aw);
-                        LayerOf(Kind.Modified).AddLine(f, new[] { from, to }, false, aw);
+                        var arrowLayer = LayerOf(it.Kind == Kind.Replaced ? Kind.Replaced : Kind.Modified);
+                        arrowLayer.AddTris(f, arrow, aw);
+                        arrowLayer.AddLine(f, new[] { from, to }, false, aw);
                     }
                 }
 

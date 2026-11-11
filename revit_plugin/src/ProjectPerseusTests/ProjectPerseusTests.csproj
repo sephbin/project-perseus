@@ -153,6 +153,7 @@
     <Compile Include="ReviewLogTest.cs" />
     <Compile Include="ChangeDescriberTest.cs" />
     <Compile Include="ReplacementMatcherTest.cs" />
+    <Compile Include="ReplacementLinksTest.cs" />
     <Compile Include="ChangeFilterTest.cs" />
     <Compile Include="ViewTargetsTest.cs" />
     <Compile Include="OverlayShapesTest.cs" />

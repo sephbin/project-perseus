@@ -58,6 +58,14 @@ namespace ProjectPerseus.models
         public string ClosesActionId { get; set; }
         public string CloseOutcome { get; set; }
 
+        /// <summary>
+        /// Orphan fix (federator/ReplacementLinks), on the deleted element: "link" = it was replaced by ReplacedByUid,
+        /// "reject" = not a replacement / link broken. Null on ordinary review events.
+        /// </summary>
+        public string ReplacementOp { get; set; }
+        public string ReplacedByUid { get; set; }
+        public long ReplacedById { get; set; }
+
         [JsonIgnore] public long StorageId { get; set; }
     }
 }

@@ -66,7 +66,7 @@ namespace ProjectPerseus.federator
 
         private static bool Add(List<ChangeHighlightServer.Item> items, ElementChange c, LinkTransform t, bool emph)
         {
-            bool deleted = c.Kind == ChangeKind.Deleted;
+            bool deleted = c.Kind == ChangeKind.Deleted || (c.Kind == ChangeKind.Replaced && c.NewMin == null);
             double[] min = deleted ? c.OldMin : c.NewMin, max = deleted ? c.OldMax : c.NewMax;
             if (min == null || max == null) return false;
             t.Box(min, max, out var hmin, out var hmax);
@@ -78,9 +78,12 @@ namespace ProjectPerseus.federator
                 Key = c.UniqueId,
                 Corners = Corners(t, deleted ? c.OldObb : c.NewObb),
                 Kind = c.Kind == ChangeKind.Added ? ChangeHighlightServer.Kind.Added
+                     : c.Kind == ChangeKind.Replaced ? ChangeHighlightServer.Kind.Replaced
                      : deleted ? ChangeHighlightServer.Kind.Deleted : ChangeHighlightServer.Kind.Modified,
             };
-            if (c.Kind == ChangeKind.Modified && c.Aspects.HasFlag(ChangeAspect.Moved) && c.OldMin != null && c.OldMax != null)
+            // Moved, or replaced by an element somewhere else: dashed ghost at the old position + arrow.
+            if ((c.Kind == ChangeKind.Modified || (c.Kind == ChangeKind.Replaced && !deleted)) && c.Aspects.HasFlag(ChangeAspect.Moved)
+                && c.OldMin != null && c.OldMax != null)
             {
                 t.Box(c.OldMin, c.OldMax, out var omin, out var omax);
                 item.OldMin = omin;

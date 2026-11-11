@@ -49,6 +49,7 @@ namespace ProjectPerseus.federator
                     return c.Replacements != null && c.Replacements.Count > 0 ? "Deleted · replaced?" : "Deleted";
             }
             var parts = new List<string>();
+            if (c.Kind == ChangeKind.Replaced) parts.Add($"Replaced (was Id {c.OldId})");
             if (c.Aspects.HasFlag(ChangeAspect.Moved)) parts.Add(MoveLabel(c) + " " + Length(c.MoveDistance));
             if (c.Aspects.HasFlag(ChangeAspect.Geometry)) parts.Add(GeometryShort(c));
             if (c.Aspects.HasFlag(ChangeAspect.Type)) parts.Add("Type");
@@ -61,6 +62,18 @@ namespace ProjectPerseus.federator
                 parts.Add(n == 1 ? c.ParameterChanges[0].Name : n + " params");
             }
             return parts.Count == 0 ? "Modified" : string.Join(" · ", parts);
+        }
+
+        private static List<string> ReplacedIntro(ElementChange c)
+        {
+            var lines = new List<string>
+            {
+                c.NewMin == null
+                    ? $"Replaced: Id {c.OldId} was deleted and linked to Id {c.Id}, which isn't added in this comparison."
+                    : $"Replaced: Id {c.OldId} was deleted and Id {c.Id} placed instead (treated as one element).",
+            };
+            if (c.NewMin != null && c.Aspects == ChangeAspect.None) lines.Add("Same type, level, position and size as the deleted element.");
+            return lines;
         }
 
         /// <summary>Sentences for the detail pane.</summary>
@@ -79,6 +92,7 @@ namespace ProjectPerseus.federator
                     return lines;
             }
 
+            if (c.Kind == ChangeKind.Replaced) lines.AddRange(ReplacedIntro(c));
             if (c.Aspects.HasFlag(ChangeAspect.Moved)) lines.Add(Movement(c));
             if (c.Aspects.HasFlag(ChangeAspect.Geometry)) lines.AddRange(Geometry(c));
             if (c.Aspects.HasFlag(ChangeAspect.Type))
@@ -95,6 +109,7 @@ namespace ProjectPerseus.federator
                           + string.Join(", ", names) + (more > 0 ? $" and {more} more" : "") + ".");
             }
             if (lines.Count == 0) lines.Add("Modified.");
+            if (c.Kind == ChangeKind.Replaced && c.NewMin != null) lines.Add("Parameters aren't compared across a replacement.");
             return lines;
         }
 

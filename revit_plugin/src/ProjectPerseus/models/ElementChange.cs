@@ -3,7 +3,8 @@ using System.Collections.Generic;
 
 namespace ProjectPerseus.models
 {
-    public enum ChangeKind { Added, Deleted, Modified }
+    /// <summary>Replaced = a deleted element linked to the new element that replaces it (federator/ReplacementLinks; panel only, never stored).</summary>
+    public enum ChangeKind { Added, Deleted, Modified, Replaced }
 
     [Flags]
     public enum ChangeAspect
@@ -73,6 +74,10 @@ namespace ProjectPerseus.models
         /// A review status carries over to a later comparison when the fingerprint is unchanged (federator/ReviewLog).
         /// </summary>
         public string Signature { get; set; }
+
+        /// <summary>Replaced only: the deleted element (UniqueId / Id are the new element's).</summary>
+        public string OldUniqueId { get; set; }
+        public long OldId { get; set; }
 
         /// <summary>Deleted elements only: added elements that probably replaced it, best first (federator/ReplacementMatcher).</summary>
         public List<ReplacementCandidate> Replacements { get; set; }

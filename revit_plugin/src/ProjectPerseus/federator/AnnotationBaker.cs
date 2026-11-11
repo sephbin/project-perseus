@@ -149,7 +149,7 @@ namespace ProjectPerseus.federator
 
             foreach (var c in changes)
             {
-                bool deleted = c.Kind == ChangeKind.Deleted;
+                bool deleted = c.Kind == ChangeKind.Deleted || (c.Kind == ChangeKind.Replaced && c.NewMin == null);
                 double[] bmin = deleted ? c.OldMin : c.NewMin, bmax = deleted ? c.OldMax : c.NewMax;
                 if (bmin == null || bmax == null) continue;
                 ReviewNavigator.HostBox(bmin, bmax, toHost, out XYZ hmin, out XYZ hmax);
@@ -181,14 +181,14 @@ namespace ProjectPerseus.federator
                 }
 
                 // Moved: connector from the old position's centre.
-                if (c.Kind == ChangeKind.Modified && c.Aspects.HasFlag(ChangeAspect.Moved) && c.OldMin != null && c.OldMax != null)
+                if ((c.Kind == ChangeKind.Modified || c.Kind == ChangeKind.Replaced) && c.Aspects.HasFlag(ChangeAspect.Moved) && c.OldMin != null && c.OldMax != null)
                 {
                     ReviewNavigator.HostBox(c.OldMin, c.OldMax, toHost, out XYZ omin, out XYZ omax);
                     XYZ from = plane.Project((omin + omax) / 2), to = plane.Project((hmin + hmax) / 2);
                     if (from.DistanceTo(to) > pad)
                     {
                         var dc = doc.Create.NewDetailCurve(view, Line.CreateBound(from, to));
-                        var gs = styles.Line(ChangeKind.Modified);
+                        var gs = styles.Line(c.Kind);
                         if (gs != null) dc.LineStyle = gs;
                         created.Add(dc);
                     }
@@ -245,6 +245,7 @@ namespace ProjectPerseus.federator
             { ChangeKind.Added, new Color(46, 173, 75) },
             { ChangeKind.Modified, new Color(224, 130, 0) },
             { ChangeKind.Deleted, new Color(210, 58, 58) },
+            { ChangeKind.Replaced, new Color(124, 77, 255) },
         };
 
         /// <summary>Line styles + text types per kind, created once (users may restyle them afterwards).</summary>

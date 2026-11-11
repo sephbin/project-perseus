@@ -431,6 +431,7 @@
     <Compile Include="ui\MultiPick.cs" />
     <Compile Include="ui\BadgeHitOverlay.cs" />
     <Compile Include="ui\TextPrompt.cs" />
+    <Compile Include="ui\ReplacementWindow.cs" />
     <Compile Include="markers\MarkerEngine.cs" />
     <Compile Include="markers\MarkerSetStore.cs" />
     <Compile Include="models\MarkerSet.cs" />
@@ -454,6 +455,7 @@
     <Compile Include="federator\LinkedElementRef.cs" />
     <Compile Include="federator\ComparisonRunner.cs" />
     <Compile Include="federator\ReplacementMatcher.cs" />
+    <Compile Include="federator\ReplacementLinks.cs" />
     <Compile Include="federator\ChangeDescriber.cs" />
     <Compile Include="federator\ChangeFilter.cs" />
     <Compile Include="federator\ViewExtent.cs" />

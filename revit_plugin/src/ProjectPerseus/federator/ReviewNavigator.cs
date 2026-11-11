@@ -61,6 +61,13 @@ namespace ProjectPerseus.federator
                 HostBox(bmin, bmax, toHost, out XYZ hmin, out XYZ hmax);
                 min = min == null ? hmin : new XYZ(Math.Min(min.X, hmin.X), Math.Min(min.Y, hmin.Y), Math.Min(min.Z, hmin.Z));
                 max = max == null ? hmax : new XYZ(Math.Max(max.X, hmax.X), Math.Max(max.Y, hmax.Y), Math.Max(max.Z, hmax.Z));
+                // Replaced: frame the old position too.
+                if (c.Kind == ChangeKind.Replaced && c.OldMin != null && c.OldMax != null)
+                {
+                    HostBox(c.OldMin, c.OldMax, toHost, out XYZ omin, out XYZ omax);
+                    min = new XYZ(Math.Min(min.X, omin.X), Math.Min(min.Y, omin.Y), Math.Min(min.Z, omin.Z));
+                    max = new XYZ(Math.Max(max.X, omax.X), Math.Max(max.Y, omax.Y), Math.Max(max.Z, omax.Z));
+                }
             }
             if (min == null) return "These elements have no location to show.";
 

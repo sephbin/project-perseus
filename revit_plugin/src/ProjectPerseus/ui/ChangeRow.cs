@@ -11,6 +11,7 @@ namespace ProjectPerseus.ui
         internal static readonly Brush AddedBrush = Frozen(0x2E, 0xAD, 0x4B);
         internal static readonly Brush DeletedBrush = Frozen(0xD2, 0x3A, 0x3A);
         internal static readonly Brush ModifiedBrush = Frozen(0xE0, 0x82, 0x00);
+        internal static readonly Brush ReplacedBrush = Frozen(0x7C, 0x4D, 0xFF);
         private static readonly Brush Muted = Frozen(0x6B, 0x72, 0x80);
         private static readonly Brush QueryBrush = Frozen(0xE6, 0x00, 0x7E);
         private static readonly Brush AcceptedBrush = Frozen(0x2E, 0xAD, 0x4B);
@@ -62,7 +63,8 @@ namespace ProjectPerseus.ui
 
         public string GroupKey { get; set; }
 
-        public string KindGlyph => Change.Kind == ChangeKind.Added ? "+" : Change.Kind == ChangeKind.Deleted ? "−" : "~";
+        public string KindGlyph => GlyphOf(Change.Kind);
+        internal static string GlyphOf(ChangeKind k) => k == ChangeKind.Added ? "+" : k == ChangeKind.Deleted ? "−" : k == ChangeKind.Replaced ? "⇄" : "~";
         public Brush KindBrush => KindBrushOf(Change.Kind);
         public int KindOrder => (int)Change.Kind;
         public string KindName => Change.Kind.ToString();
@@ -98,7 +100,7 @@ namespace ProjectPerseus.ui
         }
 
         internal static Brush KindBrushOf(ChangeKind kind) =>
-            kind == ChangeKind.Added ? AddedBrush : kind == ChangeKind.Deleted ? DeletedBrush : ModifiedBrush;
+            kind == ChangeKind.Added ? AddedBrush : kind == ChangeKind.Deleted ? DeletedBrush : kind == ChangeKind.Replaced ? ReplacedBrush : ModifiedBrush;
 
         internal static Brush StatusBrushOf(string status)
         {

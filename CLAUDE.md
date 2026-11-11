@@ -316,6 +316,9 @@ ProjectPerseus/
 │   │                             assignee, Done/Cancel), comment box (any status), thread. Multi-select applies status/action/comment
 │   │                             to all. Double-click = ReviewNavigator.Show(select). Model work via queue/OwnershipUiEvent (RunApi).
 │   │                             Revit selection -> row highlight via FederatorController (OnRevitSelection).
+│   │                             Replacement links (orphan fix): right-click a row / badge -> Link to replacement… (pick mode: list
+│   │                             row, badge or Pick in Revit), suggested replacements, Not a replacement, Break link; Replaced rows
+│   │                             carry the deleted element's history; Replacements… opens ui/ReplacementWindow.
 │   │                             Preview column: row check boxes + group header (ticked/unticked/mixed) + column header for all
 │   │                             shown; unticked rows aren't drawn or baked ("shown" scope).
 │   ├── MultiPick.cs              NEW (2026-11-11). Drop-down tick list (All / None / presets, parent items with mixed state) for the
@@ -326,6 +329,8 @@ ProjectPerseus/
 │   │                             FederatorWindow places it from a 150 ms API-context tick (UIView rect + zoom corners; hidden while moving)
 │   │                             using ChangeHighlightServer.HitsFor (badge spots recorded per view at build).
 │   ├── TextPrompt.cs             NEW (2026-11-11). Small modal text prompt (Ask(owner hwnd, title, prompt, initial, multiline)).
+│   ├── ReplacementWindow.cs      NEW (2026-11-11). Modeless "Possible replacements": unconfirmed ReplacementMatcher suggestions (best
+│   │                             first, 80 %+ pre-ticked) -> Link ticked / Not replacements / Zoom; writes via FederatorWindow.
 │   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
 │   ├── TriageWindow.cs           NEW (2026-11-09). Modeless bulk review: ChangeTriage groups (largest first), value transitions,
@@ -406,6 +411,11 @@ ProjectPerseus/
 │   │                             actions (closed by ClosesActionId) + Assignees; thread = all events across comparisons. Tested.
 │   ├── ReplacementMatcher.cs     Pure: for each Deleted change, likely replacements among Added ones of the same category (box
 │   │                             overlap / covers-old / proximity + same type/family/level; spatial hash). Stored on the change.
+│   ├── ReplacementLinks.cs       Pure orphan fix: confirmed "deleted X was replaced by new Y" links = review events on X
+│   │                             (ReplacementOp link / reject, ReplacedByUid), per link instance, newest wins, one-to-one, across
+│   │                             comparisons. Apply() merges each pair into one ChangeKind.Replaced change (panel only; stored
+│   │                             changes untouched; violet, ⇌ badge). Map() = old uid -> current uid (chains) for re-pointing our
+│   │                             references to consultant elements later. Tested in ReplacementLinksTest.cs.
 │   ├── ChangeDescriber.cs        Pure: Summary (grid) + Lines ("Moved 130 mm (120 mm horizontally, 50 mm up)", length/volume).
 │   ├── ChangeFilter.cs           Pure: panel filters (kind, aspect, category, level, status/Needs attention, assignee/(Me)/ + multi-select sets for the tick lists;
 │   │                             (Unassigned), in-view ids, search incl. parameters + comments). Tested in ChangeFilterTest.cs.
