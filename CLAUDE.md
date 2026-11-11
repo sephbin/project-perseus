@@ -325,6 +325,7 @@ ProjectPerseus/
 │   │                             right-click = review menu from the panel). Wheel / middle / right elsewhere re-posted to the Revit view.
 │   │                             FederatorWindow places it from a 150 ms API-context tick (UIView rect + zoom corners; hidden while moving)
 │   │                             using ChangeHighlightServer.HitsFor (badge spots recorded per view at build).
+│   ├── TextPrompt.cs             NEW (2026-11-11). Small modal text prompt (Ask(owner hwnd, title, prompt, initial, multiline)).
 │   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
 │   ├── TriageWindow.cs           NEW (2026-11-09). Modeless bulk review: ChangeTriage groups (largest first), value transitions,
@@ -459,7 +460,9 @@ ProjectPerseus/
 │   │                             <root>\<project>_<hash>\<link>_<hash>\<saves>_<guid>.rvt + .json (background copy; save checked with BasicFileInfo
 │   │                             in the API context). One root for all projects (user archive.json, else machine-wide %ProgramData%\ProjectPerseus\
 │   │                             federator\archive.json from IT, else %LOCALAPPDATA%); project subfolder automatic; keeps
-│   │                             newest N per link. Listed in the panel's From / To pickers.
+│   │                             newest N per link. Listed in the panel's From / To pickers. Duplicates (same save + size) skipped / removed.
+│                                 ACC version numbers (V1, V2…) entered per save in the panel (right-click From / To): acc_versions.json
+│                                 in the link's archive folder + CloudVersion in that save's manifests.
 │   └── VersionCatalog.cs         Per-user list of cached versions per consultant model (models/LinkVersion) at AppData\federator\
 │                                 versions\<sha1(model key)>.json; model key = cloud model GUID / link path / name. Feeds the panel's
 │                                 From / To pickers (✓ = cached). Stage 2 (APS cloud version history) in FEDERATOR_PLAN.md.

@@ -86,6 +86,7 @@ namespace ProjectPerseus.ui
             internal string Key;       // identity, so From and To can't be the same version
             internal string Text;
             internal VersionAction Action;
+            internal int Saves;        // save count when known (ACC version number is entered per save)
             internal bool Browse => Action != VersionAction.None;   // not a version: picking it does something
             public override string ToString() => Text;
         }
@@ -208,6 +209,12 @@ namespace ProjectPerseus.ui
             _linkBox = new ComboBox { Margin = new Thickness(6, 0, 16, 0), VerticalContentAlignment = VerticalAlignment.Center };
             _fromBox = new ComboBox { Margin = new Thickness(6, 0, 12, 0), VerticalContentAlignment = VerticalAlignment.Center, ToolTip = versionTip };
             _toBox = new ComboBox { Margin = new Thickness(6, 0, 8, 0), VerticalContentAlignment = VerticalAlignment.Center, ToolTip = versionTip };
+            foreach (var box in new[] { _fromBox, _toBox })
+            {
+                box.ToolTip = versionTip + "\nRight-click to enter the ACC version number (V1, V2…) of the From / To version.";
+                box.ContextMenu = new ContextMenu();
+                box.ContextMenuOpening += (s, e) => Safe(() => FillVersionMenu(((ComboBox)s).ContextMenu));
+            }
             AddAt(pick, Label("Link"), 0);
             AddAt(pick, _linkBox, 1);
             AddAt(pick, Label("From"), 2);
@@ -1233,6 +1240,47 @@ namespace ProjectPerseus.ui
         // ── Version pickers ──
 
         /// <summary>Fills From / To for the selected link, keeping the given picks when they're still there.</summary>
+        // Right-click on From / To: set the ACC version number of either selected version.
+        private void FillVersionMenu(ContextMenu cm)
+        {
+            cm.Items.Clear();
+            foreach (var pair in new[] { new { Name = "From", Box = _fromBox }, new { Name = "To", Box = _toBox } })
+            {
+                var item = pair.Box.SelectedItem as VersionItem;
+                bool can = item != null && !item.Browse && item.Saves > 0 && SelectedLink != null;
+                var mi = new MenuItem
+                {
+                    Header = can ? $"Set ACC version number of {pair.Name} (save {item.Saves})…" : $"{pair.Name}: version number can't be set (save count unknown)",
+                    IsEnabled = can,
+                };
+                if (can) { var it = item; mi.Click += (s, e) => Safe(() => AskVersionNumber(it)); }
+                cm.Items.Add(mi);
+            }
+        }
+
+        private void AskVersionNumber(VersionItem item)
+        {
+            var link = SelectedLink;
+            if (link == null || item == null || item.Saves <= 0) return;
+            string root = _archiveRoot ?? LinkArchive.LoadSettings().Root;
+            LinkArchive.VersionNumbers(root, link.ModelKey).TryGetValue(item.Saves, out int current);
+            string text = TextPrompt.Ask(new WindowInteropHelper(this).Handle, "ACC version number",
+                $"Version number shown on Autodesk Docs (V1, V2…) for {link.Name.Split(new[] { "  #" }, StringSplitOptions.None)[0]}, save {item.Saves}:",
+                current > 0 ? "V" + current : "", hint: "e.g. 11 or V11. Leave empty to clear. Saved in the shared archive folder for everyone.");
+            if (text == null) return;
+            text = text.Trim().TrimStart('V', 'v').Trim();
+            int? number = null;
+            if (text.Length > 0)
+            {
+                if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) || n <= 0)
+                { Status("Enter a version number such as 11 or V11.", true); return; }
+                number = n;
+            }
+            LinkArchive.SetVersionNumber(root, link.ModelKey, link.Name.Split(new[] { "  #" }, StringSplitOptions.None)[0], item.Saves, number);
+            RefillVersions();
+            Status(number.HasValue ? $"Save {item.Saves} is V{number}." : $"Version number of save {item.Saves} cleared.");
+        }
+
         private void FillVersions(string keepFrom, string keepTo)
         {
             var link = SelectedLink;
@@ -1240,14 +1288,18 @@ namespace ProjectPerseus.ui
             if (link != null)
             {
                 var cached = VersionCatalog.List(link.ModelKey);
+                var accNumbers = LinkArchive.VersionNumbers(_archiveRoot ?? LinkArchive.LoadSettings().Root, link.ModelKey);
+                string Acc(int saves) => saves > 0 && accNumbers.TryGetValue(saves, out int n) ? $"V{n} · " : "";
                 var liveEntry = link.LiveGuid == null ? null : cached.FirstOrDefault(v => SameGuid(v.VersionGuid, link.LiveGuid));
                 bool cloudLink = link.IsCloud;
                 _cloudVersions.TryGetValue(link.Uid, out var cloudList);
                 if (link.Loaded)
                 {
-                    string label = "Live" + (liveEntry?.CloudVersionNumber > 0 ? $" · v{liveEntry.CloudVersionNumber}" : "")
+                    string acc = Acc(link.LiveSaves);
+                    string label = "Live" + (acc.Length > 0 ? " · " + acc.TrimEnd(' ', '·') : liveEntry?.CloudVersionNumber > 0 ? $" · v{liveEntry.CloudVersionNumber}" : "")
                                    + (link.LiveSaves > 0 ? $" · save {link.LiveSaves}" : "") + " · loaded now";
-                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Live(label), Key = "live", Text = (liveEntry != null ? Tick : NoTick) + "  " + label });
+                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Live(label), Key = "live", Saves = link.LiveSaves,
+                                                Text = (liveEntry != null ? Tick : NoTick) + "  " + label });
                 }
 
                 // Cloud versions (newest first): ✓ when downloaded + cached before, else downloaded on Compare.
@@ -1271,9 +1323,9 @@ namespace ProjectPerseus.ui
                 {
                     if (link.Loaded && v == liveEntry) continue;                                  // that's the live one
                     if (v.CloudVersionId != null && shownCloud.Contains(v.CloudVersionId)) continue;   // in the cloud list
-                    string label = VersionLabel(v);
+                    string label = (v.CloudVersionNumber > 0 ? "" : Acc(v.Saves)) + VersionLabel(v);
                     if (!v.FromLiveLink && !string.IsNullOrEmpty(v.SourcePath)) shownFiles.Add(SafeFull(v.SourcePath));
-                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Cached(v, label),
+                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Cached(v, label), Saves = v.Saves,
                                                 Key = v.CloudVersionId != null ? "cloud:" + v.CloudVersionId
                                                     : v.VersionGuid != null ? "guid:" + v.VersionGuid.ToLowerInvariant() : "key:" + v.CacheKey,
                                                 Text = Tick + "  " + label });
@@ -1289,9 +1341,10 @@ namespace ProjectPerseus.ui
                     if (shownKeys.Contains(key)) continue;   // already listed (cached snapshot / cloud list)
                     shownKeys.Add(key);
                     shownFiles.Add(SafeFull(a.RvtPath));
-                    string label = (a.FromCloud ? "☁ " : "") + $"save {a.Saves} · loaded {a.SourceTimeUtc.ToLocalTime():d MMM yyyy HH:mm} · archived";
+                    string label = (a.FromCloud ? "☁ " : "") + Acc(a.Saves) + $"save {a.Saves} · loaded {a.SourceTimeUtc.ToLocalTime():d MMM yyyy HH:mm} · archived";
                     items.Add(new VersionItem
                     {
+                        Saves = a.Saves,
                         Source = entry != null ? ComparisonRunner.Source.Cached(entry, label) : ComparisonRunner.Source.File(a.RvtPath, label),
                         Key = key, Text = (entry != null ? Tick : NoTick) + "  " + label,
                     });

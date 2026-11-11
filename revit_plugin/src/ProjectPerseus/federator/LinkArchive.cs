@@ -118,6 +118,8 @@ namespace ProjectPerseus.federator
             public DateTime ArchivedUtc { get; set; }
             public string ArchivedBy { get; set; }
             public long Bytes { get; set; }
+            /// <summary>ACC / Docs version number ("V11"), entered in the panel (later: from APS); null when unknown.</summary>
+            public int? CloudVersion { get; set; }
             [JsonIgnore] public string RvtPath { get; set; }
         }
 
@@ -327,6 +329,49 @@ namespace ProjectPerseus.federator
                 Log.Info($"[Federator] cloud cache lookup for {linkDoc.Title}: {ex.Message}");
                 return null;
             }
+        }
+
+        // ── ACC version numbers ──
+        // Revit doesn't know a cloud model's ACC version number (V1, V2...): users enter it in the panel. Stored per save
+        // count (stable, unlike the loaded GUID) in <model folder>\acc_versions.json, shared with the team through the
+        // archive folder, and copied into the manifests of the archived copies of that save.
+
+        private const string VersionNumbersFile = "acc_versions.json";
+
+        /// <summary>Save count -> ACC version number for a model (empty when none entered / no archive folder).</summary>
+        internal static Dictionary<int, int> VersionNumbers(string root, string modelKey)
+        {
+            var map = new Dictionary<int, int>();
+            try
+            {
+                string dir = FindModelFolder(root, modelKey);
+                string path = dir == null ? null : Path.Combine(dir, VersionNumbersFile);
+                if (path != null && File.Exists(path))
+                    map = JsonConvert.DeserializeObject<Dictionary<int, int>>(File.ReadAllText(path)) ?? map;
+                if (dir != null)
+                    foreach (var a in Existing(dir))
+                        if (a.Entry.CloudVersion > 0 && !map.ContainsKey(a.Entry.Saves)) map[a.Entry.Saves] = a.Entry.CloudVersion.Value;
+            }
+            catch (Exception ex) { Log.Info($"[Federator] ACC version numbers: {ex.Message}"); }
+            return map;
+        }
+
+        /// <summary>Sets (or clears, number null) the ACC version number of a save and updates the archived manifests.</summary>
+        internal static void SetVersionNumber(string root, string modelKey, string title, int saves, int? number)
+        {
+            string dir = ModelFolder(root, modelKey, title);
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, VersionNumbersFile);
+            var map = File.Exists(path) ? JsonConvert.DeserializeObject<Dictionary<int, int>>(File.ReadAllText(path)) ?? new Dictionary<int, int>()
+                                        : new Dictionary<int, int>();
+            if (number > 0) map[saves] = number.Value; else map.Remove(saves);
+            File.WriteAllText(path, JsonConvert.SerializeObject(map, Formatting.Indented), new UTF8Encoding(false));
+            foreach (var a in Existing(dir).Where(a => a.Entry.Saves == saves))
+            {
+                a.Entry.CloudVersion = number > 0 ? number : null;
+                File.WriteAllText(a.Json, JsonConvert.SerializeObject(a.Entry, Formatting.Indented), new UTF8Encoding(false));
+            }
+            Log.Info($"[Federator] {title} save {saves}: ACC version {(number > 0 ? "V" + number : "cleared")}");
         }
 
         private class ArchivedFile
