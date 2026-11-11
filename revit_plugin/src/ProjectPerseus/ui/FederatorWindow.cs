@@ -1281,6 +1281,8 @@ namespace ProjectPerseus.ui
             Status(number.HasValue ? $"Save {item.Saves} is V{number}." : $"Version number of save {item.Saves} cleared.");
         }
 
+        private bool _versionDupesLogged;
+
         private void FillVersions(string keepFrom, string keepTo)
         {
             var link = SelectedLink;
@@ -1314,7 +1316,7 @@ namespace ProjectPerseus.ui
                         items.Add(new VersionItem
                         {
                             Source = entry != null ? ComparisonRunner.Source.Cached(entry, label) : ComparisonRunner.Source.FromCloud(cv, label),
-                            Key = "cloud:" + cv.Id, Text = (entry != null ? Tick : NoTick) + "  " + label,
+                            Key = "cloud:" + cv.Id, Text = (entry != null ? Tick : NoTick) + "  " + label, Saves = entry?.Saves ?? 0,
                         });
                     }
 
@@ -1367,6 +1369,18 @@ namespace ProjectPerseus.ui
                     string label = $"{Path.GetFileName(f)} · saved {System.IO.File.GetLastWriteTime(f):d MMM yyyy HH:mm}";
                     items.Add(new VersionItem { Source = ComparisonRunner.Source.File(f, label), Key = "file:" + full.ToLowerInvariant(),
                                                 Text = (isCached ? Tick : NoTick) + "  " + label });
+                }
+
+                // One entry per save: a cloud link's loaded GUID changes per session, so the same save shows up as Live, a
+                // cached snapshot and archived copies under different GUIDs. Keep Live, else a cached (✓) one, else the first.
+                var bySave = items.Where(i => i.Saves > 0).GroupBy(i => i.Saves)
+                    .ToDictionary(g => g.Key, g => g.FirstOrDefault(i => i.Key == "live") ?? g.FirstOrDefault(i => i.Text.StartsWith(Tick)) ?? g.First());
+                int before = items.Count;
+                items = items.Where(i => i.Saves <= 0 || bySave[i.Saves] == i).ToList();
+                if (items.Count != before && !_versionDupesLogged)
+                {
+                    _versionDupesLogged = true;
+                    Log.Info($"[Federator] version pickers: {before - items.Count} duplicate entr{(before - items.Count == 1 ? "y" : "ies")} of the same save hidden");
                 }
 
                 // Cloud list not there yet: why, and what picking the entry does.
