@@ -21,6 +21,16 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void OffsetZIsAlwaysUp()
+        {
+            // Ceiling device: its own Z points down.
+            var src = new Frame { O = new[] { 0.0, 0, 10 }, X = new[] { 1.0, 0, 0 }, Y = new[] { 0.0, -1, 0 }, Z = new[] { 0.0, 0, -1 } };
+            var f = MappingMath.Place(src, new[] { 0.0, 100, 200 }, null);
+            Assert.AreEqual(10 + 200 * Ft, f.O[2], 1e-9);
+            Assert.AreEqual(100 * Ft, f.O[1], 1e-9);   // plan Y = 90° left of the element's X, whatever its own Y
+        }
+
+        [TestMethod]
         public void RotationZTurnsInPlanXTilts()
         {
             var src = new Frame();

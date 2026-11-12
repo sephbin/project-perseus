@@ -29,9 +29,10 @@ namespace ProjectPerseus.mapping
     }
 
     /// <summary>
-    /// Where a mapped family goes relative to the consultant element it stands for (mapping/FamilyPlacer). The offset
-    /// is in the consultant element's own axes (so it turns with the element); the rotation turns our family about
-    /// the consultant element's X, then Y, then Z axes. Pure: unit-tested in ProjectPerseusTests/MappingMathTest.cs.
+    /// Where a mapped family goes relative to the consultant element it stands for (mapping/FamilyPlacer). The offset's
+    /// X / Y run along the consultant element's direction in plan (so it turns with the element) and Z is always up
+    /// (a ceiling device's own Z points down, which made heights confusing); the rotation turns our family about the
+    /// consultant element's X, then Y, then Z axes. Pure: unit-tested in ProjectPerseusTests/MappingMathTest.cs.
     /// </summary>
     public static class MappingMath
     {
@@ -41,7 +42,9 @@ namespace ProjectPerseus.mapping
         {
             offsetMm = offsetMm ?? new double[3];
             rotationDeg = rotationDeg ?? new double[3];
-            var o = source.OfPoint(offsetMm[0] / MmPerFoot, offsetMm[1] / MmPerFoot, offsetMm[2] / MmPerFoot);
+            var px = PlanDirection(source);
+            double ox = offsetMm[0] / MmPerFoot, oy = offsetMm[1] / MmPerFoot, oz = offsetMm[2] / MmPerFoot;
+            var o = new[] { source.O[0] + px[0] * ox - px[1] * oy, source.O[1] + px[1] * ox + px[0] * oy, source.O[2] + oz };
             var r = Rotation(rotationDeg[0], rotationDeg[1], rotationDeg[2]);
             // Columns of r = our axes in the source's local coordinates.
             return new Frame

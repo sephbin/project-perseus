@@ -198,7 +198,7 @@ namespace ProjectPerseus.ui
             _placementNote = new TextBlock { Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), FontSize = 11 };
             _editor.Children.Add(_placementNote);
 
-            _editor.Children.Add(Section("Offset (mm, in the consultant element's axes)"));
+            _editor.Children.Add(Section("Offset (mm): X / Y along the consultant element in plan, Z = up"));
             _stepMm = new TextBox { Text = "50", Width = 50 };
             _editor.Children.Add(Vector(_offset, _stepMm, "Step mm"));
             _editor.Children.Add(Section("Rotation (° about the consultant element's X, then Y, then Z)"));
@@ -357,7 +357,7 @@ namespace ProjectPerseus.ui
             _title.Text = $"{s.Category} · {s}";
             _target.Items.Clear();
             // Our types of the same category first.
-            foreach (var t in _targets.OrderBy(t => t.Category == s.Category ? 0 : 1).ThenBy(t => t.Category).ThenBy(t => t.Family).ThenBy(t => t.Type))
+            foreach (var t in _targets.OrderBy(t => t.Category == s.Category ? 0 : 1).ThenBy(t => t.Category).ThenBy(t => t.Preference).ThenBy(t => t.Family).ThenBy(t => t.Type))
                 _target.Items.Add(new TargetItem(t, t.Category == s.Category));
             _target.SelectedItem = _target.Items.Cast<TargetItem>().FirstOrDefault(i => i.T.Uid == _editing.TargetSymbolUid);
             for (int i = 0; i < 3; i++)
@@ -378,17 +378,19 @@ namespace ProjectPerseus.ui
             internal readonly FamilyPlacer.TargetType T;
             private readonly bool _same;
             internal TargetItem(FamilyPlacer.TargetType t, bool same) { T = t; _same = same; }
-            public override string ToString() => (_same ? "" : T.Category + " · ") + T + (T.Floating ? "" : "   (needs a host)");
+            public override string ToString() => (_same ? "" : T.Category + " · ") + T + "   (" + T.Hosting + ")";
         }
 
         private void UpdateNote()
         {
             var t = (_target.SelectedItem as TargetItem)?.T;
-            _placementNote.Text = t == null ? "Pick the family type that stands for this consultant type."
-                : t.FullRotation ? "Work-plane / face-based: placed on its own work plane through the point, so all three rotations apply."
-                : t.Floating ? "Level-based: placed on the level below with an offset; it always stands upright, so only the Z rotation applies."
-                : $"Needs a host ({t.Placement}): can't be placed floating. Pick a level-, work-plane- or face-based family.";
-            _placementNote.Foreground = t != null && !t.Floating ? Bad : Muted;
+            _placementNote.Text = t == null ? "Pick the family type that stands for this consultant type. Work-plane-based families are listed first (preferred)."
+                : t.FaceBased ? "Face-based: placed on a Perseus reference plane (all three rotations apply). A work-plane-based version of the family is preferred: it behaves more predictably."
+                : t.FullRotation ? "Work-plane-based (preferred): placed on a Perseus reference plane through the level, so all three rotations apply."
+                : t.Floating ? "Level-based: placed on the level below; it always stands upright, so only the Z rotation applies. A work-plane-based family can also tilt."
+                : $"Needs a host ({t.Placement}): can't be placed floating. Pick a work-plane- or level-based family.";
+            if (t != null && t.FaceBased) _placementNote.Foreground = Frozen(0xB4, 0x6A, 0x00);
+            _placementNote.Foreground = t != null && !t.Floating ? Bad : t != null && t.FaceBased ? Frozen(0xB4, 0x6A, 0x00) : Muted;
             bool ok = t != null && t.Floating;
             _test.IsEnabled = _next.IsEnabled = _placeAll.IsEnabled = ok;
             _linkExisting.IsEnabled = t != null;

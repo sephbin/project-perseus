@@ -32,9 +32,17 @@ namespace ProjectPerseus.mapping
         {
             internal string Uid, Category, Family, Type;
             internal FamilyPlacementType Placement;
+            /// <summary>"Work Plane-Based" ticked in the family (level-based family that can sit on any work plane).</summary>
+            internal bool WorkPlaneFlag;
             internal bool Floating => Placement == FamilyPlacementType.OneLevelBased || Placement == FamilyPlacementType.TwoLevelsBased
                                       || Placement == FamilyPlacementType.WorkPlaneBased;
-            internal bool FullRotation => Placement == FamilyPlacementType.WorkPlaneBased;
+            /// <summary>Placed on a work plane (full rotation): work-plane-based or face-based.</summary>
+            internal bool FullRotation => Placement == FamilyPlacementType.WorkPlaneBased || WorkPlaneFlag;
+            internal bool FaceBased => Placement == FamilyPlacementType.WorkPlaneBased && !WorkPlaneFlag;
+            /// <summary>work-plane-based / face-based / level-based / hosted (needs a wall, ceiling...).</summary>
+            internal string Hosting => !Floating ? "hosted" : FaceBased ? "face-based" : FullRotation ? "work-plane-based" : "level-based";
+            /// <summary>Preferred first: work-plane-based, then level-based, then face-based, hosted last.</summary>
+            internal int Preference => !Floating ? 3 : FaceBased ? 2 : FullRotation ? 0 : 1;
             public override string ToString() => $"{Family} : {Type}";
         }
 
@@ -73,9 +81,11 @@ namespace ProjectPerseus.mapping
                 FamilyPlacementType p;
                 try { p = s.Family.FamilyPlacementType; } catch { continue; }
                 if (p == FamilyPlacementType.ViewBased || p == FamilyPlacementType.CurveBasedDetail || p == FamilyPlacementType.Invalid) continue;
-                list.Add(new TargetType { Uid = s.UniqueId, Category = s.Category.Name, Family = s.FamilyName, Type = s.Name, Placement = p });
+                bool wp = false;
+                try { wp = s.Family.get_Parameter(BuiltInParameter.FAMILY_WORK_PLANE_BASED)?.AsInteger() == 1; } catch { }
+                list.Add(new TargetType { Uid = s.UniqueId, Category = s.Category.Name, Family = s.FamilyName, Type = s.Name, Placement = p, WorkPlaneFlag = wp });
             }
-            return list.OrderBy(t => t.Category).ThenBy(t => t.Family).ThenBy(t => t.Type).ToList();
+            return list.OrderBy(t => t.Category).ThenBy(t => t.Preference).ThenBy(t => t.Family).ThenBy(t => t.Type).ToList();
         }
 
         internal static List<string> Worksets(Document host)
@@ -156,6 +166,10 @@ namespace ProjectPerseus.mapping
             var p = new XYZ(f.O[0], f.O[1], f.O[2]);
             if (!symbol.IsActive) { symbol.Activate(); host.Regenerate(); }
             FamilyInstance fi;
+            bool workPlaneFlag = false;
+            try { workPlaneFlag = symbol.Family.get_Parameter(BuiltInParameter.FAMILY_WORK_PLANE_BASED)?.AsInteger() == 1; } catch { }
+            if (workPlaneFlag && (placement == FamilyPlacementType.OneLevelBased || placement == FamilyPlacementType.TwoLevelsBased))
+                placement = FamilyPlacementType.WorkPlaneBased;   // place it on a work plane: all three rotations apply
             switch (placement)
             {
                 case FamilyPlacementType.OneLevelBased:
@@ -186,8 +200,34 @@ namespace ProjectPerseus.mapping
                 var wp = fi.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
                 if (wp != null && !wp.IsReadOnly) wp.Set(workset.IntegerValue);
             }
+            string residual = SnapTo(host, fi, p);
+            if (residual != null) warning = warning == null ? residual : warning + "; " + residual;
             MappedFamilyStore.Write(fi, inst.UniqueId, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Placed);
             return fi;
+        }
+
+        /// <summary>
+        /// Moves the placed family so its insertion point is exactly the target point: offset parameters mean different
+        /// things for level-, face- and work-plane-based families (and their sign follows the host's side), so the
+        /// result is measured and corrected instead of trusted. Returns a warning when Revit kept it away.
+        /// </summary>
+        private static string SnapTo(Document host, FamilyInstance fi, XYZ target)
+        {
+            try
+            {
+                host.Regenerate();
+                var at = fi.GetTotalTransform().Origin;
+                var delta = target - at;
+                if (delta.GetLength() < 0.5 / MappingMath.MmPerFoot) return null;
+                ElementTransformUtils.MoveElement(host, fi.Id, delta);
+                host.Regenerate();
+                double left = (target - fi.GetTotalTransform().Origin).GetLength() * MappingMath.MmPerFoot;
+                return left < 1 ? null : $"Revit kept it {left:N0} mm from the target point (constrained by its host)";
+            }
+            catch (Exception ex)
+            {
+                return "couldn't move it onto the target point: " + ex.Message;
+            }
         }
 
         internal const string PlanePrefix = "Perseus mapping";
