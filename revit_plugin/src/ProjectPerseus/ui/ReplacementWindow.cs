@@ -47,7 +47,12 @@ namespace ProjectPerseus.ui
         private readonly Button _linkConfident;
         private readonly ScrollViewer _scroll;
         private List<ReplacementGroup> _groups = new List<ReplacementGroup>();
-        private int _groupsShown = GroupPage;
+        // Category > type tree: open categories (the first one opens by default until the user toggles any), closed types,
+        // and how many size / placement groups are shown per type.
+        private readonly HashSet<string> _openCats = new HashSet<string>(StringComparer.Ordinal);
+        private bool _catsTouched;
+        private readonly HashSet<string> _closedTypes = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _groupsShown = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly HashSet<string> _expanded = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _pairsShown = new Dictionary<string, int>(StringComparer.Ordinal);
         // Ticks by deleted UniqueId inside opened groups (start ticked).
@@ -73,7 +78,7 @@ namespace ProjectPerseus.ui
             {
                 TextWrapping = TextWrapping.Wrap, Foreground = Muted, Margin = new Thickness(0, 0, 0, 8),
                 Text = "Deleted elements with a new element of the same category in their place: the consultant probably deleted and re-modelled them. " +
-                       "They're grouped by what was replaced with what and how it sits, best groups first: link a whole group at once, or open it to check the pairs. " +
+                       "They're listed by category, then by type (old → new), then by size and placement: link a whole category, type or group at once, or open a group to check its pairs. " +
                        "Each linked pair becomes one Replaced change (⇄). What people link or reject is remembered and used to rank future suggestions.",
             };
             DockPanel.SetDock(intro, Dock.Top);
@@ -141,21 +146,105 @@ namespace ProjectPerseus.ui
                     Text = "Tip: register review views (Review views… in the panel) to see a picture of each replacement here instead of navigating Revit.",
                     Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 6),
                 });
-            foreach (var g in _groups.Take(_groupsShown)) _list.Children.Add(Card(g));
-            if (_groups.Count > _groupsShown)
-            {
-                var more = Btn($"Show {Math.Min(GroupPage, _groups.Count - _groupsShown)} more groups ({_groups.Count - _groupsShown:N0} left)", "",
-                               () => { _groupsShown += GroupPage; Refresh(); });
-                more.HorizontalAlignment = HorizontalAlignment.Left;
-                more.Margin = new Thickness(0, 8, 0, 8);
-                _list.Children.Add(more);
-            }
+            BuildTree();
             _scroll.UpdateLayout();
             _scroll.ScrollToVerticalOffset(offset);
         }
 
         private List<ReplacementGroup> ConfidentGroups() =>
-            _groups.Take(_groupsShown).Where(g => g.MeanScore >= Confident && g.LearntBias >= 0).ToList();
+            _groups.Where(g => g.MeanScore >= Confident && g.LearntBias >= 0).ToList();
+
+        private static int PairCount(IEnumerable<ReplacementGroup> groups) => groups.Sum(g => g.Pairs.Count);
+
+        private static List<ReplacementSuggestion> SuggestionsOf(IEnumerable<ReplacementGroup> groups) =>
+            groups.SelectMany(g => g.Pairs).Select(p => (ReplacementSuggestion)p.Tag).ToList();
+
+        private static string TypeTitle(ReplacementGroup g) => g.OldType == g.NewType ? $"{g.OldType}  →  same type" : $"{g.OldType}  →  {g.NewType}";
+
+        /// <summary>Category (biggest first; learnt ones first) > type old → new (biggest first) > size / placement group cards.</summary>
+        private void BuildTree()
+        {
+            var cats = _groups.GroupBy(g => g.Category)
+                .Select(c => c.ToList())
+                .OrderByDescending(c => c.Any(g => g.LearntBias > 0.2))
+                .ThenByDescending(c => PairCount(c))
+                .ThenBy(c => c[0].Category, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            bool first = true;
+            foreach (var cat in cats)
+            {
+                string catName = cat[0].Category;
+                bool open = _catsTouched ? _openCats.Contains(catName) : first;
+                first = false;
+                var types = cat.GroupBy(g => g.OldType + "\u0001" + g.NewType).Select(t => t.ToList())
+                               .OrderByDescending(t => t.Any(g => g.LearntBias > 0.2)).ThenByDescending(t => PairCount(t)).ToList();
+                _list.Children.Add(Header(open, $"{catName}", $"{PairCount(cat):N0} pair(s) in {types.Count} type(s)", 14.5, new Thickness(0, 10, 0, 0),
+                    () =>
+                    {
+                        if (!_catsTouched) { _catsTouched = true; if (cats.Count > 0) _openCats.Add(cats[0][0].Category); }
+                        if (!_openCats.Remove(catName)) _openCats.Add(catName);
+                        Refresh();
+                    }, cat, $"every {catName} suggestion ({types.Count} type(s))"));
+                if (!open) continue;
+                foreach (var type in types)
+                {
+                    string typeKey = catName + "\u0001" + type[0].OldType + "\u0001" + type[0].NewType;
+                    bool typeOpen = !_closedTypes.Contains(typeKey);
+                    string learnt = type.Select(g => g.Learnt).FirstOrDefault(l => l != null);
+                    _list.Children.Add(Header(typeOpen, TypeTitle(type[0]),
+                        $"{PairCount(type):N0} pair(s) in {type.Count} size / placement group(s)" + (learnt != null ? " · people " + learnt : ""),
+                        12.5, new Thickness(18, 6, 0, 0),
+                        () => { if (!_closedTypes.Remove(typeKey)) _closedTypes.Add(typeKey); Refresh(); }, type, TypeTitle(type[0])));
+                    if (!typeOpen) continue;
+                    _groupsShown.TryGetValue(typeKey, out int n);
+                    if (n <= 0) n = GroupPage;
+                    foreach (var g in type.Take(n))
+                    {
+                        var card = (FrameworkElement)Card(g);
+                        card.Margin = new Thickness(36, 6, 4, 0);
+                        _list.Children.Add(card);
+                    }
+                    if (type.Count > n)
+                    {
+                        var more = Btn($"Show {Math.Min(GroupPage, type.Count - n)} more groups ({type.Count - n:N0} left)", "",
+                                       () => { _groupsShown[typeKey] = n + GroupPage; Refresh(); });
+                        more.HorizontalAlignment = HorizontalAlignment.Left;
+                        more.Margin = new Thickness(36, 6, 0, 0);
+                        _list.Children.Add(more);
+                    }
+                }
+            }
+        }
+
+        /// <summary>A collapsible category / type row with Link all / Not replacements for everything under it.</summary>
+        private UIElement Header(bool open, string title, string detail, double size, Thickness margin, Action toggle,
+                                 List<ReplacementGroup> groups, string what)
+        {
+            var dock = new DockPanel();
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+            int n = PairCount(groups);
+            buttons.Children.Add(Btn(n == 1 ? "Link" : $"Link all {n:N0}", $"Confirm {what} as replacements", () =>
+            {
+                if (groups.Count > 1 && MessageBox.Show(this, $"Link {n:N0} pair(s) as replacements: {what}?", "Link replacements",
+                                                        MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+                _owner.ConfirmReplacements(SuggestionsOf(groups));
+            }));
+            buttons.Children.Add(Btn("Not replacements", $"Reject {what}", () =>
+            {
+                if (groups.Count > 1 && MessageBox.Show(this, $"Mark {n:N0} deleted element(s) as not replaced: {what}?", "Not replacements",
+                                                        MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+                _owner.RejectReplacements(SuggestionsOf(groups).Select(s => s.Deleted).ToList());
+            }));
+            DockPanel.SetDock(buttons, Dock.Right);
+            dock.Children.Add(buttons);
+            var text = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Cursor = System.Windows.Input.Cursors.Hand };
+            text.Inlines.Add(new System.Windows.Documents.Run((open ? "▾ " : "▸ ")) { Foreground = Muted });
+            text.Inlines.Add(new System.Windows.Documents.Run(title) { FontWeight = FontWeights.SemiBold, FontSize = size });
+            text.Inlines.Add(new System.Windows.Documents.Run("   " + detail) { Foreground = Muted });
+            text.MouseLeftButtonUp += (s, e) => { try { toggle(); } catch (Exception ex) { logging.Log.Exception(ex); } };
+            dock.Children.Add(text);
+            return new Border { Child = dock, Margin = margin, Padding = new Thickness(4, 4, 0, 4), BorderBrush = LineBrush, BorderThickness = new Thickness(0, 0, 0, 1) };
+        }
 
         private void LinkConfident()
         {
@@ -188,11 +277,11 @@ namespace ProjectPerseus.ui
             var info = new StackPanel();
             var title = new TextBlock { FontSize = 13.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
             title.Inlines.Add(new System.Windows.Documents.Run("⇄ ") { Foreground = ChangeRow.ReplacedBrush });
-            title.Inlines.Add(new System.Windows.Documents.Run(g.Title));
+            title.Inlines.Add(new System.Windows.Documents.Run($"{g.Size} · {g.Relation}"));
             info.Children.Add(title);
             info.Children.Add(new TextBlock
             {
-                Text = $"{g.Pairs.Count:N0} pair(s) · size {g.Size} · {g.Relation} · " +
+                Text = $"{g.Pairs.Count:N0} pair(s) · " +
                        (g.Levels.Count == 1 ? g.Levels[0] : $"{g.Levels.Count} levels ({string.Join(", ", g.Levels.Take(3))}{(g.Levels.Count > 3 ? "…" : "")})") +
                        $" · {g.MeanScore * 100:0} % match on average" + (g.Pairs.Count > 1 ? $" (lowest {g.MinScore * 100:0} %)" : ""),
                 Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),

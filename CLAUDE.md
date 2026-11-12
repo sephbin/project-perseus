@@ -331,7 +331,7 @@ ProjectPerseus/
 │   │                             FederatorWindow places it from a 150 ms API-context tick (UIView rect + zoom corners; hidden while moving)
 │   │                             using ChangeHighlightServer.HitsFor (badge spots recorded per view at build).
 │   ├── TextPrompt.cs             NEW (2026-11-11). Small modal text prompt (Ask(owner hwnd, title, prompt, initial, multiline)).
-│   ├── ReplacementWindow.cs      NEW (2026-11-11). Modeless "Possible replacements": unconfirmed suggestions grouped by federator/
+│   ├── ReplacementWindow.cs      NEW (2026-11-11). Modeless "Possible replacements": tree category > type (old -> new) > size / placement groups (federator/
 │   │                             ReplacementGroups (top 10 groups first, best example as a review view thumbnail, learnt patterns first):
 │   │                             Link all / Not replacements / Review pairs (paged, ticks), Link confident groups. Suggestions on noise or
 │   │                             Ignored elements / types (3+ ignored, none cared about) are hidden ("Show hidden"). Writes via FederatorWindow.
