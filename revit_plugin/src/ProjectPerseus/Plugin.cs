@@ -19,22 +19,52 @@ namespace ProjectPerseus
         private Stopwatch _startupStopwatch;
         private string _batchFilePath;
 
+        // Startup diagnostics: when Revit loaded us, how long each startup step took, when Revit first became idle.
+        private static readonly Stopwatch SinceLoad = Stopwatch.StartNew();
+        private static bool _readyLogged;
+        private static volatile bool _ready;
+
         public Result OnStartup(UIControlledApplication application)
         {
-            CrashTrace.Install();
-            util.CodePages.Register();
-            _orchestrator.Subscribe(application);
-            violations.ViolationHighlightController.Initialize();
-            federator.ChangeHighlightController.Initialize();
-            ownership.OwnershipTracker.Subscribe(application);
-            markers.MarkerEngine.Subscribe(application);
-            federator.FederatorController.Subscribe(application);
-            AddRibbonPanel(application);
-            ThemeIconManager.Initialize(application);
-
+            var clock = Stopwatch.StartNew();
+            var steps = new System.Collections.Generic.List<string>();
+            void Step(string name, Action a)
+            {
+                long t0 = clock.ElapsedMilliseconds;
+                a();
+                steps.Add($"{name} {clock.ElapsedMilliseconds - t0}");
+            }
             string revitVersion = application.ControlledApplication.VersionNumber;
             string pluginVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             Log.InitSession(revitVersion, pluginVersion);
+            Step("crash trace", CrashTrace.Install);
+            Step("code pages", util.CodePages.Register);
+            Step("sync", () => _orchestrator.Subscribe(application));
+            Step("violation highlight", violations.ViolationHighlightController.Initialize);
+            Step("change highlight", federator.ChangeHighlightController.Initialize);
+            Step("ownership", () => ownership.OwnershipTracker.Subscribe(application));
+            Step("markers", () => markers.MarkerEngine.Subscribe(application));
+            Step("federator", () => federator.FederatorController.Subscribe(application));
+            Step("ribbon", () => AddRibbonPanel(application));
+            Step("icons", () => ThemeIconManager.Initialize(application));
+            Log.Info($"[Startup] Perseus OnStartup {clock.ElapsedMilliseconds} ms (ms per step: {string.Join(", ", steps)})");
+            application.Idling += OnFirstIdling;
+            application.ControlledApplication.DocumentOpening += (s, e) => Log.Info($"[Startup] opening '{System.IO.Path.GetFileName(e.PathName)}' at +{SinceLoad.Elapsed.TotalSeconds:0} s");
+            application.ControlledApplication.DocumentOpened += (s, e) => Log.Info($"[Startup] opened '{e.Document?.Title}' at +{SinceLoad.Elapsed.TotalSeconds:0} s");
+            // Watchdog: until Revit is first idle, note every 20 s that it's still busy (shows how far startup got).
+            var watchdog = new System.Threading.Thread(() =>
+            {
+                try
+                {
+                    for (int i = 1; i <= 30 && !_ready; i++)
+                    {
+                        System.Threading.Thread.Sleep(20000);
+                        if (!_ready) Log.Info($"[Startup] Revit not idle yet: +{SinceLoad.Elapsed.TotalSeconds:0} s since Perseus loaded");
+                    }
+                }
+                catch { /* diagnostics only */ }
+            }) { IsBackground = true, Name = "Perseus startup watchdog" };
+            watchdog.Start();
 
             // Batch trigger: if %AppData%\ProjectPerseus\batch_task.json exists, hand off to
             // BatchProcessor once Revit's UI has settled. The Idling event fires repeatedly,
@@ -53,6 +83,15 @@ namespace ProjectPerseus
             application.Idling += OnKeyScheduleIdling;
 
             return Result.Succeeded;
+        }
+
+        private static void OnFirstIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        {
+            if (_readyLogged) return;
+            _readyLogged = true;
+            _ready = true;
+            Log.Info($"[Startup] Revit first idle (ready) at +{SinceLoad.Elapsed.TotalSeconds:0} s since Perseus loaded");
+            try { ((UIApplication)sender).Idling -= OnFirstIdling; } catch { }
         }
 
         public Result OnShutdown(UIControlledApplication application)

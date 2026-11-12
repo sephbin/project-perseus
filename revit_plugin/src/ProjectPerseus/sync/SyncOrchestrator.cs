@@ -122,11 +122,14 @@ namespace ProjectPerseus.sync
         private void OnDocumentOpened(object sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs e)
         {
             if (e.Document == null || e.Document.IsFamilyDocument) return;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
+            long tKeys = clock.ElapsedMilliseconds;
             if (!UploadConfigIsValid()) return;
             try
             {
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
+                long tGuid = clock.ElapsedMilliseconds;
                 queue.PresencePoller.AddSource(docGuid);
                 queue.ViolationPoller.AddSource(docGuid);
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
@@ -141,6 +144,7 @@ namespace ProjectPerseus.sync
                     try { auth.AuthService.GetAuthTokenSafely(); }
                     catch (Exception ex2) { Log.Warn($"[OnDocumentOpened] Auth warm-up failed: {ex2.Message}"); }
                 });
+                Log.Info($"[Startup] Perseus DocumentOpened '{e.Document.Title}' {clock.ElapsedMilliseconds} ms (key schedules {tKeys}, model GUID {tGuid - tKeys}, rest {clock.ElapsedMilliseconds - tGuid})");
             }
             catch (Exception ex)
             {
