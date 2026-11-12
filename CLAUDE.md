@@ -422,7 +422,7 @@ ProjectPerseus/
 │   │                             actions (closed by ClosesActionId) + Assignees; thread = all events across comparisons. Tested.
 │   ├── ReplacementMatcher.cs     Pure: for each Deleted change, likely replacements among Added ones of the same category (box
 │   │                             overlap / covers-old / proximity + same type/family/level; spatial hash). Stored on the change.
-│   ├── ReplacementGroups.cs      Pure: groups replacement suggestions by pattern (category | old type | new type) + spatial relation
+│   ├── ReplacementGroups.cs      Pure: groups replacement suggestions by pattern (category | old type | new type) + size class + spatial relation
 │   │                             (identical place and size / same place resized / shifted <= 300 mm / moved) for bulk approval; order:
 │   │                             learnt-linked, confident (80 %+), relation, size; learnt-rejected last. Tested in ReplacementGroupsTest.cs.
 │   ├── ReplacementLearning.cs    Pure: learns from link / reject events (ReviewEvent.ReplacementPattern; latest decision per deleted element)

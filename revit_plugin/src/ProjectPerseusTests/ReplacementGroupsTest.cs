@@ -34,6 +34,21 @@ namespace ProjectPerseusTests
         };
 
         [TestMethod]
+        public void SameTypeDifferentSizesAreSeparateGroups()
+        {
+            var small = Del("d1", 0); small.OldMax = new[] { 5 * M, 0.1 * M, 0.1 * M };    // 100 x 100 section
+            var big = Del("d2", 20); big.OldMin = new[] { 20 * M, 0, 0 }; big.OldMax = new[] { 30 * M, 0.3 * M, 0.3 * M };   // 300 x 300, longer
+            var small2 = Del("d3", 40); small2.OldMin = new[] { 40 * M, 0, 0 }; small2.OldMax = new[] { 52 * M, 0.1 * M, 0.1 * M };   // same section, longer
+            var a1 = Add("a1", 0); a1.NewMax = (double[])small.OldMax.Clone();
+            var a2 = Add("a2", 20); a2.NewMin = (double[])big.OldMin.Clone(); a2.NewMax = (double[])big.OldMax.Clone();
+            var a3 = Add("a3", 40); a3.NewMin = (double[])small2.OldMin.Clone(); a3.NewMax = (double[])small2.OldMax.Clone();
+            var groups = ReplacementGroups.Build(new[] { Pair(small, a1, 0.9), Pair(big, a2, 0.9), Pair(small2, a3, 0.9) }, null);
+            Assert.AreEqual(2, groups.Count);
+            Assert.AreEqual("100 × 100 mm", groups[0].Size);
+            Assert.AreEqual(2, groups[0].Pairs.Count);
+        }
+
+        [TestMethod]
         public void RelationBuckets()
         {
             Assert.AreEqual(ReplacementGroups.SamePlace, ReplacementGroups.Relation(Del("d", 0), Add("a", 0)));

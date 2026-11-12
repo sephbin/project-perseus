@@ -192,8 +192,9 @@ namespace ProjectPerseus.ui
             info.Children.Add(title);
             info.Children.Add(new TextBlock
             {
-                Text = $"{g.Pairs.Count:N0} pair(s) · {g.Relation} · {g.MeanScore * 100:0} % match on average" +
-                       (g.Pairs.Count > 1 ? $" (lowest {g.MinScore * 100:0} %)" : ""),
+                Text = $"{g.Pairs.Count:N0} pair(s) · size {g.Size} · {g.Relation} · " +
+                       (g.Levels.Count == 1 ? g.Levels[0] : $"{g.Levels.Count} levels ({string.Join(", ", g.Levels.Take(3))}{(g.Levels.Count > 3 ? "…" : "")})") +
+                       $" · {g.MeanScore * 100:0} % match on average" + (g.Pairs.Count > 1 ? $" (lowest {g.MinScore * 100:0} %)" : ""),
                 Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
             });
             if (g.Learnt != null)
@@ -208,7 +209,8 @@ namespace ProjectPerseus.ui
                                                   Foreground = Muted, Margin = new Thickness(0, 2, 0, 0) });
             info.Children.Add(new TextBlock
             {
-                Text = $"Example: − Id {ex.Deleted.Change.Id}  →  + Id {ex.Replacement.Change.Id}" +
+                Text = $"Example: − Id {ex.Deleted.Change.Id} ({ReplacementGroups.Dimensions(ex.Deleted.Change.OldMin, ex.Deleted.Change.OldMax)})" +
+                       $"  →  + Id {ex.Replacement.Change.Id} ({ReplacementGroups.Dimensions(ex.Replacement.Change.NewMin, ex.Replacement.Change.NewMax)})" +
                        (string.IsNullOrEmpty(ex.Deleted.Level) ? "" : $" · {ex.Deleted.Level}") + $" · {ex.Candidate.Reason}",
                 Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
             });
@@ -286,6 +288,9 @@ namespace ProjectPerseus.ui
             t.Inlines.Add(new System.Windows.Documents.Run("   →   ") { Foreground = ChangeRow.ReplacedBrush });
             t.Inlines.Add(new System.Windows.Documents.Run("+ ") { Foreground = ChangeRow.AddedBrush, FontWeight = FontWeights.Bold });
             t.Inlines.Add(new System.Windows.Documents.Run($"Id {s.Replacement.Change.Id}"));
+            var dc = s.Deleted.Change; var ac = s.Replacement.Change;
+            t.Inlines.Add(new System.Windows.Documents.Run($"\n{s.Deleted.Element}  ({ReplacementGroups.Dimensions(dc.OldMin, dc.OldMax)})" +
+                                                           $"\n→ {s.Replacement.Element}  ({ReplacementGroups.Dimensions(ac.NewMin, ac.NewMax)})") { FontSize = 11 });
             t.Inlines.Add(new System.Windows.Documents.Run($"\n{s.Candidate.Score * 100:0} % · {s.Candidate.Reason}" +
                                                            (string.IsNullOrEmpty(s.Deleted.Level) ? "" : " · " + s.Deleted.Level) +
                                                            (s.Alternatives > 0 ? $" · {s.Alternatives} other candidate(s)" : "") +

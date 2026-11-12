@@ -14,6 +14,7 @@ namespace ProjectPerseus.federator
         public object Tag { get; set; }
         public string Pattern { get; set; }
         public string Relation { get; set; }
+        public string Size { get; set; }
     }
 
     /// <summary>Pairs of one pattern (category, old type -> new type) and spatial relation, best first.</summary>
@@ -25,6 +26,12 @@ namespace ProjectPerseus.federator
         public string Category { get; set; }
         public string OldType { get; set; }
         public string NewType { get; set; }
+        public string OldFamily { get; set; }
+        public string NewFamily { get; set; }
+        /// <summary>Size class of the deleted elements (SizeKey), e.g. "200 × 3000 mm".</summary>
+        public string Size { get; set; }
+        /// <summary>Levels of the deleted elements, most common first.</summary>
+        public List<string> Levels { get; set; } = new List<string>();
         public List<ReplacementPair> Pairs { get; set; } = new List<ReplacementPair>();
         public double MeanScore { get; set; }
         public double MinScore { get; set; }
@@ -39,8 +46,10 @@ namespace ProjectPerseus.federator
     }
 
     /// <summary>
-    /// Groups replacement suggestions so they can be approved in bulk: same category, same old type -> new type, same
-    /// spatial relation (identical place and size / same place resized / shifted / moved). Learnt patterns come first,
+    /// Groups replacement suggestions so they can be approved in bulk: same category, same old family + type -> new
+    /// family + type, same size class of the deleted element (one type often covers many sizes: pipe / duct types every
+    /// diameter, wall types every height), same spatial relation (identical place and size / same place resized /
+    /// shifted / moved). Learnt patterns come first,
     /// then confident groups (mean match 80 %+), then by size; rejected patterns last. Pure: unit-tested in
     /// ProjectPerseusTests/ReplacementGroupsTest.cs.
     /// </summary>
@@ -77,6 +86,36 @@ namespace ProjectPerseus.federator
             return dist <= ShiftLimit ? Shifted : Moved;
         }
 
+        /// <summary>
+        /// Size class of an element's box (mm, orientation-free): the two smallest dimensions (a pipe's diameter, a wall's
+        /// thickness + height) and, for compact elements (largest under 3x the middle one), the largest too. Rounded to
+        /// 25 mm up to 500, 100 mm up to 3 m, 500 mm beyond. Long elements of one section share a class whatever their length.
+        /// </summary>
+        public static string SizeKey(double[] min, double[] max)
+        {
+            if (min == null || max == null) return "?";
+            var d = new[] { Math.Abs(max[0] - min[0]), Math.Abs(max[1] - min[1]), Math.Abs(max[2] - min[2]) }
+                .Select(v => v * 304.8).OrderBy(v => v).ToArray();
+            string s = Bucket(d[0]) + " × " + Bucket(d[1]);
+            if (d[2] <= 3 * Math.Max(d[1], 1)) s += " × " + Bucket(d[2]);
+            return s + " mm";
+        }
+
+        private static string Bucket(double mm)
+        {
+            double step = mm <= 500 ? 25 : mm <= 3000 ? 100 : 500;
+            return (Math.Round(mm / step) * step).ToString("0");
+        }
+
+        /// <summary>"200 × 3,000 × 5,400 mm" (box dimensions, smallest first).</summary>
+        public static string Dimensions(double[] min, double[] max)
+        {
+            if (min == null || max == null) return "";
+            var d = new[] { Math.Abs(max[0] - min[0]), Math.Abs(max[1] - min[1]), Math.Abs(max[2] - min[2]) }
+                .Select(v => v * 304.8).OrderBy(v => v).Select(v => v.ToString("N0"));
+            return string.Join(" × ", d) + " mm";
+        }
+
         private static int RelationOrder(string r) => r == SamePlace ? 0 : r == Resized ? 1 : r == Shifted ? 2 : 3;
 
         public static List<ReplacementGroup> Build(IEnumerable<ReplacementPair> pairs, ReplacementLearning learnt)
@@ -87,8 +126,9 @@ namespace ProjectPerseus.federator
             {
                 p.Pattern = p.Pattern ?? PatternKey(p.Deleted, p.Added);
                 p.Relation = p.Relation ?? Relation(p.Deleted, p.Added);
+                p.Size = p.Size ?? SizeKey(p.Deleted?.OldMin, p.Deleted?.OldMax);
             }
-            foreach (var g in (pairs ?? Enumerable.Empty<ReplacementPair>()).GroupBy(p => p.Pattern + "|" + p.Relation))
+            foreach (var g in (pairs ?? Enumerable.Empty<ReplacementPair>()).GroupBy(p => p.Pattern + "|" + p.Size + "|" + p.Relation))
             {
                 var list = g.OrderByDescending(p => p.Score).ThenBy(p => p.Deleted?.Id ?? 0).ToList();
                 var first = list[0];
@@ -100,6 +140,11 @@ namespace ProjectPerseus.federator
                     Category = string.IsNullOrEmpty(first.Deleted?.Category) ? "(no category)" : first.Deleted.Category,
                     OldType = Name(first.Deleted),
                     NewType = Name(first.Added),
+                    OldFamily = first.Deleted?.Family ?? "",
+                    NewFamily = first.Added?.Family ?? "",
+                    Size = first.Size,
+                    Levels = list.GroupBy(p => string.IsNullOrEmpty(p.Deleted?.Level) ? "(no level)" : p.Deleted.Level)
+                                 .OrderByDescending(x => x.Count()).Select(x => x.Key).ToList(),
                     Pairs = list,
                     MeanScore = list.Average(p => p.Score),
                     MinScore = list.Min(p => p.Score),
