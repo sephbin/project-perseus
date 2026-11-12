@@ -104,6 +104,9 @@ namespace ProjectPerseus.ui
         private Row _current;
         private FamilyMapRule _editing;
         private ARDB.ElementId _testId;
+        private bool _testKept;              // saved with the mapping: a real placed family, not deleted when moving on
+        private string _testSourceUid;       // the consultant element the test stands at (kept while tuning)
+        private TextBlock _testInfo;
         private int _sample;
         private bool _loadingEditor;
 
@@ -209,10 +212,20 @@ namespace ProjectPerseus.ui
             _editor.Children.Add(Section("Try it"));
             var testRow = new WrapPanel();
             _test = Btn("Test on one", "Place one of our families at a consultant element of this type (the one selected in Revit if any) and zoom to it. Changing the offset / rotation re-places it.", TestOnOne);
-            _next = Btn("Next sample", "Move the test to another consultant element of this type", () => { _sample++; TestOnOne(); });
+            var prev = Btn("◀ Previous", "Move the test to the previous consultant element of this type", () => { _sample--; _testSourceUid = null; TestOnOne(); });
+            _next = Btn("Next ▶", "Move the test to another consultant element of this type", () => { _sample++; _testSourceUid = null; TestOnOne(); });
             _removeTest = Btn("Remove test", "Delete the test family", RemoveTest);
-            testRow.Children.Add(_test); testRow.Children.Add(_next); testRow.Children.Add(_removeTest);
+            testRow.Children.Add(_test); testRow.Children.Add(prev); testRow.Children.Add(_next); testRow.Children.Add(_removeTest);
             _editor.Children.Add(testRow);
+            _testInfo = new TextBlock { Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 4), FontSize = 11 };
+            _editor.Children.Add(_testInfo);
+            var findRow = new WrapPanel();
+            findRow.Children.Add(Btn("Zoom to test", "Zoom to our test family and the consultant element (this view if it shows them, else a review view, else your federator 3D view)",
+                                     () => FindTest(false, true, false)));
+            findRow.Children.Add(Btn("Show in 3D", "Open your federator 3D view with a section box around the test and the consultant element", () => FindTest(true, true, false)));
+            findRow.Children.Add(Btn("Select ours", "Select our test family in Revit (e.g. to check it in Properties)", () => FindTest(false, false, false, selectOnly: true)));
+            findRow.Children.Add(Btn("Select consultant", "Select the consultant element in Revit (Tab-select in the link)", () => FindTest(false, false, true, selectOnly: true)));
+            _editor.Children.Add(findRow);
 
             _editor.Children.Add(Section("Apply"));
             var apply = new WrapPanel();
@@ -236,7 +249,7 @@ namespace ProjectPerseus.ui
             _grid.SelectionChanged += (s, e) => Safe(() => Select(_grid.SelectedItem as Row));
             _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) { ReadEditor(); UpdateNote(); QueueLive(); } });
             _workset.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) ReadEditor(); });
-            _liveTimer.Tick += (s, e) => Safe(() => { _liveTimer.Stop(); if (_testId != null) TestOnOne(); });
+            _liveTimer.Tick += (s, e) => Safe(() => { _liveTimer.Stop(); if (_testId != null) TestOnOne(false); });
             Closed += (s, e) => { _liveTimer.Stop(); if (Instance == this) Instance = null; };
             _editor.IsEnabled = false;
             _linkBox.SelectionChanged += (s, e) => Safe(LinkChanged);
@@ -248,7 +261,7 @@ namespace ProjectPerseus.ui
         {
             var l = _linkBox.SelectedItem as LinkChoice;
             if (l == null) return;
-            if (_testId != null) RemoveTest();
+            if (_testId != null) { if (_testKept) ForgetTest(); else RemoveTest(); }
             _linkUid = l.Uid; _modelKey = l.ModelKey; _linkName = l.Name;
             Title = "Perseus — Family mapping · " + l.Name;
             _current = null; _editing = null;
@@ -332,7 +345,7 @@ namespace ProjectPerseus.ui
         private void Select(Row row)
         {
             if (row == null) return;
-            if (_testId != null && _current != null && row.Source.Key != _current.Source.Key) RemoveTest();
+            if (_testId != null && _current != null && row.Source.Key != _current.Source.Key) { if (_testKept) ForgetTest(); else RemoveTest(); }
             _current = row;
             _sample = 0;
             var s = row.Source;
@@ -436,12 +449,16 @@ namespace ProjectPerseus.ui
 
         // ═══════════════ Actions ═══════════════
 
-        private void TestOnOne()
+        /// <param name="fresh">New test (zoom to it); false = re-place while tuning (same consultant element, view left alone).</param>
+        private void TestOnOne() => TestOnOne(true);
+
+        private void TestOnOne(bool fresh)
         {
             if (_editing == null || !ReadEditor() || string.IsNullOrEmpty(_editing.TargetSymbolUid)) { Status("Pick our family type first.", true); return; }
             var rule = Copy(_editing);
             int sample = _sample;
             var old = _testId;
+            string keepSource = fresh ? null : _testSourceUid;
             Api(app =>
             {
                 var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
@@ -451,8 +468,9 @@ namespace ProjectPerseus.ui
                 var sources = FamilyPlacer.SourceElements(linkDoc, rule);
                 if (sources.Count == 0) { Status("No consultant elements of this type in the link.", true); return; }
                 // The consultant element selected in Revit, when it's of this type; else the n-th sample.
-                ARDB.Element source = null;
+                ARDB.Element source = keepSource == null ? null : sources.FirstOrDefault(x => x.UniqueId == keepSource);
                 var uidoc = app.ActiveUIDocument;
+                if (source == null)
                 try
                 {
                     foreach (var r in uidoc.Selection.GetReferences())
@@ -463,7 +481,10 @@ namespace ProjectPerseus.ui
                         }
                 }
                 catch { /* GetReferences unavailable */ }
-                source = source ?? sources[sample % sources.Count];
+                int n = ((sample % sources.Count) + sources.Count) % sources.Count;
+                source = source ?? sources[n];
+                int index = sources.FindIndex(x => x.Id == source.Id);
+                _sample = index;
                 string warning;
                 ARDB.FamilyInstance fi;
                 using (var tx = new ARDB.Transaction(_doc, "Perseus: test mapped family"))
@@ -477,23 +498,72 @@ namespace ProjectPerseus.ui
                     tx.Commit();
                 }
                 _testId = fi?.Id;
-                if (fi == null) { Status("Not placed: " + warning, true); return; }
-                try
-                {
-                    uidoc.Selection.SetElementIds(new List<ARDB.ElementId> { fi.Id });
-                    uidoc.ShowElements(fi.Id);
-                }
-                catch { }
-                Status($"Test placed at consultant element Id {source.Id.GetIdValue()} ({(sample % sources.Count) + 1} of {sources.Count}). " +
-                       "Adjust the offset / rotation (it re-places), Next sample to check another, then Save mapping." + (warning != null ? "  ⚠ " + warning : ""),
-                       warning != null);
+                _testKept = false;
+                _testSourceUid = source.UniqueId;
+                if (fi == null) { Status("Not placed: " + warning, true); _testInfo.Text = ""; return; }
+                var srcPos = FamilyPlacer.SourceFrame(source, inst.GetTotalTransform()).O;
+                var ourPos = FamilyPlacer.Position(fi);
+                string level = (source.get_Parameter(ARDB.BuiltInParameter.FAMILY_LEVEL_PARAM) ?? source.get_Parameter(ARDB.BuiltInParameter.SCHEDULE_LEVEL_PARAM))?.AsValueString();
+                _testInfo.Text = $"Test: our {symbol.FamilyName} (Id {fi.Id.GetIdValue()}) at consultant element Id {source.Id.GetIdValue()}" +
+                                 (string.IsNullOrEmpty(level) ? "" : $" on {level}") + $" · sample {index + 1} of {sources.Count}" +
+                                 (ourPos != null ? $" · {MappingMath.Distance(srcPos, ourPos) * MappingMath.MmPerFoot:N0} mm from its insertion point" : "");
+                if (fresh) ShowTest(app, inst, fi, source, false, false, false);
+                Status(fresh ? "Test placed. Adjust the offset / rotation (it re-places in place), ◀ / ▶ to check other elements, then Save mapping."
+                             : "Test re-placed." + (warning != null ? "" : ""), warning != null);
+                if (warning != null) Status("⚠ " + warning, true);
             }, needActive: true);
         }
+
+        /// <summary>Zoom / select the test family and its consultant element.</summary>
+        private void FindTest(bool force3D, bool zoom, bool selectConsultant, bool selectOnly = false)
+        {
+            if (_testId == null || _testSourceUid == null) { Status("Place a test first (Test on one)."); return; }
+            var id = _testId; var srcUid = _testSourceUid;
+            Api(app =>
+            {
+                var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                var fi = _doc.GetElement(id);
+                var source = inst?.GetLinkDocument()?.GetElement(srcUid);
+                if (fi == null || source == null) { Status("The test family or its consultant element is gone: Test on one again.", true); return; }
+                ShowTest(app, inst, fi, source, force3D, selectOnly, selectConsultant);
+            }, needActive: true);
+        }
+
+        private void ShowTest(UIApplication app, ARDB.RevitLinkInstance inst, ARDB.Element ours, ARDB.Element source, bool force3D, bool selectOnly, bool selectConsultant)
+        {
+            var uidoc = app.ActiveUIDocument;
+            try
+            {
+                if (selectConsultant) uidoc.Selection.SetReferences(new List<ARDB.Reference> { new ARDB.Reference(source).CreateLinkReference(inst) });
+                else uidoc.Selection.SetElementIds(new List<ARDB.ElementId> { ours.Id });
+            }
+            catch (Exception ex) { Log.Info($"[Mapping] select: {ex.Message}"); }
+            if (selectOnly) { Status(selectConsultant ? "Consultant element selected." : "Our test family selected."); return; }
+            // Box around both (consultant box moved into host coordinates).
+            var a = ours.get_BoundingBox(null);
+            var b = source.get_BoundingBox(null);
+            var t = inst.GetTotalTransform();
+            var pts = new List<ARDB.XYZ>();
+            if (a != null) { pts.Add(a.Min); pts.Add(a.Max); }
+            if (b != null) for (int i = 0; i < 8; i++)
+                pts.Add(t.OfPoint(new ARDB.XYZ((i & 1) == 0 ? b.Min.X : b.Max.X, (i & 2) == 0 ? b.Min.Y : b.Max.Y, (i & 4) == 0 ? b.Min.Z : b.Max.Z)));
+            if (pts.Count == 0) { Status("No location to zoom to.", true); return; }
+            var min = new ARDB.XYZ(pts.Min(p => p.X), pts.Min(p => p.Y), pts.Min(p => p.Z));
+            var max = new ARDB.XYZ(pts.Max(p => p.X), pts.Max(p => p.Y), pts.Max(p => p.Z));
+            ReviewViewSettings views = null;
+            try { views = ReviewViews.Load(_doc); } catch { }
+            string where = ReviewNavigator.ShowBox(uidoc, inst, min, max, views, force3D);
+            Status($"Showing the test and its consultant element {where}.");
+        }
+
+        private void ForgetTest() { _testId = null; _testSourceUid = null; _testKept = false; _testInfo.Text = ""; }
 
         private void RemoveTest()
         {
             var id = _testId;
             _testId = null;
+            _testSourceUid = null;
+            _testInfo.Text = "";
             if (id == null) return;
             Api(app =>
             {
@@ -525,7 +595,7 @@ namespace ProjectPerseus.ui
                 _editing = Copy(rule);
                 BuildRows();
                 Fill();
-                _testId = null;   // the test family stays as a placed one
+                _testKept = true;   // the test family stays as a placed one (still findable)
                 Status($"Mapping saved: {rule.SourceFamily} : {rule.SourceType} → {rule.TargetName}.");
                 after?.Invoke();
             });

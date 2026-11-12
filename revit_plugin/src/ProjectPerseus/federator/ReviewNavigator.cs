@@ -124,6 +124,32 @@ namespace ProjectPerseus.federator
             return string.Join(", ", parts) + ".";
         }
 
+        /// <summary>
+        /// Zooms to a host box: in the active view when it shows it, else the first review view showing it, else the
+        /// user's federator 3D view with a section box (force3D: straight to that 3D view). For tools outside the
+        /// comparison panel (ui/FamilyMappingWindow). Returns a status message.
+        /// </summary>
+        internal static string ShowBox(UIDocument uidoc, RevitLinkInstance instance, XYZ min, XYZ max, ReviewViewSettings reviewViews, bool force3D)
+        {
+            Document host = uidoc.Document;
+            View view = uidoc.ActiveView;
+            if (!force3D)
+            {
+                var extent = view == null ? null : ViewExtent.For(view);
+                if (extent != null && extent.ShowsModel && extent.Contains(min, max)) { Zoom(uidoc, view, min, max); return "in this view"; }
+                if (TryReviewView(uidoc, host, instance, view, reviewViews, min, max, out string where)) return where;
+            }
+            View3D v3 = EnsureFederatorView(host, uidoc.Application.Application.Username, min, max);
+            if (v3 == null) return "couldn't open the federator 3D view (see the log)";
+            if (uidoc.ActiveView?.Id != v3.Id)
+            {
+                try { uidoc.ActiveView = v3; }
+                catch { uidoc.RequestViewChange(v3); }
+            }
+            Zoom(uidoc, v3, min, max);
+            return $"in 3D view '{v3.Name}'";
+        }
+
         /// <summary>Opens the first review view that shows the box (link visible) and zooms there.</summary>
         private static bool TryReviewView(UIDocument uidoc, Document host, RevitLinkInstance instance, View active, ReviewViewSettings settings,
                                           XYZ min, XYZ max, out string where)
