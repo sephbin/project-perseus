@@ -432,6 +432,7 @@
     <Compile Include="ui\BadgeHitOverlay.cs" />
     <Compile Include="ui\TextPrompt.cs" />
     <Compile Include="ui\ReplacementWindow.cs" />
+    <Compile Include="ui\FamilyMappingWindow.cs" />
     <Compile Include="ui\ReviewViewsWindow.cs" />
     <Compile Include="ui\ViewImageStore.cs" />
     <Compile Include="ui\ChangeThumbnail.cs" />
@@ -459,6 +460,11 @@
     <Compile Include="federator\ComparisonRunner.cs" />
     <Compile Include="federator\ReplacementMatcher.cs" />
     <Compile Include="federator\ReplacementLinks.cs" />
+    <Compile Include="mapping\MappingMath.cs" />
+    <Compile Include="mapping\TypeTriage.cs" />
+    <Compile Include="mapping\MappedFamilyStore.cs" />
+    <Compile Include="mapping\FamilyMapStore.cs" />
+    <Compile Include="mapping\FamilyPlacer.cs" />
     <Compile Include="federator\ReplacementGroups.cs" />
     <Compile Include="federator\ReplacementLearning.cs" />
     <Compile Include="federator\ReviewViews.cs" />
@@ -492,6 +498,8 @@
     <Compile Include="commands\ShowFederatorCommand.cs" />
     <Compile Include="models\ComparisonRecord.cs" />
     <Compile Include="models\ReviewEvent.cs" />
+    <Compile Include="models\FamilyMapRule.cs" />
+    <Compile Include="models\FamilyMapping.cs" />
     <Compile Include="models\ReviewViewSettings.cs" />
     <Compile Include="models\ElementReviewState.cs" />
     <Compile Include="commands\ShowMarkersCommand.cs" />

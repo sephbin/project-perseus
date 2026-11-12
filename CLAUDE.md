@@ -335,6 +335,9 @@ ProjectPerseus/
 │   │                             ReplacementGroups (top 10 groups first, best example as a review view thumbnail, learnt patterns first):
 │   │                             Link all / Not replacements / Review pairs (paged, ticks), Link confident groups. Suggestions on noise or
 │   │                             Ignored elements / types (3+ ignored, none cared about) are hidden ("Show hidden"). Writes via FederatorWindow.
+│   ├── FamilyMappingWindow.cs    NEW (2026-11-12). Modeless "Family mapping" for one link (Federator header button): consultant types
+│   │                             (count, triage verdict, mapped to, ours placed) | rule editor (our type, offset / rotation with step nudges,
+│   │                             workset), Test on one (live re-place), Next sample, Save, Place all, Link existing…, Follow replacements.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
 │   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
@@ -501,6 +504,20 @@ ProjectPerseus/
 │   └── VersionCatalog.cs         Per-user list of cached versions per consultant model (models/LinkVersion) at AppData\federator\
 │                                 versions\<sha1(model key)>.json; model key = cloud model GUID / link path / name. Feeds the panel's
 │                                 From / To pickers (✓ = cached). Stage 2 (APS cloud version history) in FEDERATOR_PLAN.md.
+├── mapping/                      NEW (2026-11-12, v1.3). Family mapping: our families at the consultants' locations. Plan in
+│   │                             /FAMILY_MAPPING_PLAN.md.
+│   ├── MappingMath.cs            Pure: Frame (origin + axes) and Place(source frame, offset mm in its axes, rotation ° X->Y->Z);
+│   │                             plan direction / tilt for upright-only families. Tested in MappingMathTest.cs.
+│   ├── TypeTriage.cs             Pure: what triage says about a consultant type (changes / reviewed / ignored / noise) -> Suggested /
+│   │                             Not wanted / No changes. Tested in MappingMathTest.cs.
+│   ├── FamilyMapStore.cs         models/FamilyMapping per consultant model key via FederatorSettingsStore ("familymap:<key>"), shared.
+│   ├── MappedFamilyStore.cs      Schema PerseusMappedFamily on OUR family instance: link instance uid, consultant uid / id, rule id,
+│   │                             placed / linked, who, when. Current() follows ReplacementLinks.Map; Repoint() rewrites (skips owned by others).
+│   └── FamilyPlacer.cs           Consultant family types (link FamilyInstances, nested skipped), our types (placement type), worksets,
+│                                 consultant frame (family transform, else location), Place (floating first: level-based on the level below +
+│                                 offset, plan rotation only; work-plane / face-based on its own SketchPlane, full rotation; hosted = refused),
+│                                 PlaceAll (skips consultant elements already mapped, incl. via replacements; one undo step), LinkExisting
+│                                 (nearest expected position within tolerance, one-to-one).
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
 │   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
@@ -526,6 +543,8 @@ ProjectPerseus/
 │   ├── ReviewAction.cs           NEW (2026-11-08). Extensible action (free-text Type, Assignee) opened by a ReviewEvent.
 │   ├── BakeSettings.cs           NEW (2026-11-08). Federator bake settings (target views, scope, style, labels), saved per link.
 │   ├── ViewCandidate.cs          NEW (2026-11-08). A view that can receive baked annotations.
+│   ├── FamilyMapRule.cs          NEW (2026-11-12). Consultant type (category / family / type) -> our FamilySymbol uid, offset mm, rotation °, workset.
+│   ├── FamilyMapping.cs          NEW (2026-11-12). Rules of one consultant model.
 │   ├── ReviewViewSettings.cs     NEW (2026-11-12). Review views (view uids in priority order), AutoCapture, MaxPixels.
 │   ├── ReplacementCandidate.cs   NEW (2026-11-08). Likely replacement of a deleted element (uid, type, score, reason).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
@@ -670,6 +689,7 @@ ProjectPerseus/
 ├── aps/                          [DONE 2026-11-10] APS sign-in + cloud model versions (see §6.1).
 ├── federator/                    [IN PROGRESS 2026-11-08] Link comparison (see §6.1, FEDERATOR_PLAN.md).
 ├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
+├── mapping/                      [IN PROGRESS 2026-11-12] Family mapping (see §6.1, FAMILY_MAPPING_PLAN.md).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).
 │   ├── AutoSyncEvent.cs

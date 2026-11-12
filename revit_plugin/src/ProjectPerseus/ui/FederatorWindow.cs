@@ -274,6 +274,10 @@ namespace ProjectPerseus.ui
                                                               "Confirm them to treat each pair as one Replaced change.");
             _replacementsButton.Click += (s, e) => Safe(OpenReplacements);
             headerButtons.Children.Add(_replacementsButton);
+            var mappingButton = MakeButton("Family mapping…", "Place our families at the consultant's (or link existing ones): map consultant types to our types with offset / rotation / workset. " +
+                                                              "Types reviewed in triage are suggested.");
+            mappingButton.Click += (s, e) => Safe(OpenFamilyMapping);
+            headerButtons.Children.Add(mappingButton);
             var viewsButton = MakeButton("Review views…", "The go-to views for showing changes: changes not visible in the active view open there (before the 3D view), " +
                                                           "and the panel shows changes on captured images of them.");
             viewsButton.Click += (s, e) => Safe(OpenReviewViews);
@@ -758,6 +762,36 @@ namespace ProjectPerseus.ui
             if (_triage == null) { Replacements(); return; }
             _triage.Closed += (s, e) => Dispatcher.BeginInvoke(new Action(() => Safe(Replacements)));
             Status("Step 1 of 2: triage the changes in bulk. Possible replacements open when you close Triage.");
+        }
+
+        private FamilyMappingWindow _mappingWindow;
+
+        /// <summary>Family mapping (mapping/) for the selected link, with what triage says about each consultant type.</summary>
+        private void OpenFamilyMapping()
+        {
+            var link = _links.FirstOrDefault(l => l.Uid == _record?.LinkInstanceUid) ?? SelectedLink;
+            if (link == null || _doc == null) { Status("Pick a link first."); return; }
+            if (!link.Loaded) { Status("Load the link first (Manage Links): mapping reads its elements.", true); return; }
+            if (_mappingWindow != null && _mappingWindow.IsLoaded) { _mappingWindow.Activate(); return; }
+            var triage = new Dictionary<string, mapping.TypeTriage>(StringComparer.Ordinal);
+            if (_record != null && _record.LinkInstanceUid == link.Uid)
+                foreach (var r in _rows)
+                {
+                    var c = r.Change;
+                    string key = FamilyMapRule.Key(c.Category, c.Family, c.Type);
+                    if (!triage.TryGetValue(key, out var t))
+                        triage[key] = t = new mapping.TypeTriage { NoiseCategory = _noise.Categories.Contains(c.Category ?? "") };
+                    t.Changes++;
+                    var st = r.State.Status;
+                    if (st == ReviewStatus.Accepted || st == ReviewStatus.Query || st == ReviewStatus.Resolved) t.Cared++;
+                    else if (st == ReviewStatus.Ignored) t.Ignored++;
+                    else if (r.IsNoise) t.Noise++;
+                }
+            var map = _record != null && _record.LinkInstanceUid == link.Uid ? ReplacementLinks.Map(_replacementLinks)
+                    : ReplacementLinks.Map(ReplacementLinks.Fold(_events, link.Uid));
+            _mappingWindow = new FamilyMappingWindow(_doc, link.Uid, link.ModelKey, link.Name, _me, triage, map) { Owner = this };
+            _mappingWindow.Closed += (s, e) => _mappingWindow = null;
+            _mappingWindow.Show();
         }
 
         private void OpenTriage()

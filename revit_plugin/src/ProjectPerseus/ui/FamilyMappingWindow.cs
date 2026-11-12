@@ -1,0 +1,626 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
+using UIApplication = Autodesk.Revit.UI.UIApplication;
+using ProjectPerseus.federator;
+using ProjectPerseus.logging;
+using ProjectPerseus.mapping;
+using ProjectPerseus.models;
+using ProjectPerseus.queue;
+using ProjectPerseus.revit;
+using ARDB = Autodesk.Revit.DB;
+
+namespace ProjectPerseus.ui
+{
+    /// <summary>
+    /// Modeless "Family mapping" for one consultant link (opened from ui/FederatorWindow): consultant family types on the
+    /// left (count in the link, what triage says - mapping/TypeTriage - and the mapping), the mapping of the selected type
+    /// on the right: our family type, 1:1 offset (mm, consultant element axes) and rotation (° about its X / Y / Z),
+    /// workset. "Test on one" places a single family at a sample consultant element and re-places it live while the
+    /// offset / rotation are tuned; then Save, Place all (floating, mapping/FamilyPlacer) or Link existing families.
+    /// Every placed / linked family records the consultant element it stands for (mapping/MappedFamilyStore), following
+    /// replacement links (federator/ReplacementLinks). Model work runs through queue/OwnershipUiEvent.
+    /// </summary>
+    internal class FamilyMappingWindow : Window
+    {
+        private static readonly Brush Ink = Frozen(0x2F, 0x3D, 0x57);
+        private static readonly Brush Muted = Frozen(0x6B, 0x72, 0x80);
+        private static readonly Brush LineBrush = Frozen(0xE2, 0xE6, 0xEE);
+        private static readonly Brush Good = Frozen(0x2E, 0xAD, 0x4B);
+        private static readonly Brush Bad = Frozen(0xC0, 0x26, 0x26);
+        private const string ActiveWorkset = "(active workset)";
+
+        private readonly ARDB.Document _doc;
+        private readonly string _linkUid, _modelKey, _linkName, _me;
+        private readonly Dictionary<string, TypeTriage> _triage;
+        private readonly IDictionary<string, string> _replacementMap;
+
+        private List<FamilyPlacer.SourceType> _sources = new List<FamilyPlacer.SourceType>();
+        private List<FamilyPlacer.TargetType> _targets = new List<FamilyPlacer.TargetType>();
+        private FamilyMapping _mapping = new FamilyMapping();
+        private Dictionary<string, int> _mappedByRule = new Dictionary<string, int>();
+        private readonly List<Row> _rows = new List<Row>();
+
+        private readonly DataGrid _grid;
+        private readonly TextBox _filter;
+        private readonly CheckBox _suggestedOnly;
+        private readonly TextBlock _summary, _status, _title, _placementNote;
+        private readonly ComboBox _target, _workset;
+        private readonly TextBox[] _offset = new TextBox[3], _rotation = new TextBox[3];
+        private readonly TextBox _stepMm, _stepDeg;
+        private readonly StackPanel _editor;
+        private readonly Button _placeAll, _linkExisting, _test, _next, _removeTest, _save;
+        private readonly DispatcherTimer _liveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+
+        private Row _current;
+        private FamilyMapRule _editing;
+        private ARDB.ElementId _testId;
+        private int _sample;
+        private bool _loadingEditor;
+
+        private class Row
+        {
+            public string Category { get; set; }
+            public string Type { get; set; }
+            public int Count { get; set; }
+            public string Triage { get; set; }
+            public string MappedTo { get; set; }
+            public string Mapped { get; set; }
+            internal FamilyPlacer.SourceType Source;
+            internal TypeTriage Stats;
+        }
+
+        internal FamilyMappingWindow(ARDB.Document doc, string linkUid, string modelKey, string linkName, string me,
+                                     Dictionary<string, TypeTriage> triage, IDictionary<string, string> replacementMap)
+        {
+            _doc = doc; _linkUid = linkUid; _modelKey = modelKey; _linkName = linkName; _me = me;
+            _triage = triage ?? new Dictionary<string, TypeTriage>();
+            _replacementMap = replacementMap ?? new Dictionary<string, string>();
+
+            Title = "Perseus — Family mapping · " + linkName;
+            Width = 1180; Height = 720; MinWidth = 860; MinHeight = 440;
+            ShowInTaskbar = false;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            FontFamily = new FontFamily("Segoe UI");
+            FontSize = 12;
+            Foreground = Ink;
+            Background = Brushes.White;
+
+            var root = new DockPanel { Margin = new Thickness(12) };
+            var intro = new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap, Foreground = Muted, Margin = new Thickness(0, 0, 0, 8),
+                Text = "Map the consultant's family types to ours: Perseus places our family at each consultant element (floating: on a level or its own work " +
+                       "plane, never hosted), or links families already in our model, and remembers which consultant element each one stands for - also after the " +
+                       "consultant replaces it. Types people reviewed in triage are suggested; types ignored or marked as noise are not. Tune one type at a time with Test on one.",
+            };
+            DockPanel.SetDock(intro, Dock.Top);
+            root.Children.Add(intro);
+
+            var tools = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            _filter = new TextBox { Width = 220, Margin = new Thickness(0, 0, 10, 0), ToolTip = "Filter by category, family or type" };
+            _suggestedOnly = new CheckBox { Content = "Suggested and mapped only", IsChecked = true, VerticalAlignment = VerticalAlignment.Center,
+                                            ToolTip = "Only types triage suggests (reviewed or open changes) and types already mapped." };
+            var left = new StackPanel { Orientation = Orientation.Horizontal };
+            left.Children.Add(new TextBlock { Text = "Filter ", VerticalAlignment = VerticalAlignment.Center, Foreground = Muted });
+            left.Children.Add(_filter);
+            left.Children.Add(_suggestedOnly);
+            DockPanel.SetDock(left, Dock.Left);
+            tools.Children.Add(left);
+            _summary = new TextBlock { Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            tools.Children.Add(_summary);
+            DockPanel.SetDock(tools, Dock.Top);
+            root.Children.Add(tools);
+
+            _status = new TextBlock { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+            DockPanel.SetDock(_status, Dock.Bottom);
+            root.Children.Add(_status);
+
+            var body = new Grid();
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star), MinWidth = 420 });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 380 });
+
+            _grid = new DataGrid
+            {
+                AutoGenerateColumns = false, IsReadOnly = true, SelectionMode = DataGridSelectionMode.Single, HeadersVisibility = DataGridHeadersVisibility.Column,
+                GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, HorizontalGridLinesBrush = LineBrush, Background = Brushes.White,
+                RowHeaderWidth = 0, CanUserAddRows = false,
+            };
+            _grid.Columns.Add(new DataGridTextColumn { Header = "Category", Binding = new System.Windows.Data.Binding(nameof(Row.Category)), Width = new DataGridLength(120) });
+            _grid.Columns.Add(new DataGridTextColumn { Header = "Consultant type", Binding = new System.Windows.Data.Binding(nameof(Row.Type)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+            _grid.Columns.Add(new DataGridTextColumn { Header = "In link", Binding = new System.Windows.Data.Binding(nameof(Row.Count)), Width = new DataGridLength(55) });
+            _grid.Columns.Add(new DataGridTextColumn { Header = "Triage", Binding = new System.Windows.Data.Binding(nameof(Row.Triage)), Width = new DataGridLength(90) });
+            _grid.Columns.Add(new DataGridTextColumn { Header = "Mapped to", Binding = new System.Windows.Data.Binding(nameof(Row.MappedTo)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+            _grid.Columns.Add(new DataGridTextColumn { Header = "Ours", Binding = new System.Windows.Data.Binding(nameof(Row.Mapped)), Width = new DataGridLength(60) });
+            Grid.SetColumn(_grid, 0);
+            body.Children.Add(_grid);
+
+            _editor = new StackPanel();
+            _title = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 2) };
+            _editor.Children.Add(_title);
+            _editor.Children.Add(Section("Our family type"));
+            _target = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, StaysOpenOnEdit = true };
+            _editor.Children.Add(_target);
+            _placementNote = new TextBlock { Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), FontSize = 11 };
+            _editor.Children.Add(_placementNote);
+
+            _editor.Children.Add(Section("Offset (mm, in the consultant element's axes)"));
+            _stepMm = new TextBox { Text = "50", Width = 50 };
+            _editor.Children.Add(Vector(_offset, _stepMm, "Step mm"));
+            _editor.Children.Add(Section("Rotation (° about the consultant element's X, then Y, then Z)"));
+            _stepDeg = new TextBox { Text = "90", Width = 50 };
+            _editor.Children.Add(Vector(_rotation, _stepDeg, "Step °"));
+
+            _editor.Children.Add(Section("Workset for placed families"));
+            _workset = new ComboBox();
+            _editor.Children.Add(_workset);
+
+            _editor.Children.Add(Section("Try it"));
+            var testRow = new WrapPanel();
+            _test = Btn("Test on one", "Place one of our families at a consultant element of this type (the one selected in Revit if any) and zoom to it. Changing the offset / rotation re-places it.", TestOnOne);
+            _next = Btn("Next sample", "Move the test to another consultant element of this type", () => { _sample++; TestOnOne(); });
+            _removeTest = Btn("Remove test", "Delete the test family", RemoveTest);
+            testRow.Children.Add(_test); testRow.Children.Add(_next); testRow.Children.Add(_removeTest);
+            _editor.Children.Add(testRow);
+
+            _editor.Children.Add(Section("Apply"));
+            var apply = new WrapPanel();
+            _save = Btn("Save mapping", "Save this type's mapping in the model (shared)", () => Save(null));
+            _placeAll = Btn("Place all", "Place our family at every consultant element of this type that has none yet (one undo step)", PlaceAll);
+            _linkExisting = Btn("Link existing…", "Link our families of this type already in the model to the consultant elements they sit at", LinkExisting);
+            var follow = Btn("Follow replacements", "Point mapped families at the consultant elements that replaced theirs (Replacements in the federator)", FollowReplacements);
+            var remove = Btn("Remove mapping", "Forget this type's mapping (placed families stay)", RemoveMapping);
+            apply.Children.Add(_save); apply.Children.Add(_placeAll); apply.Children.Add(_linkExisting); apply.Children.Add(follow); apply.Children.Add(remove);
+            _editor.Children.Add(apply);
+
+            var editorScroll = new ScrollViewer { Content = _editor, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 6, 0) };
+            Grid.SetColumn(editorScroll, 2);
+            body.Children.Add(editorScroll);
+            root.Children.Add(body);
+            Content = root;
+
+            _filter.TextChanged += (s, e) => Safe(Fill);
+            _suggestedOnly.Checked += (s, e) => Safe(Fill);
+            _suggestedOnly.Unchecked += (s, e) => Safe(Fill);
+            _grid.SelectionChanged += (s, e) => Safe(() => Select(_grid.SelectedItem as Row));
+            _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) { ReadEditor(); UpdateNote(); QueueLive(); } });
+            _workset.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) ReadEditor(); });
+            _liveTimer.Tick += (s, e) => Safe(() => { _liveTimer.Stop(); if (_testId != null) TestOnOne(); });
+            Closed += (s, e) => _liveTimer.Stop();
+            _editor.IsEnabled = false;
+            Reload();
+        }
+
+        // ═══════════════ Loading ═══════════════
+
+        private void Reload()
+        {
+            Status("Reading the link and our families…");
+            Api(app =>
+            {
+                var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                var linkDoc = inst?.GetLinkDocument();
+                if (linkDoc == null) { Status("The link isn't loaded: load it in Manage Links first.", true); return; }
+                _sources = FamilyPlacer.SourceTypes(linkDoc);
+                _targets = FamilyPlacer.TargetTypes(_doc);
+                _mapping = FamilyMapStore.Load(_doc, _modelKey);
+                _mappedByRule = MappedFamilyStore.All(_doc, _linkUid).GroupBy(r => r.RuleId ?? "").ToDictionary(g => g.Key, g => g.Count());
+                _loadingEditor = true;
+                _workset.Items.Clear();
+                _workset.Items.Add(ActiveWorkset);
+                foreach (var w in FamilyPlacer.Worksets(_doc)) _workset.Items.Add(w);
+                _workset.IsEnabled = _doc.IsWorkshared;
+                _loadingEditor = false;
+                BuildRows();
+                Fill();
+                Status($"{_sources.Count} consultant family type(s), {_targets.Count} of our family types, {_mapping.Rules.Count} mapped.");
+            });
+        }
+
+        private void BuildRows()
+        {
+            _rows.Clear();
+            foreach (var s in _sources)
+            {
+                _triage.TryGetValue(s.Key, out var t);
+                t = t ?? new TypeTriage();
+                var rule = _mapping.Rules.FirstOrDefault(r => r.SourceKey == s.Key);
+                _rows.Add(new Row
+                {
+                    Category = s.Category, Type = s.ToString(), Count = s.Uids.Count, Triage = t.Verdict, Source = s, Stats = t,
+                    MappedTo = rule?.TargetName ?? "",
+                    Mapped = rule != null && _mappedByRule.TryGetValue(rule.Id, out int n) ? $"{n} / {s.Uids.Count}" : "",
+                });
+            }
+        }
+
+        private void Fill()
+        {
+            string q = _filter.Text?.Trim() ?? "";
+            bool only = _suggestedOnly.IsChecked == true;
+            var keep = _current?.Source.Key;
+            var shown = _rows.Where(r => (!only || r.Triage == TypeTriage.Suggested || r.MappedTo != "")
+                                         && (q.Length == 0 || (r.Category + " " + r.Type).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0))
+                             .OrderBy(r => r.MappedTo != "" ? 0 : r.Triage == TypeTriage.Suggested ? 1 : r.Triage == TypeTriage.Unchanged ? 2 : 3)
+                             .ThenBy(r => r.Category).ThenByDescending(r => r.Count).ToList();
+            _grid.ItemsSource = shown;
+            _summary.Text = $"{shown.Count} of {_rows.Count} type(s) · {_rows.Count(r => r.Triage == TypeTriage.Suggested)} suggested by triage · " +
+                            $"{_rows.Count(r => r.MappedTo != "")} mapped";
+            var again = shown.FirstOrDefault(r => r.Source.Key == keep);
+            if (again != null) _grid.SelectedItem = again;
+        }
+
+        // ═══════════════ Editor ═══════════════
+
+        private void Select(Row row)
+        {
+            if (row == null) return;
+            if (_testId != null && _current != null && row.Source.Key != _current.Source.Key) RemoveTest();
+            _current = row;
+            _sample = 0;
+            var s = row.Source;
+            _editing = _mapping.Rules.FirstOrDefault(r => r.SourceKey == s.Key) ?? new FamilyMapRule
+            {
+                SourceCategory = s.Category, SourceFamily = s.Family, SourceType = s.Type,
+            };
+            _loadingEditor = true;
+            _title.Text = $"{s.Category} · {s}";
+            _target.Items.Clear();
+            // Our types of the same category first.
+            foreach (var t in _targets.OrderBy(t => t.Category == s.Category ? 0 : 1).ThenBy(t => t.Category).ThenBy(t => t.Family).ThenBy(t => t.Type))
+                _target.Items.Add(new TargetItem(t, t.Category == s.Category));
+            _target.SelectedItem = _target.Items.Cast<TargetItem>().FirstOrDefault(i => i.T.Uid == _editing.TargetSymbolUid);
+            for (int i = 0; i < 3; i++)
+            {
+                _offset[i].Text = Num(_editing.OffsetMm[i]);
+                _rotation[i].Text = Num(_editing.RotationDeg[i]);
+            }
+            _workset.SelectedItem = string.IsNullOrEmpty(_editing.Workset) || !_workset.Items.Contains(_editing.Workset) ? ActiveWorkset : _editing.Workset;
+            _loadingEditor = false;
+            _editor.IsEnabled = true;
+            UpdateNote();
+            Status($"{s.Uids.Count} in the link · triage: {row.Stats.Describe()}" +
+                   (_mappedByRule.TryGetValue(_editing.Id, out int n) ? $" · {n} of ours mapped" : ""));
+        }
+
+        private class TargetItem
+        {
+            internal readonly FamilyPlacer.TargetType T;
+            private readonly bool _same;
+            internal TargetItem(FamilyPlacer.TargetType t, bool same) { T = t; _same = same; }
+            public override string ToString() => (_same ? "" : T.Category + " · ") + T + (T.Floating ? "" : "   (needs a host)");
+        }
+
+        private void UpdateNote()
+        {
+            var t = (_target.SelectedItem as TargetItem)?.T;
+            _placementNote.Text = t == null ? "Pick the family type that stands for this consultant type."
+                : t.FullRotation ? "Work-plane / face-based: placed on its own work plane through the point, so all three rotations apply."
+                : t.Floating ? "Level-based: placed on the level below with an offset; it always stands upright, so only the Z rotation applies."
+                : $"Needs a host ({t.Placement}): can't be placed floating. Pick a level-, work-plane- or face-based family.";
+            _placementNote.Foreground = t != null && !t.Floating ? Bad : Muted;
+            bool ok = t != null && t.Floating;
+            _test.IsEnabled = _next.IsEnabled = _placeAll.IsEnabled = ok;
+            _linkExisting.IsEnabled = t != null;
+        }
+
+        /// <summary>Reads the editor into _editing; false (with a message) when a number doesn't parse.</summary>
+        private bool ReadEditor()
+        {
+            if (_editing == null) return false;
+            var t = (_target.SelectedItem as TargetItem)?.T;
+            _editing.TargetSymbolUid = t?.Uid;
+            _editing.TargetName = t?.ToString();
+            for (int i = 0; i < 3; i++)
+            {
+                if (!TryNum(_offset[i].Text, out double o) || !TryNum(_rotation[i].Text, out double r)) { Status("Offsets and rotations must be numbers.", true); return false; }
+                _editing.OffsetMm[i] = o;
+                _editing.RotationDeg[i] = r;
+            }
+            var ws = _workset.SelectedItem as string;
+            _editing.Workset = ws == null || ws == ActiveWorkset ? "" : ws;
+            return true;
+        }
+
+        private UIElement Vector(TextBox[] boxes, TextBox step, string stepLabel)
+        {
+            var row = new WrapPanel();
+            string[] axes = { "X", "Y", "Z" };
+            for (int i = 0; i < 3; i++)
+            {
+                int k = i;
+                boxes[k] = new TextBox { Width = 70, Text = "0", VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 2, 0) };
+                boxes[k].LostFocus += (s, e) => Safe(() => { if (!_loadingEditor && ReadEditor()) QueueLive(); });
+                boxes[k].KeyDown += (s, e) => { if (e.Key == Key.Enter) Safe(() => { if (ReadEditor()) QueueLive(); }); };
+                row.Children.Add(new TextBlock { Text = axes[k] + " ", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold });
+                row.Children.Add(boxes[k]);
+                row.Children.Add(Nudge("−", () => Bump(boxes[k], step, -1)));
+                row.Children.Add(Nudge("+", () => Bump(boxes[k], step, +1)));
+                row.Children.Add(new Border { Width = 10 });
+            }
+            row.Children.Add(new TextBlock { Text = stepLabel + " ", Foreground = Muted, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(step);
+            return row;
+        }
+
+        private void Bump(TextBox box, TextBox step, int sign)
+        {
+            if (!TryNum(box.Text, out double v) || !TryNum(step.Text, out double s)) return;
+            box.Text = Num(v + sign * s);
+            if (ReadEditor()) QueueLive();
+        }
+
+        private void QueueLive()
+        {
+            if (_testId == null) return;
+            _liveTimer.Stop();
+            _liveTimer.Start();
+        }
+
+        // ═══════════════ Actions ═══════════════
+
+        private void TestOnOne()
+        {
+            if (_editing == null || !ReadEditor() || string.IsNullOrEmpty(_editing.TargetSymbolUid)) { Status("Pick our family type first.", true); return; }
+            var rule = Copy(_editing);
+            int sample = _sample;
+            var old = _testId;
+            Api(app =>
+            {
+                var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                var linkDoc = inst?.GetLinkDocument();
+                var symbol = _doc.GetElement(rule.TargetSymbolUid) as ARDB.FamilySymbol;
+                if (linkDoc == null || symbol == null) { Status("The link isn't loaded or our family type is gone.", true); return; }
+                var sources = FamilyPlacer.SourceElements(linkDoc, rule);
+                if (sources.Count == 0) { Status("No consultant elements of this type in the link.", true); return; }
+                // The consultant element selected in Revit, when it's of this type; else the n-th sample.
+                ARDB.Element source = null;
+                var uidoc = app.ActiveUIDocument;
+                try
+                {
+                    foreach (var r in uidoc.Selection.GetReferences())
+                        if (r.ElementId == inst.Id && r.LinkedElementId != ARDB.ElementId.InvalidElementId)
+                        {
+                            var el = linkDoc.GetElement(r.LinkedElementId);
+                            if (el != null && sources.Any(x => x.Id == el.Id)) { source = el; break; }
+                        }
+                }
+                catch { /* GetReferences unavailable */ }
+                source = source ?? sources[sample % sources.Count];
+                string warning;
+                ARDB.FamilyInstance fi;
+                using (var tx = new ARDB.Transaction(_doc, "Perseus: test mapped family"))
+                {
+                    tx.Start();
+                    var fo = tx.GetFailureHandlingOptions();
+                    fo.SetFailuresPreprocessor(new FamilyPlacer.Quiet());
+                    tx.SetFailureHandlingOptions(fo);
+                    if (old != null && _doc.GetElement(old) != null) _doc.Delete(old);
+                    fi = FamilyPlacer.Place(_doc, inst, rule, symbol, source, FamilyPlacer.Levels(_doc), FamilyPlacer.WorksetByName(_doc, rule.Workset), _me, out warning);
+                    tx.Commit();
+                }
+                _testId = fi?.Id;
+                if (fi == null) { Status("Not placed: " + warning, true); return; }
+                try
+                {
+                    uidoc.Selection.SetElementIds(new List<ARDB.ElementId> { fi.Id });
+                    uidoc.ShowElements(fi.Id);
+                }
+                catch { }
+                Status($"Test placed at consultant element Id {source.Id.GetIdValue()} ({(sample % sources.Count) + 1} of {sources.Count}). " +
+                       "Adjust the offset / rotation (it re-places), Next sample to check another, then Save mapping." + (warning != null ? "  ⚠ " + warning : ""),
+                       warning != null);
+            }, needActive: true);
+        }
+
+        private void RemoveTest()
+        {
+            var id = _testId;
+            _testId = null;
+            if (id == null) return;
+            Api(app =>
+            {
+                if (_doc.GetElement(id) == null) return;
+                using (var tx = new ARDB.Transaction(_doc, "Perseus: remove test family"))
+                {
+                    tx.Start();
+                    _doc.Delete(id);
+                    tx.Commit();
+                }
+                Status("Test family removed.");
+            });
+        }
+
+        private void Save(Action after)
+        {
+            if (_editing == null || !ReadEditor()) return;
+            if (string.IsNullOrEmpty(_editing.TargetSymbolUid)) { Status("Pick our family type first.", true); return; }
+            var rule = Copy(_editing);
+            rule.Author = _me;
+            rule.SavedUtc = DateTime.UtcNow;
+            Api(app =>
+            {
+                var mapping = FamilyMapStore.Load(_doc, _modelKey);   // fresh: someone else may have mapped other types
+                mapping.Rules.RemoveAll(r => r.SourceKey == rule.SourceKey);
+                mapping.Rules.Add(rule);
+                FamilyMapStore.Save(_doc, _modelKey, mapping, _me);
+                _mapping = mapping;
+                _editing = Copy(rule);
+                BuildRows();
+                Fill();
+                _testId = null;   // the test family stays as a placed one
+                Status($"Mapping saved: {rule.SourceFamily} : {rule.SourceType} → {rule.TargetName}.");
+                after?.Invoke();
+            });
+        }
+
+        private void PlaceAll()
+        {
+            if (_current == null) return;
+            int n = _current.Count;
+            if (MessageBox.Show(this, $"Place our family at every {_current.Type} without one ({n:N0} in the link)?\n\nThe mapping is saved first. One undo step.",
+                                "Place mapped families", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            Save(() =>
+            {
+                var rule = Copy(_editing);
+                Api(app =>
+                {
+                    var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                    if (inst == null) return;
+                    try
+                    {
+                        var r = FamilyPlacer.PlaceAll(_doc, inst, rule, _replacementMap, _me, (t, f) => SyncStatusToast.Progress("Placing mapped families", f, t));
+                        Report("Placed", r.Placed, r);
+                    }
+                    finally { SyncStatusToast.Hide(); }
+                    RefreshCounts();
+                }, needActive: true);
+            });
+        }
+
+        private void LinkExisting()
+        {
+            if (_editing == null || !ReadEditor() || string.IsNullOrEmpty(_editing.TargetSymbolUid)) { Status("Pick our family type first.", true); return; }
+            var answer = TextPrompt.Ask(new System.Windows.Interop.WindowInteropHelper(this).Handle, "Link existing families",
+                $"Link our {_editing.TargetName} families to the {_editing.SourceFamily} : {_editing.SourceType} elements they sit at (after the offset).\n\n" +
+                "Largest distance between a consultant element and our family (mm):", "300");
+            if (answer == null) return;
+            if (!TryNum(answer, out double tol) || tol <= 0) { Status("Enter a distance in mm.", true); return; }
+            Save(() =>
+            {
+                var rule = Copy(_editing);
+                Api(app =>
+                {
+                    var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                    if (inst == null) return;
+                    var r = FamilyPlacer.LinkExisting(_doc, inst, rule, _replacementMap, tol, _me);
+                    Report("Linked", r.Linked, r, $"{r.Failed} consultant element(s) had none of ours within {tol:0} mm.");
+                    RefreshCounts();
+                });
+            });
+        }
+
+        private void FollowReplacements()
+        {
+            if (_replacementMap.Count == 0) { Status("No replacement links for this link yet (Replacements in the federator)."); return; }
+            Api(app =>
+            {
+                var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                var linkDoc = inst?.GetLinkDocument();
+                var r = MappedFamilyStore.Repoint(_doc, _linkUid, _replacementMap,
+                    uid => { var el = linkDoc?.GetElement(uid); return el == null ? 0 : el.Id.GetIdValue(); }, _me);
+                Status(r.Item1 == 0 && r.Item2 == 0 ? "No mapped family stands for a replaced consultant element."
+                       : $"{r.Item1} mapped families now point at the consultant elements that replaced theirs." +
+                         (r.Item2 > 0 ? $" {r.Item2} are checked out by others (they still follow the replacement)." : ""));
+            });
+        }
+
+        private void RemoveMapping()
+        {
+            if (_editing == null) return;
+            string key = _editing.SourceKey;
+            Api(app =>
+            {
+                var mapping = FamilyMapStore.Load(_doc, _modelKey);
+                if (mapping.Rules.RemoveAll(r => r.SourceKey == key) == 0) { Status("This type isn't mapped."); return; }
+                FamilyMapStore.Save(_doc, _modelKey, mapping, _me);
+                _mapping = mapping;
+                BuildRows();
+                Fill();
+                Status("Mapping removed (placed families stay, still recording their consultant element).");
+            });
+        }
+
+        private void RefreshCounts()
+        {
+            _mappedByRule = MappedFamilyStore.All(_doc, _linkUid).GroupBy(r => r.RuleId ?? "").ToDictionary(g => g.Key, g => g.Count());
+            BuildRows();
+            Fill();
+        }
+
+        private void Report(string verb, int n, FamilyPlacer.Result r, string extra = null)
+        {
+            string msg = $"{verb} {n:N0}." + (r.AlreadyMapped > 0 ? $" {r.AlreadyMapped:N0} already had one." : "") +
+                         (r.Skipped > 0 ? $" {r.Skipped} checked out by others." : "") + (extra != null ? " " + extra : "") +
+                         (r.Warnings.Count > 0 ? "  ⚠ " + string.Join("; ", r.Warnings.Take(3)) : "");
+            Status(msg, r.Warnings.Count > 0 && n == 0);
+            if (r.Last != null) Api(app => { try { app.ActiveUIDocument.ShowElements(r.Last); } catch { } });
+        }
+
+        // ═══════════════ Helpers ═══════════════
+
+        private static FamilyMapRule Copy(FamilyMapRule r) => new FamilyMapRule
+        {
+            Id = r.Id, Enabled = r.Enabled, SourceCategory = r.SourceCategory, SourceFamily = r.SourceFamily, SourceType = r.SourceType,
+            TargetSymbolUid = r.TargetSymbolUid, TargetName = r.TargetName, OffsetMm = (double[])r.OffsetMm.Clone(),
+            RotationDeg = (double[])r.RotationDeg.Clone(), Workset = r.Workset, Author = r.Author, SavedUtc = r.SavedUtc,
+        };
+
+        private void Api(Action<UIApplication> work, bool needActive = false)
+        {
+            OwnershipUiEvent.Run(app =>
+            {
+                try
+                {
+                    if (_doc == null || !_doc.IsValidObject) { Status("The model was closed.", true); return; }
+                    if (needActive && app.ActiveUIDocument?.Document?.Equals(_doc) != true) { Status($"Switch to {_doc.Title} first.", true); return; }
+                    work(app);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"[Mapping] {ex}");
+                    Status("Failed: " + ex.Message, true);
+                }
+            });
+        }
+
+        private void Status(string text, bool error = false)
+        {
+            _status.Text = text ?? "";
+            _status.Foreground = error ? Bad : Ink;
+        }
+
+        private void Safe(Action a)
+        {
+            try { a(); }
+            catch (Exception ex) { Log.Warn($"[Mapping] UI: {ex}"); Status("Something went wrong: " + ex.Message, true); }
+        }
+
+        private static bool TryNum(string s, out double v) =>
+            double.TryParse((s ?? "").Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out v) ||
+            double.TryParse((s ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v);
+
+        private static string Num(double v) => Math.Round(v, 3).ToString("0.###", CultureInfo.CurrentCulture);
+
+        private static TextBlock Section(string text) =>
+            new TextBlock { Text = text.ToUpper(CultureInfo.CurrentCulture), FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = Muted, Margin = new Thickness(0, 14, 0, 4) };
+
+        private static Button Nudge(string text, Action click)
+        {
+            var b = new Button { Content = text, Width = 22, Margin = new Thickness(0, 0, 1, 0), Background = Brushes.White, Padding = new Thickness(0) };
+            b.Click += (s, e) => { try { click(); } catch (Exception ex) { Log.Exception(ex); } };
+            return b;
+        }
+
+        private Button Btn(string text, string tip, Action click)
+        {
+            var b = new Button { Content = text, ToolTip = tip, Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 6), Background = Brushes.White };
+            b.Click += (s, e) => Safe(click);
+            return b;
+        }
+
+        private static Brush Frozen(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
+    }
+}
