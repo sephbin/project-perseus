@@ -385,8 +385,8 @@ namespace ProjectPerseus.ui
         {
             var t = (_target.SelectedItem as TargetItem)?.T;
             _placementNote.Text = t == null ? "Pick the family type that stands for this consultant type. Work-plane-based families are listed first (preferred)."
-                : t.FaceBased ? "Face-based: placed on a Perseus reference plane (all three rotations apply). A work-plane-based version of the family is preferred: it behaves more predictably."
-                : t.FullRotation ? "Work-plane-based (preferred): placed on a Perseus reference plane through the level, so all three rotations apply."
+                : t.FaceBased ? "Face-based: placed on the level as its work plane, height = elevation from host (plan rotation only). A work-plane-based version of the family is preferred."
+                : t.FullRotation ? "Work-plane-based (preferred): placed on the level as its work plane, height = elevation from host (plan rotation; X / Y tilt not applied)."
                 : t.Floating ? "Level-based: placed on the level below; it always stands upright, so only the Z rotation applies. A work-plane-based family can also tilt."
                 : $"Needs a host ({t.Placement}): can't be placed floating. Pick a work-plane- or level-based family.";
             if (t != null && t.FaceBased) _placementNote.Foreground = Frozen(0xB4, 0x6A, 0x00);

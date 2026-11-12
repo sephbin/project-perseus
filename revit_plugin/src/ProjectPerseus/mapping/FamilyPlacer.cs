@@ -233,10 +233,11 @@ namespace ProjectPerseus.mapping
         internal const string PlanePrefix = "Perseus mapping";
 
         /// <summary>
-        /// Work-plane / face-based families, floating: on a Perseus reference plane (one per level and orientation, reused;
-        /// a datum, not a wall / ceiling) through the level, with the family's offset from host giving its height along the
-        /// plane normal, so all three rotations apply. Falls back to the level's plane (upright, offset) and then plain
-        /// level placement. Each attempt runs in a sub-transaction so a refused one leaves nothing behind.
+        /// Work-plane / face-based families, floating, work plane first: the LEVEL is the work plane (hosted on the level,
+        /// like Revit's "Place on Work Plane" with the level picked) and Elevation from host gives the height. Only when
+        /// Revit refuses that: a Perseus reference plane through the level (one per level and orientation; this hosts
+        /// face-based families "on face"), then plain level placement. The level plane faces up, so X / Y rotation (tilt)
+        /// isn't applied there. Each attempt runs in a sub-transaction so a refused one leaves nothing behind.
         /// </summary>
         private static FamilyInstance PlaceOnWorkPlane(Document host, FamilySymbol symbol, Frame f, XYZ p, Level level, WorksetId workset, out string warning)
         {
@@ -247,22 +248,11 @@ namespace ProjectPerseus.mapping
             double off = (p - lp).DotProduct(n);
             var onPlane = p - n.Multiply(off);
             var errors = new List<string>();
-
-            // 1. Reference plane with this orientation through the level.
-            FamilyInstance fi = Try(host, errors, "reference plane", () =>
-            {
-                var rp = ReferencePlaneFor(host, level, n, x, workset);
-                if (rp == null) throw new InvalidOperationException("no view to create a reference plane in");
-                var made = host.Create.NewFamilyInstance(rp.GetReference(), onPlane, x, symbol);
-                SetHostOffset(made, off);
-                return made;
-            });
-            if (fi != null) return fi;
-
-            // 2. The level's own plane (horizontal: plan rotation only).
             var dir = MappingMath.PlanDirection(f);
             var xh = new XYZ(dir[0], dir[1], 0);
-            fi = Try(host, errors, "level plane", () =>
+
+            // 1. The level as the work plane (plan rotation), height = elevation from host.
+            FamilyInstance fi = Try(host, errors, "level work plane", () =>
             {
                 var made = host.Create.NewFamilyInstance(level.GetPlaneReference(), new XYZ(p.X, p.Y, level.ProjectElevation), xh, symbol);
                 SetHostOffset(made, p.Z - level.ProjectElevation);
@@ -270,7 +260,24 @@ namespace ProjectPerseus.mapping
             });
             if (fi != null)
             {
-                if (MappingMath.IsTilted(f)) warning = "placed on the level's plane: X / Y rotation and tilt not applied";
+                Log.Info($"[Mapping] {symbol.FamilyName}: placed on work plane = level '{level.Name}', elevation from host {(p.Z - level.ProjectElevation) * MappingMath.MmPerFoot:N0} mm");
+                if (MappingMath.IsTilted(f)) warning = "on the level's work plane (faces up): X / Y rotation not applied";
+                return fi;
+            }
+
+            // 2. Reference plane with this orientation through the level (face-based families end up "on face").
+            fi = Try(host, errors, "reference plane", () =>
+            {
+                var rp = ReferencePlaneFor(host, level, n, x, workset);
+                if (rp == null) throw new InvalidOperationException("no view to create a reference plane in");
+                var made = host.Create.NewFamilyInstance(rp.GetReference(), onPlane, x, symbol);
+                SetHostOffset(made, off);
+                return made;
+            });
+            if (fi != null)
+            {
+                Log.Info($"[Mapping] {symbol.FamilyName}: level work plane refused ({errors.LastOrDefault()}); placed on a Perseus reference plane");
+                warning = "Revit wouldn't place it on the level's work plane, so it's on a Perseus reference plane";
                 return fi;
             }
 
@@ -340,11 +347,14 @@ namespace ProjectPerseus.mapping
             return rp;
         }
 
+        /// <summary>Elevation / offset from host: whichever of the host offset parameters the family has (then SnapTo corrects any remainder).</summary>
         private static void SetHostOffset(FamilyInstance fi, double offset)
         {
-            var p = fi.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
-            if (p != null && !p.IsReadOnly) p.Set(offset);
-            else SetOffset(fi, offset);
+            foreach (var bip in new[] { BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, BuiltInParameter.INSTANCE_ELEVATION_PARAM })
+            {
+                var p = fi.get_Parameter(bip);
+                if (p != null && !p.IsReadOnly) { p.Set(offset); return; }
+            }
         }
 
         /// <summary>
