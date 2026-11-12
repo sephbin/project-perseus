@@ -219,6 +219,7 @@ namespace ProjectPerseus.mapping
                 var at = fi.GetTotalTransform().Origin;
                 var delta = target - at;
                 if (delta.GetLength() < 0.5 / MappingMath.MmPerFoot) return null;
+                Log.Info($"[Mapping] placed {delta.GetLength() * MappingMath.MmPerFoot:N0} mm from the target (dx {delta.X * MappingMath.MmPerFoot:N0}, dy {delta.Y * MappingMath.MmPerFoot:N0}, dz {delta.Z * MappingMath.MmPerFoot:N0} mm): moving it onto the target");
                 ElementTransformUtils.MoveElement(host, fi.Id, delta);
                 host.Regenerate();
                 double left = (target - fi.GetTotalTransform().Origin).GetLength() * MappingMath.MmPerFoot;
@@ -233,11 +234,13 @@ namespace ProjectPerseus.mapping
         internal const string PlanePrefix = "Perseus mapping";
 
         /// <summary>
-        /// Work-plane / face-based families, floating, work plane first: the LEVEL is the work plane (hosted on the level,
-        /// like Revit's "Place on Work Plane" with the level picked) and Elevation from host gives the height. Only when
-        /// Revit refuses that: a Perseus reference plane through the level (one per level and orientation; this hosts
-        /// face-based families "on face"), then plain level placement. The level plane faces up, so X / Y rotation (tilt)
-        /// isn't applied there. Each attempt runs in a sub-transaction so a refused one leaves nothing behind.
+        /// Work-plane / face-based families, floating, the way Rhino.Inside.Revit's "Add Component (Work Plane)" does it:
+        /// a SketchPlane is the work plane and the family is created with NewFamilyInstance(point, type, x direction,
+        /// sketchPlane, NonStructural) - the sketch plane passed as the host ELEMENT (the Reference overload hosts
+        /// face-based families "on face"). Upright or upside-down (ceiling) elements: the sketch plane sits at the level
+        /// (one per level and facing, reused) and Offset from host gives the height; tilted ones: a sketch plane through
+        /// the point in the element's own axes, offset 0. Schedule level = level below. Fallbacks: the level's plane
+        /// reference, a Perseus reference plane, plain level placement. Each attempt runs in a sub-transaction.
         /// </summary>
         private static FamilyInstance PlaceOnWorkPlane(Document host, FamilySymbol symbol, Frame f, XYZ p, Level level, WorksetId workset, out string warning)
         {
@@ -251,8 +254,56 @@ namespace ProjectPerseus.mapping
             var dir = MappingMath.PlanDirection(f);
             var xh = new XYZ(dir[0], dir[1], 0);
 
-            // 1. The level as the work plane (plan rotation), height = elevation from host.
-            FamilyInstance fi = Try(host, errors, "level work plane", () =>
+            // 1. Sketch plane as the host element (Rhino.Inside's way).
+            bool vertical = !MappingMath.IsTilted(f);   // Z straight up or straight down
+            FamilyInstance fi = Try(host, errors, "sketch plane", () =>
+            {
+                XYZ origin, bx, by, at;
+                double offset;
+                string name = null;
+                if (vertical)
+                {
+                    // Facing up (or down for ceiling devices) at the level; height = offset from host along the normal.
+                    var nz = n.Z >= 0 ? XYZ.BasisZ : XYZ.BasisZ.Negate();
+                    origin = lp;
+                    bx = xh.GetLength() > 1e-9 ? xh : XYZ.BasisX;
+                    by = nz.CrossProduct(bx).Normalize();
+                    at = new XYZ(p.X, p.Y, level.ProjectElevation);
+                    offset = (p.Z - level.ProjectElevation) * nz.Z;
+                    name = $"{PlanePrefix} · {level.Name} · {(nz.Z > 0 ? "up" : "down")}";
+                }
+                else
+                {
+                    origin = p; bx = x; by = n.CrossProduct(x).Normalize(); at = p; offset = 0;
+                }
+                var sp = name == null ? null : new FilteredElementCollector(host).OfClass(typeof(SketchPlane)).Cast<SketchPlane>()
+                    .FirstOrDefault(s => s.Name == name && s.GetPlane().Normal.IsAlmostEqualTo(bx.CrossProduct(by).Normalize())
+                                         && Math.Abs(s.GetPlane().Origin.Z - origin.Z) < 1e-6);
+                if (sp == null)
+                {
+                    sp = SketchPlane.Create(host, Plane.CreateByOriginAndBasis(origin, bx, by));
+                    if (name != null) { try { sp.Name = name; } catch { } }
+                    if (workset != null && workset != WorksetId.InvalidWorksetId)
+                    {
+                        var wp = sp.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                        if (wp != null && !wp.IsReadOnly) { try { wp.Set(workset.IntegerValue); } catch { } }
+                    }
+                }
+                var made = host.Create.NewFamilyInstance(at, symbol, bx, sp, StructuralType.NonStructural);
+                var ho = made.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+                if (ho != null && !ho.IsReadOnly) ho.Set(offset);
+                var sl = made.get_Parameter(BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM);
+                if (sl != null && !sl.IsReadOnly) { try { sl.Set(level.Id); } catch { } }
+                return made;
+            });
+            if (fi != null)
+            {
+                Log.Info($"[Mapping] {symbol.FamilyName}: placed on a sketch plane ({(vertical ? $"level '{level.Name}' facing {(n.Z >= 0 ? "up" : "down")}, offset from host {(p.Z - level.ProjectElevation) * MappingMath.MmPerFoot:N0} mm" : "through the point, tilted")}), host = {fi.Host?.GetType().Name ?? "none"}");
+                return fi;
+            }
+
+            // 2. The level as the work plane (plan rotation), height = elevation from host.
+            fi = Try(host, errors, "level work plane", () =>
             {
                 var made = host.Create.NewFamilyInstance(level.GetPlaneReference(), new XYZ(p.X, p.Y, level.ProjectElevation), xh, symbol);
                 SetHostOffset(made, p.Z - level.ProjectElevation);
@@ -260,12 +311,12 @@ namespace ProjectPerseus.mapping
             });
             if (fi != null)
             {
-                Log.Info($"[Mapping] {symbol.FamilyName}: placed on work plane = level '{level.Name}', elevation from host {(p.Z - level.ProjectElevation) * MappingMath.MmPerFoot:N0} mm");
+                Log.Info($"[Mapping] {symbol.FamilyName}: sketch plane refused ({errors.LastOrDefault()}); placed on work plane = level '{level.Name}', elevation from host {(p.Z - level.ProjectElevation) * MappingMath.MmPerFoot:N0} mm");
                 if (MappingMath.IsTilted(f)) warning = "on the level's work plane (faces up): X / Y rotation not applied";
                 return fi;
             }
 
-            // 2. Reference plane with this orientation through the level (face-based families end up "on face").
+            // 3. Reference plane with this orientation through the level (face-based families end up "on face").
             fi = Try(host, errors, "reference plane", () =>
             {
                 var rp = ReferencePlaneFor(host, level, n, x, workset);
@@ -281,7 +332,7 @@ namespace ProjectPerseus.mapping
                 return fi;
             }
 
-            // 3. Plain level placement.
+            // 4. Plain level placement.
             fi = Try(host, errors, "level", () =>
             {
                 var made = host.Create.NewFamilyInstance(p, symbol, xh, level, StructuralType.NonStructural);

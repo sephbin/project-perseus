@@ -41,15 +41,54 @@ namespace ProjectPerseus.sync
         private static readonly Dictionary<string, List<string>> _triggerCache =
             new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
+        // A failed fetch (server error / timeout) isn't retried for a while, so a broken server can't slow every trigger.
+        private static readonly Dictionary<string, DateTime> _failedUntil = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> _fetching = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(5);
+
         // Called from SyncOrchestrator when a document finishes opening.
         // Connects to Django, reads the trigger list, then runs onStart and onIdle immediately.
         // onIdle runs here too because opening a document is the first idle moment for it —
         // there's no reason to wait for the 30-minute timer to lap.
+        // The trigger list is fetched on a background thread (it was two blocking server calls on the UI thread:
+        // ~4 s added to every model open while the server returned 500s); the imports then run in an API context.
         public static void HandleDocumentOpened(Document doc)
         {
             Log.Info($"[KeyScheduleAutoImporter] Document opened — '{doc.Title}'");
-            RunForDocument(doc, TriggerOnStart);
-            RunForDocument(doc, TriggerOnIdle);
+            string key = DocKey(doc);
+            if (TryCached(key, out _))
+            {
+                RunForDocument(doc, TriggerOnStart);
+                RunForDocument(doc, TriggerOnIdle);
+                return;
+            }
+            var request = BuildRequest(doc);
+            if (request == null) return;
+            lock (_triggerCache)
+            {
+                if (!_fetching.Add(key)) return;
+            }
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var triggers = Send(request.Value.Endpoint, request.Value.Payload, request.Value.Token, request.Value.Title);
+                    Remember(key, triggers);
+                    if (triggers == null || triggers.Count == 0) return;
+                    queue.OwnershipUiEvent.Run(app =>
+                    {
+                        foreach (Document d in app.Application.Documents)
+                        {
+                            if (d.IsFamilyDocument || !string.Equals(DocKey(d), key, StringComparison.OrdinalIgnoreCase)) continue;
+                            RunForDocument(d, TriggerOnStart);
+                            RunForDocument(d, TriggerOnIdle);
+                            break;
+                        }
+                    });
+                }
+                catch (Exception ex) { Log.Info($"[KeyScheduleAutoImporter] background trigger fetch: {ex.Message}"); }
+                finally { lock (_triggerCache) _fetching.Remove(key); }
+            });
         }
 
         // Called from Plugin's Idling handler on every idle tick.
@@ -159,25 +198,39 @@ namespace ProjectPerseus.sync
 
         private static string DocKey(Document doc) => !string.IsNullOrEmpty(doc.PathName) ? doc.PathName : doc.Title;
 
+        private static bool TryCached(string key, out List<string> triggers)
+        {
+            lock (_triggerCache) return _triggerCache.TryGetValue(key, out triggers);
+        }
+
+        /// <summary>Caches a successful fetch (an empty list too: server reached, nothing configured); a failure (null) backs off.</summary>
+        private static void Remember(string key, List<string> triggers)
+        {
+            lock (_triggerCache)
+            {
+                if (triggers != null) { _triggerCache[key] = triggers; _failedUntil.Remove(key); }
+                else _failedUntil[key] = DateTime.UtcNow + RetryAfterFailure;
+            }
+        }
+
         private static List<string> GetCachedTriggers(Document doc)
         {
             string key = DocKey(doc);
-            if (!_triggerCache.TryGetValue(key, out List<string> cached))
+            if (TryCached(key, out List<string> cached)) return cached;
+            lock (_triggerCache)
             {
-                // FetchTriggers returns null when auth isn't ready or a network error occurs.
-                // Don't cache null — let the next trigger event retry.
-                var fetched = FetchTriggers(doc);
-                if (fetched != null)
-                    _triggerCache[key] = fetched;
-                return fetched ?? new List<string>();
+                if (_fetching.Contains(key)) return new List<string>();   // the open-time fetch is still running
+                if (_failedUntil.TryGetValue(key, out var until) && DateTime.UtcNow < until) return new List<string>();
             }
-            return cached;
+            var request = BuildRequest(doc);
+            if (request == null) return new List<string>();
+            var fetched = Send(request.Value.Endpoint, request.Value.Payload, request.Value.Token, request.Value.Title);
+            Remember(key, fetched);
+            return fetched ?? new List<string>();
         }
 
-        // Returns the trigger list on success, or null if auth isn't ready / network failed.
-        // Null is NOT cached so the next trigger event will retry.
-        // An empty list IS cached — it means Django was reached but no triggers are configured.
-        private static List<string> FetchTriggers(Document doc)
+        // What the trigger request needs from the model (read in the API context); null = not configured / not signed in yet.
+        private static (string Endpoint, string Payload, string Token, string Title)? BuildRequest(Document doc)
         {
             try
             {
@@ -206,21 +259,33 @@ namespace ProjectPerseus.sync
 
                 string endpoint = $"{baseUrl.TrimEnd('/')}/registersource/";
                 string payload  = Newtonsoft.Json.JsonConvert.SerializeObject(metadata);
+                return (endpoint, payload, token, doc.Title);
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"[KeyScheduleAutoImporter] trigger request for '{doc.Title}': {ex.Message}");
+                return null;
+            }
+        }
+
+        // The server call (no Revit API: safe on a background thread). Null = failed (backs off, retried later).
+        private static List<string> Send(string endpoint, string payload, string token, string title)
+        {
+            try
+            {
                 string response = WebHelper.Post(endpoint, token, payload,
                                                  AuthService.GetAuthSchemeSafely(), timeoutMs: WebHelper.SyncTimeoutMs);
-
                 var json = JObject.Parse(response);
                 var triggers = json["source"]?["parameter_dict"]?["perseusOption_importKeyScheduleTriggers"]
                                    ?.ToObject<List<string>>()
                                ?? new List<string>();
-
-                Log.Info($"[KeyScheduleAutoImporter] '{doc.Title}' triggers: [{string.Join(", ", triggers)}]");
+                Log.Info($"[KeyScheduleAutoImporter] '{title}' triggers: [{string.Join(", ", triggers)}]");
                 return triggers;
             }
             catch (Exception ex)
             {
-                Log.Info($"[KeyScheduleAutoImporter] FetchTriggers '{doc.Title}': {ex.Message}");
-                return null; // treat any failure as "not ready" — will retry next event
+                Log.Info($"[KeyScheduleAutoImporter] FetchTriggers '{title}': {ex.Message} (retry in {RetryAfterFailure.TotalMinutes:0} min)");
+                return null;
             }
         }
     }
