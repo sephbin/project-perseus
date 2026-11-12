@@ -73,7 +73,7 @@ namespace ProjectPerseus
             string asm = Assembly.GetExecutingAssembly().Location;
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
 
-            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Markers / Federator / Setup.
+            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Markers / Federator / Mapping / Setup.
             // Icon base names map to resources/<name>.png (+ <name>_dark.png); see revit_plugin/tools/generate_icons.py.
 
             // ---- Sync: moving data between the model and the Perseus server
@@ -121,6 +121,11 @@ namespace ProjectPerseus
             RibbonPanel federatorPanel = application.CreateRibbonPanel(tabName, "Federator");
             AddButton(federatorPanel, asm, "Button_Federator", "Link\nChanges", "ShowFederatorCommand", "federator",
                 "Compare a consultant's linked model with an earlier version of it and review what changed: filter the changes, see how each one changed (and what probably replaced deleted elements), set a status, assign actions and comment. Reviews are saved in this model.");
+
+            // ---- Mapping: our families at the consultants' locations
+            RibbonPanel mappingPanel = application.CreateRibbonPanel(tabName, "Mapping");
+            AddButton(mappingPanel, asm, "Button_FamilyMapping", "Family\nMapping", "ShowFamilyMappingCommand", "family_mapping",
+                "Place our families where a consultant's are (or link ones already in the model): map each consultant family type to one of ours with an offset, rotation and workset, test it on one element, then place or link them all. Each of ours remembers the consultant element it stands for. Types reviewed in Link Changes triage are suggested.");
 
             // ---- Setup: configuration up front, rarely used tools stacked small, About standalone
             RibbonPanel setupPanel = application.CreateRibbonPanel(tabName, "Setup");

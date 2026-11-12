@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -496,6 +496,7 @@
     <Compile Include="ui\ChangeRow.cs" />
     <Compile Include="ui\FederatorWindow.cs" />
     <Compile Include="commands\ShowFederatorCommand.cs" />
+    <Compile Include="commands\ShowFamilyMappingCommand.cs" />
     <Compile Include="models\ComparisonRecord.cs" />
     <Compile Include="models\ReviewEvent.cs" />
     <Compile Include="models\FamilyMapRule.cs" />
@@ -557,6 +558,8 @@
     <Resource Include="resources\markers_dark.png" />
     <Resource Include="resources\federator.png" />
     <Resource Include="resources\federator_dark.png" />
+    <Resource Include="resources\family_mapping.png" />
+    <Resource Include="resources\family_mapping_dark.png" />
     <Resource Include="resources\ownership_dark.png" />
     <Resource Include="resources\project_rules.png" />
     <Resource Include="resources\project_rules_dark.png" />

@@ -19,7 +19,8 @@ using ARDB = Autodesk.Revit.DB;
 namespace ProjectPerseus.ui
 {
     /// <summary>
-    /// Modeless "Family mapping" for one consultant link (opened from ui/FederatorWindow): consultant family types on the
+    /// Modeless "Family mapping" (ribbon: Mapping > Family Mapping, commands/ShowFamilyMappingCommand), per consultant link
+    /// (picker at the top; triage suggestions come from the comparison open in ui/FederatorWindow): consultant family types on the
     /// left (count in the link, what triage says - mapping/TypeTriage - and the mapping), the mapping of the selected type
     /// on the right: our family type, 1:1 offset (mm, consultant element axes) and rotation (° about its X / Y / Z),
     /// workset. "Test on one" places a single family at a sample consultant element and re-places it live while the
@@ -36,10 +37,52 @@ namespace ProjectPerseus.ui
         private static readonly Brush Bad = Frozen(0xC0, 0x26, 0x26);
         private const string ActiveWorkset = "(active workset)";
 
+        internal static FamilyMappingWindow Instance { get; private set; }
+
         private readonly ARDB.Document _doc;
-        private readonly string _linkUid, _modelKey, _linkName, _me;
-        private readonly Dictionary<string, TypeTriage> _triage;
-        private readonly IDictionary<string, string> _replacementMap;
+        private readonly string _me;
+        private string _linkUid, _modelKey, _linkName;
+        private Dictionary<string, TypeTriage> _triage = new Dictionary<string, TypeTriage>();
+        private IDictionary<string, string> _replacementMap = new Dictionary<string, string>();
+        private readonly ComboBox _linkBox;
+
+        private class LinkChoice
+        {
+            internal string Uid, Name, ModelKey;
+            public override string ToString() => Name;
+        }
+
+        /// <summary>Opens the window on the active model (or brings it to the front). API context.</summary>
+        internal static void Open(UIApplication app)
+        {
+            var doc = app.ActiveUIDocument?.Document;
+            if (doc == null || doc.IsFamilyDocument)
+            {
+                Autodesk.Revit.UI.TaskDialog.Show("Family mapping", "Open a project model with consultant links first.");
+                return;
+            }
+            if (Instance != null && Instance.IsLoaded && doc.Equals(Instance._doc)) { Instance.Activate(); return; }
+            Instance?.Close();
+            var links = new List<LinkChoice>();
+            foreach (ARDB.RevitLinkInstance inst in new ARDB.FilteredElementCollector(doc).OfClass(typeof(ARDB.RevitLinkInstance)))
+            {
+                var linkDoc = inst.GetLinkDocument();
+                if (linkDoc == null) continue;   // unloaded: nothing to map from
+                string name = doc.GetElement(inst.GetTypeId())?.Name ?? inst.Name;
+                links.Add(new LinkChoice { Uid = inst.UniqueId, Name = name, ModelKey = VersionCatalog.ModelKey(doc, inst, linkDoc, name) });
+            }
+            if (links.Count == 0)
+            {
+                Autodesk.Revit.UI.TaskDialog.Show("Family mapping", "This model has no loaded Revit links to map from.");
+                return;
+            }
+            foreach (var g in links.GroupBy(l => l.Name).Where(g => g.Count() > 1)) { int i = 1; foreach (var l in g) l.Name += $"  #{i++}"; }
+            // Default: the link open in the federator panel, else the first.
+            string preferred = FederatorWindow.Instance?.Record?.LinkInstanceUid;
+            var w = new FamilyMappingWindow(doc, app.Application.Username, links.OrderBy(l => l.Name).ToList(), preferred);
+            new System.Windows.Interop.WindowInteropHelper(w).Owner = app.MainWindowHandle;
+            w.Show();
+        }
 
         private List<FamilyPlacer.SourceType> _sources = new List<FamilyPlacer.SourceType>();
         private List<FamilyPlacer.TargetType> _targets = new List<FamilyPlacer.TargetType>();
@@ -76,14 +119,11 @@ namespace ProjectPerseus.ui
             internal TypeTriage Stats;
         }
 
-        internal FamilyMappingWindow(ARDB.Document doc, string linkUid, string modelKey, string linkName, string me,
-                                     Dictionary<string, TypeTriage> triage, IDictionary<string, string> replacementMap)
+        private FamilyMappingWindow(ARDB.Document doc, string me, List<LinkChoice> links, string preferredLink)
         {
-            _doc = doc; _linkUid = linkUid; _modelKey = modelKey; _linkName = linkName; _me = me;
-            _triage = triage ?? new Dictionary<string, TypeTriage>();
-            _replacementMap = replacementMap ?? new Dictionary<string, string>();
-
-            Title = "Perseus — Family mapping · " + linkName;
+            Instance = this;
+            _doc = doc; _me = me;
+            Title = "Perseus — Family mapping";
             Width = 1180; Height = 720; MinWidth = 860; MinHeight = 440;
             ShowInTaskbar = false;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -108,6 +148,10 @@ namespace ProjectPerseus.ui
             _suggestedOnly = new CheckBox { Content = "Suggested and mapped only", IsChecked = true, VerticalAlignment = VerticalAlignment.Center,
                                             ToolTip = "Only types triage suggests (reviewed or open changes) and types already mapped." };
             var left = new StackPanel { Orientation = Orientation.Horizontal };
+            _linkBox = new ComboBox { Width = 240, Margin = new Thickness(0, 0, 14, 0), VerticalContentAlignment = VerticalAlignment.Center };
+            foreach (var l in links) _linkBox.Items.Add(l);
+            left.Children.Add(new TextBlock { Text = "Link ", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold });
+            left.Children.Add(_linkBox);
             left.Children.Add(new TextBlock { Text = "Filter ", VerticalAlignment = VerticalAlignment.Center, Foreground = Muted });
             left.Children.Add(_filter);
             left.Children.Add(_suggestedOnly);
@@ -193,10 +237,33 @@ namespace ProjectPerseus.ui
             _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) { ReadEditor(); UpdateNote(); QueueLive(); } });
             _workset.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) ReadEditor(); });
             _liveTimer.Tick += (s, e) => Safe(() => { _liveTimer.Stop(); if (_testId != null) TestOnOne(); });
-            Closed += (s, e) => _liveTimer.Stop();
+            Closed += (s, e) => { _liveTimer.Stop(); if (Instance == this) Instance = null; };
             _editor.IsEnabled = false;
-            Reload();
+            _linkBox.SelectionChanged += (s, e) => Safe(LinkChanged);
+            _linkBox.SelectedItem = links.FirstOrDefault(l => l.Uid == preferredLink) ?? links[0];
         }
+
+        /// <summary>Another link picked: its mapping, triage (from the federator panel's comparison of it) and replacement links.</summary>
+        private void LinkChanged()
+        {
+            var l = _linkBox.SelectedItem as LinkChoice;
+            if (l == null) return;
+            if (_testId != null) RemoveTest();
+            _linkUid = l.Uid; _modelKey = l.ModelKey; _linkName = l.Name;
+            Title = "Perseus — Family mapping · " + l.Name;
+            _current = null; _editing = null;
+            _editor.IsEnabled = false;
+            var fed = FederatorWindow.Instance;
+            _triage = fed != null && fed.Record != null ? fed.TriageByType(l.Uid) : new Dictionary<string, TypeTriage>();
+            _triageLabel = fed?.TriageSourceLabel(l.Uid);
+            Api(app =>
+            {
+                _replacementMap = ReplacementLinks.Map(ReplacementLinks.Fold(ReviewStore.Load(_doc), l.Uid));
+                Reload();
+            });
+        }
+
+        private string _triageLabel;
 
         // ═══════════════ Loading ═══════════════
 
@@ -220,7 +287,10 @@ namespace ProjectPerseus.ui
                 _loadingEditor = false;
                 BuildRows();
                 Fill();
-                Status($"{_sources.Count} consultant family type(s), {_targets.Count} of our family types, {_mapping.Rules.Count} mapped.");
+                Status($"{_sources.Count} consultant family type(s), {_targets.Count} of our family types, {_mapping.Rules.Count} mapped. " +
+                       (_triageLabel != null ? $"Suggestions from the triage of {_triageLabel}."
+                                             : "No triage for this link: open one of its comparisons in Link Changes to get suggestions (all types are listed meanwhile)."));
+                if (_triageLabel == null) _suggestedOnly.IsChecked = false;
             });
         }
 

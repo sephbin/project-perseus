@@ -177,6 +177,15 @@ ICONS["federator"] = (
     '<path d="M24 22l3.5 3.5" fill="none" stroke="{a}"/>'
 )
 
+# ---- Mapping: consultant element (dashed, left) -> our family (solid, right, cyan symbol)
+ICONS["family_mapping"] = (
+    '<rect x="3" y="9" width="10" height="10" rx="1.5" fill="none" stroke="{i}" stroke-width="1.6" stroke-dasharray="2.5 2"/>'
+    '<path d="M14.5 14h4.5M17 11.5l2.5 2.5-2.5 2.5" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<rect x="20" y="8" width="10" height="12" rx="1.5" fill="none" stroke="{i}" stroke-width="1.8"/>'
+    '<circle cx="25" cy="14" r="2.6" fill="none" stroke="{a}" stroke-width="1.8"/>'
+    '<path d="M6 25h21" fill="none" stroke="{a}" stroke-width="1.6" stroke-dasharray="2 2"/>'
+)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
@@ -184,6 +193,7 @@ GROUPS = [
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
     ("Federator",    ["federator"]),
+    ("Mapping",      ["family_mapping"]),
     ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "about"]),
 ]
 
