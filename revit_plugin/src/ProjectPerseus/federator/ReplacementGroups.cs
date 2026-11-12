@@ -122,13 +122,16 @@ namespace ProjectPerseus.federator
         {
             learnt = learnt ?? ReplacementLearning.Empty;
             var groups = new List<ReplacementGroup>();
-            foreach (var p in pairs ?? Enumerable.Empty<ReplacementPair>())
+            // Materialise once: a lazy Select would make new pair objects on the second pass, losing Pattern / Size / Relation
+            // (everything then fell into one group).
+            var all = (pairs ?? Enumerable.Empty<ReplacementPair>()).ToList();
+            foreach (var p in all)
             {
                 p.Pattern = p.Pattern ?? PatternKey(p.Deleted, p.Added);
                 p.Relation = p.Relation ?? Relation(p.Deleted, p.Added);
                 p.Size = p.Size ?? SizeKey(p.Deleted?.OldMin, p.Deleted?.OldMax);
             }
-            foreach (var g in (pairs ?? Enumerable.Empty<ReplacementPair>()).GroupBy(p => p.Pattern + "|" + p.Size + "|" + p.Relation))
+            foreach (var g in all.GroupBy(p => p.Pattern + "|" + p.Size + "|" + p.Relation))
             {
                 var list = g.OrderByDescending(p => p.Score).ThenBy(p => p.Deleted?.Id ?? 0).ToList();
                 var first = list[0];

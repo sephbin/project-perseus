@@ -49,6 +49,22 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void LazyInputStillGroupsByType()
+        {
+            // The window passes a lazy Select: every pair must keep its own pattern (was: all in one group).
+            var source = new[] { Tuple.Create("Detector", "a"), Tuple.Create("Sprinkler", "b"), Tuple.Create("Detector", "c") };
+            var groups = ReplacementGroups.Build(source.Select(t =>
+            {
+                var d = Del("d" + t.Item2, 0); d.Family = t.Item1; d.Category = "Fire Alarm Devices";
+                var a = Add("a" + t.Item2, 0); a.Family = t.Item1; a.Category = "Fire Alarm Devices";
+                return new ReplacementPair { Deleted = d, Added = a, Score = 0.9 };
+            }), null);
+            Assert.AreEqual(2, groups.Count);
+            Assert.IsTrue(groups.All(g => !string.IsNullOrEmpty(g.Size) && !string.IsNullOrEmpty(g.Relation)));
+            Assert.AreEqual(2, groups.Single(g => g.OldFamily == "Detector").Pairs.Count);
+        }
+
+        [TestMethod]
         public void RelationBuckets()
         {
             Assert.AreEqual(ReplacementGroups.SamePlace, ReplacementGroups.Relation(Del("d", 0), Add("a", 0)));

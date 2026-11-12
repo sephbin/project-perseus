@@ -1358,11 +1358,10 @@ namespace ProjectPerseus.ui
 
         private string HiddenReason(ReplacementSuggestion s, HashSet<string> ignoredTypes)
         {
-            // Different family or type (e.g. EF-Detector -> FP-Sprinkler, also when both share one generic family): usually
-            // a different element next to it; shown once people have linked that pattern before.
+            // Different family (e.g. a detector next to a sprinkler): usually a different element; shown once people have
+            // linked that pattern before. Type changes within a family (200 -> 250 wall) stay visible, grouped by type.
             bool learnt = _learning.Bias(ReplacementGroups.PatternKey(s.Deleted.Change, s.Replacement.Change)) > 0;
             if (!learnt && !SameFamily(s.Deleted.Change, s.Replacement.Change)) return "different family";
-            if (!learnt && !SameType(s.Deleted.Change, s.Replacement.Change)) return "different type";
             if (s.Deleted.IsNoise || s.Replacement.IsNoise) return "noise";
             if (s.Deleted.State.Status == ReviewStatus.Ignored || s.Replacement.State.Status == ReviewStatus.Ignored) return "ignored";
             if (ignoredTypes.Contains(TypeKey(s.Deleted.Change)) || ignoredTypes.Contains(TypeKey(s.Replacement.Change))) return "type ignored in triage";
