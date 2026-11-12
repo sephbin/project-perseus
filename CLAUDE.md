@@ -517,7 +517,7 @@ ProjectPerseus/
 │   └── FamilyPlacer.cs           Consultant family types (link FamilyInstances, nested skipped), our types (placement type), worksets,
 │                                 consultant frame (family transform, else location), Place (floating first: level-based on the level below +
 │                                 offset, plan rotation only; work-plane / face-based like Rhino.Inside's Add Component (Work Plane): SketchPlane as host element,
-│                                 at the level facing up/down + offset from host, or through the point when tilted; hosted = refused),
+│                                 at the target height facing up/down (offset 0), or through the point when tilted; hosted = refused),
 │                                 PlaceAll (skips consultant elements already mapped, incl. via replacements; one undo step), LinkExisting
 │                                 (nearest expected position within tolerance, one-to-one).
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.

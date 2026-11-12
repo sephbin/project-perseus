@@ -237,9 +237,9 @@ namespace ProjectPerseus.mapping
         /// Work-plane / face-based families, floating, the way Rhino.Inside.Revit's "Add Component (Work Plane)" does it:
         /// a SketchPlane is the work plane and the family is created with NewFamilyInstance(point, type, x direction,
         /// sketchPlane, NonStructural) - the sketch plane passed as the host ELEMENT (the Reference overload hosts
-        /// face-based families "on face"). Upright or upside-down (ceiling) elements: the sketch plane sits at the level
-        /// (one per level and facing, reused) and Offset from host gives the height; tilted ones: a sketch plane through
-        /// the point in the element's own axes, offset 0. Schedule level = level below. Fallbacks: the level's plane
+        /// face-based families "on face"). Upright or upside-down (ceiling) elements: a horizontal sketch plane at the
+        /// target height (one per level + height + facing, reused); tilted ones: a sketch plane through the point in the
+        /// element's own axes. Offset from host stays 0 in both (Revit ignored it on a level-height plane). Schedule level = level below. Fallbacks: the level's plane
         /// reference, a Perseus reference plane, plain level placement. Each attempt runs in a sub-transaction.
         /// </summary>
         private static FamilyInstance PlaceOnWorkPlane(Document host, FamilySymbol symbol, Frame f, XYZ p, Level level, WorksetId workset, out string warning)
@@ -263,14 +263,16 @@ namespace ProjectPerseus.mapping
                 string name = null;
                 if (vertical)
                 {
-                    // Facing up (or down for ceiling devices) at the level; height = offset from host along the normal.
+                    // Facing up (or down for ceiling devices) AT THE TARGET HEIGHT, offset 0 (Rhino.Inside's way): Revit
+                    // ignored Offset from Host on a level-height plane and a work-plane family can't be moved off its
+                    // plane, so it stayed at the level. One plane per level + height + facing, named so it's recognisable.
                     var nz = n.Z >= 0 ? XYZ.BasisZ : XYZ.BasisZ.Negate();
-                    origin = lp;
+                    origin = new XYZ(0, 0, p.Z);
                     bx = xh.GetLength() > 1e-9 ? xh : XYZ.BasisX;
                     by = nz.CrossProduct(bx).Normalize();
-                    at = new XYZ(p.X, p.Y, level.ProjectElevation);
-                    offset = (p.Z - level.ProjectElevation) * nz.Z;
-                    name = $"{PlanePrefix} · {level.Name} · {(nz.Z > 0 ? "up" : "down")}";
+                    at = p;
+                    offset = 0;
+                    name = $"{PlanePrefix} · {level.Name} {(p.Z - level.ProjectElevation) * MappingMath.MmPerFoot:+0;-0;+0} mm · {(nz.Z > 0 ? "up" : "down")}";
                 }
                 else
                 {
@@ -278,7 +280,7 @@ namespace ProjectPerseus.mapping
                 }
                 var sp = name == null ? null : new FilteredElementCollector(host).OfClass(typeof(SketchPlane)).Cast<SketchPlane>()
                     .FirstOrDefault(s => s.Name == name && s.GetPlane().Normal.IsAlmostEqualTo(bx.CrossProduct(by).Normalize())
-                                         && Math.Abs(s.GetPlane().Origin.Z - origin.Z) < 1e-6);
+                                         && Math.Abs(s.GetPlane().Origin.Z - origin.Z) < 0.5 / MappingMath.MmPerFoot);
                 if (sp == null)
                 {
                     sp = SketchPlane.Create(host, Plane.CreateByOriginAndBasis(origin, bx, by));
@@ -291,14 +293,14 @@ namespace ProjectPerseus.mapping
                 }
                 var made = host.Create.NewFamilyInstance(at, symbol, bx, sp, StructuralType.NonStructural);
                 var ho = made.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
-                if (ho != null && !ho.IsReadOnly) ho.Set(offset);
+                if (ho != null && !ho.IsReadOnly && Math.Abs(ho.AsDouble() - offset) > 1e-9) ho.Set(offset);
                 var sl = made.get_Parameter(BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM);
                 if (sl != null && !sl.IsReadOnly) { try { sl.Set(level.Id); } catch { } }
                 return made;
             });
             if (fi != null)
             {
-                Log.Info($"[Mapping] {symbol.FamilyName}: placed on a sketch plane ({(vertical ? $"level '{level.Name}' facing {(n.Z >= 0 ? "up" : "down")}, offset from host {(p.Z - level.ProjectElevation) * MappingMath.MmPerFoot:N0} mm" : "through the point, tilted")}), host = {fi.Host?.GetType().Name ?? "none"}");
+                Log.Info($"[Mapping] {symbol.FamilyName}: placed on a sketch plane ({(vertical ? $"at level '{level.Name}' {(p.Z - level.ProjectElevation) * MappingMath.MmPerFoot:+0;-0;+0} mm, facing {(n.Z >= 0 ? "up" : "down")}" : "through the point, tilted")}); {OffsetParams(fi)}");
                 return fi;
             }
 
@@ -396,6 +398,25 @@ namespace ProjectPerseus.mapping
             }
             Log.Info($"[Mapping] created reference plane '{name}' (normal {rp.Normal.X:0.000},{rp.Normal.Y:0.000},{rp.Normal.Z:0.000})");
             return rp;
+        }
+
+        /// <summary>Diagnostics: the instance's height parameters as Revit reports them (value, read-only).</summary>
+        private static string OffsetParams(FamilyInstance fi)
+        {
+            var parts = new List<string>();
+            foreach (var bip in new[] { BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, BuiltInParameter.INSTANCE_ELEVATION_PARAM,
+                                        BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM })
+            {
+                try
+                {
+                    var prm = fi.get_Parameter(bip);
+                    if (prm == null) continue;
+                    string v = prm.StorageType == Autodesk.Revit.DB.StorageType.Double ? $"{prm.AsDouble() * MappingMath.MmPerFoot:N0} mm" : prm.AsValueString();
+                    parts.Add($"{prm.Definition.Name} = {v}{(prm.IsReadOnly ? " (read-only)" : "")}");
+                }
+                catch { }
+            }
+            return parts.Count == 0 ? "no height parameters" : string.Join(", ", parts);
         }
 
         /// <summary>Elevation / offset from host: whichever of the host offset parameters the family has (then SnapTo corrects any remainder).</summary>
