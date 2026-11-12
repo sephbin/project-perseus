@@ -161,6 +161,8 @@ namespace ProjectPerseus.ui
         // Review views (federator/ReviewViews): registered views, change uid -> view uid it's shown in, captured images.
         private ReviewViewSettings _reviewViews = new ReviewViewSettings();
         private readonly Dictionary<string, string> _viewOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        private string _viewOfKey;
+        private List<ReviewViews.Target> _viewOfTargets;
         private readonly Dictionary<string, ViewImageFrame> _frames = new Dictionary<string, ViewImageFrame>(StringComparer.Ordinal);
         private readonly Queue<string> _captureQueue = new Queue<string>();
         private int _captureTotal, _captureDone;
@@ -513,6 +515,7 @@ namespace ProjectPerseus.ui
             _imageModel = ViewImageStore.ModelKey(string.IsNullOrEmpty(_doc.PathName) ? _doc.Title : _doc.PathName);
             _reviewViews = ReviewViews.Load(_doc);
             _frames.Clear();
+            _viewOfKey = null;
             long tArchive = clock.ElapsedMilliseconds;
             _cloudVersions.Clear();   // Refresh re-reads the cloud version lists too
             _cloudState.Clear();
@@ -2806,6 +2809,7 @@ namespace ProjectPerseus.ui
                 dlg.Result.MaxPixels = current.MaxPixels;
                 FederatorSettingsStore.Save(_doc, ReviewViews.Key, dlg.Result, _me);
                 _reviewViews = dlg.Result;
+                _viewOfKey = null;
                 Status($"{_reviewViews.ViewUids.Count} review view(s) saved.");
                 if (_record != null) AssignReviewViews(_record, dlg.RefreshNow || _reviewViews.AutoCapture, dlg.RefreshNow);
             });
@@ -2833,24 +2837,39 @@ namespace ProjectPerseus.ui
         /// </summary>
         private void AssignReviewViews(ComparisonRecord rec, bool capture, bool force)
         {
-            _viewOf.Clear();
             var views = ReviewViews.Resolve(_doc, _reviewViews);
-            if (views.Count == 0 || rec == null) { ImagesChanged?.Invoke(); return; }
+            if (views.Count == 0 || rec == null) { _viewOf.Clear(); _viewOfKey = null; ImagesChanged?.Invoke(); return; }
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            // Same comparison and review views as last time (e.g. a refresh after linking a replacement): only rows not
+            // assigned yet are placed, and the views are only re-checked when something was new.
+            string key = rec.Id + "|" + string.Join(",", _reviewViews.ViewUids);
+            if (key != _viewOfKey) { _viewOf.Clear(); _viewOfTargets = null; _viewOfKey = key; }
             var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
-            var targets = ReviewViews.Targets(_doc, views, inst);
+            var targets = _viewOfTargets ?? (_viewOfTargets = ReviewViews.Targets(_doc, views, inst));
+            long tTargets = clock.ElapsedMilliseconds;
             var boxesByView = new Dictionary<string, List<KeyValuePair<double[], double[]>>>(StringComparer.Ordinal);
+            var targetByUid = targets.ToDictionary(t => t.View.UniqueId, t => t);
+            int placed = 0;
             foreach (var r in _rows)
             {
                 ShownBoxOf(r.Change, out var min, out var max);
                 if (min == null) continue;
-                var t = ReviewViews.ViewFor(targets, new ARDB.XYZ(min[0], min[1], min[2]), new ARDB.XYZ(max[0], max[1], max[2]));
-                if (t == null) continue;
-                string uid = t.View.UniqueId;
-                if (!string.IsNullOrEmpty(r.Change.UniqueId)) _viewOf[r.Change.UniqueId] = uid;
+                string uid;
+                if (!string.IsNullOrEmpty(r.Change.UniqueId) && _viewOf.TryGetValue(r.Change.UniqueId, out var known) && targetByUid.ContainsKey(known)
+                    && targetByUid[known].Fast.Contains(min, max))
+                    uid = known;
+                else
+                {
+                    var t = ReviewViews.ViewFor(targets, min, max);
+                    placed++;
+                    if (t == null) continue;
+                    uid = t.View.UniqueId;
+                    if (!string.IsNullOrEmpty(r.Change.UniqueId)) _viewOf[r.Change.UniqueId] = uid;
+                }
                 if (!boxesByView.TryGetValue(uid, out var list)) boxesByView[uid] = list = new List<KeyValuePair<double[], double[]>>();
                 list.Add(new KeyValuePair<double[], double[]>(min, max));
             }
+            long tPlace = clock.ElapsedMilliseconds;
             string liveGuid = _links.FirstOrDefault(l => l.Uid == rec.LinkInstanceUid)?.LiveGuid ?? "";
             var pending = new List<Tuple<ARDB.View, string>>();   // view, why it needs an image
             foreach (var v in views)
@@ -2873,7 +2892,8 @@ namespace ProjectPerseus.ui
                 foreach (var p in pending) { _captureQueue.Enqueue(p.Item1.UniqueId); queued++; }
             else foreach (var p in pending) _captureDeclined.Add(p.Item1.UniqueId + "|" + p.Item2);
             Log.Info($"[Federator] review views: {_viewOf.Count:N0} of {_rows.Count:N0} changes in {boxesByView.Count} of {views.Count} view(s), " +
-                     $"{queued} image(s) to capture, {clock.ElapsedMilliseconds} ms");
+                     $"{queued} image(s) to capture, {clock.ElapsedMilliseconds} ms (views {tTargets}, placing {placed:N0} changes {tPlace - tTargets}, " +
+                     $"images {clock.ElapsedMilliseconds - tPlace})");
             ImagesChanged?.Invoke();
             if (queued > 0 && !_capturing)
             {

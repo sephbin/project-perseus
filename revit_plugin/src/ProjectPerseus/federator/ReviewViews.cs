@@ -79,7 +79,33 @@ namespace ProjectPerseus.federator
         {
             internal View View;
             internal ViewExtent Extent;
+            internal ViewExtent.Fast Fast;
             internal bool LinkShown;
+        }
+
+        /// <summary>
+        /// Is the link instance shown in the view? From the view's settings only (instance hidden, Revit Links category
+        /// off, its workset hidden): a view-scoped element collector would make Revit regenerate every view not open.
+        /// View filters aren't considered.
+        /// </summary>
+        internal static bool LinkVisible(View v, RevitLinkInstance inst)
+        {
+            if (inst == null) return true;
+            try
+            {
+                if (inst.IsHidden(v)) return false;
+                if (inst.Category != null && v.GetCategoryHidden(inst.Category.Id)) return false;
+                Document doc = v.Document;
+                if (doc.IsWorkshared && inst.WorksetId != WorksetId.InvalidWorksetId)
+                {
+                    var vis = v.GetWorksetVisibility(inst.WorksetId);
+                    if (vis == WorksetVisibility.Hidden) return false;
+                    if (vis == WorksetVisibility.UseGlobalSetting &&
+                        !WorksetDefaultVisibilitySettings.GetWorksetDefaultVisibilitySettings(doc).IsWorksetVisible(inst.WorksetId)) return false;
+                }
+                return true;
+            }
+            catch { return true; }
         }
 
         internal static List<Target> Targets(Document host, IEnumerable<View> views, RevitLinkInstance instance)
@@ -91,9 +117,7 @@ namespace ProjectPerseus.federator
                 {
                     var extent = ViewExtent.For(v);
                     if (!extent.ShowsModel) continue;
-                    bool shown = instance == null || new FilteredElementCollector(host, v.Id).OfClass(typeof(RevitLinkInstance))
-                                                         .ToElementIds().Contains(instance.Id);
-                    list.Add(new Target { View = v, Extent = extent, LinkShown = shown });
+                    list.Add(new Target { View = v, Extent = extent, Fast = extent.ToFast(), LinkShown = LinkVisible(v, instance) });
                 }
                 catch (Exception ex) { Log.Info($"[Federator] review view '{v.Name}': {ex.Message}"); }
             }
@@ -101,12 +125,16 @@ namespace ProjectPerseus.federator
         }
 
         /// <summary>The first review view (priority order) showing this host box with the link visible; null when none.</summary>
-        internal static Target ViewFor(IList<Target> targets, XYZ min, XYZ max, ElementId skip = null)
+        internal static Target ViewFor(IList<Target> targets, XYZ min, XYZ max, ElementId skip = null) =>
+            ViewFor(targets, new[] { min.X, min.Y, min.Z }, new[] { max.X, max.Y, max.Z }, skip);
+
+        /// <summary>Plain-number version (no Revit API calls per box).</summary>
+        internal static Target ViewFor(IList<Target> targets, double[] min, double[] max, ElementId skip = null)
         {
             foreach (var t in targets)
             {
                 if (!t.LinkShown || (skip != null && t.View.Id == skip)) continue;
-                if (t.Extent.Contains(min, max)) return t;
+                if (t.Fast.Contains(min, max)) return t;
             }
             return null;
         }

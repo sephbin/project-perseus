@@ -103,6 +103,57 @@ namespace ProjectPerseus.federator
             return true;
         }
 
+        /// <summary>
+        /// The same test as plain numbers (no Revit API calls), for testing thousands of boxes against many views:
+        /// Contains through XYZ / Transform costs microseconds per call.
+        /// </summary>
+        internal class Fast
+        {
+            internal bool None, All, CheckZ;
+            internal double ZMin, ZMax;
+            internal double[] O, X, Y, Z, LMin, LMax;   // host -> local transform (origin + basis), local box
+
+            internal bool Contains(double[] min, double[] max)
+            {
+                if (None) return false;
+                if (All) return true;
+                if (max[2] < ZMin || min[2] > ZMax) return false;
+                if (O == null) return true;
+                double x0 = double.MaxValue, y0 = double.MaxValue, z0 = double.MaxValue;
+                double x1 = double.MinValue, y1 = double.MinValue, z1 = double.MinValue;
+                for (int i = 0; i < 8; i++)
+                {
+                    double px = (i & 1) == 0 ? min[0] : max[0], py = (i & 2) == 0 ? min[1] : max[1], pz = (i & 4) == 0 ? min[2] : max[2];
+                    double lx = O[0] + px * X[0] + py * Y[0] + pz * Z[0];
+                    double ly = O[1] + px * X[1] + py * Y[1] + pz * Z[1];
+                    double lz = O[2] + px * X[2] + py * Y[2] + pz * Z[2];
+                    if (lx < x0) x0 = lx; if (lx > x1) x1 = lx;
+                    if (ly < y0) y0 = ly; if (ly > y1) y1 = ly;
+                    if (lz < z0) z0 = lz; if (lz > z1) z1 = lz;
+                }
+                if (x1 < LMin[0] || x0 > LMax[0] || y1 < LMin[1] || y0 > LMax[1]) return false;
+                if (CheckZ && (z1 < LMin[2] || z0 > LMax[2])) return false;
+                return true;
+            }
+        }
+
+        internal Fast ToFast()
+        {
+            var f = new Fast { None = _none, All = _all, CheckZ = _checkLocalZ, ZMin = _zMin, ZMax = _zMax };
+            if (_toLocal != null)
+            {
+                // local = Origin + x * BasisX + y * BasisY + z * BasisZ (component-wise as in OfPoint).
+                var t = _toLocal;
+                f.O = new[] { t.Origin.X, t.Origin.Y, t.Origin.Z };
+                f.X = new[] { t.BasisX.X, t.BasisX.Y, t.BasisX.Z };
+                f.Y = new[] { t.BasisY.X, t.BasisY.Y, t.BasisY.Z };
+                f.Z = new[] { t.BasisZ.X, t.BasisZ.Y, t.BasisZ.Z };
+                f.LMin = new[] { _localMin.X, _localMin.Y, _localMin.Z };
+                f.LMax = new[] { _localMax.X, _localMax.Y, _localMax.Z };
+            }
+            return f;
+        }
+
         private void SetBox(BoundingBoxXYZ box, bool checkZ)
         {
             if (box == null) { _all = true; return; }
