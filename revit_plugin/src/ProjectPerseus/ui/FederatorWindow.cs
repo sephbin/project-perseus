@@ -301,6 +301,10 @@ namespace ProjectPerseus.ui
             _statusBox = Pick(filters, "Status", 120);
             _statusBox.SetItems(ReviewStatus.All.Select(x => new MultiPick.Item(x)));
             _statusBox.AddPreset(ChangeFilter.NeedsAttention, "Unreviewed and Query only", ReviewStatus.Unreviewed, ReviewStatus.Query);
+            _statusBox.AddPreset("Not ignored", "Everything except Ignored (the default)",
+                                 ReviewStatus.All.Where(x => x != ReviewStatus.Ignored).ToArray());
+            // Ignored changes are hidden by default (tick Ignored in Status to see them).
+            _statusBox.SetTicked(ReviewStatus.Ignored, false);
             _assigneeBox = Pick(filters, "Assignee", 120);
             _groupBox = Combo(filters, "Group by", GroupModes, 95);
             _inViewBox = new CheckBox { Content = "Only in active view", VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(4, 0, 0, 7),

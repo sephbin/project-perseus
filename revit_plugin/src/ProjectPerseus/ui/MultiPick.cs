@@ -141,6 +141,13 @@ namespace ProjectPerseus.ui
 
         internal bool IsTicked(string key) => !_unticked.Contains(key);
 
+        /// <summary>Ticks / unticks one item without raising Changed (initial defaults).</summary>
+        internal void SetTicked(string key, bool on)
+        {
+            if (on) _unticked.Remove(key); else _unticked.Add(key);
+            Sync();
+        }
+
         private void SetAll(bool on)
         {
             _unticked.Clear();
