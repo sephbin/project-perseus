@@ -192,8 +192,7 @@ GROUPS = [
     ("Key Schedules",["schedule_manage", "schedule_export", "schedule_import"]),
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
-    ("Federator",    ["federator"]),
-    ("Mapping",      ["family_mapping"]),
+    ("Federator",    ["federator", "family_mapping"]),
     ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "about"]),
 ]
 

@@ -107,7 +107,7 @@ ProjectPerseus/
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Calls ViolationHighlightController.Initialize() and
 │                                 ownership.OwnershipTracker.Subscribe() at startup.
-│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Federator, Mapping, Setup.
+│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Federator (Link Changes + Family Mapping), Setup.
 │                                 Calls federator.FederatorController.Subscribe() + ChangeHighlightController.Initialize() at startup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
@@ -229,7 +229,7 @@ ProjectPerseus/
 │   ├── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
 │   ├── ShowMarkersCommand.cs     NEW (2026-11-06). Ribbon: Button_Markers (Markers panel). Opens ui/MarkerSetsWindow.
 │   ├── ShowFederatorCommand.cs   NEW (2026-11-08). Ribbon: Button_Federator (Federator panel). Opens ui/FederatorWindow.
-│   └── ShowFamilyMappingCommand.cs NEW (2026-11-12). Ribbon: Button_FamilyMapping (Mapping panel). Opens ui/FamilyMappingWindow.
+│   └── ShowFamilyMappingCommand.cs NEW (2026-11-12). Ribbon: Button_FamilyMapping (Federator panel). Opens ui/FamilyMappingWindow.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; the pre-sync hook only cancels + Queue()s the edits
@@ -336,7 +336,7 @@ ProjectPerseus/
 │   │                             ReplacementGroups (top 10 groups first, best example as a review view thumbnail, learnt patterns first):
 │   │                             Link all / Not replacements / Review pairs (paged, ticks), Link confident groups. Suggestions on noise or
 │   │                             Ignored elements / types (3+ ignored, none cared about) are hidden ("Show hidden"). Writes via FederatorWindow.
-│   ├── FamilyMappingWindow.cs    NEW (2026-11-12). Modeless "Family mapping" (ribbon Mapping > Family Mapping), link picker; triage from the comparison open in FederatorWindow: consultant types
+│   ├── FamilyMappingWindow.cs    NEW (2026-11-12). Modeless "Family mapping" (ribbon Federator > Family Mapping), link picker; triage from the comparison open in FederatorWindow: consultant types
 │   │                             (count, triage verdict, mapped to, ours placed) | rule editor (our type, offset / rotation with step nudges,
 │   │                             workset), Test on one (live re-place), Next sample, Save, Place all, Link existing…, Follow replacements.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in

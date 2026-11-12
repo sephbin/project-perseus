@@ -19,7 +19,7 @@ using ARDB = Autodesk.Revit.DB;
 namespace ProjectPerseus.ui
 {
     /// <summary>
-    /// Modeless "Family mapping" (ribbon: Mapping > Family Mapping, commands/ShowFamilyMappingCommand), per consultant link
+    /// Modeless "Family mapping" (ribbon: Federator > Family Mapping, commands/ShowFamilyMappingCommand), per consultant link
     /// (picker at the top; triage suggestions come from the comparison open in ui/FederatorWindow): consultant family types on the
     /// left (count in the link, what triage says - mapping/TypeTriage - and the mapping), the mapping of the selected type
     /// on the right: our family type, 1:1 offset (mm, consultant element axes) and rotation (° about its X / Y / Z),

@@ -6,7 +6,7 @@ using ProjectPerseus.logging;
 
 namespace ProjectPerseus.commands
 {
-    // Ribbon: Button_FamilyMapping (Mapping panel). Opens the modeless Family mapping window (ui/FamilyMappingWindow):
+    // Ribbon: Button_FamilyMapping (Federator panel). Opens the modeless Family mapping window (ui/FamilyMappingWindow):
     // place our families at the consultants' family locations or link existing ones (mapping/).
     [Transaction(TransactionMode.Manual)]
     public class ShowFamilyMappingCommand : IExternalCommand
