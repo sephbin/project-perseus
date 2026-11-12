@@ -734,6 +734,28 @@ namespace ProjectPerseus.ui
             });
         }
 
+        /// <summary>
+        /// After a new comparison: opens Triage; when it's closed, opens Replacements (if there are any suggestions).
+        /// Skips a step with nothing to do.
+        /// </summary>
+        private void StartGuidedReview(string recordId)
+        {
+            if (_record == null || _record.Id != recordId) return;
+            void Replacements()
+            {
+                if (_record == null || _record.Id != recordId) return;
+                int n = ReplacementSuggestions().Count;
+                if (n == 0) { Status("Triage done. No possible replacements to confirm."); return; }
+                OpenReplacements();
+                Status($"Step 2 of 2: confirm the {n:N0} possible replacement(s).");
+            }
+            if (TriageSource(false).Count == 0) { Replacements(); return; }
+            OpenTriage();
+            if (_triage == null) { Replacements(); return; }
+            _triage.Closed += (s, e) => Dispatcher.BeginInvoke(new Action(() => Safe(Replacements)));
+            Status("Step 1 of 2: triage the changes in bulk. Possible replacements open when you close Triage.");
+        }
+
         private void OpenTriage()
         {
             if (_record == null || _rows.Count == 0) { Status("Open a comparison first."); return; }
@@ -2195,6 +2217,10 @@ namespace ProjectPerseus.ui
                     _records.Insert(0, result.Record);
                     FillComparisons(result.Record.Id);
                     Status($"Compared: +{result.Record.Added:N0} added, −{result.Record.Deleted:N0} deleted, ~{result.Record.Modified:N0} modified.");
+                    // Guided review of a new comparison: triage first, then replacements. Queued behind the comparison's own
+                    // loading work (link transform, noise rules, review views) so triage sees the noise rules applied.
+                    string newId = result.Record.Id;
+                    RunApi(a2 => Dispatcher.BeginInvoke(new Action(() => Safe(() => StartGuidedReview(newId)))));
                 }
                 catch (Exception ex)
                 {
