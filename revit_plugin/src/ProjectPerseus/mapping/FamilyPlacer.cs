@@ -171,9 +171,10 @@ namespace ProjectPerseus.mapping
                 }
                 case FamilyPlacementType.WorkPlaneBased:
                 {
-                    var plane = Plane.CreateByOriginAndBasis(p, new XYZ(f.X[0], f.X[1], f.X[2]), new XYZ(f.Y[0], f.Y[1], f.Y[2]));
-                    var sp = SketchPlane.Create(host, plane);
-                    fi = host.Create.NewFamilyInstance(sp.GetPlaneReference(), p, new XYZ(f.X[0], f.X[1], f.X[2]), symbol);
+                    var level = LevelBelow(levels, p.Z);
+                    if (level == null) { warning = "the model has no levels"; return null; }
+                    fi = PlaceOnWorkPlane(host, symbol, f, p, level, workset, out warning);
+                    if (fi == null) return null;
                     break;
                 }
                 default:
@@ -187,6 +188,123 @@ namespace ProjectPerseus.mapping
             }
             MappedFamilyStore.Write(fi, inst.UniqueId, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Placed);
             return fi;
+        }
+
+        internal const string PlanePrefix = "Perseus mapping";
+
+        /// <summary>
+        /// Work-plane / face-based families, floating: on a Perseus reference plane (one per level and orientation, reused;
+        /// a datum, not a wall / ceiling) through the level, with the family's offset from host giving its height along the
+        /// plane normal, so all three rotations apply. Falls back to the level's plane (upright, offset) and then plain
+        /// level placement. Each attempt runs in a sub-transaction so a refused one leaves nothing behind.
+        /// </summary>
+        private static FamilyInstance PlaceOnWorkPlane(Document host, FamilySymbol symbol, Frame f, XYZ p, Level level, WorksetId workset, out string warning)
+        {
+            warning = null;
+            var n = new XYZ(f.Z[0], f.Z[1], f.Z[2]).Normalize();
+            var x = new XYZ(f.X[0], f.X[1], f.X[2]).Normalize();
+            var lp = new XYZ(0, 0, level.ProjectElevation);
+            double off = (p - lp).DotProduct(n);
+            var onPlane = p - n.Multiply(off);
+            var errors = new List<string>();
+
+            // 1. Reference plane with this orientation through the level.
+            FamilyInstance fi = Try(host, errors, "reference plane", () =>
+            {
+                var rp = ReferencePlaneFor(host, level, n, x, workset);
+                if (rp == null) throw new InvalidOperationException("no view to create a reference plane in");
+                var made = host.Create.NewFamilyInstance(rp.GetReference(), onPlane, x, symbol);
+                SetHostOffset(made, off);
+                return made;
+            });
+            if (fi != null) return fi;
+
+            // 2. The level's own plane (horizontal: plan rotation only).
+            var dir = MappingMath.PlanDirection(f);
+            var xh = new XYZ(dir[0], dir[1], 0);
+            fi = Try(host, errors, "level plane", () =>
+            {
+                var made = host.Create.NewFamilyInstance(level.GetPlaneReference(), new XYZ(p.X, p.Y, level.ProjectElevation), xh, symbol);
+                SetHostOffset(made, p.Z - level.ProjectElevation);
+                return made;
+            });
+            if (fi != null)
+            {
+                if (MappingMath.IsTilted(f)) warning = "placed on the level's plane: X / Y rotation and tilt not applied";
+                return fi;
+            }
+
+            // 3. Plain level placement.
+            fi = Try(host, errors, "level", () =>
+            {
+                var made = host.Create.NewFamilyInstance(p, symbol, xh, level, StructuralType.NonStructural);
+                SetOffset(made, p.Z - level.ProjectElevation);
+                return made;
+            });
+            if (fi != null) { warning = "placed on the level: X / Y rotation and tilt not applied"; return fi; }
+            warning = $"{symbol.FamilyName} couldn't be placed floating ({string.Join("; ", errors)})";
+            Log.Info($"[Mapping] {warning}");
+            return null;
+        }
+
+        private static FamilyInstance Try(Document host, List<string> errors, string how, Func<FamilyInstance> place)
+        {
+            using (var st = new SubTransaction(host))
+            {
+                st.Start();
+                try
+                {
+                    var fi = place();
+                    host.Regenerate();
+                    st.Commit();
+                    return fi;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{how}: {ex.Message}");
+                    if (st.GetStatus() == TransactionStatus.Started) st.RollBack();
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>The Perseus reference plane for this level and normal (rounded), created when missing.</summary>
+        private static ReferencePlane ReferencePlaneFor(Document host, Level level, XYZ n, XYZ inPlane, WorksetId workset)
+        {
+            string name = $"{PlanePrefix} · {level.Name} · {n.X:0.000},{n.Y:0.000},{n.Z:0.000}";
+            var existing = new FilteredElementCollector(host).OfClass(typeof(ReferencePlane)).Cast<ReferencePlane>().FirstOrDefault(r => r.Name == name);
+            if (existing != null) return existing;
+            View view = new FilteredElementCollector(host).OfClass(typeof(View3D)).Cast<View3D>().FirstOrDefault(v => !v.IsTemplate && !v.IsPerspective)
+                        ?? (host.ActiveView != null && !host.ActiveView.IsTemplate ? host.ActiveView : null);
+            if (view == null) return null;
+            var origin = new XYZ(0, 0, level.ProjectElevation);
+            // Make the plane pass through the level origin with normal n: the line and the cut vector span the plane.
+            var a = inPlane - n.Multiply(inPlane.DotProduct(n));
+            if (a.GetLength() < 1e-6) a = Math.Abs(n.Z) < 0.9 ? XYZ.BasisZ.CrossProduct(n) : XYZ.BasisX;
+            a = a.Normalize();
+            var cut = n.CrossProduct(a).Normalize();
+            var rp = host.Create.NewReferencePlane(origin, origin + a.Multiply(10), cut, view);
+            // Orientation check: NewReferencePlane's normal = line x cut; flip the cut vector if it came out reversed.
+            if (rp.Normal.DotProduct(n) < 0)
+            {
+                host.Delete(rp.Id);
+                rp = host.Create.NewReferencePlane(origin, origin + a.Multiply(10), cut.Negate(), view);
+            }
+            try { rp.Name = name; } catch { }
+            if (workset != null && workset != WorksetId.InvalidWorksetId)
+            {
+                var wp = rp.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                if (wp != null && !wp.IsReadOnly) wp.Set(workset.IntegerValue);
+            }
+            Log.Info($"[Mapping] created reference plane '{name}' (normal {rp.Normal.X:0.000},{rp.Normal.Y:0.000},{rp.Normal.Z:0.000})");
+            return rp;
+        }
+
+        private static void SetHostOffset(FamilyInstance fi, double offset)
+        {
+            var p = fi.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+            if (p != null && !p.IsReadOnly) p.Set(offset);
+            else SetOffset(fi, offset);
         }
 
         /// <summary>
