@@ -14,7 +14,7 @@ namespace ProjectPerseus.federator
     /// Takes the user to changed linked elements: selects the ones that still exist (link references via
     /// Selection.SetReferences) and zooms the active view to them. When they aren't visible in the active view, opens
     /// the user's own "Perseus Federator - &lt;user&gt;" 3D view with a section box around them (one view per user, so
-    /// users never fight over its ownership). Deleted elements can't be selected; their old box is shown instead.
+    /// users never fight over its ownership). Registered review views (federator/ReviewViews) are tried before that 3D view. Deleted elements can't be selected; their old box is shown instead.
     /// Needs a Revit API context with no open transaction.
     /// </summary>
     internal static class ReviewNavigator
@@ -46,7 +46,8 @@ namespace ProjectPerseus.federator
         }
 
         /// <summary>Returns a short message for the panel's status line.</summary>
-        internal static string Show(UIDocument uidoc, RevitLinkInstance instance, IList<ElementChange> changes, bool select)
+        /// <param name="reviewViews">Registered review views (federator/ReviewViews), priority order: tried before the 3D view.</param>
+        internal static string Show(UIDocument uidoc, RevitLinkInstance instance, IList<ElementChange> changes, bool select, ReviewViewSettings reviewViews = null)
         {
             if (uidoc == null || instance == null || changes == null || changes.Count == 0) return "Nothing to show.";
             Document host = uidoc.Document;
@@ -98,6 +99,10 @@ namespace ProjectPerseus.federator
                 Zoom(uidoc, view, min, max);
                 where = "in this view";
             }
+            else if (TryReviewView(uidoc, host, instance, view, reviewViews, min, max, out string reviewWhere))
+            {
+                where = reviewWhere;
+            }
             else
             {
                 View3D v3 = EnsureFederatorView(host, uidoc.Application.Application.Username, min, max);
@@ -117,6 +122,26 @@ namespace ProjectPerseus.federator
             parts.Add("shown " + where);
             if (deleted > 0) parts.Add($"{deleted} deleted shown by their old position");
             return string.Join(", ", parts) + ".";
+        }
+
+        /// <summary>Opens the first review view that shows the box (link visible) and zooms there.</summary>
+        private static bool TryReviewView(UIDocument uidoc, Document host, RevitLinkInstance instance, View active, ReviewViewSettings settings,
+                                          XYZ min, XYZ max, out string where)
+        {
+            where = null;
+            if (settings == null || settings.ViewUids == null || settings.ViewUids.Count == 0) return false;
+            var target = ReviewViews.ViewFor(ReviewViews.Targets(host, ReviewViews.Resolve(host, settings), instance), min, max, active?.Id);
+            if (target == null) return false;
+            View v = target.View;
+            try { uidoc.ActiveView = v; }
+            catch
+            {
+                try { uidoc.RequestViewChange(v); }
+                catch (Exception ex) { Log.Info($"[Federator] couldn't open review view '{v.Name}': {ex.Message}"); return false; }
+            }
+            Zoom(uidoc, v, min, max);
+            where = $"in review view '{v.Name}' (not visible in {active?.Name})";
+            return true;
         }
 
         /// <summary>

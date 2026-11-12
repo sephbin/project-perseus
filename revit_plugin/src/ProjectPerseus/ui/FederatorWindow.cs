@@ -157,6 +157,17 @@ namespace ProjectPerseus.ui
         private readonly Button _linkPickRevit;
         private Button _replacementsButton;
         private ReplacementWindow _replacementWindow;
+        private ReplacementLearning _learning = ReplacementLearning.Empty;
+        // Review views (federator/ReviewViews): registered views, change uid -> view uid it's shown in, captured images.
+        private ReviewViewSettings _reviewViews = new ReviewViewSettings();
+        private readonly Dictionary<string, string> _viewOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, ViewImageFrame> _frames = new Dictionary<string, ViewImageFrame>(StringComparer.Ordinal);
+        private readonly Queue<string> _captureQueue = new Queue<string>();
+        private int _captureTotal, _captureDone;
+        private bool _capturing;
+        private string _imageModel;
+        /// <summary>Raised when review view images were captured (thumbnails can refresh).</summary>
+        internal event Action ImagesChanged;
         private readonly DataGrid _grid;
         private readonly StackPanel _detail;
         private readonly DispatcherTimer _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
@@ -259,6 +270,10 @@ namespace ProjectPerseus.ui
                                                               "Confirm them to treat each pair as one Replaced change.");
             _replacementsButton.Click += (s, e) => Safe(OpenReplacements);
             headerButtons.Children.Add(_replacementsButton);
+            var viewsButton = MakeButton("Review views…", "The go-to views for showing changes: changes not visible in the active view open there (before the 3D view), " +
+                                                          "and the panel shows changes on captured images of them.");
+            viewsButton.Click += (s, e) => Safe(OpenReviewViews);
+            headerButtons.Children.Add(viewsButton);
             headerButtons.Children.Add(refresh);
             AddAt(saved, headerButtons, 2);
             header.Children.Add(saved);
@@ -493,6 +508,9 @@ namespace ProjectPerseus.ui
             _events = ReviewStore.Load(_doc);
             long tEvents = clock.ElapsedMilliseconds;
             _archiveRoot = LinkArchive.RootFor(_doc);
+            _imageModel = ViewImageStore.ModelKey(string.IsNullOrEmpty(_doc.PathName) ? _doc.Title : _doc.PathName);
+            _reviewViews = ReviewViews.Load(_doc);
+            _frames.Clear();
             long tArchive = clock.ElapsedMilliseconds;
             _cloudVersions.Clear();   // Refresh re-reads the cloud version lists too
             _cloudState.Clear();
@@ -559,6 +577,8 @@ namespace ProjectPerseus.ui
             SavePreview();
             if (_linkSource != null) EndLinkPick();
             _stored = changes;
+            _learning = ReplacementLearning.From(_events);
+            if (changes != null && !_learning.IsEmpty) ReplacementMatcher.Suggest(changes, _learning.Bonus);
             _replacementLinks = ReplacementLinks.Fold(_events, rec?.LinkInstanceUid);
             if (rec != null && changes != null)
                 changes = ReplacementLinks.Apply(changes, _replacementLinks, rec.Tolerance > 0 ? rec.Tolerance : 1 / 304.8);
@@ -617,6 +637,7 @@ namespace ProjectPerseus.ui
                     _toHost = ChangeHighlightController.Capture(LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid));
                     _noise = FederatorSettingsStore.Load<NoiseRules>(_doc, NoiseKey) ?? new NoiseRules();
                     ApplyNoise();
+                    AssignReviewViews(rec, _reviewViews.AutoCapture, false);
                     // Only in active view: recompute for this comparison (its link instance and its deleted elements).
                     if (_inViewBox.IsChecked == true) UpdateInView(app);
                     PushHighlight();
@@ -641,6 +662,7 @@ namespace ProjectPerseus.ui
             foreach (var r in _rows) r.SetShown(NoiseFilter.Effective(r.Change, _noise, set));
             if (_groupBox.SelectedItem as string != null) Regroup();
             ApplyFilter();
+            UpdateReplacementsButton();
         }
 
         /// <summary>Rows for triage: not noise; only Unreviewed unless includeReviewed.</summary>
@@ -1029,6 +1051,7 @@ namespace ProjectPerseus.ui
             foreach (var r in keep) if (_view.PassesFilter(r)) _grid.SelectedItems.Add(r);
             _suppressSelection = false;
             RebuildDetail();
+            UpdateReplacementsButton();
             ReviewChanged?.Invoke();
         }
 
@@ -1271,9 +1294,56 @@ namespace ProjectPerseus.ui
             return null;
         }
 
-        /// <summary>Unconfirmed suggestions in this comparison, best match first (ui/ReplacementWindow).</summary>
-        internal List<ReplacementSuggestion> ReplacementSuggestions() =>
-            _rows.Select(SuggestionFor).Where(x => x != null).OrderByDescending(x => x.Candidate.Score).ToList();
+        /// <summary>
+        /// Unconfirmed suggestions in this comparison, best match first (ui/ReplacementWindow). Suggestions on noise
+        /// (Triage noise rules) or on elements / types people ignored are left out unless includeHidden (then Hidden says why).
+        /// </summary>
+        internal List<ReplacementSuggestion> ReplacementSuggestions(bool includeHidden = false)
+        {
+            var ignoredTypes = IgnoredTypes();
+            var list = new List<ReplacementSuggestion>();
+            foreach (var row in _rows)
+            {
+                var s = SuggestionFor(row);
+                if (s == null) continue;
+                s.Hidden = HiddenReason(s, ignoredTypes);
+                if (s.Hidden == null || includeHidden) list.Add(s);
+            }
+            return list.OrderByDescending(x => x.Candidate.Score).ToList();
+        }
+
+        internal ReplacementLearning Learning => _learning;
+
+        private static string TypeKey(ElementChange c) => (c.Category ?? "") + "|" + ChangeDescriber.TypeName(c.Family, c.Type);
+
+        /// <summary>
+        /// Category + type combinations people don't care about: at least 3 of their changes Ignored (e.g. a triage group
+        /// ignored) and none Accepted / Query / Resolved.
+        /// </summary>
+        private HashSet<string> IgnoredTypes()
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var g in _rows.GroupBy(r => TypeKey(r.Change)))
+            {
+                int ignored = 0; bool cared = false;
+                foreach (var r in g)
+                {
+                    var st = r.State.Status;
+                    if (st == ReviewStatus.Ignored) ignored++;
+                    else if (st == ReviewStatus.Accepted || st == ReviewStatus.Query || st == ReviewStatus.Resolved) { cared = true; break; }
+                }
+                if (!cared && ignored >= 3) set.Add(g.Key);
+            }
+            return set;
+        }
+
+        private static string HiddenReason(ReplacementSuggestion s, HashSet<string> ignoredTypes)
+        {
+            if (s.Deleted.IsNoise || s.Replacement.IsNoise) return "noise";
+            if (s.Deleted.State.Status == ReviewStatus.Ignored || s.Replacement.State.Status == ReviewStatus.Ignored) return "ignored";
+            if (ignoredTypes.Contains(TypeKey(s.Deleted.Change)) || ignoredTypes.Contains(TypeKey(s.Replacement.Change))) return "type ignored in triage";
+            return null;
+        }
 
         internal List<ChangeRow> LinkedReplacements() => _rows.Where(r => r.Change.Kind == ChangeKind.Replaced).ToList();
 
@@ -1296,13 +1366,22 @@ namespace ProjectPerseus.ui
             else _replacementWindow.Activate();
         }
 
-        private ReviewEvent ReplacementEvent(string oldUid, long oldId, string op, string newUid = null, long newId = 0) =>
-            new ReviewEvent { LinkedElementUid = oldUid, LinkedElementId = oldId, ReplacementOp = op, ReplacedByUid = newUid, ReplacedById = newId };
+        private ReviewEvent ReplacementEvent(string oldUid, long oldId, string op, string newUid = null, long newId = 0,
+                                             string pattern = null, string relation = null) =>
+            new ReviewEvent { LinkedElementUid = oldUid, LinkedElementId = oldId, ReplacementOp = op, ReplacedByUid = newUid, ReplacedById = newId,
+                              ReplacementPattern = pattern, ReplacementRelation = relation };
 
-        private void LinkPair(ChangeRow deleted, string newUid, long newId)
+        /// <param name="pattern">ReplacementGroups.PatternKey of the pair; computed from the added row when null.</param>
+        private void LinkPair(ChangeRow deleted, string newUid, long newId, string pattern = null)
         {
             if (deleted == null || deleted.Change.Kind != ChangeKind.Deleted || string.IsNullOrEmpty(newUid)) return;
-            WriteReplacementEvents(new List<ReviewEvent> { ReplacementEvent(deleted.Change.UniqueId, deleted.Change.Id, ReplacementLinks.OpLink, newUid, newId) },
+            string relation = null;
+            if (_rowByUid.TryGetValue(newUid, out var added) && added.Change.Kind == ChangeKind.Added)
+            {
+                pattern = pattern ?? ReplacementGroups.PatternKey(deleted.Change, added.Change);
+                relation = ReplacementGroups.Relation(deleted.Change, added.Change);
+            }
+            WriteReplacementEvents(new List<ReviewEvent> { ReplacementEvent(deleted.Change.UniqueId, deleted.Change.Id, ReplacementLinks.OpLink, newUid, newId, pattern, relation) },
                                    $"Linked: Id {deleted.Change.Id} replaced by Id {newId}.", newUid);
         }
 
@@ -1310,7 +1389,9 @@ namespace ProjectPerseus.ui
         {
             var events = pairs.Where(p => p != null).GroupBy(p => p.Replacement.Change.UniqueId).Select(g => g.First())   // one-to-one
                 .Select(p => ReplacementEvent(p.Deleted.Change.UniqueId, p.Deleted.Change.Id, ReplacementLinks.OpLink,
-                                              p.Replacement.Change.UniqueId, p.Replacement.Change.Id)).ToList();
+                                              p.Replacement.Change.UniqueId, p.Replacement.Change.Id,
+                                              ReplacementGroups.PatternKey(p.Deleted.Change, p.Replacement.Change),
+                                              ReplacementGroups.Relation(p.Deleted.Change, p.Replacement.Change))).ToList();
             if (events.Count == 0) return;
             WriteReplacementEvents(events, events.Count == 1 ? "Replacement linked." : $"{events.Count:N0} replacements linked.",
                                    events.Count == 1 ? events[0].ReplacedByUid : null);
@@ -1322,8 +1403,19 @@ namespace ProjectPerseus.ui
             var events = new List<ReviewEvent>();
             foreach (var r in rows)
             {
-                if (r.Change.Kind == ChangeKind.Replaced) events.Add(ReplacementEvent(r.Change.OldUniqueId, r.Change.OldId, ReplacementLinks.OpReject));
-                else if (r.Change.Kind == ChangeKind.Deleted) events.Add(ReplacementEvent(r.Change.UniqueId, r.Change.Id, ReplacementLinks.OpReject));
+                if (r.Change.Kind == ChangeKind.Replaced)
+                {
+                    _replacementLinks.ByOld.TryGetValue(r.Change.OldUniqueId ?? "", out var link);
+                    events.Add(ReplacementEvent(r.Change.OldUniqueId, r.Change.OldId, ReplacementLinks.OpReject, pattern: link?.Pattern));
+                }
+                else if (r.Change.Kind == ChangeKind.Deleted)
+                {
+                    // "Not a replacement" is learnt against its best suggestion.
+                    var best = SuggestionFor(r);
+                    events.Add(ReplacementEvent(r.Change.UniqueId, r.Change.Id, ReplacementLinks.OpReject,
+                        pattern: best == null ? null : ReplacementGroups.PatternKey(best.Deleted.Change, best.Replacement.Change),
+                        relation: best == null ? null : ReplacementGroups.Relation(best.Deleted.Change, best.Replacement.Change)));
+                }
             }
             if (events.Count == 0) return;
             bool broke = rows.Any(r => r.Change.Kind == ChangeKind.Replaced);
@@ -1414,7 +1506,11 @@ namespace ProjectPerseus.ui
                 if (el == null) { Status("That isn't an element of this link.", true); return; }
                 if (el.UniqueId == src.Change.UniqueId) { Status("That's the deleted element itself.", true); return; }
                 EndLinkPick();
-                LinkPair(src, el.UniqueId, el.Id.GetIdValue());
+                string pattern = null;
+                if (linkDoc.GetElement(el.GetTypeId()) is ARDB.ElementType et)
+                    pattern = ReplacementGroups.PatternKey(src.Change.Category, src.Change.Family, src.Change.Type, et.FamilyName, et.Name);
+                else pattern = ReplacementGroups.PatternKey(src.Change.Category, src.Change.Family, src.Change.Type, null, el.Name);
+                LinkPair(src, el.UniqueId, el.Id.GetIdValue(), pattern);
             }, needActive: true);
         }
 
@@ -2121,7 +2217,7 @@ namespace ProjectPerseus.ui
             {
                 var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
                 if (inst == null) { Status("The link instance is no longer in the model."); return; }
-                Status(ReviewNavigator.Show(app.ActiveUIDocument, inst, rows.Select(r => r.Change).ToList(), select));
+                Status(ReviewNavigator.Show(app.ActiveUIDocument, inst, rows.Select(r => r.Change).ToList(), select, _reviewViews));
             }, needActive: true);
         }
 
@@ -2269,6 +2365,11 @@ namespace ProjectPerseus.ui
             title.Inlines.Add(new System.Windows.Documents.Run(string.IsNullOrEmpty(row.Element) ? c.Category : row.Element));
             _detail.Children.Add(title);
             _detail.Children.Add(Muted_($"{c.Category} · Id {c.Id} · {(string.IsNullOrEmpty(c.Level) ? "no level" : c.Level)} · {c.Kind}"));
+            var thumbRows = new List<ChangeRow> { row };
+            var bestSuggestion = SuggestionFor(row);
+            if (bestSuggestion != null) thumbRows.Add(bestSuggestion.Replacement);
+            var thumb = Thumbnail(thumbRows, 380, 230, "Click to zoom to it in Revit" + (bestSuggestion != null ? " (green = its suggested replacement)" : ""));
+            if (thumb != null) { thumb.Margin = new Thickness(0, 6, 0, 2); _detail.Children.Add(thumb); }
 
             _detail.Children.Add(Section("What changed"));
             var shown = row.Shown;
@@ -2669,6 +2770,194 @@ namespace ProjectPerseus.ui
                 CanUserSort = true,
                 CellTemplate = new DataTemplate { VisualTree = tb },
             };
+        }
+
+        // ═══════════════════════════ Review views + images ═══════════════════════════
+        // Review views (federator/ReviewViews) are the go-to views for showing changes; each change is assigned to the
+        // first one showing it, and that view's captured image (federator/ViewImageCapture, ui/ViewImageStore) gives the
+        // thumbnails in the detail pane and the Replacements window.
+
+        internal bool HasViewImages => _frames.Values.Any(f => f != null);
+
+        private void OpenReviewViews()
+        {
+            if (_doc == null) { Status("No model is open."); return; }
+            RunApi(app =>
+            {
+                var candidates = ReviewViews.Candidates(_doc);
+                var current = ReviewViews.Load(_doc);
+                string active = app.ActiveUIDocument?.Document?.Equals(_doc) == true ? app.ActiveUIDocument.ActiveView?.UniqueId : null;
+                var dlg = new ReviewViewsWindow(candidates, current, active) { Owner = this };
+                if (dlg.ShowDialog() != true || dlg.Result == null) return;
+                dlg.Result.MaxPixels = current.MaxPixels;
+                FederatorSettingsStore.Save(_doc, ReviewViews.Key, dlg.Result, _me);
+                _reviewViews = dlg.Result;
+                Status($"{_reviewViews.ViewUids.Count} review view(s) saved.");
+                if (_record != null) AssignReviewViews(_record, dlg.RefreshNow || _reviewViews.AutoCapture, dlg.RefreshNow);
+            });
+        }
+
+        private void HostBoxOf(ElementChange c, bool old, out double[] min, out double[] max)
+        {
+            min = max = null;
+            var a = old ? c.OldMin : c.NewMin;
+            var b = old ? c.OldMax : c.NewMax;
+            if (a == null || b == null) return;
+            _toHost.Box(a, b, out min, out max);
+        }
+
+        /// <summary>Host box a change is shown by: old position for deleted (and replaced without a new box), else new.</summary>
+        private void ShownBoxOf(ElementChange c, out double[] min, out double[] max)
+        {
+            bool old = c.Kind == ChangeKind.Deleted || c.NewMin == null;
+            HostBoxOf(c, old, out min, out max);
+        }
+
+        /// <summary>
+        /// API context: assigns each change to a review view, loads cached images and (capture) queues images that are
+        /// missing or out of date (link version, crop or area changed, older than 30 days); force = recapture all used.
+        /// </summary>
+        private void AssignReviewViews(ComparisonRecord rec, bool capture, bool force)
+        {
+            _viewOf.Clear();
+            var views = ReviewViews.Resolve(_doc, _reviewViews);
+            if (views.Count == 0 || rec == null) { ImagesChanged?.Invoke(); return; }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
+            var targets = ReviewViews.Targets(_doc, views, inst);
+            var boxesByView = new Dictionary<string, List<KeyValuePair<double[], double[]>>>(StringComparer.Ordinal);
+            foreach (var r in _rows)
+            {
+                ShownBoxOf(r.Change, out var min, out var max);
+                if (min == null) continue;
+                var t = ReviewViews.ViewFor(targets, new ARDB.XYZ(min[0], min[1], min[2]), new ARDB.XYZ(max[0], max[1], max[2]));
+                if (t == null) continue;
+                string uid = t.View.UniqueId;
+                if (!string.IsNullOrEmpty(r.Change.UniqueId)) _viewOf[r.Change.UniqueId] = uid;
+                if (!boxesByView.TryGetValue(uid, out var list)) boxesByView[uid] = list = new List<KeyValuePair<double[], double[]>>();
+                list.Add(new KeyValuePair<double[], double[]>(min, max));
+            }
+            string liveGuid = _links.FirstOrDefault(l => l.Uid == rec.LinkInstanceUid)?.LiveGuid ?? "";
+            int queued = 0;
+            foreach (var v in views)
+            {
+                if (!boxesByView.TryGetValue(v.UniqueId, out var boxes)) continue;
+                var frame = ViewImageStore.Load(_imageModel, v.UniqueId);
+                _frames[v.UniqueId] = frame;
+                if (!capture) continue;
+                bool stale = force || frame == null || (DateTime.UtcNow - frame.CapturedUtc).TotalDays > 30;
+                if (!stale && frame.LinkVersions != null && frame.LinkVersions.TryGetValue(rec.LinkInstanceUid, out var g) && g != liveGuid) stale = true;
+                if (!stale && v.CropBoxActive && frame.CropSignature != ViewImageCapture.CropSignature(v)) stale = true;
+                if (!stale && !v.CropBoxActive && boxes.Count(b => !frame.Covers(b.Key, b.Value)) > boxes.Count / 50) stale = true;
+                if (stale && !_captureQueue.Contains(v.UniqueId)) { _captureQueue.Enqueue(v.UniqueId); queued++; }
+            }
+            Log.Info($"[Federator] review views: {_viewOf.Count:N0} of {_rows.Count:N0} changes in {boxesByView.Count} of {views.Count} view(s), " +
+                     $"{queued} image(s) to capture, {clock.ElapsedMilliseconds} ms");
+            ImagesChanged?.Invoke();
+            if (queued > 0 && !_capturing)
+            {
+                _captureTotal = _captureQueue.Count;
+                _captureDone = 0;
+                CaptureNext();
+            }
+        }
+
+        private void CaptureNext()
+        {
+            if (_captureQueue.Count == 0)
+            {
+                _capturing = false;
+                SyncStatusToast.Hide();
+                Status(_captureTotal > 0 ? $"Captured {_captureDone} review view image(s)." : "");
+                return;
+            }
+            _capturing = true;
+            string uid = _captureQueue.Dequeue();
+            var rec = _record;
+            RunApi(app =>
+            {
+                ViewImageCapture.Result result = null;
+                try
+                {
+                    var view = _doc.GetElement(uid) as ARDB.View;
+                    if (view != null && rec != null)
+                    {
+                        string label = $"Capturing review view images ({_captureDone + 1} of {_captureTotal}): {view.Name}";
+                        Status(label + "… Revit is busy meanwhile.");
+                        SyncStatusToast.Progress("Capturing review view images", (double)_captureDone / Math.Max(1, _captureTotal), view.Name);
+                        var boxes = new List<KeyValuePair<double[], double[]>>();
+                        foreach (var r in _rows)
+                        {
+                            if (!_viewOf.TryGetValue(r.Change.UniqueId ?? "", out var v) || v != uid) continue;
+                            ShownBoxOf(r.Change, out var min, out var max);
+                            if (min != null) boxes.Add(new KeyValuePair<double[], double[]>(min, max));
+                        }
+                        result = ViewImageCapture.Capture(_doc, view, boxes, _reviewViews.MaxPixels, ViewImageStore.TempDir);
+                        if (result == null) Log.Info($"[Federator] review view '{view.Name}': no image captured");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"[Federator] review view image failed: {ex.Message}");
+                    Status("A review view image failed: " + ex.Message, true);
+                }
+                _captureDone++;
+                if (result == null) { CaptureNext(); return; }
+                ViewImageStore.SaveAsync(_imageModel, result).ContinueWith(t => Dispatcher.BeginInvoke(new Action(() => Safe(() =>
+                {
+                    var frame = t.Status == System.Threading.Tasks.TaskStatus.RanToCompletion ? t.Result : null;
+                    if (frame != null)
+                    {
+                        _frames[uid] = frame;
+                        ImagesChanged?.Invoke();
+                        if (_grid.SelectedItems.Count == 1) RebuildDetail();
+                    }
+                    CaptureNext();
+                }))));
+            });
+        }
+
+        /// <summary>The captured image showing these changes (the first one assigned to a review view with an image), or null.</summary>
+        private ViewImageFrame FrameFor(IEnumerable<ChangeRow> rows)
+        {
+            foreach (var r in rows)
+                if (r != null && _viewOf.TryGetValue(r.Change.UniqueId ?? "", out var uid) && _frames.TryGetValue(uid, out var f) && f != null)
+                    return f;
+            return null;
+        }
+
+        private static readonly Brush GhostBrush = Frozen(0x80, 0x86, 0x91);
+
+        private List<ChangeThumbnail.Mark> MarksFor(ChangeRow r)
+        {
+            var c = r.Change;
+            var marks = new List<ChangeThumbnail.Mark>();
+            void Add(bool old, Brush brush, bool dashed)
+            {
+                HostBoxOf(c, old, out var min, out var max);
+                if (min != null) marks.Add(new ChangeThumbnail.Mark { Min = min, Max = max, Brush = brush, Dashed = dashed });
+            }
+            switch (c.Kind)
+            {
+                case ChangeKind.Deleted: Add(true, ChangeRow.DeletedBrush, true); break;
+                case ChangeKind.Added: Add(false, ChangeRow.AddedBrush, false); break;
+                case ChangeKind.Replaced: Add(true, ChangeRow.DeletedBrush, true); Add(false, ChangeRow.ReplacedBrush, false); break;
+                default:
+                    if (c.Aspects.HasFlag(ChangeAspect.Moved)) Add(true, GhostBrush, true);
+                    Add(false, ChangeRow.ModifiedBrush, false);
+                    break;
+            }
+            return marks;
+        }
+
+        /// <summary>A thumbnail of these changes on their review view image (click = zoom in Revit), or null when there's no image.</summary>
+        internal FrameworkElement Thumbnail(IList<ChangeRow> rows, double width, double height, string tip = null)
+        {
+            var frame = FrameFor(rows);
+            if (frame == null) return null;
+            var marks = rows.Where(r => r != null).SelectMany(MarksFor).ToList();
+            var list = rows.Where(r => r != null).ToList();
+            return ChangeThumbnail.Build(frame, marks, width, height, tip, () => Safe(() => ShowRows(list, true)));
         }
 
         // ═══════════════════════════ Helpers ═══════════════════════════

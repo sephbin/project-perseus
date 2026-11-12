@@ -21,7 +21,8 @@ namespace ProjectPerseus.federator
         private const double Cell = 10.0;              // spatial hash cell size (feet)
         private const int MaxCellsPerBox = 512;
 
-        public static void Suggest(IList<ElementChange> changes)
+        /// <param name="bonus">Optional score adjustment per pair, learnt from earlier decisions (ReplacementLearning.Bonus).</param>
+        public static void Suggest(IList<ElementChange> changes, Func<ElementChange, ElementChange, double> bonus = null)
         {
             if (changes == null) return;
             var byCategory = changes
@@ -37,6 +38,15 @@ namespace ProjectPerseus.federator
                 foreach (var a in index.Query(Grown(d.OldMin, -1), Grown(d.OldMax, +1)))
                 {
                     var cand = Score(d, a);
+                    if (cand != null && bonus != null)
+                    {
+                        double b = bonus(d, a);
+                        if (Math.Abs(b) >= 0.01)
+                        {
+                            cand.Score = Math.Round(Math.Max(0, Math.Min(1, cand.Score + b)), 3);
+                            cand.Reason += b > 0 ? ", linked like this before" : ", rejected like this before";
+                        }
+                    }
                     if (cand != null && cand.Score >= MinScore) found.Add(cand);
                 }
                 if (found.Count > 0)

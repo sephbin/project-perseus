@@ -30,6 +30,7 @@ namespace ProjectPerseus.federator
             public long NewId { get; set; }
             public string Author { get; set; }
             public DateTime Utc { get; set; }
+            public string Pattern { get; set; }
         }
 
         public class State
@@ -57,7 +58,7 @@ namespace ProjectPerseus.federator
                 {
                     if (s.ByNew.TryGetValue(e.ReplacedByUid, out var previous)) Unlink(s, previous.OldUid);
                     var link = new Link { OldUid = old, OldId = e.LinkedElementId, NewUid = e.ReplacedByUid, NewId = e.ReplacedById,
-                                          Author = e.Author, Utc = e.CreatedUtc };
+                                          Author = e.Author, Utc = e.CreatedUtc, Pattern = e.ReplacementPattern };
                     s.ByOld[old] = link;
                     s.ByNew[link.NewUid] = link;
                     s.Rejected.Remove(old);

@@ -319,6 +319,8 @@ ProjectPerseus/
 │   │                             Replacement links (orphan fix): right-click a row / badge -> Link to replacement… (pick mode: list
 │   │                             row, badge or Pick in Revit), suggested replacements, Not a replacement, Break link; Replaced rows
 │   │                             carry the deleted element's history; Replacements… opens ui/ReplacementWindow.
+│   │                             Review views… (ui/ReviewViewsWindow): each change is assigned to a review view; missing / stale view images
+│   │                             are captured one per API call (federator/ViewImageCapture) when a comparison opens; detail pane thumbnail.
 │   │                             Preview column: row check boxes + group header (ticked/unticked/mixed) + column header for all
 │   │                             shown; unticked rows aren't drawn or baked ("shown" scope).
 │   ├── MultiPick.cs              NEW (2026-11-11). Drop-down tick list (All / None / presets, parent items with mixed state) for the
@@ -329,8 +331,17 @@ ProjectPerseus/
 │   │                             FederatorWindow places it from a 150 ms API-context tick (UIView rect + zoom corners; hidden while moving)
 │   │                             using ChangeHighlightServer.HitsFor (badge spots recorded per view at build).
 │   ├── TextPrompt.cs             NEW (2026-11-11). Small modal text prompt (Ask(owner hwnd, title, prompt, initial, multiline)).
-│   ├── ReplacementWindow.cs      NEW (2026-11-11). Modeless "Possible replacements": unconfirmed ReplacementMatcher suggestions (best
-│   │                             first, 80 %+ pre-ticked) -> Link ticked / Not replacements / Zoom; writes via FederatorWindow.
+│   ├── ReplacementWindow.cs      NEW (2026-11-11). Modeless "Possible replacements": unconfirmed suggestions grouped by federator/
+│   │                             ReplacementGroups (top 10 groups first, best example as a review view thumbnail, learnt patterns first):
+│   │                             Link all / Not replacements / Review pairs (paged, ticks), Link confident groups. Suggestions on noise or
+│   │                             Ignored elements / types (3+ ignored, none cared about) are hidden ("Show hidden"). Writes via FederatorWindow.
+│   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
+│   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
+│   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
+│   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
+│   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.
+│   ├── ChangeThumbnail.cs        NEW (2026-11-12). Cropped review view image around changes with their boxes drawn on top (solid = now,
+│   │                             dashed = old position), async load, click = zoom in Revit. Detail pane + ReplacementWindow.
 │   ├── BakeDialog.cs             NEW (2026-11-08). Modal "Bake changes to views": view list (regex + tick overrides, why column),
 │   │                             changes scope (shown/selected/all), outline vs revision cloud (+revision), labels, replace previous.
 │   ├── TriageWindow.cs           NEW (2026-11-09). Modeless bulk review: ChangeTriage groups (largest first), value transitions,
@@ -411,6 +422,19 @@ ProjectPerseus/
 │   │                             actions (closed by ClosesActionId) + Assignees; thread = all events across comparisons. Tested.
 │   ├── ReplacementMatcher.cs     Pure: for each Deleted change, likely replacements among Added ones of the same category (box
 │   │                             overlap / covers-old / proximity + same type/family/level; spatial hash). Stored on the change.
+│   ├── ReplacementGroups.cs      Pure: groups replacement suggestions by pattern (category | old type | new type) + spatial relation
+│   │                             (identical place and size / same place resized / shifted <= 300 mm / moved) for bulk approval; order:
+│   │                             learnt-linked, confident (80 %+), relation, size; learnt-rejected last. Tested in ReplacementGroupsTest.cs.
+│   ├── ReplacementLearning.cs    Pure: learns from link / reject events (ReviewEvent.ReplacementPattern; latest decision per deleted element)
+│   │                             per pattern across the host model: Bias / Bonus (re-ranks ReplacementMatcher.Suggest(changes, bonus), re-run
+│   │                             when the panel opens a comparison), "linked 40 like this before". Tested in ReplacementGroupsTest.cs.
+│   ├── ReviewViews.cs            Review views: registered go-to host views (models/ReviewViewSettings, FederatorSettingsStore "review-views",
+│   │                             shared). Candidates, Resolve, Targets (ViewExtent + link shown), ViewFor = first view showing a box.
+│   ├── ViewImageCapture.cs       Image of a review view: duplicate + known crop (own crop, else changes' area + 3 m) + crop hidden +
+│   │                             annotation crop, Document.ExportImage PNG (20 mm/px, <= 6000 px), all in a TransactionGroup that is ROLLED
+│   │                             BACK (model untouched). Crop vs annotation crop picked by image aspect. -> ViewImageFrame.
+│   ├── ViewImageFrame.cs         Pure: host point -> image pixel mapping of a captured view (crop frame origin/right/up, model rect, px size,
+│   │                             link versions + crop signature for staleness), thumbnail window. Tested in ReplacementGroupsTest.cs.
 │   ├── ReplacementLinks.cs       Pure orphan fix: confirmed "deleted X was replaced by new Y" links = review events on X
 │   │                             (ReplacementOp link / reject, ReplacedByUid), per link instance, newest wins, one-to-one, across
 │   │                             comparisons. Apply() merges each pair into one ChangeKind.Replaced change (panel only; stored
@@ -421,7 +445,8 @@ ProjectPerseus/
 │   │                             (Unassigned), in-view ids, search incl. parameters + comments). Tested in ChangeFilterTest.cs.
 │   ├── ViewExtent.cs             What a view shows (floor plan: top clip down to view depth; RCP: cut plane UP to top/view depth;
 │   │                             + crop; section/elevation crop depth; 3D section box).
-│   ├── ReviewNavigator.cs        Select linked elements (SetReferences) + zoom; not visible here -> user's own "Perseus Federator
+│   ├── ReviewNavigator.cs        Select linked elements (SetReferences) + zoom; not visible here -> first review view showing them
+│   │                             (federator/ReviewViews), else user's own "Perseus Federator
 │   │                             - <user>" 3D view with a section box. VisibleLinkedIds: link view collector ONLY for projectable
 │   │                             views with the link instance shown (it AV-crashed Revit otherwise - uncatchable), else boxes.
 │   ├── FederatorController.cs    Startup-subscribed ViewActivated + SelectionChanged, forwarded to FederatorWindow when open;
@@ -501,6 +526,7 @@ ProjectPerseus/
 │   ├── ReviewAction.cs           NEW (2026-11-08). Extensible action (free-text Type, Assignee) opened by a ReviewEvent.
 │   ├── BakeSettings.cs           NEW (2026-11-08). Federator bake settings (target views, scope, style, labels), saved per link.
 │   ├── ViewCandidate.cs          NEW (2026-11-08). A view that can receive baked annotations.
+│   ├── ReviewViewSettings.cs     NEW (2026-11-12). Review views (view uids in priority order), AutoCapture, MaxPixels.
 │   ├── ReplacementCandidate.cs   NEW (2026-11-08). Likely replacement of a deleted element (uid, type, score, reason).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
 │   │                             IncludeLinks, Filter, Parameters (list; first = default for entries without one; legacy "Parameter" read), Entries (Enabled, Label, Parameter, Display ring/square/outline/icon-only (legacy ShowRing read), Match equals/contains/regex/any/empty/>/>=/</<= (numeric: double params in internal units via UnitFormatUtils.TryParse of the threshold in host units; else first number in the text), Value,

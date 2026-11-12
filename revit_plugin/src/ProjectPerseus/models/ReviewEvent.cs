@@ -65,6 +65,12 @@ namespace ProjectPerseus.models
         public string ReplacementOp { get; set; }
         public string ReplacedByUid { get; set; }
         public long ReplacedById { get; set; }
+        /// <summary>
+        /// What kind of pair was linked / rejected (federator/ReplacementGroups.PatternKey: category | old type | new type)
+        /// and how they relate in space (Relation), so federator/ReplacementLearning can learn from people's decisions.
+        /// </summary>
+        public string ReplacementPattern { get; set; }
+        public string ReplacementRelation { get; set; }
 
         [JsonIgnore] public long StorageId { get; set; }
     }
