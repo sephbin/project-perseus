@@ -1293,16 +1293,18 @@ namespace ProjectPerseus.ui
         {
             var c = row.Change;
             if (c.Kind != ChangeKind.Deleted || c.Replacements == null || _replacementLinks.Rejected.Contains(c.UniqueId ?? "")) return null;
-            // Best candidate of the same family first (a detector isn't replaced by a sprinkler), else the best one.
-            ReplacementSuggestion other = null;
+            // Best candidate of the same type first, then of the same family (a detector isn't replaced by a sprinkler),
+            // else the best one.
+            ReplacementSuggestion sameFamily = null, other = null;
             foreach (var cand in c.Replacements)
                 if (_rowByUid.TryGetValue(cand.UniqueId ?? "", out var add) && add.Change.Kind == ChangeKind.Added)
                 {
                     var s = new ReplacementSuggestion { Deleted = row, Replacement = add, Candidate = cand, Alternatives = c.Replacements.Count - 1 };
-                    if (SameFamily(c, add.Change)) return s;
+                    if (SameFamily(c, add.Change) && SameType(c, add.Change)) return s;
+                    if (sameFamily == null && SameFamily(c, add.Change)) sameFamily = s;
                     if (other == null) other = s;
                 }
-            return other;
+            return sameFamily ?? other;
         }
 
         /// <summary>
@@ -1351,11 +1353,16 @@ namespace ProjectPerseus.ui
         private static bool SameFamily(ElementChange a, ElementChange b) =>
             string.Equals(a.Family ?? "", b.Family ?? "", StringComparison.Ordinal);
 
+        private static bool SameType(ElementChange a, ElementChange b) =>
+            string.Equals(a.Type ?? "", b.Type ?? "", StringComparison.Ordinal);
+
         private string HiddenReason(ReplacementSuggestion s, HashSet<string> ignoredTypes)
         {
-            // Different family: almost never the same element; shown only once people have linked that pattern before.
-            if (!SameFamily(s.Deleted.Change, s.Replacement.Change)
-                && _learning.Bias(ReplacementGroups.PatternKey(s.Deleted.Change, s.Replacement.Change)) <= 0) return "different family";
+            // Different family or type (e.g. EF-Detector -> FP-Sprinkler, also when both share one generic family): usually
+            // a different element next to it; shown once people have linked that pattern before.
+            bool learnt = _learning.Bias(ReplacementGroups.PatternKey(s.Deleted.Change, s.Replacement.Change)) > 0;
+            if (!learnt && !SameFamily(s.Deleted.Change, s.Replacement.Change)) return "different family";
+            if (!learnt && !SameType(s.Deleted.Change, s.Replacement.Change)) return "different type";
             if (s.Deleted.IsNoise || s.Replacement.IsNoise) return "noise";
             if (s.Deleted.State.Status == ReviewStatus.Ignored || s.Replacement.State.Status == ReviewStatus.Ignored) return "ignored";
             if (ignoredTypes.Contains(TypeKey(s.Deleted.Change)) || ignoredTypes.Contains(TypeKey(s.Replacement.Change))) return "type ignored in triage";

@@ -57,6 +57,7 @@ namespace ProjectPerseus.ui
         private readonly Dictionary<string, int> _pairsShown = new Dictionary<string, int>(StringComparer.Ordinal);
         // Ticks by deleted UniqueId inside opened groups (start ticked).
         private readonly HashSet<string> _unticked = new HashSet<string>(StringComparer.Ordinal);
+        private string _loggedSig;
 
         internal ReplacementWindow(FederatorWindow owner)
         {
@@ -87,7 +88,7 @@ namespace ProjectPerseus.ui
             var tools = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
             var right = new StackPanel { Orientation = Orientation.Horizontal };
             _showHidden = new CheckBox { Content = "Show hidden", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
-                                         ToolTip = "Also show suggestions on noise (Triage noise rules), on elements / types marked Ignored, and pairs of different families (e.g. a detector next to a sprinkler)." };
+                                         ToolTip = "Also show suggestions on noise (Triage noise rules), on elements / types marked Ignored, and pairs of a different family or type (e.g. a detector next to a sprinkler). Once people link a family / type change, similar pairs show again." };
             _showHidden.Checked += (s, e) => Refresh();
             _showHidden.Unchecked += (s, e) => Refresh();
             right.Children.Add(_showHidden);
@@ -128,9 +129,17 @@ namespace ProjectPerseus.ui
             {
                 Deleted = s.Deleted.Change, Added = s.Replacement.Change, Score = s.Candidate.Score, Tag = s,
             }), _owner.Learning);
+            string sig = $"{shown.Count}|{hidden}|{_groups.Count}";
+            if (sig != _loggedSig)
+            {
+                _loggedSig = sig;
+                logging.Log.Info($"[Federator] replacements: {shown.Count} shown, {hidden} hidden ({string.Join(", ", all.Where(x => x.Hidden != null).GroupBy(x => x.Hidden).Select(g => $"{g.Key} {g.Count()}"))}), " +
+                                 $"{_groups.Count} group(s): " + string.Join(" | ", _groups.Take(15).Select(g =>
+                                     $"[{g.Category}] '{g.OldFamily}'/'{((ReplacementSuggestion)g.Example.Tag).Deleted.Change.Type}' -> '{g.NewFamily}'/'{((ReplacementSuggestion)g.Example.Tag).Replacement.Change.Type}' {g.Size} {g.Relation} x{g.Pairs.Count}")));
+            }
 
             _summary.Text = $"{shown.Count:N0} possible replacement(s) in {_groups.Count:N0} group(s)" +
-                            (hidden > 0 ? $" · {hidden:N0} hidden (noise, ignored in triage, or a different family)" : "");
+                            (hidden > 0 ? $" · {hidden:N0} hidden (noise, ignored in triage, or a different family / type)" : "");
             _showHidden.Content = hidden > 0 ? $"Show hidden ({hidden:N0})" : "Show hidden";
             var confident = ConfidentGroups();
             int confidentPairs = confident.Sum(g => g.Pairs.Count);
