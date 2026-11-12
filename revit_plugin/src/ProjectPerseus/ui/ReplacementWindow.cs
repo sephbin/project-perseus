@@ -82,7 +82,7 @@ namespace ProjectPerseus.ui
             var tools = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
             var right = new StackPanel { Orientation = Orientation.Horizontal };
             _showHidden = new CheckBox { Content = "Show hidden", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
-                                         ToolTip = "Also show suggestions on noise (Triage noise rules) and on elements / types marked Ignored." };
+                                         ToolTip = "Also show suggestions on noise (Triage noise rules), on elements / types marked Ignored, and pairs of different families (e.g. a detector next to a sprinkler)." };
             _showHidden.Checked += (s, e) => Refresh();
             _showHidden.Unchecked += (s, e) => Refresh();
             right.Children.Add(_showHidden);
@@ -125,7 +125,7 @@ namespace ProjectPerseus.ui
             }), _owner.Learning);
 
             _summary.Text = $"{shown.Count:N0} possible replacement(s) in {_groups.Count:N0} group(s)" +
-                            (hidden > 0 ? $" · {hidden:N0} hidden (noise or ignored in triage)" : "");
+                            (hidden > 0 ? $" · {hidden:N0} hidden (noise, ignored in triage, or a different family)" : "");
             _showHidden.Content = hidden > 0 ? $"Show hidden ({hidden:N0})" : "Show hidden";
             var confident = ConfidentGroups();
             int confidentPairs = confident.Sum(g => g.Pairs.Count);

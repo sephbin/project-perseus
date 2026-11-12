@@ -77,12 +77,14 @@ namespace ProjectPerseus.ui
             root.Children.Add(intro);
 
             var footer = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
-            _auto = new CheckBox { Content = "Capture view images automatically when a comparison opens (only missing / out-of-date ones)",
+            _auto = new CheckBox { Content = "Offer to capture missing / out-of-date view images when a comparison opens",
                                    IsChecked = current?.AutoCapture ?? true, VerticalAlignment = VerticalAlignment.Center };
             var buttons = new StackPanel { Orientation = Orientation.Horizontal };
             var ok = Btn("Save", () => Finish(false));
             ok.IsDefault = true;
-            buttons.Children.Add(Btn("Save and capture images now", () => Finish(true)));
+            var captureNow = Btn("Save and capture images now", () => Finish(true));
+            captureNow.ToolTip = "Slow: Revit exports every review view that has changes and is busy until it's done (seconds to minutes per view).";
+            buttons.Children.Add(captureNow);
             buttons.Children.Add(ok);
             var cancel = Btn("Cancel", () => { DialogResult = false; });
             cancel.IsCancel = true;

@@ -48,6 +48,30 @@ namespace ProjectPerseus.ui
 
         private static string Safe(string s) => string.Concat((s ?? "").Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
 
+        /// <summary>Average seconds a capture took on this model (moving average, kept per model), 0 when unknown.</summary>
+        internal static double AverageCaptureSeconds(string model)
+        {
+            try
+            {
+                var f = Path.Combine(Root, model, "capture_seconds.txt");
+                return File.Exists(f) && double.TryParse(File.ReadAllText(f), System.Globalization.NumberStyles.Float,
+                                                         System.Globalization.CultureInfo.InvariantCulture, out double s) ? s : 0;
+            }
+            catch { return 0; }
+        }
+
+        internal static void RecordCaptureSeconds(string model, double seconds)
+        {
+            try
+            {
+                double avg = AverageCaptureSeconds(model);
+                avg = avg <= 0 ? seconds : 0.7 * avg + 0.3 * seconds;
+                Directory.CreateDirectory(Path.Combine(Root, model));
+                File.WriteAllText(Path.Combine(Root, model, "capture_seconds.txt"), avg.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            catch { /* only an estimate */ }
+        }
+
         /// <summary>The newest complete image of a view, or null.</summary>
         internal static ViewImageFrame Load(string model, string viewUid)
         {
