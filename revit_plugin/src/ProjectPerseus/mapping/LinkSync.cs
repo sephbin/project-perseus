@@ -102,7 +102,35 @@ namespace ProjectPerseus.mapping
                 foreach (FamilyInstance fi in new FilteredElementCollector(doc).OfClass(typeof(FamilyInstance)).WhereElementIsNotElementType())
                     if (fi.Symbol != null && targetIds.Contains(fi.Symbol.Id) && !recorded.Contains(fi.Id)) input.Unrecorded.Add(Ours(fi, null));
             }
-            return LinkSyncPlanner.Plan(input);
+            var items = LinkSyncPlanner.Plan(input);
+            var editors = new Dictionary<long, string>();
+            foreach (var it in items)
+            {
+                if (it.OursId != 0)
+                {
+                    var el = doc.GetElement(RevitExtensions.CreateId(it.OursId));
+                    it.OursUid = el?.UniqueId;
+                    if (el != null && doc.IsWorkshared) it.OursEditedBy = LastChangedBy(doc, el.Id);
+                }
+                long sid = it.NewSourceId != 0 ? it.NewSourceId : it.SourceId;
+                if (sid != 0 && linkDoc.IsWorkshared)
+                {
+                    if (!editors.TryGetValue(sid, out var who)) editors[sid] = who = LastChangedBy(linkDoc, RevitExtensions.CreateId(sid));
+                    it.SourceEditedBy = who;
+                }
+            }
+            return items;
+        }
+
+        private static string LastChangedBy(Document d, ElementId id)
+        {
+            try
+            {
+                if (d.GetElement(id) == null) return null;
+                var who = WorksharingUtils.GetWorksharingTooltipInfo(d, id)?.LastChangedBy;
+                return string.IsNullOrEmpty(who) ? null : who;
+            }
+            catch { return null; }
         }
 
         private static SyncOurs Ours(FamilyInstance fi, MappedFamilyData record) => new SyncOurs
@@ -144,6 +172,7 @@ namespace ProjectPerseus.mapping
 
             var idMap = new Dictionary<long, long>();
             var rejectedNew = new Dictionary<string, HashSet<string>>();
+            var events = new List<LinkSyncEvent>();
             var levels = FamilyPlacer.Levels(doc);
             var ordered = decisions.OrderBy(d => Order(d.Item.Kind)).ToList();
             using (var tg = new TransactionGroup(doc, "Perseus: Link Sync"))
@@ -164,7 +193,15 @@ namespace ProjectPerseus.mapping
                             string outcome = One(doc, d, links, user, levels, idMap, rejectedNew, res);
                             if (outcome == "skipped") res.Skipped++;
                             else if (outcome != null) { res.Failed++; if (!res.Warnings.Contains(outcome)) res.Warnings.Add(outcome); }
-                            else if (d.Approve) res.Approved++; else res.Rejected++;
+                            else
+                            {
+                                if (d.Approve) res.Approved++; else res.Rejected++;
+                                events.Add(new LinkSyncEvent
+                                {
+                                    LinkUid = d.Item.LinkUid, Key = LinkSyncNotes.KeyFor(d.Item), Type = LinkSyncEvent.Decision, Kind = d.Item.Kind.ToString(),
+                                    Approved = d.Approve, Author = user, Utc = DateTime.UtcNow,
+                                });
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -173,6 +210,7 @@ namespace ProjectPerseus.mapping
                             Log.Info($"[LinkSync] {d.Item.Kind} {(d.Approve ? "approve" : "reject")} failed: {ex.Message}");
                         }
                     }
+                    LinkSyncLog.Add(doc, events, inTransaction: true);
                     tx.Commit();
                 }
                 foreach (var kv in rejectedNew)
@@ -193,6 +231,7 @@ namespace ProjectPerseus.mapping
                                   Dictionary<long, long> idMap, Dictionary<string, HashSet<string>> rejectedNew, ApplyResult res)
         {
             var it = d.Item;
+            string dec = DecisionText(it.Kind, d.Approve, user, DateTime.Now);
             if (!links.TryGetValue(it.LinkUid ?? "", out var link) || link.Instance?.GetLinkDocument() == null) return "the link isn't loaded";
             var inst = link.Instance;
             var linkDoc = inst.GetLinkDocument();
@@ -227,7 +266,7 @@ namespace ProjectPerseus.mapping
                     default: return null;
                 }
                 MappedFamilyStore.Write(ours, rec);
-                SetParameters(ours, link.Name, rec.SourceId, it.Kind == SyncKind.Orphaned ? "Kept: consultant deleted" : "Kept: change rejected");
+                SetParameters(dec, ours, link.Name, rec.SourceId, (it.Kind == SyncKind.Orphaned ? "Kept: consultant deleted" : "Kept: change rejected") + $" (by {user})");
                 return null;
             }
 
@@ -241,7 +280,7 @@ namespace ProjectPerseus.mapping
                     rec.RejectedReplacement = null;
                     rec.By = user;
                     MappedFamilyStore.Write(ours, rec);
-                    SetParameters(ours, link.Name, rec.SourceId, null);
+                    SetParameters(dec, ours, link.Name, rec.SourceId, null);
                     return null;
                 }
                 case SyncKind.ConsultantType:
@@ -256,7 +295,7 @@ namespace ProjectPerseus.mapping
                     if (it.Kind == SyncKind.ConsultantType) { rec.SourceTypeKey = it.SourceTypeKey; rec.RuleId = it.RuleId ?? rec.RuleId; rec.RejectedSourceType = null; }
                     else rec.RejectedTargetUid = null;
                     MappedFamilyStore.Write(ours, rec);
-                    SetParameters(ours, link.Name, rec.SourceId, null);
+                    SetParameters(dec, ours, link.Name, rec.SourceId, null);
                     res.Last = ours.Id;
                     return null;
                 }
@@ -280,7 +319,7 @@ namespace ProjectPerseus.mapping
                     data.RejectedExpected = null;
                     data.By = user; data.Utc = DateTime.UtcNow;
                     MappedFamilyStore.Write(now, data);
-                    SetParameters(now, link.Name, data.SourceId, null);
+                    SetParameters(dec, now, link.Name, data.SourceId, null);
                     res.Last = now.Id;
                     return null;
                 }
@@ -290,7 +329,7 @@ namespace ProjectPerseus.mapping
                     if (rule == null) return "no mapping rule for it";
                     var data = MappedFamilyStore.Write(ours, link.Uid, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Linked,
                                                        FamilyPlacer.TypeKey(source), FamilyPlacer.SourceFrame(source, toHost), FamilyPlacer.FrameOf(ours));
-                    SetParameters(ours, link.Name, data.SourceId, null);
+                    SetParameters(dec, ours, link.Name, data.SourceId, null);
                     res.Last = ours.Id;
                     return null;
                 }
@@ -302,7 +341,7 @@ namespace ProjectPerseus.mapping
                     if (sym == null) return "our mapped type isn't in the model any more";
                     var fi = FamilyPlacer.Place(doc, inst, rule, sym, source, levels, FamilyPlacer.WorksetByName(doc, rule.Workset), user, out string warning);
                     if (fi == null) return warning ?? "couldn't place it";
-                    SetParameters(fi, link.Name, source.Id.GetIdValue().ToString(), null);
+                    SetParameters(dec, fi, link.Name, source.Id.GetIdValue().ToString(), null);
                     res.Last = fi.Id;
                     return null;
                 }
@@ -315,10 +354,49 @@ namespace ProjectPerseus.mapping
         }
 
         /// <summary>Perseus_LinkSource = "link · consultant id", Perseus_LinkStatus (null = In sync). Only writes changed values.</summary>
-        private static void SetParameters(Element ours, string linkName, string sourceId, string status)
+        private static void SetParameters(string decision, Element ours, string linkName, string sourceId, string status)
         {
             Set(ours, SharedParameterManager.LinkSourceName, $"{linkName} · {sourceId}");
             Set(ours, SharedParameterManager.LinkStatusName, status ?? LinkSyncPlanner.Status(SyncKind.InSync));
+            if (decision != null) Set(ours, SharedParameterManager.LinkDecisionName, decision);
+        }
+
+        /// <summary>Perseus_LinkDecision: "Rejected (moved) · A.Butler · 2026-11-13 14:02".</summary>
+        internal static string DecisionText(SyncKind kind, bool approved, string user, DateTime local) =>
+            $"{(approved ? "Accepted" : "Rejected")} ({LinkSyncPlanner.Label(kind).ToLowerInvariant()}) · {user} · {local:yyyy-MM-dd HH:mm}";
+
+        /// <summary>
+        /// Perseus_LinkComment (latest comment, "author: text") and Perseus_LinkAssignee on our families of these items, where
+        /// we can edit them (not checked out by others; unchanged values not written). Returns (written, skipped).
+        /// </summary>
+        internal static Tuple<int, int> WriteNotes(Document doc, IEnumerable<SyncItem> items, Dictionary<string, List<LinkSyncEvent>> index)
+        {
+            var targets = items.Where(i => i.OursId != 0).GroupBy(i => i.OursId).Select(g => g.First()).ToList();
+            if (targets.Count == 0) return Tuple.Create(0, 0);
+            var cats = new HashSet<string>(targets.Select(i => doc.GetElement(RevitExtensions.CreateId(i.OursId))?.Category?.Name).Where(c => c != null), StringComparer.OrdinalIgnoreCase);
+            SharedParameterManager.EnsureLinkSyncParameters(doc, cats);
+            int written = 0, skipped = 0;
+            using (var tx = new Transaction(doc, "Perseus: Link Sync comment / assignee parameters"))
+            {
+                tx.Start();
+                foreach (var i in targets)
+                {
+                    var el = doc.GetElement(RevitExtensions.CreateId(i.OursId));
+                    if (el == null) continue;
+                    var notes = LinkSyncNotes.For(i, index);
+                    var c = notes.LastComment;
+                    string comment = c == null ? "" : $"{c.Author}: {c.Text}";
+                    bool changes = el.LookupParameter(SharedParameterManager.LinkCommentName)?.AsString() != comment ||
+                                   el.LookupParameter(SharedParameterManager.LinkAssigneeName)?.AsString() != notes.Assignee;
+                    if (!changes) continue;
+                    if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.Id, out _) == CheckoutStatus.OwnedByOtherUser) { skipped++; continue; }
+                    Set(el, SharedParameterManager.LinkCommentName, comment);
+                    Set(el, SharedParameterManager.LinkAssigneeName, notes.Assignee ?? "");
+                    written++;
+                }
+                tx.Commit();
+            }
+            return Tuple.Create(written, skipped);
         }
 
         private static bool Set(Element el, string name, string value)
@@ -338,7 +416,8 @@ namespace ProjectPerseus.mapping
         /// Writes Perseus_LinkSource / Perseus_LinkStatus on every one of ours in the plan (status = the open changes, else
         /// In sync). Ours checked out by others are skipped; unchanged values aren't written. Returns (written, skipped).
         /// </summary>
-        internal static Tuple<int, int> WriteStatus(Document doc, List<SyncItem> items, Dictionary<string, LinkInfo> links)
+        internal static Tuple<int, int> WriteStatus(Document doc, List<SyncItem> items, Dictionary<string, LinkInfo> links,
+                                                    Dictionary<string, List<LinkSyncEvent>> index = null)
         {
             var byOurs = items.Where(i => i.OursId != 0 && i.Kind != SyncKind.Match).GroupBy(i => i.OursId).ToList();
             var cats = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -359,11 +438,17 @@ namespace ProjectPerseus.mapping
                     string source = $"{link?.Name ?? "?"} · {(first.Kind == SyncKind.Replaced ? first.SourceId : first.SourceId)}";
                     var p1 = el.LookupParameter(SharedParameterManager.LinkSourceName);
                     var p2 = el.LookupParameter(SharedParameterManager.LinkStatusName);
-                    bool changes = (p1 != null && p1.AsString() != source) || (p2 != null && p2.AsString() != status);
+                    var last = index == null ? null : LinkSyncNotes.For(first, index).LastDecision;
+                    string decision = last == null ? null
+                        : DecisionText(Enum.TryParse<SyncKind>(last.Kind ?? "", out var lk) ? lk : SyncKind.InSync, last.Approved, last.Author, last.Utc.ToLocalTime());
+                    var p3 = el.LookupParameter(SharedParameterManager.LinkDecisionName);
+                    bool changes = (p1 != null && p1.AsString() != source) || (p2 != null && p2.AsString() != status) ||
+                                   (decision != null && p3 != null && p3.AsString() != decision);
                     if (!changes) continue;
                     if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.Id, out _) == CheckoutStatus.OwnedByOtherUser) { skipped++; continue; }
                     Set(el, SharedParameterManager.LinkSourceName, source);
                     Set(el, SharedParameterManager.LinkStatusName, status);
+                    if (decision != null) Set(el, SharedParameterManager.LinkDecisionName, decision);
                     written++;
                 }
                 tx.Commit();

@@ -156,6 +156,29 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void NotesFollowOursAndTheConsultantElement()
+        {
+            var t0 = new System.DateTime(2026, 11, 13, 3, 0, 0, System.DateTimeKind.Utc);
+            var events = new List<LinkSyncEvent>
+            {
+                new LinkSyncEvent { Id = "1", Key = LinkSyncNotes.SourceKey("L", "s1"), Type = LinkSyncEvent.Comment, Text = "before placing", Author = "a", Utc = t0 },
+                new LinkSyncEvent { Id = "2", Key = "ours-uid", Type = LinkSyncEvent.Decision, Kind = "Moved", Approved = false, Author = "b", Utc = t0.AddHours(1) },
+                new LinkSyncEvent { Id = "3", Key = "ours-uid", Type = LinkSyncEvent.Assign, Assignee = "c", Utc = t0.AddHours(2) },
+                new LinkSyncEvent { Id = "4", Key = "ours-uid", Type = LinkSyncEvent.Assign, Assignee = "", Utc = t0.AddHours(3) },
+                new LinkSyncEvent { Id = "5", Key = "other", Type = LinkSyncEvent.Comment, Text = "not this one", Utc = t0 },
+            };
+            var item = new SyncItem { Kind = SyncKind.KeptRejected, LinkUid = "L", SourceUid = "s1", OursUid = "ours-uid", OursId = 9 };
+            var n = LinkSyncNotes.For(item, LinkSyncNotes.Index(events));
+            Assert.AreEqual(1, n.Comments.Count);
+            Assert.AreEqual("b", n.LastDecision.Author);
+            Assert.IsFalse(n.LastDecision.Approved);
+            Assert.AreEqual("", n.Assignee);   // unassigned last
+            StringAssert.StartsWith(LinkSyncNotes.Describe(n.LastDecision, false), "Rejected (moved) · b");
+            Assert.AreEqual("ours-uid", LinkSyncNotes.KeyFor(item));
+            Assert.AreEqual(LinkSyncNotes.SourceKey("L", "s1"), LinkSyncNotes.KeyFor(new SyncItem { LinkUid = "L", SourceUid = "s1" }));
+        }
+
+        [TestMethod]
         public void DeltaDescribes()
         {
             var d = MappingMath.Delta(At(300, 0, 110), At(0, 0, 0));

@@ -141,10 +141,14 @@ namespace ProjectPerseus.ids
 
         internal const string LinkSourceName = "Perseus_LinkSource";
         internal const string LinkStatusName = "Perseus_LinkStatus";
+        internal const string LinkDecisionName = "Perseus_LinkDecision";
+        internal const string LinkCommentName = "Perseus_LinkComment";
+        internal const string LinkAssigneeName = "Perseus_LinkAssignee";
 
         /// <summary>
-        /// Link Sync's parameters on our mapped families: Perseus_LinkSource (link · consultant element id) and
-        /// Perseus_LinkStatus, instance project parameters (shared, Perseus file) bound to these categories (added to
+        /// Link Sync's parameters on our mapped families: Perseus_LinkSource (link · consultant element id),
+        /// Perseus_LinkStatus, Perseus_LinkDecision (accepted / rejected · who · when), Perseus_LinkComment (latest),
+        /// Perseus_LinkAssignee; instance project parameters (shared, Perseus file) bound to these categories (added to
         /// existing bindings). Outside a transaction. Returns how many were created / extended.
         /// </summary>
         internal static int EnsureLinkSyncParameters(Document doc, IEnumerable<string> categoryNames)
@@ -155,6 +159,9 @@ namespace ProjectPerseus.ids
             {
                 new Requirement { Name = LinkSourceName, Categories = cats, Group = "other" },
                 new Requirement { Name = LinkStatusName, Categories = cats, Group = "other" },
+                new Requirement { Name = LinkDecisionName, Categories = cats, Group = "other" },
+                new Requirement { Name = LinkCommentName, Categories = cats, Group = "other" },
+                new Requirement { Name = LinkAssigneeName, Categories = cats, Group = "other" },
             }) + MoveToOther(doc, new[] { LinkSourceName, LinkStatusName });
         }
 

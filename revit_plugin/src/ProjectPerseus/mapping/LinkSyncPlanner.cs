@@ -53,6 +53,9 @@ namespace ProjectPerseus.mapping
         public string SourceTypeKey;
         public string Category;
         public long OursId;              // 0 = none (New)
+        public string OursUid;           // set by mapping/LinkSync (notes are keyed by it)
+        /// <summary>Who last changed ours in this model / the consultant element in its model (worksharing; set by mapping/LinkSync).</summary>
+        public string OursEditedBy, SourceEditedBy;
         public string OursType;
         public string RuleId;            // rule to apply (place / type / move)
         public string TargetUid;         // our type to change to / place

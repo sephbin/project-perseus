@@ -171,7 +171,8 @@ ProjectPerseus/
 │   └── UrlUtils.cs               IsValidUrl.
 ├── ids/                          NEW. Element ID rules (Perseus_ID + Django-configured architectural IDs).
 │   ├── IdRulesCache.cs           Per-source cache of GET /api/source/<guid>/id-rules/ (LoadAsync/LoadNow/Get).
-│   ├── SharedParameterManager.cs (+ EnsureLinkSyncParameters: Perseus_LinkSource / Perseus_LinkStatus on mapped categories.)
+│   ├── SharedParameterManager.cs (+ EnsureLinkSyncParameters: Perseus_LinkSource / Status / Decision / Comment / Assignee on mapped
+│   │                             categories, group Other; Perseus parameters default to Other.)
 │   │                             Perseus-managed shared parameter file (%AppData%\ProjectPerseus\
 │   │                             Perseus_SharedParams.txt, deterministic GUIDs from the name); creates and
 │   │                             binds Perseus_ID + rule parameters as instance params. Swaps then restores
@@ -358,7 +359,8 @@ ProjectPerseus/
 │   ├── LinkSyncWindow.cs         NEW (2026-11-13). Modeless "Link Sync": keeps our mapped families matching the links. One row per change
 │   │                             (mapping/LinkSyncPlanner kinds), links / kinds tick lists, "Only in the active view" (ours or consultant visible;
 │   │                             follows ViewActivated), detail + Zoom / 3D / Select ours / Select consultant (review views), Approve / Reject
-│   │                             (selected, all shown; orphan approve = delete, confirmed), Write status parameters.
+│   │                             (selected, all shown; orphan approve = delete, confirmed), Write status parameters. Decision / Edited by /
+│   │                             Assignee / comments columns + assignee filter; comment thread, add comment, assign (multi-select).
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.
@@ -537,7 +539,11 @@ ProjectPerseus/
 │   ├── LinkSyncPlanner.cs        NEW (2026-11-13). Pure Link Sync decisions (SyncKind: Replaced, ConsultantType, MappingType, Moved, Match, New,
 │   │                             Orphaned, KeptByHand, KeptRejected, Unmapped, InSync), one item per change; moves vs the expected frame within the
 │   │                             rule's XY / Z tolerance (+1°); hand edit = expected unchanged since the last accept. Tested in LinkSyncPlannerTest.cs.
-│   ├── LinkSync.cs               NEW (2026-11-13). Revit side: Links (with mappings), Collect (link + our records -> planner input), Apply
+│   ├── LinkSyncNotes.cs          NEW (2026-11-13). Pure fold of Link Sync events per item (keys: our family uid + "src:<link>|<consultant uid>"):
+│   │                             decisions (who accepted / rejected, when), comment thread, assignee. Tested in LinkSyncPlannerTest.cs.
+│   ├── LinkSyncLog.cs            NEW (2026-11-13). Schema PerseusLinkSyncEvents: append-only DataStorage per batch of models/LinkSyncEvent.
+│   ├── LinkSync.cs               NEW (2026-11-13). Revit side: Links (with mappings), Collect (link + our records -> planner input + uids +
+│   │                             who last edited ours / the consultant element), Apply (decisions logged + Perseus_LinkDecision), WriteNotes
 │   │                             (approve / reject, one undo step, others' checkouts skipped; rejected New / Match in FederatorSettingsStore
 │   │                             "linksync-rejected:<link uid>"), WriteStatus (Perseus_LinkSource / Perseus_LinkStatus shared parameters).
 │   └── FamilyPlacer.cs           Consultant family types (link FamilyInstances, nested skipped), our types (placement type), worksets,
@@ -576,6 +582,7 @@ ProjectPerseus/
 │   │                             Link Sync tolerance XY / Z mm (default 25).
 │   ├── MappedFamilyData.cs       NEW (2026-11-13). JSON of the v2 mapped-family record (see mapping/MappedFamilyStore).
 │   ├── LinkSyncRejections.cs     NEW (2026-11-13). Rejected New / Match proposals (consultant uids) per link.
+│   ├── LinkSyncEvent.cs          NEW (2026-11-13). Link Sync decision / comment / assignment event (mapping/LinkSyncLog).
 │   ├── FamilyMapping.cs          NEW (2026-11-12). Rules of one consultant model + HiddenCategories (mapper category filter).
 │   ├── ReviewViewSettings.cs     NEW (2026-11-12). Review views (view uids in priority order), AutoCapture, MaxPixels.
 │   ├── ReplacementCandidate.cs   NEW (2026-11-08). Likely replacement of a deleted element (uid, type, score, reason).
