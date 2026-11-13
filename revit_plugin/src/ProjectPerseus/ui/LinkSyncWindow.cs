@@ -45,6 +45,9 @@ namespace ProjectPerseus.ui
         private readonly TextBlock _summary, _status, _title, _detail;
         private readonly StackPanel _side;
         private readonly DispatcherTimer _viewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        // Our tracked families (ids) from the last read: a change to one of them (moved, retyped, deleted) re-reads the list.
+        private volatile HashSet<long> _watched = new HashSet<long>();
+        private readonly DispatcherTimer _changeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
         private bool _linksLoaded;
 
         private static readonly SyncKind[] DecisionKinds =
@@ -95,7 +98,8 @@ namespace ProjectPerseus.ui
             {
                 TextWrapping = TextWrapping.Wrap, Foreground = Muted, Margin = new Thickness(0, 0, 0, 8),
                 Text = "Keeps our mapped families matching the consultant links (rules from Family Mapping). Every change is listed on its own: approve it to take " +
-                       "the consultant's state, reject it to keep ours. Families moved by hand keep their position. Use 'Only in the active view' to work your own zone.",
+                       "the consultant's state, reject it to keep ours. Families moved by hand (beyond the mapping's tolerance) are listed as kept: approve to put them " +
+                       "back. The list updates when our families change. Use 'Only in the active view' to work your own zone.",
             };
             DockPanel.SetDock(intro, Dock.Top);
             root.Children.Add(intro);
@@ -104,7 +108,9 @@ namespace ProjectPerseus.ui
             _linkPick = new MultiPick(220) { ToolTip = "Mapped links to check" };
             _kindPick = new MultiPick(200) { ToolTip = "Which changes to list" };
             _kindPick.SetItems(Enum.GetValues(typeof(SyncKind)).Cast<SyncKind>().Select(k => new MultiPick.Item(k.ToString(), LinkSyncPlanner.Label(k))));
-            foreach (SyncKind k in Enum.GetValues(typeof(SyncKind))) _kindPick.SetTicked(k.ToString(), LinkSyncPlanner.NeedsDecision(k));
+            foreach (SyncKind k in Enum.GetValues(typeof(SyncKind))) _kindPick.SetTicked(k.ToString(), LinkSyncPlanner.NeedsDecision(k) || k == SyncKind.KeptByHand);
+            _kindPick.AddPreset("Changes", "Everything that differs from the consultant: decisions + edited by hand",
+                                DecisionKinds.Select(k => k.ToString()).Concat(new[] { SyncKind.KeptByHand.ToString() }).ToArray());
             _kindPick.AddPreset("Needs a decision", "New, match, moved, type changes, replaced, orphaned", DecisionKinds.Select(k => k.ToString()).ToArray());
             _kindPick.AddPreset("Kept", "Kept by hand / rejected", SyncKind.KeptByHand.ToString(), SyncKind.KeptRejected.ToString());
             _inView = new CheckBox { Content = "Only in the active view", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
@@ -183,12 +189,14 @@ namespace ProjectPerseus.ui
             _inView.Checked += (s, e) => Safe(Refresh);
             _inView.Unchecked += (s, e) => Safe(Refresh);
             _viewTimer.Tick += (s, e) => Safe(() => { _viewTimer.Stop(); Refresh(); });
-            Api(app => app.ViewActivated += OnViewActivated);
+            _changeTimer.Tick += (s, e) => Safe(() => { _changeTimer.Stop(); Refresh(); });
+            Api(app => { app.ViewActivated += OnViewActivated; app.Application.DocumentChanged += OnDocumentChanged; });
             Closed += (s, e) =>
             {
                 _viewTimer.Stop();
+                _changeTimer.Stop();
                 if (Instance == this) Instance = null;
-                OwnershipUiEvent.Run(a => { try { a.ViewActivated -= OnViewActivated; } catch { } });
+                OwnershipUiEvent.Run(a => { try { a.ViewActivated -= OnViewActivated; a.Application.DocumentChanged -= OnDocumentChanged; } catch { } });
             };
             Refresh();
         }
@@ -200,6 +208,27 @@ namespace ProjectPerseus.ui
                 Header = header, Binding = new System.Windows.Data.Binding(path),
                 Width = width > 0 ? new DataGridLength(width) : new DataGridLength(1, DataGridLengthUnitType.Star),
             });
+        }
+
+        /// <summary>
+        /// Someone moved / retyped / deleted one of our tracked families (or a link was reloaded): re-read the list shortly
+        /// after. Our own Link Sync transactions re-read anyway. Revit's DocumentChanged: no model work here.
+        /// </summary>
+        private void OnDocumentChanged(object sender, Autodesk.Revit.DB.Events.DocumentChangedEventArgs e)
+        {
+            try
+            {
+                var doc = e.GetDocument();
+                if (doc == null || !doc.Equals(_doc)) return;
+                var names = e.GetTransactionNames();
+                if (names.Any(n => n.StartsWith("Perseus", StringComparison.Ordinal))) return;
+                var watched = _watched;
+                bool ours = e.GetModifiedElementIds().Concat(e.GetDeletedElementIds()).Any(id => watched.Contains(id.GetIdValue()));
+                bool linkReload = names.Any(n => n.IndexOf("Reload", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Link", StringComparison.OrdinalIgnoreCase) >= 0);
+                if (!ours && !linkReload) return;
+                Dispatcher.BeginInvoke(new Action(() => { _changeTimer.Stop(); _changeTimer.Start(); }));
+            }
+            catch (Exception ex) { Log.Info($"[LinkSync] watching changes: {ex.Message}"); }
         }
 
         private void OnViewActivated(object sender, Autodesk.Revit.UI.Events.ViewActivatedEventArgs e)
@@ -230,6 +259,7 @@ namespace ProjectPerseus.ui
                 var items = new List<SyncItem>();
                 foreach (var l in mapped.Where(l => _linkPick.IsTicked(l.Uid)))
                     items.AddRange(LinkSync.Collect(_doc, l, events, records));
+                _watched = new HashSet<long>(records.Select(r => r.Element.GetIdValue()));
                 string scope = "";
                 if (inView)
                 {

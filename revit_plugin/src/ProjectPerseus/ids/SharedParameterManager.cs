@@ -29,7 +29,7 @@ namespace ProjectPerseus.ids
         {
             public string Name;
             public HashSet<string> Categories; // null = every model category that accepts parameters
-            public string Group = "identity_data"; // key from Django's ID_PARAMETER_GROUPS
+            public string Group = "other"; // key from Django's ID_PARAMETER_GROUPS; Perseus parameters default to "Other"
         }
 
 #if REVIT2024_OR_GREATER
@@ -37,7 +37,7 @@ namespace ProjectPerseus.ids
         {
             switch ((key ?? "").ToLowerInvariant())
             {
-                case "other": return new ForgeTypeId(); // empty id is the "Other" group
+                case "identity_data": return GroupTypeId.IdentityData;
                 case "general": return GroupTypeId.General;
                 case "data": return GroupTypeId.Data;
                 case "text": return GroupTypeId.Text;
@@ -49,7 +49,7 @@ namespace ProjectPerseus.ids
                 case "visibility": return GroupTypeId.Visibility;
                 case "geometry": return GroupTypeId.Geometry;
                 case "ifc": return GroupTypeId.Ifc;
-                default: return GroupTypeId.IdentityData;
+                default: return new ForgeTypeId(); // "other" / unknown: empty id is the "Other" group
             }
         }
 #else
@@ -57,7 +57,7 @@ namespace ProjectPerseus.ids
         {
             switch ((key ?? "").ToLowerInvariant())
             {
-                case "other": return BuiltInParameterGroup.INVALID;
+                case "identity_data": return BuiltInParameterGroup.PG_IDENTITY_DATA;
                 case "general": return BuiltInParameterGroup.PG_GENERAL;
                 case "data": return BuiltInParameterGroup.PG_DATA;
                 case "text": return BuiltInParameterGroup.PG_TEXT;
@@ -69,7 +69,7 @@ namespace ProjectPerseus.ids
                 case "visibility": return BuiltInParameterGroup.PG_VISIBILITY;
                 case "geometry": return BuiltInParameterGroup.PG_GEOMETRY;
                 case "ifc": return BuiltInParameterGroup.PG_IFC;
-                default: return BuiltInParameterGroup.PG_IDENTITY_DATA;
+                default: return BuiltInParameterGroup.INVALID; // "other" / unknown
             }
         }
 #endif
@@ -153,9 +153,42 @@ namespace ProjectPerseus.ids
             if (cats.Count == 0) return 0;
             return EnsureRequirements(doc, new List<Requirement>
             {
-                new Requirement { Name = LinkSourceName, Categories = cats, Group = "identity_data" },
-                new Requirement { Name = LinkStatusName, Categories = cats, Group = "identity_data" },
-            });
+                new Requirement { Name = LinkSourceName, Categories = cats, Group = "other" },
+                new Requirement { Name = LinkStatusName, Categories = cats, Group = "other" },
+            }) + MoveToOther(doc, new[] { LinkSourceName, LinkStatusName });
+        }
+
+        /// <summary>
+        /// Puts Perseus parameters bound earlier under another group into "Other" (the Link Sync ones were first made under
+        /// Identity Data). 2024+ only (group of a bound parameter by ForgeTypeId). Returns how many moved.
+        /// </summary>
+        private static int MoveToOther(Document doc, IEnumerable<string> names)
+        {
+#if REVIT2024_OR_GREATER
+            var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+            var todo = new List<InternalDefinition>();
+            var it = doc.ParameterBindings.ForwardIterator();
+            while (it.MoveNext())
+            {
+                if (it.Key is InternalDefinition def && wanted.Contains(def.Name) && !string.IsNullOrEmpty(def.GetGroupTypeId()?.TypeId))
+                    todo.Add(def);
+            }
+            if (todo.Count == 0) return 0;
+            int moved = 0;
+            using (var tx = new Transaction(doc, "Perseus: Parameters to Other"))
+            {
+                tx.Start();
+                foreach (var def in todo)
+                {
+                    try { def.SetGroupTypeId(new ForgeTypeId()); moved++; }
+                    catch (Exception ex) { Log.Info($"[SharedParameterManager] couldn't move '{def.Name}' to Other: {ex.Message}"); }
+                }
+                tx.Commit();
+            }
+            return moved;
+#else
+            return 0;
+#endif
         }
 
         private static int EnsureRequirements(Document doc, List<Requirement> requirements)
