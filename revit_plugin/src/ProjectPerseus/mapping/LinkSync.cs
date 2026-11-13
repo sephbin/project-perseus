@@ -110,7 +110,7 @@ namespace ProjectPerseus.mapping
                 {
                     var el = doc.GetElement(RevitExtensions.CreateId(it.OursId));
                     it.OursUid = el?.UniqueId;
-                    if (el != null && doc.IsWorkshared) it.OursEditedBy = LastChangedBy(doc, el.Id);
+                    if (el != null && doc.IsWorkshared) it.OursEditedBy = EditedInThisModel(doc, el.Id);
                 }
                 long sid = it.NewSourceId != 0 ? it.NewSourceId : it.SourceId;
                 if (sid != 0 && linkDoc.IsWorkshared)
@@ -120,6 +120,35 @@ namespace ProjectPerseus.mapping
                 }
             }
             return items;
+        }
+
+        private static bool _editedByLogged;
+
+        /// <summary>
+        /// Who last edited one of ours in this (workshared) model. Revit's "Last Changed By" only updates on Sync with Central,
+        /// so local edits are read from ownership first: checked out by someone = they're editing it ("not synced"); not in
+        /// central yet = made here by this user; else Last Changed By.
+        /// </summary>
+        private static string EditedInThisModel(Document d, ElementId id)
+        {
+            try
+            {
+                var info = WorksharingUtils.GetWorksharingTooltipInfo(d, id);
+                if (!_editedByLogged)
+                {
+                    _editedByLogged = true;
+                    Log.Info($"[LinkSync] worksharing info sample for {id.GetIdValue()}: owner '{info?.Owner}', last changed by '{info?.LastChangedBy}', " +
+                             $"creator '{info?.Creator}', updates {WorksharingUtils.GetModelUpdatesStatus(d, id)}, checkout {WorksharingUtils.GetCheckoutStatus(d, id)}");
+                }
+                if (!string.IsNullOrEmpty(info?.Owner)) return $"{info.Owner} (checked out, not synced)";
+                if (WorksharingUtils.GetModelUpdatesStatus(d, id) == ModelUpdatesStatus.NotYetInCentral) return $"{d.Application.Username} (new, not synced)";
+                return string.IsNullOrEmpty(info?.LastChangedBy) ? null : info.LastChangedBy;
+            }
+            catch (Exception ex)
+            {
+                if (!_editedByLogged) { _editedByLogged = true; Log.Info($"[LinkSync] worksharing info unavailable: {ex.Message}"); }
+                return null;
+            }
         }
 
         private static string LastChangedBy(Document d, ElementId id)
