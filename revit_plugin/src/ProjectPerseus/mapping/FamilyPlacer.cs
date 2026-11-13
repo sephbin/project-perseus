@@ -233,6 +233,27 @@ namespace ProjectPerseus.mapping
 
         internal const string PlanePrefix = "Perseus mapping";
 
+        /// <summary>Perseus mapping sketch / reference planes that no family stands on (ignoring <paramref name="except"/>, about to be deleted).</summary>
+        internal static List<ElementId> UnusedPerseusPlanes(Document host, ElementId except)
+        {
+            var list = new List<ElementId>();
+            var instances = new ElementClassFilter(typeof(FamilyInstance));
+            foreach (var e in new FilteredElementCollector(host).WherePasses(new LogicalOrFilter(
+                         new ElementClassFilter(typeof(SketchPlane)), new ElementClassFilter(typeof(ReferencePlane)))))
+            {
+                string name;
+                try { name = e.Name; } catch { continue; }
+                if (name == null || !name.StartsWith(PlanePrefix, StringComparison.Ordinal)) continue;
+                try
+                {
+                    var users = e.GetDependentElements(instances).Where(d => except == null || d != except).ToList();
+                    if (users.Count == 0) list.Add(e.Id);
+                }
+                catch { /* keep it */ }
+            }
+            return list;
+        }
+
         /// <summary>
         /// Work-plane / face-based families, floating, the way Rhino.Inside.Revit's "Add Component (Work Plane)" does it:
         /// a SketchPlane is the work plane and the family is created with NewFamilyInstance(point, type, x direction,

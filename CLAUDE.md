@@ -337,8 +337,9 @@ ProjectPerseus/
 │   │                             Link all / Not replacements / Review pairs (paged, ticks), Link confident groups. Suggestions on noise or
 │   │                             Ignored elements / types (3+ ignored, none cared about) are hidden ("Show hidden"). Writes via FederatorWindow.
 │   ├── FamilyMappingWindow.cs    NEW (2026-11-12). Modeless "Family mapping" (ribbon Federator > Family Mapping), link picker; triage from the comparison open in FederatorWindow: consultant types
-│   │                             (count, triage verdict, mapped to, ours placed) | rule editor (our type, offset / rotation with step nudges,
-│   │                             workset), Test on one (live re-place), Next sample, Save, Place all, Link existing…, Follow replacements.
+│   │                             (count, triage verdict, mapped to; category filter saved with the mapping) | rule editor (our type, offset /
+│   │                             rotation with step nudges, workset), auto-saved; Test on one = TEMPORARY family (live re-place, follows a type
+│   │                             change made in Revit; deleted on moving on / close with empty Perseus planes). Placing for real = next phase.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
 │   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
