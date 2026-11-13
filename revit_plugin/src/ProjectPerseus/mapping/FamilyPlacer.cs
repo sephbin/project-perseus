@@ -202,7 +202,8 @@ namespace ProjectPerseus.mapping
             }
             string residual = SnapTo(host, fi, p);
             if (residual != null) warning = warning == null ? residual : warning + "; " + residual;
-            MappedFamilyStore.Write(fi, inst.UniqueId, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Placed);
+            MappedFamilyStore.Write(fi, inst.UniqueId, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Placed,
+                                    TypeKey(source), src, FrameOf(fi));
             return fi;
         }
 
@@ -544,7 +545,8 @@ namespace ProjectPerseus.mapping
                     var ourEl = ours[p.Item3].El;
                     if (host.IsWorkshared && WorksharingUtils.GetCheckoutStatus(host, ourEl.Id, out _) == CheckoutStatus.OwnedByOtherUser) { r.Skipped++; usedO.Add(p.Item3); continue; }
                     var s = sources[p.Item2];
-                    MappedFamilyStore.Write(ourEl, inst.UniqueId, s.UniqueId, s.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Linked);
+                    MappedFamilyStore.Write(ourEl, inst.UniqueId, s.UniqueId, s.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Linked,
+                                            TypeKey(s), SourceFrame(s, toHost), FrameOf(ourEl));
                     usedS.Add(p.Item2); usedO.Add(p.Item3);
                     r.Linked++;
                     r.Last = ourEl.Id;
@@ -555,6 +557,125 @@ namespace ProjectPerseus.mapping
             Log.Info($"[Mapping] link existing {rule.TargetName} to {rule.SourceFamily} : {rule.SourceType}: linked {r.Linked}, " +
                      $"{r.Failed} consultant elements without one within {toleranceMm:0} mm, {ours.Count - usedO.Count} of ours left, {r.Skipped} checked out by others");
             return r;
+        }
+
+        /// <summary>Rule key of a consultant element's type (category | family | type), or null.</summary>
+        internal static string TypeKey(Element source)
+        {
+            if (source is FamilyInstance fi && fi.Symbol != null && fi.Category != null)
+                return FamilyMapRule.Key(fi.Category.Name, fi.Symbol.FamilyName, fi.Symbol.Name);
+            return null;
+        }
+
+        /// <summary>Our family's frame (family transform, host coordinates).</summary>
+        internal static Frame FrameOf(Element el)
+        {
+            if (el is FamilyInstance fi)
+            {
+                try
+                {
+                    var t = fi.GetTotalTransform();
+                    return new Frame
+                    {
+                        O = new[] { t.Origin.X, t.Origin.Y, t.Origin.Z }, X = new[] { t.BasisX.X, t.BasisX.Y, t.BasisX.Z },
+                        Y = new[] { t.BasisY.X, t.BasisY.Y, t.BasisY.Z }, Z = new[] { t.BasisZ.X, t.BasisZ.Y, t.BasisZ.Z },
+                    };
+                }
+                catch { }
+            }
+            var p = Position(el);
+            return p == null ? null : new Frame { O = p };
+        }
+
+        /// <summary>
+        /// Moves one of ours to the expected frame (Link Sync approve). In place when Revit allows it (plan move +
+        /// rotation about the vertical; level-based families move vertically too); a work-plane family that has to
+        /// change height or tilt can't leave its plane, so it's re-placed: same type, writable instance parameters
+        /// copied (not Perseus_ID), workset kept, old one deleted. Returns the instance now standing there (maybe new)
+        /// or null with a warning. Inside the caller's transaction.
+        /// </summary>
+        internal static FamilyInstance MoveTo(Document host, FamilyInstance fi, Frame expected, double tolXyMm, double tolZMm,
+                                              RevitLinkInstance inst, FamilyMapRule rule, Element source, List<Level> levels, string user,
+                                              out string warning, out bool replaced)
+        {
+            warning = null; replaced = false;
+            var now = FrameOf(fi);
+            if (now == null) { warning = "ours has no location"; return null; }
+            bool upright = !MappingMath.IsTilted(expected) && !MappingMath.IsTilted(now) && Math.Sign(expected.Z[2]) == Math.Sign(now.Z[2]);
+            if (upright)
+            {
+                try
+                {
+                    using (var st = new SubTransaction(host))
+                    {
+                        st.Start();
+                        var d = new XYZ(expected.O[0] - now.O[0], expected.O[1] - now.O[1], expected.O[2] - now.O[2]);
+                        if (d.GetLength() > 1e-9) ElementTransformUtils.MoveElement(host, fi.Id, d);
+                        double a = MappingMath.PlanAngleBetween(now, expected);
+                        if (Math.Abs(a) > 1e-6)
+                        {
+                            var o = new XYZ(expected.O[0], expected.O[1], expected.O[2]);
+                            ElementTransformUtils.RotateElement(host, fi.Id, Line.CreateBound(o, o + XYZ.BasisZ), a);
+                        }
+                        host.Regenerate();
+                        var after = FrameOf(fi);
+                        if (after != null && MappingMath.Within(MappingMath.Delta(after, expected), Math.Min(tolXyMm, 5), Math.Min(tolZMm, 5)))
+                        {
+                            st.Commit();
+                            return fi;
+                        }
+                        st.RollBack();
+                    }
+                }
+                catch (Exception ex) { Log.Info($"[LinkSync] in-place move of {fi.Id.GetIdValue()} refused: {ex.Message}"); }
+            }
+            // Re-place: new instance at the expected frame, carrying ours over.
+            var symbol = fi.Symbol;
+            var ws = host.IsWorkshared ? fi.WorksetId : null;
+            var placeRule = new FamilyMapRule
+            {
+                Id = rule.Id, SourceCategory = rule.SourceCategory, SourceFamily = rule.SourceFamily, SourceType = rule.SourceType,
+                TargetSymbolUid = symbol.UniqueId, TargetName = rule.TargetName, OffsetMm = rule.OffsetMm, RotationDeg = rule.RotationDeg,
+            };
+            var made = Place(host, inst, placeRule, symbol, source, levels, ws, user, out warning);
+            if (made == null) return null;
+            CopyInstanceParameters(fi, made);
+            var old = MappedFamilyStore.Get(fi);
+            if (old != null)
+            {
+                var d = MappedFamilyStore.Get(made)?.Data;
+                if (d != null) { d.How = old.How; MappedFamilyStore.Write(made, d); }
+            }
+            host.Delete(fi.Id);
+            replaced = true;
+            return made;
+        }
+
+        /// <summary>Writable instance parameters from one of ours to its replacement (Mark, comments, shared / project parameters; not Perseus_ID).</summary>
+        internal static void CopyInstanceParameters(Element from, Element to)
+        {
+            foreach (Parameter p in from.Parameters)
+            {
+                try
+                {
+                    if (p.IsReadOnly || !p.HasValue || p.Definition == null) continue;
+                    var name = p.Definition.Name;
+                    if (string.Equals(name, ids.SharedParameterManager.PerseusIdName, StringComparison.OrdinalIgnoreCase)) continue;
+                    var bip = p.Definition is InternalDefinition idf ? idf.BuiltInParameter : BuiltInParameter.INVALID;
+                    bool builtIn = bip != BuiltInParameter.INVALID;
+                    if (builtIn && bip != BuiltInParameter.ALL_MODEL_MARK && bip != BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS) continue;
+                    var q = p.IsShared ? to.get_Parameter(p.GUID) : builtIn ? to.get_Parameter(bip) : to.LookupParameter(name);
+                    if (q == null || q.IsReadOnly || q.StorageType != p.StorageType) continue;
+                    switch (p.StorageType)
+                    {
+                        case Autodesk.Revit.DB.StorageType.String: q.Set(p.AsString()); break;
+                        case Autodesk.Revit.DB.StorageType.Integer: q.Set(p.AsInteger()); break;
+                        case Autodesk.Revit.DB.StorageType.Double: q.Set(p.AsDouble()); break;
+                        case Autodesk.Revit.DB.StorageType.ElementId: q.Set(p.AsElementId()); break;
+                    }
+                }
+                catch { /* best effort */ }
+            }
         }
 
         internal static double[] Position(Element el)

@@ -21,6 +21,9 @@ namespace ProjectPerseus.models
         public double[] RotationDeg { get; set; } = new double[3];
         /// <summary>Workset for placed families (name, so it survives detach / recreate); empty = active workset.</summary>
         public string Workset { get; set; } = "";
+        /// <summary>Link Sync: how far ours may be from the expected position (horizontally / vertically, mm) before it's flagged.</summary>
+        public double ToleranceXyMm { get; set; } = 25;
+        public double ToleranceZMm { get; set; } = 25;
         public string Author { get; set; }
         public DateTime SavedUtc { get; set; }
 

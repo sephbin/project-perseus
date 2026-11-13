@@ -433,6 +433,7 @@
     <Compile Include="ui\TextPrompt.cs" />
     <Compile Include="ui\ReplacementWindow.cs" />
     <Compile Include="ui\FamilyMappingWindow.cs" />
+    <Compile Include="ui\LinkSyncWindow.cs" />
     <Compile Include="ui\ReviewViewsWindow.cs" />
     <Compile Include="ui\ViewImageStore.cs" />
     <Compile Include="ui\ChangeThumbnail.cs" />
@@ -465,6 +466,8 @@
     <Compile Include="mapping\MappedFamilyStore.cs" />
     <Compile Include="mapping\FamilyMapStore.cs" />
     <Compile Include="mapping\FamilyPlacer.cs" />
+    <Compile Include="mapping\LinkSyncPlanner.cs" />
+    <Compile Include="mapping\LinkSync.cs" />
     <Compile Include="federator\ReplacementGroups.cs" />
     <Compile Include="federator\ReplacementLearning.cs" />
     <Compile Include="federator\ReviewViews.cs" />
@@ -497,10 +500,14 @@
     <Compile Include="ui\FederatorWindow.cs" />
     <Compile Include="commands\ShowFederatorCommand.cs" />
     <Compile Include="commands\ShowFamilyMappingCommand.cs" />
+    <Compile Include="commands\ShowLinkSyncCommand.cs" />
+    <Compile Include="commands\ShowReviewViewsCommand.cs" />
     <Compile Include="models\ComparisonRecord.cs" />
     <Compile Include="models\ReviewEvent.cs" />
     <Compile Include="models\FamilyMapRule.cs" />
     <Compile Include="models\FamilyMapping.cs" />
+    <Compile Include="models\MappedFamilyData.cs" />
+    <Compile Include="models\LinkSyncRejections.cs" />
     <Compile Include="models\ReviewViewSettings.cs" />
     <Compile Include="models\ElementReviewState.cs" />
     <Compile Include="commands\ShowMarkersCommand.cs" />
@@ -560,6 +567,10 @@
     <Resource Include="resources\federator_dark.png" />
     <Resource Include="resources\family_mapping.png" />
     <Resource Include="resources\family_mapping_dark.png" />
+    <Resource Include="resources\link_sync.png" />
+    <Resource Include="resources\link_sync_dark.png" />
+    <Resource Include="resources\review_views.png" />
+    <Resource Include="resources\review_views_dark.png" />
     <Resource Include="resources\ownership_dark.png" />
     <Resource Include="resources\project_rules.png" />
     <Resource Include="resources\project_rules_dark.png" />

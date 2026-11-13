@@ -163,7 +163,15 @@ namespace ProjectPerseus
 
             // Family mapping: our families at the consultants' locations
             AddButton(federatorPanel, asm, "Button_FamilyMapping", "Family\nMapping", "ShowFamilyMappingCommand", "family_mapping",
-                "Place our families where a consultant's are (or link ones already in the model): map each consultant family type to one of ours with an offset, rotation and workset, test it on one element, then place or link them all. Each of ours remembers the consultant element it stands for. Types reviewed in Link Changes triage are suggested.");
+                "Map each consultant family type to one of ours with an offset, rotation, workset and position tolerance, and test it on one element (a temporary family). Types reviewed in Link Changes triage are suggested. Link Sync then places and keeps them in sync.");
+
+            // Link Sync: keep our mapped families matching the links (approve / reject every change)
+            AddButton(federatorPanel, asm, "Button_LinkSync", "Link\nSync", "ShowLinkSyncCommand", "link_sync",
+                "Keep our mapped families matching the consultant links: new consultant elements, moves, type changes, replacements and deletions are listed one change at a time to approve (take the consultant's state) or reject (keep ours). All links or a choice, optionally only what's in the active view.");
+
+            // Review views: the go-to views the federator panels show elements in
+            AddButton(federatorPanel, asm, "Button_ReviewViews", "Review\nViews", "ShowReviewViewsCommand", "review_views",
+                "Choose the views Link Changes, Replacements and Link Sync use to show elements (before falling back to a 3D view), in priority order.");
 
             // ---- Setup: configuration up front, rarely used tools stacked small, About standalone
             RibbonPanel setupPanel = application.CreateRibbonPanel(tabName, "Setup");

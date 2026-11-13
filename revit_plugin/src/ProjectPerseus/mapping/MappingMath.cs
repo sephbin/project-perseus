@@ -82,6 +82,71 @@ namespace ProjectPerseus.mapping
         public static bool IsTilted(Frame f, double toleranceDeg = 0.5) =>
             Math.Abs(f.Z[2]) < Math.Cos(toleranceDeg * Math.PI / 180);
 
+        public const double AngleToleranceDeg = 1.0;
+
+        /// <summary>Signed plan rotation (radians, counter-clockwise) taking a's plan direction to b's.</summary>
+        public static double PlanAngleBetween(Frame a, Frame b)
+        {
+            var pa = PlanDirection(a);
+            var pb = PlanDirection(b);
+            return Math.Atan2(pa[0] * pb[1] - pa[1] * pb[0], pa[0] * pb[0] + pa[1] * pb[1]);
+        }
+
+        /// <summary>Frame as 12 numbers (origin, X, Y, Z) for storage.</summary>
+        public static double[] Pack(Frame f) => f == null ? null : new[]
+        {
+            f.O[0], f.O[1], f.O[2], f.X[0], f.X[1], f.X[2], f.Y[0], f.Y[1], f.Y[2], f.Z[0], f.Z[1], f.Z[2],
+        };
+
+        public static Frame Unpack(double[] a) => a == null || a.Length < 12 ? null : new Frame
+        {
+            O = new[] { a[0], a[1], a[2] }, X = new[] { a[3], a[4], a[5] }, Y = new[] { a[6], a[7], a[8] }, Z = new[] { a[9], a[10], a[11] },
+        };
+
+        /// <summary>How far apart two frames are: horizontal and vertical distance of the origins (mm) and rotation (°, X or Z axis).</summary>
+        public class FrameDelta
+        {
+            public double XyMm, ZMm, AngleDeg;
+            public double TotalMm => Math.Sqrt(XyMm * XyMm + ZMm * ZMm);
+        }
+
+        public static FrameDelta Delta(Frame a, Frame b)
+        {
+            double dx = a.O[0] - b.O[0], dy = a.O[1] - b.O[1], dz = a.O[2] - b.O[2];
+            return new FrameDelta
+            {
+                XyMm = Math.Sqrt(dx * dx + dy * dy) * MmPerFoot,
+                ZMm = Math.Abs(dz) * MmPerFoot,
+                AngleDeg = Math.Max(AngleDeg(a.X, b.X), AngleDeg(a.Z, b.Z)),
+            };
+        }
+
+        public static bool Within(FrameDelta d, double xyTolMm, double zTolMm, double angleTolDeg = AngleToleranceDeg) =>
+            d.XyMm <= xyTolMm && d.ZMm <= zTolMm && d.AngleDeg <= angleTolDeg;
+
+        /// <summary>"320 mm (300 mm horizontally, 110 mm vertically), turned 15°".</summary>
+        public static string Describe(FrameDelta d)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if (d.TotalMm >= 0.5)
+            {
+                string s = $"{d.TotalMm:N0} mm";
+                if (d.XyMm >= 0.5 && d.ZMm >= 0.5) s += $" ({d.XyMm:N0} mm horizontally, {d.ZMm:N0} mm vertically)";
+                else if (d.ZMm >= 0.5) s += " vertically";
+                parts.Add(s);
+            }
+            if (d.AngleDeg >= 0.05) parts.Add($"turned {d.AngleDeg:0.#}°");
+            return parts.Count == 0 ? "no change" : string.Join(", ", parts);
+        }
+
+        private static double AngleDeg(double[] u, double[] v)
+        {
+            double lu = Math.Sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]), lv = Math.Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            if (lu < 1e-12 || lv < 1e-12) return 0;
+            double c = (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (lu * lv);
+            return Math.Acos(Math.Max(-1, Math.Min(1, c))) * 180 / Math.PI;
+        }
+
         public static double Distance(double[] a, double[] b)
         {
             double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];

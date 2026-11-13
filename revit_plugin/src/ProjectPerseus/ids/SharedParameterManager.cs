@@ -136,6 +136,30 @@ namespace ProjectPerseus.ids
                 });
             }
 
+            return EnsureRequirements(doc, requirements);
+        }
+
+        internal const string LinkSourceName = "Perseus_LinkSource";
+        internal const string LinkStatusName = "Perseus_LinkStatus";
+
+        /// <summary>
+        /// Link Sync's parameters on our mapped families: Perseus_LinkSource (link · consultant element id) and
+        /// Perseus_LinkStatus, instance project parameters (shared, Perseus file) bound to these categories (added to
+        /// existing bindings). Outside a transaction. Returns how many were created / extended.
+        /// </summary>
+        internal static int EnsureLinkSyncParameters(Document doc, IEnumerable<string> categoryNames)
+        {
+            var cats = new HashSet<string>(categoryNames.Where(c => !string.IsNullOrEmpty(c)), StringComparer.OrdinalIgnoreCase);
+            if (cats.Count == 0) return 0;
+            return EnsureRequirements(doc, new List<Requirement>
+            {
+                new Requirement { Name = LinkSourceName, Categories = cats, Group = "identity_data" },
+                new Requirement { Name = LinkStatusName, Categories = cats, Group = "identity_data" },
+            });
+        }
+
+        private static int EnsureRequirements(Document doc, List<Requirement> requirements)
+        {
             var bindable = new List<Category>();
             foreach (Category c in doc.Settings.Categories)
             {
@@ -192,7 +216,7 @@ namespace ProjectPerseus.ids
                 if (file == null) throw new InvalidOperationException("Could not open the Perseus shared parameter file.");
                 DefinitionGroup group = file.Groups.get_Item(GroupName) ?? file.Groups.Create(GroupName);
 
-                using (var tx = new Transaction(doc, "Perseus: Add ID Parameters"))
+                using (var tx = new Transaction(doc, "Perseus: Add Parameters"))
                 {
                     tx.Start();
                     foreach (var item in work)

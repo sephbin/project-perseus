@@ -97,7 +97,7 @@ namespace ProjectPerseus.ui
         private readonly TextBlock _summary, _status, _title, _placementNote;
         private readonly ComboBox _target, _workset;
         private readonly TextBox[] _offset = new TextBox[3], _rotation = new TextBox[3];
-        private readonly TextBox _stepMm, _stepDeg;
+        private readonly TextBox _stepMm, _stepDeg, _tolXy, _tolZ;
         private readonly StackPanel _editor;
         private readonly Button _test, _next, _removeTest;
         private readonly DispatcherTimer _liveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
@@ -209,6 +209,22 @@ namespace ProjectPerseus.ui
             _editor.Children.Add(Section("Rotation (° about the consultant element's X, then Y, then Z)"));
             _stepDeg = new TextBox { Text = "90", Width = 50 };
             _editor.Children.Add(Vector(_rotation, _stepDeg, "Step °"));
+
+            _editor.Children.Add(Section("Position tolerance (Link Sync flags ours only beyond it)"));
+            var tolRow = new WrapPanel();
+            _tolXy = new TextBox { Width = 60, Text = "25", VerticalContentAlignment = VerticalAlignment.Center };
+            _tolZ = new TextBox { Width = 60, Text = "25", VerticalContentAlignment = VerticalAlignment.Center };
+            foreach (var t in new[] { _tolXy, _tolZ })
+            {
+                t.LostFocus += (s, e) => Safe(() => { if (!_loadingEditor && !_closing && ReadEditor()) QueueSave(); });
+                t.KeyDown += (s, e) => { if (e.Key == Key.Enter) Safe(() => { if (ReadEditor()) QueueSave(); }); };
+            }
+            tolRow.Children.Add(new TextBlock { Text = "XY ", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold });
+            tolRow.Children.Add(_tolXy);
+            tolRow.Children.Add(new TextBlock { Text = " mm     Z ", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold });
+            tolRow.Children.Add(_tolZ);
+            tolRow.Children.Add(new TextBlock { Text = " mm", VerticalAlignment = VerticalAlignment.Center });
+            _editor.Children.Add(tolRow);
 
             _editor.Children.Add(Section("Workset for placed families"));
             _workset = new ComboBox();
@@ -394,6 +410,8 @@ namespace ProjectPerseus.ui
                 _rotation[i].Text = Num(_editing.RotationDeg[i]);
             }
             _workset.SelectedItem = string.IsNullOrEmpty(_editing.Workset) || !_workset.Items.Contains(_editing.Workset) ? ActiveWorkset : _editing.Workset;
+            _tolXy.Text = Num(_editing.ToleranceXyMm);
+            _tolZ.Text = Num(_editing.ToleranceZMm);
             _loadingEditor = false;
             _editor.IsEnabled = true;
             UpdateNote();
@@ -438,6 +456,9 @@ namespace ProjectPerseus.ui
             }
             var ws = _workset.SelectedItem as string;
             _editing.Workset = ws == null || ws == ActiveWorkset ? "" : ws;
+            if (!TryNum(_tolXy.Text, out double tx) || !TryNum(_tolZ.Text, out double tz) || tx < 0 || tz < 0) { Status("Tolerances must be numbers (mm).", true); return false; }
+            _editing.ToleranceXyMm = tx;
+            _editing.ToleranceZMm = tz;
             return true;
         }
 
@@ -525,7 +546,8 @@ namespace ProjectPerseus.ui
 
         private static bool SameRule(FamilyMapRule a, FamilyMapRule b) =>
             a.TargetSymbolUid == b.TargetSymbolUid && (a.Workset ?? "") == (b.Workset ?? "") &&
-            a.OffsetMm.SequenceEqual(b.OffsetMm) && a.RotationDeg.SequenceEqual(b.RotationDeg);
+            a.OffsetMm.SequenceEqual(b.OffsetMm) && a.RotationDeg.SequenceEqual(b.RotationDeg) &&
+            a.ToleranceXyMm == b.ToleranceXyMm && a.ToleranceZMm == b.ToleranceZMm;
 
         private void QueueLive()
         {
@@ -756,6 +778,7 @@ namespace ProjectPerseus.ui
             Id = r.Id, Enabled = r.Enabled, SourceCategory = r.SourceCategory, SourceFamily = r.SourceFamily, SourceType = r.SourceType,
             TargetSymbolUid = r.TargetSymbolUid, TargetName = r.TargetName, OffsetMm = (double[])r.OffsetMm.Clone(),
             RotationDeg = (double[])r.RotationDeg.Clone(), Workset = r.Workset, Author = r.Author, SavedUtc = r.SavedUtc,
+            ToleranceXyMm = r.ToleranceXyMm, ToleranceZMm = r.ToleranceZMm,
         };
 
         private void Api(Action<UIApplication> work, bool needActive = false)

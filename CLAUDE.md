@@ -107,7 +107,7 @@ ProjectPerseus/
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Calls ViolationHighlightController.Initialize() and
 │                                 ownership.OwnershipTracker.Subscribe() at startup.
-│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Federator (Link Changes + Family Mapping), Setup.
+│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Federator (Link Changes, Family Mapping, Link Sync, Review Views), Setup.
 │                                 Calls federator.FederatorController.Subscribe() + ChangeHighlightController.Initialize() at startup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
@@ -164,7 +164,8 @@ ProjectPerseus/
 │   └── UrlUtils.cs               IsValidUrl.
 ├── ids/                          NEW. Element ID rules (Perseus_ID + Django-configured architectural IDs).
 │   ├── IdRulesCache.cs           Per-source cache of GET /api/source/<guid>/id-rules/ (LoadAsync/LoadNow/Get).
-│   ├── SharedParameterManager.cs Perseus-managed shared parameter file (%AppData%\ProjectPerseus\
+│   ├── SharedParameterManager.cs (+ EnsureLinkSyncParameters: Perseus_LinkSource / Perseus_LinkStatus on mapped categories.)
+│   │                             Perseus-managed shared parameter file (%AppData%\ProjectPerseus\
 │   │                             Perseus_SharedParams.txt, deterministic GUIDs from the name); creates and
 │   │                             binds Perseus_ID + rule parameters as instance params. Swaps then restores
 │   │                             the user's shared parameter file path. Run lazily, never on document open.
@@ -229,7 +230,9 @@ ProjectPerseus/
 │   ├── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
 │   ├── ShowMarkersCommand.cs     NEW (2026-11-06). Ribbon: Button_Markers (Markers panel). Opens ui/MarkerSetsWindow.
 │   ├── ShowFederatorCommand.cs   NEW (2026-11-08). Ribbon: Button_Federator (Federator panel). Opens ui/FederatorWindow.
-│   └── ShowFamilyMappingCommand.cs NEW (2026-11-12). Ribbon: Button_FamilyMapping (Federator panel). Opens ui/FamilyMappingWindow.
+│   ├── ShowFamilyMappingCommand.cs NEW (2026-11-12). Ribbon: Button_FamilyMapping (Federator panel). Opens ui/FamilyMappingWindow.
+│   ├── ShowLinkSyncCommand.cs    NEW (2026-11-13). Ribbon: Button_LinkSync (Federator panel). Opens ui/LinkSyncWindow.
+│   └── ShowReviewViewsCommand.cs NEW (2026-11-13). Ribbon: Button_ReviewViews (Federator panel). ui/ReviewViewsWindow.EditFor.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; the pre-sync hook only cancels + Queue()s the edits
@@ -342,6 +345,11 @@ ProjectPerseus/
 │   │                             change made in Revit; deleted on moving on / close with empty Perseus planes). Placing for real = next phase.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
 │   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
+│   │                             EditFor(app, owner) = edit + save from anywhere (ribbon, Link Sync); an open FederatorWindow takes them (ReviewViewsSaved).
+│   ├── LinkSyncWindow.cs         NEW (2026-11-13). Modeless "Link Sync": keeps our mapped families matching the links. One row per change
+│   │                             (mapping/LinkSyncPlanner kinds), links / kinds tick lists, "Only in the active view" (ours or consultant visible;
+│   │                             follows ViewActivated), detail + Zoom / 3D / Select ours / Select consultant (review views), Approve / Reject
+│   │                             (selected, all shown; orphan approve = delete, confirmed), Write status parameters.
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.
@@ -513,14 +521,23 @@ ProjectPerseus/
 │   ├── TypeTriage.cs             Pure: what triage says about a consultant type (changes / reviewed / ignored / noise) -> Suggested /
 │   │                             Not wanted / No changes. Tested in MappingMathTest.cs.
 │   ├── FamilyMapStore.cs         models/FamilyMapping per consultant model key via FederatorSettingsStore ("familymap:<key>"), shared.
-│   ├── MappedFamilyStore.cs      Schema PerseusMappedFamily on OUR family instance: link instance uid, consultant uid / id, rule id,
-│   │                             placed / linked, who, when. Current() follows ReplacementLinks.Map; Repoint() rewrites (skips owned by others).
+│   ├── MappedFamilyStore.cs      Schema on OUR family instance. v2 PerseusMappedFamily2 (2026-11-13) = link uid + consultant uid + models/
+│   │                             MappedFamilyData JSON (rule, who / when, sync baseline: consultant frame + type and our frame at the last place /
+│   │                             accept, rejected changes); v1 PerseusMappedFamily (no baseline) still read, replaced on write. Current() follows
+│   │                             ReplacementLinks.Map; Repoint() rewrites (skips owned by others).
+│   ├── LinkSyncPlanner.cs        NEW (2026-11-13). Pure Link Sync decisions (SyncKind: Replaced, ConsultantType, MappingType, Moved, Match, New,
+│   │                             Orphaned, KeptByHand, KeptRejected, Unmapped, InSync), one item per change; moves vs the expected frame within the
+│   │                             rule's XY / Z tolerance (+1°); hand edit = expected unchanged since the last accept. Tested in LinkSyncPlannerTest.cs.
+│   ├── LinkSync.cs               NEW (2026-11-13). Revit side: Links (with mappings), Collect (link + our records -> planner input), Apply
+│   │                             (approve / reject, one undo step, others' checkouts skipped; rejected New / Match in FederatorSettingsStore
+│   │                             "linksync-rejected:<link uid>"), WriteStatus (Perseus_LinkSource / Perseus_LinkStatus shared parameters).
 │   └── FamilyPlacer.cs           Consultant family types (link FamilyInstances, nested skipped), our types (placement type), worksets,
 │                                 consultant frame (family transform, else location), Place (floating first: level-based on the level below +
 │                                 offset, plan rotation only; work-plane / face-based like Rhino.Inside's Add Component (Work Plane): SketchPlane as host element,
 │                                 at the target height facing up/down (offset 0), or through the point when tilted; hosted = refused),
 │                                 PlaceAll (skips consultant elements already mapped, incl. via replacements; one undo step), LinkExisting
-│                                 (nearest expected position within tolerance, one-to-one).
+│                                 (nearest expected position within tolerance, one-to-one). Records carry the sync baseline. MoveTo (in place,
+│                                 else re-place with instance parameters copied), FrameOf, TypeKey, UnusedPerseusPlanes.
 ├── ownership/                    NEW (2026-11-05). Element/workset ownership (worksharing) for the panel + badge.
 │   ├── OwnershipScanner.cs       Read-only scan of Revit's local ownership cache: CountMine() for the badge, Scan() for
 │   │                             the panel (models/OwnershipSnapshot). Elements owned via their owned workset are reported
@@ -546,8 +563,11 @@ ProjectPerseus/
 │   ├── ReviewAction.cs           NEW (2026-11-08). Extensible action (free-text Type, Assignee) opened by a ReviewEvent.
 │   ├── BakeSettings.cs           NEW (2026-11-08). Federator bake settings (target views, scope, style, labels), saved per link.
 │   ├── ViewCandidate.cs          NEW (2026-11-08). A view that can receive baked annotations.
-│   ├── FamilyMapRule.cs          NEW (2026-11-12). Consultant type (category / family / type) -> our FamilySymbol uid, offset mm, rotation °, workset.
-│   ├── FamilyMapping.cs          NEW (2026-11-12). Rules of one consultant model.
+│   ├── FamilyMapRule.cs          NEW (2026-11-12). Consultant type (category / family / type) -> our FamilySymbol uid, offset mm, rotation °, workset,
+│   │                             Link Sync tolerance XY / Z mm (default 25).
+│   ├── MappedFamilyData.cs       NEW (2026-11-13). JSON of the v2 mapped-family record (see mapping/MappedFamilyStore).
+│   ├── LinkSyncRejections.cs     NEW (2026-11-13). Rejected New / Match proposals (consultant uids) per link.
+│   ├── FamilyMapping.cs          NEW (2026-11-12). Rules of one consultant model + HiddenCategories (mapper category filter).
 │   ├── ReviewViewSettings.cs     NEW (2026-11-12). Review views (view uids in priority order), AutoCapture, MaxPixels.
 │   ├── ReplacementCandidate.cs   NEW (2026-11-08). Likely replacement of a deleted element (uid, type, score, reason).
 │   ├── MarkerSet.cs              NEW (2026-11-06). Marker set DTO: Name, Enabled, Categories (BuiltInCategory names),
@@ -631,7 +651,7 @@ ProjectPerseus/
 │                                 (defaults "Bearer") so legacy "Token" call still works. Optional timeoutMs: default
 │                                 5 min is for background uploads; UI-thread / pre-sync calls pass SyncTimeoutMs (5 s).
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
-└── resources/                    Ribbon icons: 18 pairs <name>.png + <name>_dark.png, real 128px PNGs
+└── resources/                    Ribbon icons: 22 pairs <name>.png + <name>_dark.png, real 128px PNGs
                                   rendered from vector masters by revit_plugin/tools/generate_icons.py
                                   (pip install resvg-py; python generate_icons.py <resources dir> icons_svg).
                                   ThemeIconManager decodes them at 64px (large) / 32px (stacked small).

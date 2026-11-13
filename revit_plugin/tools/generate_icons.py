@@ -186,13 +186,33 @@ ICONS["family_mapping"] = (
     '<path d="M6 25h21" fill="none" stroke="{a}" stroke-width="1.6" stroke-dasharray="2 2"/>'
 )
 
+# ---- Link Sync: consultant element (dashed) and ours (solid) with sync arrows between
+ICONS["link_sync"] = (
+    '<rect x="3" y="4" width="10" height="10" rx="1.5" fill="none" stroke="{i}" stroke-width="1.6" stroke-dasharray="2.5 2"/>'
+    '<rect x="19" y="18" width="10" height="10" rx="1.5" fill="none" stroke="{i}" stroke-width="1.8"/>'
+    '<circle cx="24" cy="23" r="2.4" fill="none" stroke="{a}" stroke-width="1.8"/>'
+    '<path d="M16 7.5h5.5a3 3 0 0 1 3 3V14" fill="none" stroke="{a}" stroke-width="1.8"/>'
+    '<path d="M22.5 12l2 2.5 2-2.5" fill="none" stroke="{a}" stroke-width="1.8"/>'
+    '<path d="M16 24.5h-5.5a3 3 0 0 1-3-3V18" fill="none" stroke="{a}" stroke-width="1.8"/>'
+    '<path d="M5.5 20l2-2.5 2 2.5" fill="none" stroke="{a}" stroke-width="1.8"/>'
+)
+
+# ---- Review views: stacked view sheets with an eye
+ICONS["review_views"] = (
+    '<rect x="8" y="4" width="18" height="14" rx="1.5" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<rect x="4" y="8" width="18" height="14" rx="1.5" fill="{bg}" stroke="{i}" stroke-width="1.8"/>'
+    '<path d="M7 15c2-3 4.5-4.5 6-4.5s4 1.5 6 4.5c-2 3-4.5 4.5-6 4.5s-4-1.5-6-4.5z" fill="none" stroke="{a}" stroke-width="1.6"/>'
+    '<circle cx="13" cy="15" r="1.8" fill="{a}" stroke="none"/>'
+    '<path d="M6 27h20" fill="none" stroke="{a}" stroke-width="1.6" stroke-dasharray="2 2"/>'
+)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
     ("Key Schedules",["schedule_manage", "schedule_export", "schedule_import"]),
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
-    ("Federator",    ["federator", "family_mapping"]),
+    ("Federator",    ["federator", "family_mapping", "link_sync", "review_views"]),
     ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "about"]),
 ]
 

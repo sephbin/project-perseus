@@ -34,6 +34,25 @@ namespace ProjectPerseus.ui
                 $"{View.Name}   ({Pretty(View.ViewType)}{(string.IsNullOrEmpty(View.SheetNumber) ? "" : " · sheet " + View.SheetNumber)} · 1:{View.Scale})";
         }
 
+        /// <summary>
+        /// Edits the active model's review views from anywhere (ribbon Federator > Review Views, Link Sync): modal, owned by
+        /// <paramref name="owner"/> (else Revit), saved shared; an open Federator panel takes them over. API context.
+        /// </summary>
+        internal static void EditFor(Autodesk.Revit.UI.UIApplication app, IntPtr owner = default(IntPtr))
+        {
+            var doc = app.ActiveUIDocument?.Document;
+            if (doc == null || doc.IsFamilyDocument) { Autodesk.Revit.UI.TaskDialog.Show("Review views", "Open a project model first."); return; }
+            var candidates = ReviewViews.Candidates(doc);
+            var current = ReviewViews.Load(doc);
+            var dlg = new ReviewViewsWindow(candidates, current, app.ActiveUIDocument.ActiveView?.UniqueId);
+            new System.Windows.Interop.WindowInteropHelper(dlg).Owner = owner != IntPtr.Zero ? owner : app.MainWindowHandle;
+            if (dlg.ShowDialog() != true || dlg.Result == null) return;
+            dlg.Result.MaxPixels = current.MaxPixels;
+            FederatorSettingsStore.Save(doc, ReviewViews.Key, dlg.Result, app.Application.Username);
+            var fed = FederatorWindow.Instance;
+            if (fed != null && fed.IsLoaded) fed.ReviewViewsSaved(doc, dlg.Result, dlg.RefreshNow);
+        }
+
         internal static string Pretty(string viewType)
         {
             switch (viewType)

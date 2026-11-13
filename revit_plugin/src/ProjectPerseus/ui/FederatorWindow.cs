@@ -2878,6 +2878,16 @@ namespace ProjectPerseus.ui
             });
         }
 
+        /// <summary>Review views saved elsewhere (ribbon / Link Sync, ui/ReviewViewsWindow.EditFor): use them here. API context.</summary>
+        internal void ReviewViewsSaved(ARDB.Document doc, ReviewViewSettings settings, bool refreshNow)
+        {
+            if (_doc == null || !_doc.Equals(doc)) return;
+            _reviewViews = settings;
+            _viewOfKey = null;
+            Status($"{_reviewViews.ViewUids.Count} review view(s) saved.");
+            if (_record != null) AssignReviewViews(_record, refreshNow || _reviewViews.AutoCapture, refreshNow);
+        }
+
         private void HostBoxOf(ElementChange c, bool old, out double[] min, out double[] max)
         {
             min = max = null;
