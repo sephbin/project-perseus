@@ -106,12 +106,14 @@ namespace ProjectPerseus.mapping
             var editors = new Dictionary<long, string>();
             foreach (var it in items)
             {
+                Element oursEl = null;
                 if (it.OursId != 0)
                 {
-                    var el = doc.GetElement(RevitExtensions.CreateId(it.OursId));
+                    var el = oursEl = doc.GetElement(RevitExtensions.CreateId(it.OursId));
                     it.OursUid = el?.UniqueId;
                     if (el != null && doc.IsWorkshared) it.OursEditedBy = EditedInThisModel(doc, el.Id);
                 }
+                try { Markers(it, oursEl, linkDoc, toHost); } catch { /* no marker */ }
                 long sid = it.NewSourceId != 0 ? it.NewSourceId : it.SourceId;
                 if (sid != 0 && linkDoc.IsWorkshared)
                 {
@@ -120,6 +122,74 @@ namespace ProjectPerseus.mapping
                 }
             }
             return items;
+        }
+
+        private const double MinMarker = 300 / MappingMath.MmPerFoot;
+
+        /// <summary>
+        /// Where the item is drawn in the model: ours' box (moves: shifted to where the mapping puts it, with ours' current box
+        /// as the ghost + arrow); New: the consultant element's box shifted by the rule offset = where ours will appear.
+        /// </summary>
+        private static void Markers(SyncItem it, Element ours, Document linkDoc, Transform toHost)
+        {
+            double[] min = null, max = null;
+            var bb = ours?.get_BoundingBox(null);
+            if (bb != null) { min = new[] { bb.Min.X, bb.Min.Y, bb.Min.Z }; max = new[] { bb.Max.X, bb.Max.Y, bb.Max.Z }; }
+            bool move = it.Kind == SyncKind.Moved || it.Kind == SyncKind.KeptByHand || it.Kind == SyncKind.KeptRejected;
+            if (it.Kind == SyncKind.New && it.Expected != null)
+            {
+                var src = linkDoc.GetElement(it.SourceUid);
+                var sbb = src?.get_BoundingBox(null);
+                var sf = src == null ? null : FamilyPlacer.SourceFrame(src, toHost);
+                if (sbb != null && sf != null)
+                {
+                    HostBox(sbb, toHost, out min, out max);
+                    Shift(min, max, it.Expected.O[0] - sf.O[0], it.Expected.O[1] - sf.O[1], it.Expected.O[2] - sf.O[2]);
+                }
+                else { min = (double[])it.Expected.O.Clone(); max = (double[])it.Expected.O.Clone(); }
+            }
+            if (min == null) return;
+            Grow(min, max);
+            if (move && it.Expected != null && ours != null)
+            {
+                var now = FamilyPlacer.FrameOf(ours);
+                if (now != null)
+                {
+                    it.GhostMin = (double[])min.Clone(); it.GhostMax = (double[])max.Clone();
+                    Shift(min, max, it.Expected.O[0] - now.O[0], it.Expected.O[1] - now.O[1], it.Expected.O[2] - now.O[2]);
+                }
+            }
+            it.ShowMin = min; it.ShowMax = max;
+        }
+
+        private static void HostBox(BoundingBoxXYZ bb, Transform t, out double[] min, out double[] max)
+        {
+            min = new[] { double.MaxValue, double.MaxValue, double.MaxValue };
+            max = new[] { double.MinValue, double.MinValue, double.MinValue };
+            for (int k = 0; k < 8; k++)
+            {
+                var p = t.OfPoint(new XYZ((k & 1) == 0 ? bb.Min.X : bb.Max.X, (k & 2) == 0 ? bb.Min.Y : bb.Max.Y, (k & 4) == 0 ? bb.Min.Z : bb.Max.Z));
+                min[0] = Math.Min(min[0], p.X); min[1] = Math.Min(min[1], p.Y); min[2] = Math.Min(min[2], p.Z);
+                max[0] = Math.Max(max[0], p.X); max[1] = Math.Max(max[1], p.Y); max[2] = Math.Max(max[2], p.Z);
+            }
+        }
+
+        private static void Shift(double[] min, double[] max, double dx, double dy, double dz)
+        {
+            min[0] += dx; min[1] += dy; min[2] += dz;
+            max[0] += dx; max[1] += dy; max[2] += dz;
+        }
+
+        /// <summary>Small families (sprinkler heads) get a marker at least 300 mm across so it reads at plan scales.</summary>
+        private static void Grow(double[] min, double[] max)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                double size = max[k] - min[k];
+                if (size >= MinMarker) continue;
+                double c = (min[k] + max[k]) / 2;
+                min[k] = c - MinMarker / 2; max[k] = c + MinMarker / 2;
+            }
         }
 
         private static bool _editedByLogged;

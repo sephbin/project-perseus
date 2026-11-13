@@ -361,6 +361,8 @@ ProjectPerseus/
 │   │                             follows ViewActivated), detail + Zoom / 3D / Select ours / Select consultant (review views), Approve / Reject
 │   │                             (selected, all shown; orphan approve = delete, confirmed), Write status parameters. Decision / Edited by /
 │   │                             Assignee / comments columns + assignee filter; comment thread, add comment, assign (multi-select).
+│   │                             Show in model: listed changes drawn on the ChangeHighlightServer "linksync" layer (ghost + arrow for moves,
+│   │                             green where new families go, red orphans). Approve = Accept linked model position / Reject = Retain current.
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.
@@ -488,6 +490,7 @@ ProjectPerseus/
 │   ├── OverlayShapes.cs          Pure 2D shapes for it: rounded rect, dashes, stroke (one mitred ribbon, optional round caps), disc, arrow, rect-to-rect
 │   │                             arrow clipping, badge glyphs. Tested in OverlayShapesTest.cs. Reusable for P8 (markers/violations).
 │   ├── ChangeHighlightController.cs Registers the server; Show(doc, changes, LinkTransform, selected uids) -> items (max 6000).
+│   │                             Server items are per layer (SetLayer; Link Changes = "federator", ShowLayer("linksync") for Link Sync).
 │   ├── LinkTransform.cs          Pure link total transform (captured in API context) so the panel can compute host boxes.
 │   ├── AnnotationBaker.cs        Bakes changes into chosen views: rectangle per visible change as detail lines (line styles
 │   │                             "Perseus Federator - Added/Modified/Deleted") or revision cloud, connector for moved, TextNote

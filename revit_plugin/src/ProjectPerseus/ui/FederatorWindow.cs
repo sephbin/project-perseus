@@ -971,7 +971,7 @@ namespace ProjectPerseus.ui
         {
             SavePreview();
             bool on = _highlightBox.IsChecked == true && _record != null && _view != null;
-            ChangeHighlightController.Enabled = on;
+            ChangeHighlightController.Enabled = true;   // off = its layer cleared below (Link Sync draws on the same server)
             if (on)
             {
                 var selected = _grid.SelectedItems.Cast<ChangeRow>().ToList();

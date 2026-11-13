@@ -56,6 +56,8 @@ namespace ProjectPerseus.mapping
         public string OursUid;           // set by mapping/LinkSync (notes are keyed by it)
         /// <summary>Who last changed ours in this model / the consultant element in its model (worksharing; set by mapping/LinkSync).</summary>
         public string OursEditedBy, SourceEditedBy;
+        /// <summary>Model markers (host feet, set by mapping/LinkSync): the box to draw and, for moves, where ours is now (ghost + arrow).</summary>
+        public double[] ShowMin, ShowMax, GhostMin, GhostMax;
         public string OursType;
         public string RuleId;            // rule to apply (place / type / move)
         public string TargetUid;         // our type to change to / place

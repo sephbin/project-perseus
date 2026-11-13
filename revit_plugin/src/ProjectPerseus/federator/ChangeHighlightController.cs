@@ -64,6 +64,16 @@ namespace ProjectPerseus.federator
 
         internal static void Clear() => ChangeHighlightServer.Instance.Set(null, new List<ChangeHighlightServer.Item>());
 
+        internal const string LinkSyncLayer = "linksync";
+
+        /// <summary>Another panel's markers (host coordinates), drawn alongside the Link Changes ones: e.g. Link Sync. Empty / null doc clears the layer.</summary>
+        internal static int ShowLayer(string layer, Document doc, List<ChangeHighlightServer.Item> items)
+        {
+            var list = (items ?? new List<ChangeHighlightServer.Item>()).OrderByDescending(i => i.Emphasis).Take(MaxItems).ToList();
+            ChangeHighlightServer.Instance.SetLayer(layer, doc, list);
+            return list.Count;
+        }
+
         private static bool Add(List<ChangeHighlightServer.Item> items, ElementChange c, LinkTransform t, bool emph)
         {
             bool deleted = c.Kind == ChangeKind.Deleted || (c.Kind == ChangeKind.Replaced && c.NewMin == null);

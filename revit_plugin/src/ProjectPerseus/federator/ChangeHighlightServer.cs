@@ -105,12 +105,22 @@ namespace ProjectPerseus.federator
 
         private ChangeHighlightServer() { }
 
-        internal void Set(Document doc, List<Item> items)
+        // Item sets per layer ("federator" = Link Changes, "linksync" = Link Sync), drawn together for the latest document.
+        private readonly Dictionary<string, KeyValuePair<Document, List<Item>>> _layers = new Dictionary<string, KeyValuePair<Document, List<Item>>>();
+        internal const string FederatorLayer = "federator";
+
+        internal void Set(Document doc, List<Item> items) => SetLayer(FederatorLayer, doc, items);
+
+        internal void SetLayer(string layer, Document doc, List<Item> items)
         {
             lock (_lock)
             {
-                _doc = doc;
-                _items = items ?? new List<Item>();
+                if (doc == null || items == null || items.Count == 0) _layers.Remove(layer);
+                else _layers[layer] = new KeyValuePair<Document, List<Item>>(doc, items);
+                var current = doc ?? _layers.Values.Select(v => v.Key).FirstOrDefault();
+                _doc = current;
+                _items = _layers.Values.Where(v => current != null && v.Key != null && v.Key.IsValidObject && v.Key.Equals(current))
+                                       .SelectMany(v => v.Value).ToList();
                 _version++;
             }
         }

@@ -44,7 +44,7 @@ namespace ProjectPerseus.ui
         private List<SyncItem> _items = new List<SyncItem>();
         private readonly DataGrid _grid;
         private readonly MultiPick _linkPick, _kindPick;
-        private readonly CheckBox _inView;
+        private readonly CheckBox _inView, _showInModel;
         private readonly TextBlock _summary, _status, _title, _detail;
         private readonly StackPanel _side, _thread;
         private readonly WrapPanel _checkPanel, _decidePanel;
@@ -139,6 +139,9 @@ namespace ProjectPerseus.ui
             _assignFilter.Items.Add(AnyoneFilter); _assignFilter.Items.Add(MeFilter); _assignFilter.Items.Add(UnassignedFilter);
             _assignFilter.SelectedIndex = 0;
             tools.Children.Add(_assignFilter);
+            _showInModel = new CheckBox { Content = "Show in model", IsChecked = true, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
+                                          ToolTip = "Draw the listed changes in plans, sections and 3D: arrows from ours to where the mapping puts it, markers where new families will appear (selected rows stand out)" };
+            tools.Children.Add(_showInModel);
             tools.Children.Add(Btn("Refresh", "Read the links and our families again", Refresh));
             _summary = new TextBlock { Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
             tools.Children.Add(_summary);
@@ -147,9 +150,9 @@ namespace ProjectPerseus.ui
 
             var bottom = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
             var actions = new WrapPanel();
-            actions.Children.Add(Btn("Approve selected", "Take the consultant's state for the selected changes (one undo step)", () => DecideSelected(true)));
-            actions.Children.Add(Btn("Reject selected", "Keep ours for the selected changes (not proposed again until it changes once more)", () => DecideSelected(false)));
-            actions.Children.Add(Btn("Approve all shown…", "Approve every change listed that needs a decision", ApproveAllShown));
+            actions.Children.Add(Btn2("Approve selected", "Accept linked model position", "Take the consultant's state: move ours to the linked model position, place new ones, change the type, follow the replacement, delete orphans - for the selected changes (one undo step)", () => DecideSelected(true)));
+            actions.Children.Add(Btn2("Reject selected", "Retain current model position", "Keep ours as it is in this model (not proposed again until the linked model changes once more) - for the selected changes", () => DecideSelected(false)));
+            actions.Children.Add(Btn2("Approve all shown…", "Accept linked model position", "Approve every change listed that needs a decision", ApproveAllShown));
             actions.Children.Add(Btn("Write status parameters", "Write Perseus_LinkSource / Status / Decision / Comment / Assignee on our mapped families (for schedules, filters, tags)", WriteStatus));
             actions.Children.Add(Btn("Review views…", "Choose the views used to show changes (also on the ribbon)", OpenReviewViews));
             DockPanel.SetDock(actions, Dock.Top);
@@ -195,8 +198,8 @@ namespace ProjectPerseus.ui
             _side.Children.Add(find);
             _side.Children.Add(Section("Decide"));
             var decide = _decidePanel = new WrapPanel();
-            decide.Children.Add(Btn("Approve", "Take the consultant's state for this change", () => DecideCurrent(true)));
-            decide.Children.Add(Btn("Reject", "Keep ours for this change", () => DecideCurrent(false)));
+            decide.Children.Add(Btn2("Approve", "Accept linked model position", "Take the consultant's state: move ours to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
+            decide.Children.Add(Btn2("Reject", "Retain current model position", "Keep ours as it is in this model (not proposed again until the linked model changes once more)", () => DecideCurrent(false)));
             _side.Children.Add(decide);
 
             _notePanel = new StackPanel();
@@ -222,7 +225,9 @@ namespace ProjectPerseus.ui
             Content = root;
             _side.IsEnabled = false;
 
-            _grid.SelectionChanged += (s, e) => Safe(ShowCurrent);
+            _grid.SelectionChanged += (s, e) => Safe(() => { ShowCurrent(); PushMarkers(); });
+            _showInModel.Checked += (s, e) => Safe(PushMarkers);
+            _showInModel.Unchecked += (s, e) => Safe(PushMarkers);
             _grid.MouseDoubleClick += (s, e) => Safe(() => Find(false, false, false));
             _linkPick.Changed += () => Safe(Refresh);
             _kindPick.Changed += () => Safe(Fill);
@@ -237,7 +242,8 @@ namespace ProjectPerseus.ui
                 _viewTimer.Stop();
                 _changeTimer.Stop();
                 if (Instance == this) Instance = null;
-                OwnershipUiEvent.Run(a => { try { a.ViewActivated -= OnViewActivated; a.Application.DocumentChanged -= OnDocumentChanged; } catch { } });
+                ChangeHighlightController.ShowLayer(ChangeHighlightController.LinkSyncLayer, null, null);
+                OwnershipUiEvent.Run(a => { try { a.ViewActivated -= OnViewActivated; a.Application.DocumentChanged -= OnDocumentChanged; a.ActiveUIDocument?.RefreshActiveView(); } catch { } });
             };
             Refresh();
         }
@@ -356,6 +362,7 @@ namespace ProjectPerseus.ui
             var byKind = _items.GroupBy(i => i.Kind).ToDictionary(g => g.Key, g => g.Count());
             _summary.Text = $"{rows.Count:N0} shown · " + string.Join(" · ", DecisionKinds.Where(byKind.ContainsKey).Select(k => $"{byKind[k]:N0} {LinkSyncPlanner.Label(k).ToLowerInvariant()}"));
             ShowCurrent();
+            PushMarkers();
         }
 
         private void ShowCurrent()
@@ -459,6 +466,39 @@ namespace ProjectPerseus.ui
                 Fill();
                 Status(done + "." + (p.Item2 > 0 ? $" {p.Item2:N0} of ours are checked out by others: their parameters weren't updated (the note is saved)." : ""));
             });
+        }
+
+        // ═══════════════ Model markers ═══════════════
+
+        /// <summary>
+        /// The listed changes drawn in the model (federator/ChangeHighlightServer, its own layer next to Link Changes): moves as
+        /// a dashed ghost at ours + arrow to where the mapping puts it (amber), new as a green box where ours will appear,
+        /// orphaned as a red dashed box on ours, type / replacement / match changes as a box on ours. In-sync rows aren't drawn.
+        /// </summary>
+        private void PushMarkers()
+        {
+            var items = new List<ChangeHighlightServer.Item>();
+            if (_showInModel.IsChecked == true)
+            {
+                var selected = new HashSet<string>(_grid.SelectedItems.Cast<Row>().Select(r => r.Item.Key));
+                foreach (var r in (_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>())
+                {
+                    var i = r.Item;
+                    if (i.Kind == SyncKind.InSync || i.Kind == SyncKind.Unmapped || i.ShowMin == null || i.ShowMax == null) continue;
+                    var it = new ChangeHighlightServer.Item
+                    {
+                        Min = i.ShowMin, Max = i.ShowMax, Key = "ls:" + i.Key, Emphasis = selected.Contains(i.Key),
+                        Kind = i.Kind == SyncKind.New ? ChangeHighlightServer.Kind.Added
+                             : i.Kind == SyncKind.Orphaned ? ChangeHighlightServer.Kind.Deleted
+                             : i.Kind == SyncKind.Replaced ? ChangeHighlightServer.Kind.Replaced
+                             : ChangeHighlightServer.Kind.Modified,
+                    };
+                    if (i.GhostMin != null && i.GhostMax != null) { it.OldMin = i.GhostMin; it.OldMax = i.GhostMax; }
+                    items.Add(it);
+                }
+            }
+            ChangeHighlightController.ShowLayer(ChangeHighlightController.LinkSyncLayer, items.Count > 0 ? _doc : null, items);
+            OwnershipUiEvent.Run(app => { try { app.ActiveUIDocument?.RefreshActiveView(); } catch { } });
         }
 
         // ═══════════════ Deciding ═══════════════
@@ -607,6 +647,17 @@ namespace ProjectPerseus.ui
 
         private static TextBlock Section(string text) =>
             new TextBlock { Text = text.ToUpperInvariant(), FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = Muted, Margin = new Thickness(0, 12, 0, 4) };
+
+        /// <summary>Two-line button: bold action + what it means (e.g. Approve / Accept linked model position).</summary>
+        private Button Btn2(string title, string subtitle, string tip, Action click)
+        {
+            var content = new StackPanel();
+            content.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+            content.Children.Add(new TextBlock { Text = subtitle, FontSize = 10.5, Foreground = Muted, HorizontalAlignment = HorizontalAlignment.Center });
+            var b = new Button { Content = content, ToolTip = tip, Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 6), Background = Brushes.White };
+            b.Click += (s, e) => Safe(click);
+            return b;
+        }
 
         private Button Btn(string text, string tip, Action click)
         {
