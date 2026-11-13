@@ -250,7 +250,15 @@ namespace ProjectPerseus.ui
             _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) { ReadEditor(); UpdateNote(); QueueLive(); } });
             _workset.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor) ReadEditor(); });
             _liveTimer.Tick += (s, e) => Safe(() => { _liveTimer.Stop(); if (_testId != null) TestOnOne(false); });
-            Closed += (s, e) => { _liveTimer.Stop(); if (Instance == this) Instance = null; };
+            Closed += (s, e) =>
+            {
+                _liveTimer.Stop();
+                if (Instance == this) Instance = null;
+                var revitApp = _doc?.Application;
+                if (revitApp != null) OwnershipUiEvent.Run(a => { try { revitApp.DocumentChanged -= OnDocumentChanged; } catch { } });
+            };
+            // Watch the test family: a type change made in Revit (type selector, or Edit Type > Duplicate) is taken into the mapping.
+            Api(app => app.Application.DocumentChanged += OnDocumentChanged);
             _editor.IsEnabled = false;
             _linkBox.SelectionChanged += (s, e) => Safe(LinkChanged);
             _linkBox.SelectedItem = links.FirstOrDefault(l => l.Uid == preferredLink) ?? links[0];
@@ -510,10 +518,60 @@ namespace ProjectPerseus.ui
                                  (string.IsNullOrEmpty(level) ? "" : $" on {level}") + $" · sample {index + 1} of {sources.Count}" +
                                  (ourPos != null ? $" · {MappingMath.Distance(srcPos, ourPos) * MappingMath.MmPerFoot:N0} mm from its insertion point" : "");
                 if (fresh) ShowTest(app, inst, fi, source, false, false, false);
-                Status(fresh ? "Test placed. Adjust the offset / rotation (it re-places in place), ◀ / ▶ to check other elements, then Save mapping."
+                Status(fresh ? "Test placed. Adjust the offset / rotation (it re-places in place), or change its type in Revit (the mapping follows), ◀ / ▶ to check other elements, then Save mapping."
                              : "Test re-placed." + (warning != null ? "" : ""), warning != null);
                 if (warning != null) Status("⚠ " + warning, true);
             }, needActive: true);
+        }
+
+        /// <summary>
+        /// The user changed the test family's type in Revit (type selector, or a new type via Edit Type > Duplicate): use
+        /// that type in the rule being edited. Our own test transactions (re-placing) are ignored. Runs in Revit's
+        /// DocumentChanged (no transactions here); the editor is updated just after.
+        /// </summary>
+        private void OnDocumentChanged(object sender, Autodesk.Revit.DB.Events.DocumentChangedEventArgs e)
+        {
+            try
+            {
+                var id = _testId;
+                if (id == null || _editing == null) return;
+                var doc = e.GetDocument();
+                if (doc == null || !doc.Equals(_doc)) return;
+                if (e.GetTransactionNames().Any(n => n.StartsWith("Perseus", StringComparison.Ordinal))) return;
+                if (!e.GetModifiedElementIds().Contains(id)) return;
+                var fi = doc.GetElement(id) as ARDB.FamilyInstance;
+                var symbol = fi?.Symbol;
+                if (symbol == null || symbol.UniqueId == _editing.TargetSymbolUid) return;
+                bool known = _targets.Any(t => t.Uid == symbol.UniqueId);
+                var targets = known ? null : FamilyPlacer.TargetTypes(doc);   // a type made just now (Duplicate)
+                string uid = symbol.UniqueId, name = $"{symbol.FamilyName} : {symbol.Name}";
+                string rule = _editing.Id;
+                Dispatcher.BeginInvoke(new Action(() => Safe(() => TakeTestType(rule, uid, name, targets, !known))));
+            }
+            catch (Exception ex) { Log.Info($"[Mapping] watching the test family: {ex.Message}"); }
+        }
+
+        private void TakeTestType(string ruleId, string uid, string name, List<FamilyPlacer.TargetType> targets, bool isNew)
+        {
+            if (_editing == null || _editing.Id != ruleId || _current == null) return;
+            if (targets != null) _targets = targets;
+            _loadingEditor = true;
+            try
+            {
+                var s = _current.Source;
+                _target.Items.Clear();
+                foreach (var t in _targets.OrderBy(t => t.Category == s.Category ? 0 : 1).ThenBy(t => t.Category).ThenBy(t => t.Preference).ThenBy(t => t.Family).ThenBy(t => t.Type))
+                    _target.Items.Add(new TargetItem(t, t.Category == s.Category));
+                _target.SelectedItem = _target.Items.Cast<TargetItem>().FirstOrDefault(i => i.T.Uid == uid);
+            }
+            finally { _loadingEditor = false; }
+            if (_target.SelectedItem == null) { Status($"The test family is now {name}, which can't be placed floating: not taken into the mapping.", true); return; }
+            ReadEditor();
+            UpdateNote();
+            bool saved = _mapping.Rules.Any(r => r.Id == ruleId);
+            Status($"Type changed in Revit: {(isNew ? "new type " : "")}{name} is now this mapping's type." +
+                   (saved ? " Save mapping to keep it." : " Save mapping when the test looks right."));
+            Log.Info($"[Mapping] test family type changed in Revit -> {name}{(isNew ? " (new type)" : "")}");
         }
 
         /// <summary>Zoom / select the test family and its consultant element.</summary>
