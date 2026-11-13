@@ -42,6 +42,11 @@ namespace ProjectPerseus.models
         public string Family { get; set; }
         public string Type { get; set; }
         public string Level { get; set; }
+        /// <summary>Who last changed the element in the newer version (deleted: in the older one), and who created it.</summary>
+        public string EditedBy { get; set; }
+        public string CreatedBy { get; set; }
+        /// <summary>Modified: who had last changed it in the older version.</summary>
+        public string OldEditedBy { get; set; }
 
         /// <summary>Old family/type/level etc. when those changed ("Family : Type" style, for the review grid).</summary>
         public string OldType { get; set; }

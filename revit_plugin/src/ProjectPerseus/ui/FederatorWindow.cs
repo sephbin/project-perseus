@@ -46,7 +46,7 @@ namespace ProjectPerseus.ui
 
         private const string All = "All";
         private const string ModifiedKey = "Modified";
-        private static readonly string[] GroupModes = { "Category", "Level", "Kind", "Status", "Assignee", "Type", "None" };
+        private static readonly string[] GroupModes = { "Category", "Level", "Kind", "Status", "Assignee", "Type", "Edited by", "None" };
         private static readonly KeyValuePair<string, ChangeAspect>[] Aspects =
         {
             new KeyValuePair<string, ChangeAspect>("Any change", ChangeAspect.None),
@@ -1079,6 +1079,7 @@ namespace ProjectPerseus.ui
                 case "Status": return r.State.Status;
                 case "Assignee": return string.IsNullOrEmpty(r.Assignee) ? "(unassigned)" : r.Assignee;
                 case "Type": return string.IsNullOrEmpty(r.Element) ? "(no type)" : r.Element;
+                case "Edited by": return string.IsNullOrEmpty(r.EditedBy) ? "(unknown)" : r.EditedBy;
                 default: return string.IsNullOrEmpty(r.Category) ? "(no category)" : r.Category;
             }
         }
@@ -2437,6 +2438,45 @@ namespace ProjectPerseus.ui
             _detail.Children.Add(Muted_($"To: {_record.NewLabel ?? "live link"} ({_record.NewPath ?? _record.LinkPath})"));
         }
 
+        /// <summary>
+        /// "Last edited by X (before: Y) · created by Z" from the comparison (worksharing info read with each version). Older
+        /// comparisons don't have it: then it's read from the loaded link now (marked "now").
+        /// </summary>
+        private UIElement EditedByLine(ElementChange c)
+        {
+            string Line(string edited, string old, string created, string suffix)
+            {
+                var parts = new List<string>();
+                if (!string.IsNullOrEmpty(edited))
+                    parts.Add((c.Kind == ChangeKind.Deleted ? "Last edited by " : "Edited by ") + edited +
+                              (!string.IsNullOrEmpty(old) && !string.Equals(old, edited, StringComparison.OrdinalIgnoreCase) ? $" (before: {old})" : ""));
+                if (!string.IsNullOrEmpty(created)) parts.Add("created by " + created);
+                return parts.Count == 0 ? null : string.Join(" · ", parts) + suffix;
+            }
+            var text = Line(c.EditedBy, c.OldEditedBy, c.CreatedBy, "");
+            var tb = Muted_(text ?? "");
+            tb.ToolTip = "Who last changed / created the element in the consultant's Revit model (worksharing), when that version was read.";
+            if (text != null || c.Kind == ChangeKind.Deleted || _record == null) { if (text == null) tb.Visibility = Visibility.Collapsed; return tb; }
+            tb.Visibility = Visibility.Collapsed;
+            string linkUid = _record.LinkInstanceUid, uid = c.UniqueId;
+            RunApi(app =>
+            {
+                try
+                {
+                    var linkDoc = LinkedElementRef.FindInstance(_doc, linkUid)?.GetLinkDocument();
+                    var el = linkDoc?.GetElement(uid);
+                    if (el == null || !linkDoc.IsWorkshared) return;
+                    var who = ARDB.WorksharingUtils.GetWorksharingTooltipInfo(linkDoc, el.Id);
+                    var now = Line(who?.LastChangedBy, null, who?.Creator, " (now, in the loaded link)");
+                    if (now == null) return;
+                    tb.Text = now;
+                    tb.Visibility = Visibility.Visible;
+                }
+                catch (Exception ex) { Log.Info($"[Federator] edited by: {ex.Message}"); }
+            });
+            return tb;
+        }
+
         private void BuildSingle(ChangeRow row)
         {
             var c = row.Change;
@@ -2445,6 +2485,7 @@ namespace ProjectPerseus.ui
             title.Inlines.Add(new System.Windows.Documents.Run(string.IsNullOrEmpty(row.Element) ? c.Category : row.Element));
             _detail.Children.Add(title);
             _detail.Children.Add(Muted_($"{c.Category} · Id {c.Id} · {(string.IsNullOrEmpty(c.Level) ? "no level" : c.Level)} · {c.Kind}"));
+            _detail.Children.Add(EditedByLine(c));
             var thumbRows = new List<ChangeRow> { row };
             var bestSuggestion = SuggestionFor(row);
             if (bestSuggestion != null) thumbRows.Add(bestSuggestion.Replacement);
@@ -2788,6 +2829,7 @@ namespace ProjectPerseus.ui
             g.Columns.Add(TextCol("Level", nameof(ChangeRow.Level), new DataGridLength(80)));
             g.Columns.Add(TextCol("Change", nameof(ChangeRow.Summary), new DataGridLength(1.2, DataGridLengthUnitType.Star)));
             g.Columns.Add(Coloured("Status", nameof(ChangeRow.Status), nameof(ChangeRow.StatusBrush), 92, nameof(ChangeRow.Status), false));
+            g.Columns.Add(TextCol("Edited by", nameof(ChangeRow.EditedBy), new DataGridLength(100)));
             g.Columns.Add(TextCol("Assignee", nameof(ChangeRow.Assignee), new DataGridLength(100)));
             g.Columns.Add(TextCol("💬", nameof(ChangeRow.Comments), new DataGridLength(32)));
 

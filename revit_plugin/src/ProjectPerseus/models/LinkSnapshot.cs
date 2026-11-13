@@ -11,7 +11,7 @@ namespace ProjectPerseus.models
     public class LinkSnapshot
     {
         /// <summary>2: ElementSnapshot.Obb. Format 1 snapshots still load (axis-aligned boxes); rebuilt when the source is at hand.</summary>
-        public const int CurrentFormat = 2;
+        public const int CurrentFormat = 3;   // 3: EditedBy / CreatedBy
 
         public int Format { get; set; } = CurrentFormat;
         public string Title { get; set; }
@@ -34,6 +34,9 @@ namespace ProjectPerseus.models
         public string Type { get; set; }
         public string Level { get; set; }
         public string Workset { get; set; }
+        /// <summary>Worksharing: who last changed / created the element in that version (Revit's worksharing tooltip info).</summary>
+        public string EditedBy { get; set; }
+        public string CreatedBy { get; set; }
 
         /// <summary>Bounding box min / max (x, y, z), null when the element has none.</summary>
         public double[] Min { get; set; }

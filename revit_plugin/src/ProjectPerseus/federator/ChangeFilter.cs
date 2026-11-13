@@ -82,7 +82,7 @@ namespace ProjectPerseus.federator
         private static bool MatchesSearch(ElementChange c, ElementReviewState s, string q)
         {
             if (Has(c.Category, q) || Has(c.Family, q) || Has(c.Type, q) || Has(c.Level, q) || Has(c.OldType, q)
-                || Has(c.UniqueId, q) || c.Id.ToString() == q || Has(ChangeDescriber.Summary(c), q))
+                || Has(c.UniqueId, q) || c.Id.ToString() == q || Has(ChangeDescriber.Summary(c), q) || Has(c.EditedBy, q) || Has(c.CreatedBy, q))
                 return true;
             if (c.ParameterChanges != null && c.ParameterChanges.Any(p => Has(p.Name, q) || Has(p.Old, q) || Has(p.New, q)))
                 return true;

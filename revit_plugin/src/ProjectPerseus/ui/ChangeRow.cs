@@ -71,6 +71,8 @@ namespace ProjectPerseus.ui
         public string Element { get; }
         public string Category => Change.Category ?? "";
         public string Level => Change.Level ?? "";
+        /// <summary>Who last changed it in that Revit model (worksharing); "" when unknown (older comparisons, non-workshared).</summary>
+        public string EditedBy => Change.EditedBy ?? "";
         public long Id => Change.Id;
         public string Summary { get; private set; }
 

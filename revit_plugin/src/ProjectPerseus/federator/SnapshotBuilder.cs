@@ -93,6 +93,13 @@ namespace ProjectPerseus.federator
             if (worksets != null && el.WorksetId != WorksetId.InvalidWorksetId)
             {
                 try { e.Workset = worksets.GetWorkset(el.WorksetId)?.Name; } catch { /* not a user workset */ }
+                try
+                {
+                    var who = WorksharingUtils.GetWorksharingTooltipInfo(doc, el.Id);
+                    e.EditedBy = string.IsNullOrEmpty(who?.LastChangedBy) ? null : who.LastChangedBy;
+                    e.CreatedBy = string.IsNullOrEmpty(who?.Creator) ? null : who.Creator;
+                }
+                catch { /* not available (detached copy, non-workshared) */ }
             }
 
             switch (el.Location)

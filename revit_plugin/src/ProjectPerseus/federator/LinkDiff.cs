@@ -85,6 +85,7 @@ namespace ProjectPerseus.federator
                 Family = e.Family,
                 Type = e.Type,
                 Level = e.Level,
+                EditedBy = e.EditedBy, CreatedBy = e.CreatedBy ?? o?.CreatedBy, OldEditedBy = o != null && n != null ? o.EditedBy : null,
                 OldMin = o?.Min, OldMax = o?.Max,
                 NewMin = n?.Min, NewMax = n?.Max,
                 OldObb = o?.Obb, NewObb = n?.Obb,
