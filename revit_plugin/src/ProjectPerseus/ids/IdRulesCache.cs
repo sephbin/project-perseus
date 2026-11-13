@@ -39,7 +39,10 @@ namespace ProjectPerseus.ids
                 if (rules == null) return null;
                 _cache[docGuid] = rules;
                 Log.Info($"[IdRulesCache] Loaded for {docGuid}: {rules.Rules.Count(r => r.Enabled)} active rules, " +
-                         $"{rules.CategoryPrefixes.Count} category prefixes");
+                         $"{rules.CategoryPrefixes.Count} category prefixes; Perseus_ID on " +
+                         (rules.PerseusId.ApplyToAll ? "ALL categories" : $"[{string.Join(", ", rules.PerseusId.Categories)}]") +
+                         string.Concat(rules.Rules.Where(r => r.Enabled).Select(r =>
+                             $"; '{r.ParameterName}' on " + (r.ApplyToAll ? "ALL categories" : $"[{string.Join(", ", r.Categories)}]"))));
                 return rules;
             }
             catch (Exception ex)

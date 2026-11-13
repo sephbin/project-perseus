@@ -179,6 +179,7 @@ namespace ProjectPerseus.ids
             var work = new List<(Requirement Req, List<Category> Target, Definition ExistingDef, ElementBinding ExistingBinding)>();
             foreach (var req in requirements)
             {
+                if (req.Categories != null && req.Categories.Count == 0) continue; // e.g. Perseus_ID with no rules: off
                 var target = bindable.Where(c => req.Categories == null || req.Categories.Contains(c.Name)).ToList();
                 if (target.Count == 0)
                 {

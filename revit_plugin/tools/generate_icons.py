@@ -206,6 +206,13 @@ ICONS["review_views"] = (
     '<path d="M6 27h20" fill="none" stroke="{a}" stroke-width="1.6" stroke-dasharray="2 2"/>'
 )
 
+# ---- Package logs: a pile of (wooden) logs, end grain showing
+def _log_end(cx, cy):
+    return (f'<circle cx="{cx}" cy="{cy}" r="6.6" fill="{{bg}}" stroke="{{i}}"/>'
+            f'<circle cx="{cx}" cy="{cy}" r="3.6" fill="none" stroke="{{a}}" stroke-width="1.5"/>'
+            f'<circle cx="{cx}" cy="{cy}" r=".9" fill="{{a}}" stroke="none"/>')
+ICONS["package_logs"] = _log_end(9, 22.5) + _log_end(23, 22.5) + _log_end(16, 10.5)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
@@ -213,7 +220,7 @@ GROUPS = [
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
     ("Federator",    ["federator", "family_mapping", "link_sync", "review_views"]),
-    ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "about"]),
+    ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "package_logs", "about"]),
 ]
 
 THEMES = {

@@ -141,6 +141,8 @@ ProjectPerseus/
 │                                 called from Plugin.OnStartup.
 │   ├── SentryContext.cs          IDisposable scope: SentrySdk.Init/Close around a
 │   │                             `using (...)` block. Used in SyncOrchestrator.doOnSync.
+│   ├── LogPackager.cs            NEW (2026-11-13). Zips logs\*.log (shared read) + perseus-info.txt into the user's Downloads
+│   │                             (known folder) as perseus-logs-<user>-<yyyyMMdd-HHmmss>.zip.
 │   └── CrashTrace.cs             NEW (2026-11-05). Installed first in Plugin.OnStartup: logs
 │                                 AppDomain.UnhandledException (with "Perseus on stack: yes/no") and our own unobserved
 │                                 Task exceptions. Can't stop a background-thread exception killing Revit; leaves a trace.
@@ -208,6 +210,8 @@ ProjectPerseus/
 │                                 the index is still building wait for it (IndexReady) instead of forcing a full scan.
 ├── commands/                     ONLY IExternalCommand classes now (P2, 2026-05-30).
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
+│   ├── PackageLogsCommand.cs     NEW (2026-11-13). Ribbon: Button_PackageLogs (Setup stack). logging/LogPackager -> zip in
+│   │                             Downloads, selects it in Explorer.
 │   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds. Fetches fresh ID rules, ensures parameters,
 │   │                             runs IdAssigner over the whole model, shows a summary TaskDialog.
 │   ├── RenumberIdsCommand.cs     NEW. Ribbon: Button_RenumberIds. After a Yes/No confirmation, renumbers every ID rule
@@ -651,7 +655,7 @@ ProjectPerseus/
 │                                 (defaults "Bearer") so legacy "Token" call still works. Optional timeoutMs: default
 │                                 5 min is for background uploads; UI-thread / pre-sync calls pass SyncTimeoutMs (5 s).
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
-└── resources/                    Ribbon icons: 22 pairs <name>.png + <name>_dark.png, real 128px PNGs
+└── resources/                    Ribbon icons: 23 pairs <name>.png + <name>_dark.png, real 128px PNGs
                                   rendered from vector masters by revit_plugin/tools/generate_icons.py
                                   (pip install resvg-py; python generate_icons.py <resources dir> icons_svg).
                                   ThemeIconManager decodes them at 64px (large) / 32px (stacked small).
@@ -707,6 +711,8 @@ ProjectPerseus/
 ├── logging/
 │   ├── Log.cs                    Single front door — wraps Sentry + file output.
 │   ├── SentryContext.cs          Extracted from Utl.cs.
+│   ├── LogPackager.cs            NEW (2026-11-13). Zips logs\*.log (shared read) + perseus-info.txt into the user's Downloads
+│   │                             (known folder) as perseus-logs-<user>-<yyyyMMdd-HHmmss>.zip.
 │   └── CrashTrace.cs             [DONE 2026-11-05] Last-chance unhandled-exception logging.
 ├── models/                       Mostly unchanged (existing folder is healthy).
 ├── aps/                          [DONE 2026-11-10] APS sign-in + cloud model versions (see §6.1).

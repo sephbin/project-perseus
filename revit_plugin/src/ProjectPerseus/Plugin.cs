@@ -182,11 +182,14 @@ namespace ProjectPerseus
 
             var stacked = setupPanel.AddStackedItems(
                 MakeData(asm, "Button_ResetGuid", "Reset Identity", "ResetModelGuidCommand"),
-                MakeData(asm, "Button_DiagnoseElement", "Diagnose Elements", "DiagnoseElementCommand"));
+                MakeData(asm, "Button_DiagnoseElement", "Diagnose Elements", "DiagnoseElementCommand"),
+                MakeData(asm, "Button_PackageLogs", "Package Logs", "PackageLogsCommand"));
             StyleButton(stacked[0] as PushButton, "reset_identity",
                 "Generates a new Database GUID for this model. Use ONLY if this file was copied from an older project.");
             StyleButton(stacked[1] as PushButton, "diagnose",
                 "Enter element IDs to run a full diagnostic from the plugin's perspective and write results to the log file.");
+            StyleButton(stacked[2] as PushButton, "package_logs",
+                "Zips your Perseus logs into your Downloads folder (named with your username and the date) so you can send them for support.");
 
             AddButton(setupPanel, asm, "Button_About", "About\nPerseus", "AboutCommand", "about",
                 $"Project Perseus v{version} — click to view version info");

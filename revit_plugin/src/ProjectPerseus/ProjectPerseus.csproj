@@ -274,6 +274,8 @@
     <Compile Include="commands\AboutCommand.cs" />
     <Compile Include="commands\FreefallCommand.cs" />
     <Compile Include="commands\DiagnoseElementCommand.cs" />
+    <Compile Include="commands\PackageLogsCommand.cs" />
+    <Compile Include="logging\LogPackager.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
     <Compile Include="commands\ExportKeyScheduleCommand.cs" />
     <Compile Include="commands\ImportKeyScheduleCommand.cs" />
@@ -580,6 +582,8 @@
     <Resource Include="resources\reset_identity_dark.png" />
     <Resource Include="resources\diagnose.png" />
     <Resource Include="resources\diagnose_dark.png" />
+    <Resource Include="resources\package_logs.png" />
+    <Resource Include="resources\package_logs_dark.png" />
     <Resource Include="resources\about.png" />
     <Resource Include="resources\about_dark.png" />
   </ItemGroup>

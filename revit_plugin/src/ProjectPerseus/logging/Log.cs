@@ -192,6 +192,12 @@ namespace ProjectPerseus.logging
             fs.Write(bytes, 0, bytes.Length);
         }
 
+        /// <summary>%AppData%\ProjectPerseus\logs (created if missing).</summary>
+        public static string LogsFolder => GetLogsFolder();
+
+        /// <summary>This session's log file, or null before InitSession.</summary>
+        public static string SessionLogPath => _sessionLogPath;
+
         private static string GetLogsFolder()
         {
             string folder = Path.Combine(
