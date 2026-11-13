@@ -138,6 +138,42 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void ExistingFamilyMatchesWithinProximityElseIsAnOrphan()
+        {
+            var i = Input(Rule(TypeA, "ours"));
+            i.Sources.Add(Src("s1", TypeA, At(0, 0, 3000)));
+            i.Unrecorded.Add(new SyncOurs { Id = 7, Uid = "u7", TypeUid = "ours", TypeName = "ours", Frame = At(200, 0, 3000) });    // 200 mm: beyond tolerance, within proximity
+            i.Unrecorded.Add(new SyncOurs { Id = 8, Uid = "u8", TypeUid = "ours", TypeName = "ours", Frame = At(9000, 0, 3000) });   // nothing near
+            var items = LinkSyncPlanner.Plan(i);
+            Assert.AreEqual(7, items.Single(x => x.Kind == SyncKind.Match).OursId);
+            Assert.AreEqual(8, items.Single(x => x.Kind == SyncKind.Unlinked).OursId);
+            i.KeptUnlinked.Add("u8");
+            Assert.IsFalse(LinkSyncPlanner.Plan(i).Any(x => x.Kind == SyncKind.Unlinked));
+        }
+
+        [TestMethod]
+        public void DeletedOursIsALinkedOrphan()
+        {
+            var i = Input(Rule(TypeA, "ours"));
+            i.Sources.Add(Src("s1", TypeA, At(0, 0, 3000)));
+            i.Connected.Add("s1");   // ours was linked to s1, then deleted
+            Assert.AreEqual(SyncKind.OursDeleted, LinkSyncPlanner.Plan(i).Single().Kind);
+            i.Unrecorded.Add(new SyncOurs { Id = 7, TypeUid = "ours", TypeName = "ours", Frame = At(0, 0, 3000) });   // someone put one back by hand
+            Assert.AreEqual(SyncKind.Match, LinkSyncPlanner.Plan(i).Single().Kind);
+        }
+
+        [TestMethod]
+        public void UnlinkedOnlyWhenNoLinkMatchesIt()
+        {
+            var a = new SyncItem { Kind = SyncKind.Unlinked, LinkUid = "A", OursId = 7 };
+            var b = new SyncItem { Kind = SyncKind.Match, LinkUid = "B", OursId = 7 };
+            var c1 = new SyncItem { Kind = SyncKind.Unlinked, LinkUid = "A", OursId = 8 };
+            var c2 = new SyncItem { Kind = SyncKind.Unlinked, LinkUid = "B", OursId = 8 };
+            var r = LinkSyncPlanner.Reconcile(new List<SyncItem> { a, b, c1, c2 });
+            CollectionAssert.AreEqual(new[] { b, c1 }, r);
+        }
+
+        [TestMethod]
         public void HiddenCategoryIsNotMapped()
         {
             var i = Input(Rule(TypeA, "ours"));

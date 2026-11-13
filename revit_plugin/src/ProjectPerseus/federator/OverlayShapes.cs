@@ -210,6 +210,18 @@ namespace ProjectPerseus.federator
             }
         }
 
+        /// <summary>Closed circle path (no repeated end point), counter-clockwise from angle 0.</summary>
+        public static List<Pt> Circle(Pt c, double r, int segments = 48)
+        {
+            var path = new List<Pt>(segments);
+            for (int i = 0; i < segments; i++)
+            {
+                double a = 2 * Math.PI * i / segments;
+                path.Add(new Pt(c.U + r * Math.Cos(a), c.V + r * Math.Sin(a)));
+            }
+            return path;
+        }
+
         /// <summary>Arrow from a to b: stroked shaft ending at the base of a filled head whose tip is at b.</summary>
         public static void Arrow(List<double> tris, Pt a, Pt b, double shaftHalf, double headLength, double headHalf)
         {

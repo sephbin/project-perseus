@@ -25,7 +25,8 @@ namespace ProjectPerseus.federator
     /// </summary>
     internal class ChangeHighlightServer : IDirectContext3DServer
     {
-        internal enum Kind : byte { Added, Modified, Deleted, Ghost, Replaced }
+        // Local / Linked / Orphan / Ink: Link Sync (ours in this model magenta, the linked model's position cyan, orphans red, move arrows ink).
+        internal enum Kind : byte { Added, Modified, Deleted, Ghost, Replaced, Local, Linked, Orphan, Ink }
 
         internal struct Item
         {
@@ -35,6 +36,11 @@ namespace ProjectPerseus.federator
             internal double[] OldMin, OldMax; // moved elements: old box (host) → dashed ghost + arrow
             internal double[] Corners, OldCorners; // oriented box corners (8 × xyz, host) when tighter than Min / Max; else null
             internal string Key;              // the change's UniqueId (badge clicks -> panel row)
+            internal bool Ring;               // circle around the box instead of the rounded outline (old box too)
+            internal bool Dashed;             // dashed outline whatever the kind
+            internal bool DoubleArrow;        // arrow between old and new boxes has heads at both ends (Ink)
+            internal Kind? OldKind;           // old box drawn solid in this colour instead of the dashed grey ghost
+            internal char Glyph;              // badge glyph ('\0' = the kind's)
         }
 
         /// <summary>Where a badge (or zoomed-out dot) was drawn: host point on the view plane + radius (feet).</summary>
@@ -345,7 +351,7 @@ namespace ProjectPerseus.federator
                 var c = Centre(rect);
                 t.Clear(); OverlayShapes.Disc(t, c, r + rim, 20); white.AddTris(f, t, w - eps);
                 t.Clear(); OverlayShapes.Disc(t, c, r, 20); LayerOf(it.Kind).AddTris(f, t, w + eps);
-                t.Clear(); OverlayShapes.Glyph(t, GlyphOf(it.Kind), c, r * 0.5, r * 0.14); white.AddTris(f, t, w + 2 * eps);
+                t.Clear(); OverlayShapes.Glyph(t, GlyphOf(it), c, r * 0.5, r * 0.14); white.AddTris(f, t, w + 2 * eps);
                 hits.Add(Hit(f, it.Key, c, w, r + rim));
             }
             var batches = new List<Batch>();
@@ -524,11 +530,26 @@ namespace ProjectPerseus.federator
                 case Kind.Deleted: return new Color(210, 58, 58);
                 case Kind.Ghost: return new Color(128, 134, 145);
                 case Kind.Replaced: return new Color(124, 77, 255);
+                case Kind.Local: return new Color(226, 0, 122);
+                case Kind.Linked: return new Color(0, 172, 230);
+                case Kind.Orphan: return new Color(232, 32, 32);
+                case Kind.Ink: return new Color(55, 65, 81);
                 default: return new Color(224, 130, 0);
             }
         }
 
-        private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted ? '-' : k == Kind.Replaced ? 'r' : '~';
+        private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted || k == Kind.Orphan ? '-' : k == Kind.Replaced ? 'r' : '~';
+        private static char GlyphOf(Item it) => it.Glyph != '\0' ? it.Glyph : GlyphOf(it.Kind);
+
+        /// <summary>Ring style: the circle around a (padded) rectangle; rect becomes the circle's bounds.</summary>
+        private static List<Pt> RingAround(ref double[] rect, out Pt centre, out double radius)
+        {
+            centre = Centre(rect);
+            radius = 0.5 * Math.Sqrt((rect[2] - rect[0]) * (rect[2] - rect[0]) + (rect[3] - rect[1]) * (rect[3] - rect[1]));
+            var path = OverlayShapes.Circle(centre, radius, 64);
+            rect = new[] { centre.U - radius, centre.V - radius, centre.U + radius, centre.V + radius };
+            return path;
+        }
 
         /// <summary>Triangles + 1 px lines for one colour, at their depths.</summary>
         private class Layer3D
@@ -600,7 +621,9 @@ namespace ProjectPerseus.federator
                 double w = f.Depth(wNear, wFar);
                 var shape = Shape(f, it.Corners, Pad * s, MinRect * s);
                 if (shape != null) rect = Bounds(shape); else Grow(rect, Pad * s, MinRect * s);
-                bool dashed = it.Kind == Kind.Deleted && !simple;
+                Pt ringC = default(Pt); double ringR = 0;
+                if (it.Ring) shape = RingAround(ref rect, out ringC, out ringR);
+                bool dashed = (it.Kind == Kind.Deleted || it.Dashed) && !simple;
                 double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s;
                 Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), simple && !it.Emphasis ? null : halo, simple, shape);
 
@@ -612,26 +635,42 @@ namespace ProjectPerseus.federator
                     double wg = f.Depth(wOld, wOldFar);
                     var oldShape = Shape(f, it.OldCorners, Pad * s, MinRect * s);
                     if (oldShape != null) oldRect = Bounds(oldShape); else Grow(oldRect, Pad * s, MinRect * s);
-                    Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : halo, simple, oldShape);
+                    Pt oldC = default(Pt); double oldR = 0;
+                    if (it.Ring) oldShape = RingAround(ref oldRect, out oldC, out oldR);
+                    if (it.OldKind.HasValue) Outline(f, oldRect, false, half, wg, eps, LayerOf(it.OldKind.Value), simple && !it.Emphasis ? null : halo, simple, oldShape);
+                    else Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : halo, simple, oldShape);
 
                     var a = Centre(oldRect); var b = Centre(rect);
-                    if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out var from, out var to)) { from = a; to = b; }
+                    Pt from, to;
+                    if (it.Ring)
+                    {
+                        // Ring to ring: leave / enter each circle (with the gap); overlapping rings = centre to centre.
+                        var d = b - a; double len = d.Length;
+                        var dir = len > 1e-12 ? d * (1 / len) : new Pt(1, 0);
+                        double g = ArrowGap * s;
+                        if (len > oldR + ringR + 2 * g) { from = a + dir * (oldR + g); to = b - dir * (ringR + g); }
+                        else { from = a; to = b; }
+                    }
+                    else if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out from, out to)) { from = a; to = b; }
                     var topRight = TopCorner(shape, rect, left: false);
                     if ((to - badgeAt).Length < (to - topRight).Length) badgeAt = topRight;
                     if ((to - from).Length > HeadLen * s * 0.5)
                     {
                         double aw = f.Place == Placement.Underneath ? Math.Min(w, wg) : Math.Max(w, wg);
                         var arrow = new List<double>();
+                        bool both = it.DoubleArrow;
                         if (!simple)
                         {
                             OverlayShapes.Arrow(arrow, from, to, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
-                            OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 20);
+                            if (both) OverlayShapes.Arrow(arrow, to, from, half + Halo * s, (HeadLen + 0.7 * Mm) * s, (HeadHalf + 0.5 * Mm) * s);
+                            else OverlayShapes.Disc(arrow, from, (StartDot + Halo) * s, 20);
                             halo.AddTris(f, arrow, aw - eps);
                             arrow.Clear();
                         }
                         OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
-                        if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 20);
-                        var arrowLayer = LayerOf(it.Kind == Kind.Replaced ? Kind.Replaced : Kind.Modified);
+                        if (both) OverlayShapes.Arrow(arrow, to, from, half, HeadLen * s, HeadHalf * s);
+                        else if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 20);
+                        var arrowLayer = LayerOf(both ? Kind.Ink : it.Kind == Kind.Replaced ? Kind.Replaced : Kind.Modified);
                         arrowLayer.AddTris(f, arrow, aw);
                         arrowLayer.AddLine(f, new[] { from, to }, false, aw);
                     }
@@ -647,7 +686,7 @@ namespace ProjectPerseus.federator
                     OverlayShapes.Disc(t, badgeAt, br, 24);
                     LayerOf(it.Kind).AddTris(f, t, w + eps);
                     t.Clear();
-                    OverlayShapes.Glyph(t, GlyphOf(it.Kind), badgeAt, GlyphSize * s, GlyphHalf * s);
+                    OverlayShapes.Glyph(t, GlyphOf(it), badgeAt, GlyphSize * s, GlyphHalf * s);
                     white.AddTris(f, t, w + 2 * eps);
                     continue;
                 }
@@ -657,7 +696,7 @@ namespace ProjectPerseus.federator
                 OverlayShapes.Disc(t, badgeAt, br, 40);
                 LayerOf(it.Kind).AddTris(f, t, w + eps);
                 t.Clear();
-                OverlayShapes.Glyph(t, GlyphOf(it.Kind), badgeAt, GlyphSize * s * (br / (BadgeR * s)), GlyphHalf * s);
+                OverlayShapes.Glyph(t, GlyphOf(it), badgeAt, GlyphSize * s * (br / (BadgeR * s)), GlyphHalf * s);
                 halo.AddTris(f, t, w + 2 * eps);
             }
 

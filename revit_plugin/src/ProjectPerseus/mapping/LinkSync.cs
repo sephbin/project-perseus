@@ -37,9 +37,13 @@ namespace ProjectPerseus.mapping
             internal int Approved, Rejected, Skipped, Failed, Replaced;
             internal List<string> Warnings = new List<string>();
             internal ElementId Last;
+            /// <summary>Consultant elements linked to one of ours by these decisions (logged as connect events).</summary>
+            internal List<LinkSyncEvent> Connects = new List<LinkSyncEvent>();
         }
 
         private static string RejectedKey(string linkUid) => "linksync-rejected:" + linkUid;
+        /// <summary>Our never-linked families the user chose to keep (Unlinked rejected), model-wide: our UniqueIds.</summary>
+        private const string KeptUnlinkedKey = "linksync-kept-unlinked";
 
         /// <summary>Loaded links with their mapping (Mapped = has rules).</summary>
         internal static List<LinkInfo> Links(Document doc)
@@ -57,8 +61,13 @@ namespace ProjectPerseus.mapping
             return list.OrderBy(l => l.Name).ToList();
         }
 
-        /// <summary>Everything the planner needs for one link (records of all links read once by the caller: allRecords).</summary>
-        internal static List<SyncItem> Collect(Document doc, LinkInfo link, List<ReviewEvent> events, List<MappedFamilyStore.Record> allRecords)
+        /// <summary>
+        /// Everything the planner needs for one link (records of all links read once by the caller: allRecords; Link Sync log:
+        /// log). Links of ours not in the log yet (placed before it was kept) are added to register, for the caller to write,
+        /// so a later deletion of ours is noticed.
+        /// </summary>
+        internal static List<SyncItem> Collect(Document doc, LinkInfo link, List<ReviewEvent> events, List<MappedFamilyStore.Record> allRecords,
+                                               List<LinkSyncEvent> log, List<LinkSyncEvent> register)
         {
             var inst = link.Instance;
             var linkDoc = inst?.GetLinkDocument();
@@ -73,8 +82,17 @@ namespace ProjectPerseus.mapping
             };
             var rej = FederatorSettingsStore.Load<LinkSyncRejections>(doc, RejectedKey(link.Uid));
             if (rej?.Sources != null) foreach (var u in rej.Sources) input.RejectedNew.Add(u);
+            var kept = FederatorSettingsStore.Load<LinkSyncRejections>(doc, KeptUnlinkedKey);
+            if (kept?.Sources != null) foreach (var u in kept.Sources) input.KeptUnlinked.Add(u);
+            input.Connected = LinkSyncNotes.Connected(log, link.Uid);
 
             var records = allRecords.Where(r => r.LinkInstanceUid == link.Uid).ToList();
+            foreach (var r in records)
+            {
+                if (r.SourceUid == null || input.Connected.Contains(r.SourceUid)) continue;
+                input.Connected.Add(r.SourceUid);
+                register?.Add(LinkSyncNotes.ConnectEvent(link.Uid, r.SourceUid, doc.GetElement(r.Element)?.UniqueId, r.Data?.By ?? "?"));
+            }
             var needed = new HashSet<string>(StringComparer.Ordinal);
             foreach (var r in records)
             {
@@ -136,7 +154,7 @@ namespace ProjectPerseus.mapping
             var bb = ours?.get_BoundingBox(null);
             if (bb != null) { min = new[] { bb.Min.X, bb.Min.Y, bb.Min.Z }; max = new[] { bb.Max.X, bb.Max.Y, bb.Max.Z }; }
             bool move = it.Kind == SyncKind.Moved || it.Kind == SyncKind.KeptByHand || it.Kind == SyncKind.KeptRejected;
-            if (it.Kind == SyncKind.New && it.Expected != null)
+            if ((it.Kind == SyncKind.New || it.Kind == SyncKind.OursDeleted) && it.Expected != null)
             {
                 var src = linkDoc.GetElement(it.SourceUid);
                 var sbb = src?.get_BoundingBox(null);
@@ -234,7 +252,7 @@ namespace ProjectPerseus.mapping
 
         private static SyncOurs Ours(FamilyInstance fi, MappedFamilyData record) => new SyncOurs
         {
-            Id = fi.Id.GetIdValue(), TypeUid = fi.Symbol?.UniqueId, TypeName = fi.Symbol == null ? "?" : $"{fi.Symbol.FamilyName} : {fi.Symbol.Name}",
+            Id = fi.Id.GetIdValue(), Uid = fi.UniqueId, TypeUid = fi.Symbol?.UniqueId, TypeName = fi.Symbol == null ? "?" : $"{fi.Symbol.FamilyName} : {fi.Symbol.Name}",
             Frame = FamilyPlacer.FrameOf(fi), Record = record,
         };
 
@@ -247,8 +265,8 @@ namespace ProjectPerseus.mapping
                 case SyncKind.MappingType: return 2;
                 case SyncKind.Moved: case SyncKind.KeptByHand: case SyncKind.KeptRejected: return 3;
                 case SyncKind.Match: return 4;
-                case SyncKind.New: return 5;
-                case SyncKind.Orphaned: return 6;
+                case SyncKind.New: case SyncKind.OursDeleted: return 5;
+                case SyncKind.Orphaned: case SyncKind.Unlinked: return 6;
                 default: return 9;
             }
         }
@@ -271,6 +289,7 @@ namespace ProjectPerseus.mapping
 
             var idMap = new Dictionary<long, long>();
             var rejectedNew = new Dictionary<string, HashSet<string>>();
+            var keptUnlinked = new HashSet<string>(StringComparer.Ordinal);
             var events = new List<LinkSyncEvent>();
             var levels = FamilyPlacer.Levels(doc);
             var ordered = decisions.OrderBy(d => Order(d.Item.Kind)).ToList();
@@ -289,7 +308,7 @@ namespace ProjectPerseus.mapping
                         var d = ordered[i];
                         try
                         {
-                            string outcome = One(doc, d, links, user, levels, idMap, rejectedNew, res);
+                            string outcome = One(doc, d, links, user, levels, idMap, rejectedNew, keptUnlinked, res);
                             if (outcome == "skipped") res.Skipped++;
                             else if (outcome != null) { res.Failed++; if (!res.Warnings.Contains(outcome)) res.Warnings.Add(outcome); }
                             else
@@ -309,6 +328,7 @@ namespace ProjectPerseus.mapping
                             Log.Info($"[LinkSync] {d.Item.Kind} {(d.Approve ? "approve" : "reject")} failed: {ex.Message}");
                         }
                     }
+                    events.AddRange(res.Connects);
                     LinkSyncLog.Add(doc, events, inTransaction: true);
                     tx.Commit();
                 }
@@ -317,6 +337,12 @@ namespace ProjectPerseus.mapping
                     var cur = FederatorSettingsStore.Load<LinkSyncRejections>(doc, RejectedKey(kv.Key)) ?? new LinkSyncRejections();
                     foreach (var u in kv.Value) if (!cur.Sources.Contains(u)) cur.Sources.Add(u);
                     FederatorSettingsStore.Save(doc, RejectedKey(kv.Key), cur, user);
+                }
+                if (keptUnlinked.Count > 0)
+                {
+                    var cur = FederatorSettingsStore.Load<LinkSyncRejections>(doc, KeptUnlinkedKey) ?? new LinkSyncRejections();
+                    foreach (var u in keptUnlinked) if (!cur.Sources.Contains(u)) cur.Sources.Add(u);
+                    FederatorSettingsStore.Save(doc, KeptUnlinkedKey, cur, user);
                 }
                 tg.Assimilate();
             }
@@ -327,7 +353,7 @@ namespace ProjectPerseus.mapping
 
         /// <summary>One decision; null = done, "skipped" = checked out by another user, else a warning.</summary>
         private static string One(Document doc, Decision d, Dictionary<string, LinkInfo> links, string user, List<Level> levels,
-                                  Dictionary<long, long> idMap, Dictionary<string, HashSet<string>> rejectedNew, ApplyResult res)
+                                  Dictionary<long, long> idMap, Dictionary<string, HashSet<string>> rejectedNew, HashSet<string> keptUnlinked, ApplyResult res)
         {
             var it = d.Item;
             string dec = DecisionText(it.Kind, d.Approve, user, DateTime.Now);
@@ -348,8 +374,12 @@ namespace ProjectPerseus.mapping
             {
                 switch (it.Kind)
                 {
+                    case SyncKind.Unlinked:
+                        keptUnlinked.Add(ours.UniqueId);
+                        return null;
                     case SyncKind.New:
                     case SyncKind.Match:
+                    case SyncKind.OursDeleted:
                         if (!rejectedNew.TryGetValue(link.Uid, out var set)) rejectedNew[link.Uid] = set = new HashSet<string>(StringComparer.Ordinal);
                         set.Add(it.SourceUid);
                         return null;
@@ -428,11 +458,13 @@ namespace ProjectPerseus.mapping
                     if (rule == null) return "no mapping rule for it";
                     var data = MappedFamilyStore.Write(ours, link.Uid, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Linked,
                                                        FamilyPlacer.TypeKey(source), FamilyPlacer.SourceFrame(source, toHost), FamilyPlacer.FrameOf(ours));
+                    res.Connects.Add(LinkSyncNotes.ConnectEvent(link.Uid, source.UniqueId, ours.UniqueId, user));
                     SetParameters(dec, ours, link.Name, data.SourceId, null);
                     res.Last = ours.Id;
                     return null;
                 }
                 case SyncKind.New:
+                case SyncKind.OursDeleted:
                 {
                     if (source == null) return "the consultant element is gone";
                     if (rule == null) return "no mapping rule for it";
@@ -440,11 +472,13 @@ namespace ProjectPerseus.mapping
                     if (sym == null) return "our mapped type isn't in the model any more";
                     var fi = FamilyPlacer.Place(doc, inst, rule, sym, source, levels, FamilyPlacer.WorksetByName(doc, rule.Workset), user, out string warning);
                     if (fi == null) return warning ?? "couldn't place it";
+                    res.Connects.Add(LinkSyncNotes.ConnectEvent(link.Uid, source.UniqueId, fi.UniqueId, user));
                     SetParameters(dec, fi, link.Name, source.Id.GetIdValue().ToString(), null);
                     res.Last = fi.Id;
                     return null;
                 }
                 case SyncKind.Orphaned:
+                case SyncKind.Unlinked:
                     doc.Delete(ours.Id);
                     return null;
                 default:

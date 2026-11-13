@@ -60,3 +60,13 @@ to the consultant element it stands for, so later versions (moves, deletes, dele
 
 - (Answered 2026-11-13) Moves are flagged and approved / rejected, never automatic.
 - (Answered 2026-11-13) Yes: Perseus shared parameters as project parameters on the mapped categories.
+
+
+### Orphans and markers (2026-11-13)
+- Existing families of ours (mapped target type, not linked): linked to a consultant element when within 300 mm (or the rule tolerance)
+  of where the mapping puts ours (Match; beyond tolerance it's then listed as moved), else **Orphaned (no consultant element)**:
+  approve deletes ours, reject keeps it (model-wide list `linksync-kept-unlinked`).
+- Ours deleted after being linked: **Orphaned (ours deleted)**. Links are remembered as `connect` events in the Link Sync log (existing
+  records registered when the panel first reads them). Approve places ours again, reject leaves it deleted (`linksync-rejected:<link>`).
+- Model markers: moves = magenta ring on ours (this model) + cyan ring where the linked model puts it + double-headed arrow; orphans =
+  red rings (solid on ours / dashed at the consultant element whose ours was deleted).

@@ -14,7 +14,9 @@ namespace ProjectPerseus.mapping
         Moved,            // consultant moved / rule offset changed: ours isn't where the mapping puts it
         Match,            // one of ours, unrecorded, sits at the expected spot: link it
         New,              // mapped consultant element with none of ours: place
-        Orphaned,         // consultant element gone, no replacement: delete ours
+        Orphaned,         // consultant element gone, no replacement: delete ours (local orphan)
+        Unlinked,         // one of ours of a mapped type, never linked, no consultant element near it: delete ours (local orphan)
+        OursDeleted,      // ours was linked to this consultant element and has been deleted here: place again (linked orphan)
         KeptByHand,       // ours moved by hand (consultant + rule unchanged): rejects the consultant position
         KeptRejected,     // a change the user rejected
         Unmapped,         // its consultant type isn't mapped any more
@@ -35,6 +37,7 @@ namespace ProjectPerseus.mapping
     public class SyncOurs
     {
         public long Id;
+        public string Uid;
         public string TypeUid;
         public string TypeName;
         public Frame Frame;
@@ -82,8 +85,12 @@ namespace ProjectPerseus.mapping
         public HashSet<string> HiddenCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         /// <summary>old consultant uid -> current uid (federator/ReplacementLinks.Map).</summary>
         public IDictionary<string, string> ReplacementMap = new Dictionary<string, string>();
-        /// <summary>Consultant uids whose New / Match proposal was rejected.</summary>
+        /// <summary>Consultant uids whose New / Match / OursDeleted proposal was rejected.</summary>
         public HashSet<string> RejectedNew = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>Consultant uids that have been linked to one of ours (mapping/LinkSyncNotes.Connected): none of ours now = ours was deleted.</summary>
+        public HashSet<string> Connected = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>Our unrecorded families whose Unlinked (orphan) proposal was rejected (our UniqueIds; matched against SyncOurs.Uid).</summary>
+        public HashSet<string> KeptUnlinked = new HashSet<string>(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -99,7 +106,19 @@ namespace ProjectPerseus.mapping
     {
         public static bool NeedsDecision(SyncKind k) =>
             k == SyncKind.Replaced || k == SyncKind.ConsultantType || k == SyncKind.MappingType || k == SyncKind.Moved ||
-            k == SyncKind.Match || k == SyncKind.New || k == SyncKind.Orphaned;
+            k == SyncKind.Match || k == SyncKind.New || k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted;
+
+        /// <summary>Orphans: ours without a consultant element (local) or a consultant element whose linked family of ours was deleted (linked).</summary>
+        public static bool IsOrphan(SyncKind k) => k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted;
+
+        /// <summary>Approving deletes our family.</summary>
+        public static bool ApproveDeletes(SyncKind k) => k == SyncKind.Orphaned || k == SyncKind.Unlinked;
+
+        /// <summary>
+        /// An existing family of ours (not linked yet) counts as at a consultant element within this distance of where the mapping
+        /// puts ours (or the rule's tolerance, if larger); a looser match is linked, then flagged as moved if beyond tolerance.
+        /// </summary>
+        public const double MatchRadiusMm = 300;
 
         public static string Label(SyncKind k)
         {
@@ -111,7 +130,9 @@ namespace ProjectPerseus.mapping
                 case SyncKind.Moved: return "Moved";
                 case SyncKind.Match: return "Match (link existing)";
                 case SyncKind.New: return "New (place)";
-                case SyncKind.Orphaned: return "Orphaned";
+                case SyncKind.Orphaned: return "Orphaned (consultant deleted)";
+                case SyncKind.Unlinked: return "Orphaned (no consultant element)";
+                case SyncKind.OursDeleted: return "Orphaned (ours deleted)";
                 case SyncKind.KeptByHand: return "Kept (edited by hand)";
                 case SyncKind.KeptRejected: return "Kept (rejected)";
                 case SyncKind.Unmapped: return "Not mapped";
@@ -129,6 +150,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.MappingType: return "Mapping type changed";
                 case SyncKind.Moved: return "Consultant moved";
                 case SyncKind.Orphaned: return "Consultant deleted";
+                case SyncKind.Unlinked: return "No consultant element";
                 case SyncKind.KeptByHand: return "Kept: edited by hand";
                 case SyncKind.KeptRejected: return "Kept: change rejected";
                 case SyncKind.Unmapped: return "Not mapped";
@@ -276,7 +298,7 @@ namespace ProjectPerseus.mapping
                     var u = input.Unrecorded[j];
                     if (u.TypeUid != rule.TargetSymbolUid || u.Frame == null) continue;
                     var d = MappingMath.Delta(u.Frame, expectedOf[i]);
-                    if (d.XyMm <= rule.ToleranceXyMm && d.ZMm <= rule.ToleranceZMm) pairs.Add(Tuple.Create(d.TotalMm, i, j));
+                    if (d.XyMm <= Math.Max(rule.ToleranceXyMm, MatchRadiusMm) && d.ZMm <= Math.Max(rule.ToleranceZMm, MatchRadiusMm)) pairs.Add(Tuple.Create(d.TotalMm, i, j));
                 }
             }
             var usedS = new HashSet<int>();
@@ -291,21 +313,51 @@ namespace ProjectPerseus.mapping
                     Kind = SyncKind.Match, LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
                     OursId = u.Id, OursType = u.TypeName, RuleId = rule.Id, TargetUid = rule.TargetSymbolUid, TargetName = rule.TargetName,
                     Expected = expectedOf[p.Item2],
-                    Detail = $"Ours ({u.TypeName}, not linked yet) is {p.Item1:N0} mm from where the mapping puts it. Approve = link it to this consultant element.",
+                    Detail = $"Ours ({u.TypeName}, not linked yet) is {p.Item1:N0} mm from where the mapping puts it. Approve = link it to this consultant element" +
+                             (MappingMath.Within(MappingMath.Delta(u.Frame, expectedOf[p.Item2]), rule.ToleranceXyMm, rule.ToleranceZMm) ? "." : " (then listed as moved: it's beyond the tolerance)."),
                 });
             }
             for (int i = 0; i < todo.Count; i++)
             {
                 if (usedS.Contains(i)) continue;
                 var s = todo[i]; var rule = rules[s.TypeKey];
+                bool deleted = input.Connected.Contains(s.Uid);
                 items.Add(new SyncItem
                 {
-                    Kind = SyncKind.New, LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
+                    Kind = deleted ? SyncKind.OursDeleted : SyncKind.New, LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
                     RuleId = rule.Id, TargetUid = rule.TargetSymbolUid, TargetName = rule.TargetName, Expected = expectedOf[i],
-                    Detail = $"{Pretty(s.TypeKey)} has none of ours. Approve = place {rule.TargetName}.",
+                    Detail = deleted ? $"Ours at {Pretty(s.TypeKey)} was deleted from this model; the consultant element is still there. Approve = place {rule.TargetName} again, reject = leave it deleted."
+                                     : $"{Pretty(s.TypeKey)} has none of ours. Approve = place {rule.TargetName}.",
+                });
+            }
+
+            // Ours of mapped types never linked, with no consultant element near: local orphans.
+            var activeTargets = new HashSet<string>(rules.Values.Select(r => r.TargetSymbolUid), StringComparer.Ordinal);
+            for (int j = 0; j < input.Unrecorded.Count; j++)
+            {
+                if (usedU.Contains(j)) continue;
+                var u = input.Unrecorded[j];
+                if (u.TypeUid == null || !activeTargets.Contains(u.TypeUid)) continue;
+                if (u.Uid != null && input.KeptUnlinked.Contains(u.Uid)) continue;
+                items.Add(new SyncItem
+                {
+                    Kind = SyncKind.Unlinked, LinkUid = input.LinkUid, OursId = u.Id, OursType = u.TypeName,
+                    Category = input.Rules.FirstOrDefault(r => r.TargetSymbolUid == u.TypeUid)?.SourceCategory,
+                    Detail = $"Ours ({u.TypeName}) is a mapped type but no consultant element is within {MatchRadiusMm:N0} mm of it. Approve = delete ours, reject = keep it.",
                 });
             }
             return items;
+        }
+
+        /// <summary>
+        /// Across links (each planned on its own): one of ours not linked yet is only an orphan if no link matched it, and is
+        /// listed once.
+        /// </summary>
+        public static List<SyncItem> Reconcile(List<SyncItem> items)
+        {
+            var matched = new HashSet<long>(items.Where(i => i.Kind == SyncKind.Match).Select(i => i.OursId));
+            var seen = new HashSet<long>();
+            return items.Where(i => i.Kind != SyncKind.Unlinked || (!matched.Contains(i.OursId) && seen.Add(i.OursId))).ToList();
         }
 
         private static long ParseId(string s) => long.TryParse(s, out var v) ? v : 0;

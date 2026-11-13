@@ -61,7 +61,8 @@ namespace ProjectPerseus.ui
         private bool _linksLoaded;
 
         private static readonly SyncKind[] DecisionKinds =
-            { SyncKind.New, SyncKind.Match, SyncKind.Moved, SyncKind.ConsultantType, SyncKind.MappingType, SyncKind.Replaced, SyncKind.Orphaned };
+            { SyncKind.New, SyncKind.Match, SyncKind.Moved, SyncKind.ConsultantType, SyncKind.MappingType, SyncKind.Replaced, SyncKind.Orphaned,
+              SyncKind.Unlinked, SyncKind.OursDeleted };
 
         private class Row
         {
@@ -114,7 +115,8 @@ namespace ProjectPerseus.ui
                 TextWrapping = TextWrapping.Wrap, Foreground = Muted, Margin = new Thickness(0, 0, 0, 8),
                 Text = "Keeps our mapped families matching the consultant links (rules from Family Mapping). Every change is listed on its own: approve it to take " +
                        "the consultant's state, reject it to keep ours. Families moved by hand (beyond the mapping's tolerance) are listed as kept: approve to put them " +
-                       "back. The list updates when our families change. Use 'Only in the active view' to work your own zone.",
+                       "back. Orphans: ours with no consultant element (consultant deleted it, or an existing family of ours with nothing near it) and " +
+                       "consultant elements whose family of ours was deleted here. The list updates when our families change. Use 'Only in the active view' to work your own zone.",
             };
             DockPanel.SetDock(intro, Dock.Top);
             root.Children.Add(intro);
@@ -126,7 +128,9 @@ namespace ProjectPerseus.ui
             foreach (SyncKind k in Enum.GetValues(typeof(SyncKind))) _kindPick.SetTicked(k.ToString(), LinkSyncPlanner.NeedsDecision(k) || k == SyncKind.KeptByHand);
             _kindPick.AddPreset("Changes", "Everything that differs from the consultant: decisions + edited by hand",
                                 DecisionKinds.Select(k => k.ToString()).Concat(new[] { SyncKind.KeptByHand.ToString() }).ToArray());
-            _kindPick.AddPreset("Needs a decision", "New, match, moved, type changes, replaced, orphaned", DecisionKinds.Select(k => k.ToString()).ToArray());
+            _kindPick.AddPreset("Needs a decision", "New, match, moved, type changes, replaced, orphans", DecisionKinds.Select(k => k.ToString()).ToArray());
+            _kindPick.AddPreset("Orphans", "Ours without a consultant element + consultant elements whose family of ours was deleted",
+                                SyncKind.Orphaned.ToString(), SyncKind.Unlinked.ToString(), SyncKind.OursDeleted.ToString());
             _kindPick.AddPreset("Kept", "Kept by hand / rejected", SyncKind.KeptByHand.ToString(), SyncKind.KeptRejected.ToString());
             _inView = new CheckBox { Content = "Only in the active view", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
                                      ToolTip = "Only our families or consultant elements visible in the active view (follows view switches)" };
@@ -303,11 +307,19 @@ namespace ProjectPerseus.ui
                 if (mapped.Count == 0) { _items = new List<SyncItem>(); Fill(); Status("No link has a family mapping yet: map families in Federator › Family Mapping first.", true); return; }
                 var events = ReviewStore.Load(_doc);
                 var records = MappedFamilyStore.All(_doc);
+                _log = LinkSyncLog.Load(_doc);
+                var register = new List<LinkSyncEvent>();
                 var items = new List<SyncItem>();
                 foreach (var l in mapped.Where(l => _linkPick.IsTicked(l.Uid)))
-                    items.AddRange(LinkSync.Collect(_doc, l, events, records));
-                _watched = new HashSet<long>(records.Select(r => r.Element.GetIdValue()));
-                _log = LinkSyncLog.Load(_doc);
+                    items.AddRange(LinkSync.Collect(_doc, l, events, records, _log, register));
+                items = LinkSyncPlanner.Reconcile(items);
+                if (register.Count > 0 && !_doc.IsReadOnly)
+                {
+                    // Families of ours linked before the log kept links: remember them, so deleting one later is noticed.
+                    try { LinkSyncLog.Add(_doc, register); _log.AddRange(register); Log.Info($"[LinkSync] registered {register.Count:N0} existing link(s) of ours"); }
+                    catch (Exception ex) { Log.Info($"[LinkSync] couldn't register existing links: {ex.Message}"); }
+                }
+                _watched = new HashSet<long>(records.Select(r => r.Element.GetIdValue()).Concat(items.Where(i => i.OursId != 0).Select(i => i.OursId)));
                 _logIndex = LinkSyncNotes.Index(_log);
                 string scope = "";
                 if (inView)
@@ -472,8 +484,9 @@ namespace ProjectPerseus.ui
 
         /// <summary>
         /// The listed changes drawn in the model (federator/ChangeHighlightServer, its own layer next to Link Changes): moves as
-        /// a dashed ghost at ours + arrow to where the mapping puts it (amber), new as a green box where ours will appear,
-        /// orphaned as a red dashed box on ours, type / replacement / match changes as a box on ours. In-sync rows aren't drawn.
+        /// a magenta ring on ours (this model) and a cyan ring where the linked model puts it, with a double-headed arrow; new as
+        /// a green box where ours will appear; orphans as red rings (solid on ours with no consultant element, dashed where the
+        /// consultant element lost its family of ours); type / replacement / match changes as a box on ours. In-sync rows aren't drawn.
         /// </summary>
         private void PushMarkers()
         {
@@ -489,11 +502,24 @@ namespace ProjectPerseus.ui
                     {
                         Min = i.ShowMin, Max = i.ShowMax, Key = "ls:" + i.Key, Emphasis = selected.Contains(i.Key),
                         Kind = i.Kind == SyncKind.New ? ChangeHighlightServer.Kind.Added
-                             : i.Kind == SyncKind.Orphaned ? ChangeHighlightServer.Kind.Deleted
+                             : LinkSyncPlanner.IsOrphan(i.Kind) ? ChangeHighlightServer.Kind.Orphan
                              : i.Kind == SyncKind.Replaced ? ChangeHighlightServer.Kind.Replaced
                              : ChangeHighlightServer.Kind.Modified,
                     };
-                    if (i.GhostMin != null && i.GhostMax != null) { it.OldMin = i.GhostMin; it.OldMax = i.GhostMax; }
+                    if (LinkSyncPlanner.IsOrphan(i.Kind))
+                    {
+                        it.Ring = true;
+                        it.Dashed = i.Kind == SyncKind.OursDeleted;            // linked orphan: where ours was (dashed), approve places it again
+                        it.Glyph = i.Kind == SyncKind.OursDeleted ? '+' : '-';  // local orphan: approve deletes ours
+                    }
+                    if (i.GhostMin != null && i.GhostMax != null)
+                    {
+                        // Moves: cyan ring where the linked model puts ours, magenta ring on ours, double-headed arrow between.
+                        it.OldMin = i.GhostMin; it.OldMax = i.GhostMax;
+                        it.Kind = ChangeHighlightServer.Kind.Linked;
+                        it.OldKind = ChangeHighlightServer.Kind.Local;
+                        it.Ring = true; it.DoubleArrow = true;
+                    }
                     items.Add(it);
                 }
             }
@@ -523,10 +549,10 @@ namespace ProjectPerseus.ui
             // Approve: changes needing a decision + "kept" ones (= move back to the consultant position). Reject: decisions only.
             var todo = items.Where(i => approve ? (i.NeedsDecision || i.Kind == SyncKind.KeptByHand || i.Kind == SyncKind.KeptRejected) : i.NeedsDecision).ToList();
             if (todo.Count == 0) { Status(approve ? "Nothing selected to approve." : "Nothing selected to reject (kept / in-sync rows have nothing to reject)."); return; }
-            int deletes = approve ? todo.Count(i => i.Kind == SyncKind.Orphaned) : 0;
+            int deletes = approve ? todo.Count(i => LinkSyncPlanner.ApproveDeletes(i.Kind)) : 0;
             int unmapped = approve ? todo.Count(i => i.Kind == SyncKind.ConsultantType && i.TargetUid == null) : 0;
             string msg = $"{(approve ? "Approve" : "Reject")} {todo.Count:N0} change(s)?" +
-                         (deletes > 0 ? $"\n\n{deletes:N0} of them DELETE our family (its consultant element is gone)." : "") +
+                         (deletes > 0 ? $"\n\n{deletes:N0} of them DELETE our family (no consultant element for it)." : "") +
                          (unmapped > 0 ? $"\n\n{unmapped:N0} consultant type change(s) can't be approved until the new type is mapped." : "") +
                          "\n\nOne undo step.";
             if (todo.Count > 1 || deletes > 0)

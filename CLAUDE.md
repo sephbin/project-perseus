@@ -361,8 +361,10 @@ ProjectPerseus/
 │   │                             follows ViewActivated), detail + Zoom / 3D / Select ours / Select consultant (review views), Approve / Reject
 │   │                             (selected, all shown; orphan approve = delete, confirmed), Write status parameters. Decision / Edited by /
 │   │                             Assignee / comments columns + assignee filter; comment thread, add comment, assign (multi-select).
-│   │                             Show in model: listed changes drawn on the ChangeHighlightServer "linksync" layer (ghost + arrow for moves,
-│   │                             green where new families go, red orphans). Approve = Accept linked model position / Reject = Retain current.
+│   │                             Show in model: listed changes drawn on the ChangeHighlightServer "linksync" layer (moves: magenta ring on ours +
+│   │                             cyan ring at the linked position + double arrow; green where new families go; orphans red rings, solid = ours
+│   │                             without a consultant element, dashed = consultant element whose ours was deleted). Approve = Accept linked model
+│   │                             position / Reject = Retain current. Refresh registers existing links (connect events) once.
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.
@@ -540,7 +542,9 @@ ProjectPerseus/
 │   │                             accept, rejected changes); v1 PerseusMappedFamily (no baseline) still read, replaced on write. Current() follows
 │   │                             ReplacementLinks.Map; Repoint() rewrites (skips owned by others).
 │   ├── LinkSyncPlanner.cs        NEW (2026-11-13). Pure Link Sync decisions (SyncKind: Replaced, ConsultantType, MappingType, Moved, Match, New,
-│   │                             Orphaned, KeptByHand, KeptRejected, Unmapped, InSync), one item per change; moves vs the expected frame within the
+│   │                             Orphaned, Unlinked, OursDeleted, KeptByHand, KeptRejected, Unmapped, InSync), one item per change; orphans both ways:
+│   │                             local (consultant deleted / existing family of ours with no consultant element within 300 mm) and linked (ours that
+│   │                             was linked - connect events in the Link Sync log - deleted here); Reconcile across links; moves vs the expected frame within the
 │   │                             rule's XY / Z tolerance (+1°); hand edit = expected unchanged since the last accept. Tested in LinkSyncPlannerTest.cs.
 │   ├── LinkSyncNotes.cs          NEW (2026-11-13). Pure fold of Link Sync events per item (keys: our family uid + "src:<link>|<consultant uid>"):
 │   │                             decisions (who accepted / rejected, when), comment thread, assignee. Tested in LinkSyncPlannerTest.cs.

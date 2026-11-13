@@ -22,6 +22,21 @@ namespace ProjectPerseus.mapping
 
         public static string SourceKey(string linkUid, string sourceUid) => $"src:{linkUid}|{sourceUid}";
 
+        /// <summary>Consultant uids of this link ever linked to one of ours (connect events).</summary>
+        public static HashSet<string> Connected(IEnumerable<LinkSyncEvent> events, string linkUid)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            string prefix = SourceKey(linkUid, "");
+            foreach (var e in events ?? Enumerable.Empty<LinkSyncEvent>())
+                if (e?.Type == LinkSyncEvent.Connect && e.Key != null && e.Key.StartsWith(prefix, StringComparison.Ordinal)) set.Add(e.Key.Substring(prefix.Length));
+            return set;
+        }
+
+        public static LinkSyncEvent ConnectEvent(string linkUid, string sourceUid, string oursUid, string user) => new LinkSyncEvent
+        {
+            LinkUid = linkUid, Key = SourceKey(linkUid, sourceUid), Type = LinkSyncEvent.Connect, Text = oursUid, Author = user, Utc = DateTime.UtcNow,
+        };
+
         /// <summary>Keys an item's events can be under: ours, the consultant element, its replacement.</summary>
         public static IEnumerable<string> Keys(SyncItem i)
         {

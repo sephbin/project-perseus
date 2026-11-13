@@ -10,6 +10,8 @@ namespace ProjectPerseus.models
     public class LinkSyncEvent
     {
         public const string Decision = "decision", Comment = "comment", Assign = "assign";
+        /// <summary>A consultant element (Key = source key) was linked to one of ours (Text = its UniqueId): Link Sync knows when ours is deleted later.</summary>
+        public const string Connect = "connect";
 
         public string Id { get; set; }
         public string LinkUid { get; set; }
