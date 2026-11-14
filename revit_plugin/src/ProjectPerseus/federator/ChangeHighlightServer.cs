@@ -701,6 +701,7 @@ namespace ProjectPerseus.federator
 
                     var a = Centre(oldRect); var b = Centre(rect);
                     Pt from, to;
+                    bool noArrow = false;
                     if (it.Ring)
                     {
                         // Ring to ring: leave / enter each circle (with the gap); overlapping rings = centre to centre.
@@ -708,12 +709,14 @@ namespace ProjectPerseus.federator
                         var dir = len > 1e-12 ? d * (1 / len) : new Pt(1, 0);
                         double g = ArrowGap * s;
                         if (len > oldR + ringR + 2 * g) { from = a + dir * (oldR + g); to = b - dir * (ringR + g); }
-                        else { from = a; to = b; }
+                        else { from = a; to = b; noArrow = it.DoubleArrow; }
                     }
-                    else if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out from, out to)) { from = a; to = b; }
+                    else if (!OverlayShapes.ClipBetween(a, b, oldRect, rect, ArrowGap * s, out from, out to)) { from = a; to = b; noArrow = it.DoubleArrow; }
+                    // Two positions drawn as boxes (Link Sync): the arrow runs between their outer edges; overlapping boxes need none.
+                    if (it.DoubleArrow && oldRect[0] <= rect[2] && rect[0] <= oldRect[2] && oldRect[1] <= rect[3] && rect[1] <= oldRect[3]) noArrow = true;
                     var topRight = TopCorner(shape, rect, left: false);
                     if ((to - badgeAt).Length < (to - topRight).Length) badgeAt = topRight;
-                    if ((to - from).Length > HeadLen * s * 0.5)
+                    if (!noArrow && (to - from).Length > HeadLen * s * 0.5)
                     {
                         double aw = f.Place == Placement.Underneath ? Math.Min(w, wg) : Math.Max(w, wg);
                         var arrow = new List<double>();
