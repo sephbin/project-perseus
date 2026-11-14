@@ -114,6 +114,7 @@ namespace ProjectPerseus.mapping
         /// <summary>Writes the record as v2 (inside the caller's transaction), dropping a v1 one.</summary>
         internal static void Write(Element el, MappedFamilyData d)
         {
+            d.OursUid = el.UniqueId;
             var e = new Entity(V2(true));
             e.Set(FLink, d.LinkInstanceUid ?? "");
             e.Set(FSource, d.SourceUid ?? "");

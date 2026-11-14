@@ -8,6 +8,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using ProjectPerseus.logging;
+using ProjectPerseus.revit;
 
 namespace ProjectPerseus.ui
 {
@@ -71,6 +72,59 @@ namespace ProjectPerseus.ui
                     cm.IsOpen = true;
                 }
             });
+        }
+
+        private static readonly HashSet<Autodesk.Revit.DB.ViewType> BadgeViewTypes = new HashSet<Autodesk.Revit.DB.ViewType>
+        {
+            Autodesk.Revit.DB.ViewType.FloorPlan, Autodesk.Revit.DB.ViewType.CeilingPlan, Autodesk.Revit.DB.ViewType.EngineeringPlan,
+            Autodesk.Revit.DB.ViewType.AreaPlan, Autodesk.Revit.DB.ViewType.Section, Autodesk.Revit.DB.ViewType.Elevation, Autodesk.Revit.DB.ViewType.Detail,
+        };
+
+        /// <summary>
+        /// API context. Badge spots from the last highlight build (federator/ChangeHighlightServer.HitsFor) whose key the panel
+        /// handles (accept: Link Changes = change uids, Link Sync = "ls:" keys) -> screen targets over the active view of doc,
+        /// leaving out those under the panel. False = hide the targets (another document / view type, or the view is moving:
+        /// viewSig changed since the last tick, so they stay hidden until it has been still for one tick).
+        /// </summary>
+        internal static bool Targets(Autodesk.Revit.UI.UIApplication app, Autodesk.Revit.DB.Document doc, Window panel, Func<string, bool> accept,
+                                     ref string viewSig, out int[] rect, out List<Target> targets, out string signature, out string info)
+        {
+            rect = null; targets = null; signature = null; info = null;
+            var uidoc = app.ActiveUIDocument;
+            var view = uidoc?.ActiveView;
+            if (view == null || doc == null || !uidoc.Document.Equals(doc) || !BadgeViewTypes.Contains(view.ViewType)) return false;
+            Autodesk.Revit.UI.UIView uiView = null;
+            foreach (var uv in uidoc.GetOpenUIViews()) if (uv.ViewId == view.Id) { uiView = uv; break; }
+            if (uiView == null) return false;
+            var r = uiView.GetWindowRectangle();
+            var zc = uiView.GetZoomCorners();
+            if (zc == null || zc.Count < 2) return false;
+            Autodesk.Revit.DB.XYZ c0 = zc[0], c1 = zc[1], right = view.RightDirection, up = view.UpDirection;
+            string sig = $"{view.Id.GetIdValue()}|{r.Left},{r.Top},{r.Right},{r.Bottom}|{c0.X:F4},{c0.Y:F4},{c0.Z:F4}|{c1.X:F4},{c1.Y:F4},{c1.Z:F4}";
+            if (sig != viewSig) { viewSig = sig; return false; }
+
+            var hits = federator.ChangeHighlightServer.Instance.HitsFor(view.Id.GetIdValue(), out int stamp);
+            if (hits == null || hits.Count == 0) return false;
+            double spanU = (c1 - c0).DotProduct(right), spanV = (c1 - c0).DotProduct(up);
+            int w = r.Right - r.Left, h = r.Bottom - r.Top;
+            if (!(spanU > 0) || !(spanV > 0) || w <= 0 || h <= 0) return false;
+            double pxU = w / spanU, pxV = h / spanV;
+            bool panelShown = panel.IsVisible && panel.WindowState != WindowState.Minimized;
+            TryGetRect(new WindowInteropHelper(panel).Handle, out int pl, out int pt, out int pr, out int pb);
+            targets = new List<Target>();
+            foreach (var hit in hits)
+            {
+                if (hit.Key == null || (accept != null && !accept(hit.Key))) continue;
+                var d = new Autodesk.Revit.DB.XYZ(hit.X, hit.Y, hit.Z) - c0;
+                double x = r.Left + d.DotProduct(right) * pxU, y = r.Bottom - d.DotProduct(up) * pxV;
+                if (x < r.Left || x > r.Right || y < r.Top || y > r.Bottom) continue;
+                if (panelShown && x >= pl && x <= pr && y >= pt && y <= pb) continue;
+                targets.Add(new Target { Key = hit.Key, X = x, Y = y, R = hit.R * pxU + 2 });
+            }
+            rect = new[] { r.Left, r.Top, r.Right, r.Bottom };
+            signature = $"{sig}|{stamp}|{pl},{pt},{pr},{pb}";
+            info = $"view rect {r.Left},{r.Top}..{r.Right},{r.Bottom} px, {targets.Count} of {hits.Count} on screen, {pxU:F2} x {pxV:F2} px/ft";
+            return true;
         }
 
         /// <summary>

@@ -44,6 +44,159 @@ namespace ProjectPerseus.mapping
         private static string RejectedKey(string linkUid) => "linksync-rejected:" + linkUid;
         /// <summary>Our never-linked families the user chose to keep (Unlinked rejected), model-wide: our UniqueIds.</summary>
         private const string KeptUnlinkedKey = "linksync-kept-unlinked";
+        /// <summary>Decision event kinds for connecting / disconnecting by hand (panel / badge menu).</summary>
+        internal const string ConnectKind = "Connect", DisconnectKind = "Disconnect";
+
+        /// <summary>
+        /// Records copied with our families (Revit copies the entity): the record's OursUid isn't the element's; older records
+        /// without one: several on the same consultant element = keep the one in the log (connect event), else the oldest.
+        /// The copies are no longer ours-for-that-consultant-element (StripCopies removes their record).
+        /// </summary>
+        internal static HashSet<ElementId> FindCopies(Document doc, List<MappedFamilyStore.Record> records, List<LinkSyncEvent> log)
+        {
+            var copies = new HashSet<ElementId>();
+            var logged = new HashSet<string>((log ?? new List<LinkSyncEvent>()).Where(e => e.Type == LinkSyncEvent.Connect && e.Text != null).Select(e => e.Text), StringComparer.Ordinal);
+            var legacy = new List<Tuple<MappedFamilyStore.Record, string>>();
+            foreach (var r in records)
+            {
+                var el = doc.GetElement(r.Element);
+                if (el == null) continue;
+                if (!string.IsNullOrEmpty(r.Data?.OursUid)) { if (r.Data.OursUid != el.UniqueId) copies.Add(r.Element); }
+                else legacy.Add(Tuple.Create(r, el.UniqueId));
+            }
+            var kept = new HashSet<string>(records.Where(r => !copies.Contains(r.Element) && !string.IsNullOrEmpty(r.Data?.OursUid))
+                                                  .Select(r => r.LinkInstanceUid + "|" + r.SourceUid), StringComparer.Ordinal);
+            foreach (var g in legacy.GroupBy(x => x.Item1.LinkInstanceUid + "|" + x.Item1.SourceUid))
+            {
+                // A current record already holds this consultant element: older ones on it are copies too.
+                var keep = kept.Contains(g.Key) ? null : g.FirstOrDefault(x => logged.Contains(x.Item2)) ?? g.OrderBy(x => x.Item1.Element.GetIdValue()).First();
+                foreach (var x in g) if (x != keep) copies.Add(x.Item1.Element);
+            }
+            return copies;
+        }
+
+        /// <summary>Removes the copied records + Perseus link parameters (own transaction; others' checkouts skipped). Returns the number cleaned.</summary>
+        internal static int StripCopies(Document doc, ICollection<ElementId> copies)
+        {
+            if (copies == null || copies.Count == 0) return 0;
+            int n = 0;
+            using (var tx = new Transaction(doc, "Perseus: Link Sync copies"))
+            {
+                tx.Start();
+                foreach (var id in copies)
+                {
+                    var el = doc.GetElement(id);
+                    if (el == null) continue;
+                    if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, id, out _) == CheckoutStatus.OwnedByOtherUser) continue;
+                    MappedFamilyStore.Clear(el);
+                    ClearLinkParameters(el);
+                    n++;
+                }
+                tx.Commit();
+            }
+            return n;
+        }
+
+        private static void ClearLinkParameters(Element el)
+        {
+            foreach (var name in new[] { SharedParameterManager.LinkSourceName, SharedParameterManager.LinkStatusName, SharedParameterManager.LinkDecisionName,
+                                         SharedParameterManager.LinkCommentName, SharedParameterManager.LinkAssigneeName })
+                Set(el, name, "");
+        }
+
+        private static void Remember(Document doc, string key, string uid, bool add, string user)
+        {
+            if (string.IsNullOrEmpty(uid)) return;
+            var cur = FederatorSettingsStore.Load<LinkSyncRejections>(doc, key) ?? new LinkSyncRejections();
+            bool has = cur.Sources.Contains(uid);
+            if (add == has) return;
+            if (add) cur.Sources.Add(uid); else cur.Sources.RemoveAll(u => u == uid);
+            FederatorSettingsStore.Save(doc, key, cur, user);
+        }
+
+        /// <summary>
+        /// Breaks ours from its consultant element by hand: record + link parameters removed, and neither is proposed again
+        /// (ours kept as not linked, the consultant element not offered for a new family). One undo step. Null = done, else why not.
+        /// </summary>
+        internal static string Disconnect(Document doc, SyncItem item, string user)
+        {
+            var ours = item.OursId != 0 ? doc.GetElement(RevitExtensions.CreateId(item.OursId)) : null;
+            var rec = ours == null ? null : MappedFamilyStore.Get(ours);
+            if (rec == null) return "this family of ours isn't connected to a consultant element";
+            if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, ours.Id, out _) == CheckoutStatus.OwnedByOtherUser) return "it's checked out by another user";
+            string link = rec.LinkInstanceUid, src = MappedFamilyStore.Current(rec, null);
+            using (var tg = new TransactionGroup(doc, "Perseus: Link Sync disconnect"))
+            {
+                tg.Start();
+                using (var tx = new Transaction(doc, "Perseus: Link Sync disconnect"))
+                {
+                    tx.Start();
+                    MappedFamilyStore.Clear(ours);
+                    ClearLinkParameters(ours);
+                    LinkSyncLog.Add(doc, new List<LinkSyncEvent>
+                    {
+                        new LinkSyncEvent { LinkUid = link, Key = ours.UniqueId, Type = LinkSyncEvent.Decision, Kind = DisconnectKind, Approved = true, Author = user, Utc = DateTime.UtcNow },
+                        new LinkSyncEvent { LinkUid = link, Key = LinkSyncNotes.SourceKey(link, src), Type = LinkSyncEvent.Decision, Kind = DisconnectKind, Approved = true, Author = user, Utc = DateTime.UtcNow },
+                    }, inTransaction: true);
+                    tx.Commit();
+                }
+                Remember(doc, KeptUnlinkedKey, ours.UniqueId, true, user);
+                Remember(doc, RejectedKey(link), src, true, user);
+                tg.Assimilate();
+            }
+            Log.Info($"[LinkSync] {user} disconnected {item.OursId} from {src}");
+            return null;
+        }
+
+        /// <summary>
+        /// Connects one of ours to a consultant element by hand (record with the baseline at both current positions, so a
+        /// distance from where the mapping puts it shows as moved). Any other family of ours on that consultant element is
+        /// disconnected (one-to-one). One undo step. Null = done, else why not.
+        /// </summary>
+        internal static string Connect(Document doc, LinkInfo link, FamilyInstance ours, Element source, string user, out string note)
+        {
+            note = null;
+            if (link?.Instance == null || ours == null || source == null) return "pick one of ours and a consultant element";
+            if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, ours.Id, out _) == CheckoutStatus.OwnedByOtherUser) return "it's checked out by another user";
+            var toHost = link.Instance.GetTotalTransform();
+            string key = FamilyPlacer.TypeKey(source);
+            var rule = link.Mapping.Rules.LastOrDefault(r => r.SourceKey == key);
+            var others = MappedFamilyStore.All(doc, link.Uid).Where(r => r.Element != ours.Id && r.SourceUid == source.UniqueId).ToList();
+            var cats = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (ours.Category != null) cats.Add(ours.Category.Name);
+            try { SharedParameterManager.EnsureLinkSyncParameters(doc, cats); } catch (Exception ex) { Log.Info($"[LinkSync] parameters: {ex.Message}"); }
+            using (var tg = new TransactionGroup(doc, "Perseus: Link Sync connect"))
+            {
+                tg.Start();
+                using (var tx = new Transaction(doc, "Perseus: Link Sync connect"))
+                {
+                    tx.Start();
+                    int dropped = 0;
+                    foreach (var o in others)
+                    {
+                        var el = doc.GetElement(o.Element);
+                        if (el == null || (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.Id, out _) == CheckoutStatus.OwnedByOtherUser)) continue;
+                        MappedFamilyStore.Clear(el); ClearLinkParameters(el); dropped++;
+                    }
+                    if (dropped > 0) note = $"{dropped} other famil{(dropped == 1 ? "y" : "ies")} of ours on that consultant element disconnected";
+                    var data = MappedFamilyStore.Write(ours, link.Uid, source.UniqueId, source.Id.GetIdValue(), rule?.Id, user, MappedFamilyStore.Linked,
+                                                       key, FamilyPlacer.SourceFrame(source, toHost), FamilyPlacer.FrameOf(ours));
+                    SetParameters($"Connected by hand · {user} · {DateTime.Now:yyyy-MM-dd HH:mm}", ours, link.Name, data.SourceId, null);
+                    LinkSyncLog.Add(doc, new List<LinkSyncEvent>
+                    {
+                        LinkSyncNotes.ConnectEvent(link.Uid, source.UniqueId, ours.UniqueId, user),
+                        new LinkSyncEvent { LinkUid = link.Uid, Key = ours.UniqueId, Type = LinkSyncEvent.Decision, Kind = ConnectKind, Approved = true, Author = user, Utc = DateTime.UtcNow },
+                    }, inTransaction: true);
+                    tx.Commit();
+                }
+                Remember(doc, KeptUnlinkedKey, ours.UniqueId, false, user);
+                Remember(doc, RejectedKey(link.Uid), source.UniqueId, false, user);
+                tg.Assimilate();
+            }
+            if (rule == null) note = (note == null ? "" : note + "; ") + $"{LinkSyncPlanner.Pretty(key)} isn't mapped, so it's listed as not mapped until it is";
+            Log.Info($"[LinkSync] {user} connected {ours.Id.GetIdValue()} to {source.UniqueId}");
+            return null;
+        }
 
         /// <summary>Loaded links with their mapping (Mapped = has rules).</summary>
         internal static List<LinkInfo> Links(Document doc)
@@ -67,8 +220,9 @@ namespace ProjectPerseus.mapping
         /// so a later deletion of ours is noticed.
         /// </summary>
         internal static List<SyncItem> Collect(Document doc, LinkInfo link, List<ReviewEvent> events, List<MappedFamilyStore.Record> allRecords,
-                                               List<LinkSyncEvent> log, List<LinkSyncEvent> register)
+                                               List<LinkSyncEvent> log, List<LinkSyncEvent> register, ICollection<ElementId> copies = null)
         {
+            if (copies != null && copies.Count > 0) allRecords = allRecords.Where(r => !copies.Contains(r.Element)).ToList();
             var inst = link.Instance;
             var linkDoc = inst?.GetLinkDocument();
             if (linkDoc == null) return new List<SyncItem>();

@@ -11,6 +11,8 @@ namespace ProjectPerseus.models
     public class MappedFamilyData
     {
         public string LinkInstanceUid { get; set; }
+        /// <summary>UniqueId of the family the record was written on: a copy of it (Revit copies the entity) has another one.</summary>
+        public string OursUid { get; set; }
         public string SourceUid { get; set; }
         public string SourceId { get; set; }
         public string RuleId { get; set; }

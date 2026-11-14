@@ -637,7 +637,22 @@ namespace ProjectPerseus.federator
                     if (oldShape != null) oldRect = Bounds(oldShape); else Grow(oldRect, Pad * s, MinRect * s);
                     Pt oldC = default(Pt); double oldR = 0;
                     if (it.Ring) oldShape = RingAround(ref oldRect, out oldC, out oldR);
-                    if (it.OldKind.HasValue) Outline(f, oldRect, false, half, wg, eps, LayerOf(it.OldKind.Value), simple && !it.Emphasis ? null : halo, simple, oldShape);
+                    if (it.OldKind.HasValue)
+                    {
+                        // Two real positions (Link Sync: ours / the linked model's): solid outline + its own badge (same row).
+                        Outline(f, oldRect, false, half, wg, eps, LayerOf(it.OldKind.Value), simple && !it.Emphasis ? null : halo, simple, oldShape);
+                        var ob = TopCorner(oldShape, oldRect, left: true);
+                        double obr = (it.Emphasis ? BadgeREmph : BadgeR) * s;
+                        hits.Add(Hit(f, it.Key, ob, wg, obr + Halo * s));
+                        var tb = new List<double>();
+                        bool light = simple && !it.Emphasis;
+                        if (!light) { OverlayShapes.Disc(tb, ob, obr + Halo * s, 40); halo.AddTris(f, tb, wg - eps); tb.Clear(); }
+                        OverlayShapes.Disc(tb, ob, obr, 40);
+                        LayerOf(it.OldKind.Value).AddTris(f, tb, wg + eps);
+                        tb.Clear();
+                        OverlayShapes.Glyph(tb, GlyphOf(it), ob, GlyphSize * s * (obr / (BadgeR * s)), GlyphHalf * s);
+                        (light ? white : halo).AddTris(f, tb, wg + 2 * eps);
+                    }
                     else Outline(f, oldRect, !simple, StrokeHalf * s, wg, eps, LayerOf(Kind.Ghost), simple ? null : halo, simple, oldShape);
 
                     var a = Centre(oldRect); var b = Centre(rect);

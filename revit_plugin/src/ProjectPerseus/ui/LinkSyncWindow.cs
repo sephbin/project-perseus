@@ -94,6 +94,7 @@ namespace ProjectPerseus.ui
             var w = new LinkSyncWindow(doc, app.Application.Username);
             new System.Windows.Interop.WindowInteropHelper(w).Owner = app.MainWindowHandle;
             w.Show();
+            w.StartBadges(app.MainWindowHandle);
         }
 
         private LinkSyncWindow(ARDB.Document doc, string me)
@@ -233,6 +234,13 @@ namespace ProjectPerseus.ui
             _showInModel.Checked += (s, e) => Safe(PushMarkers);
             _showInModel.Unchecked += (s, e) => Safe(PushMarkers);
             _grid.MouseDoubleClick += (s, e) => Safe(() => Find(false, false, false));
+            _grid.ContextMenu = new ContextMenu();
+            _grid.ContextMenuOpening += (s, e) => Safe(() =>
+            {
+                var rows = _grid.SelectedItems.Cast<Row>().ToList();
+                if (rows.Count == 0) { e.Handled = true; return; }
+                FillMenu(_grid.ContextMenu, rows);
+            });
             _linkPick.Changed += () => Safe(Refresh);
             _kindPick.Changed += () => Safe(Fill);
             _assignFilter.SelectionChanged += (s, e) => { if (!_peopleLoading) Safe(Fill); };
@@ -245,6 +253,7 @@ namespace ProjectPerseus.ui
             {
                 _viewTimer.Stop();
                 _changeTimer.Stop();
+                StopBadges();
                 if (Instance == this) Instance = null;
                 ChangeHighlightController.ShowLayer(ChangeHighlightController.LinkSyncLayer, null, null);
                 OwnershipUiEvent.Run(a => { try { a.ViewActivated -= OnViewActivated; a.Application.DocumentChanged -= OnDocumentChanged; a.ActiveUIDocument?.RefreshActiveView(); } catch { } });
@@ -272,9 +281,17 @@ namespace ProjectPerseus.ui
                 var doc = e.GetDocument();
                 if (doc == null || !doc.Equals(_doc)) return;
                 var names = e.GetTransactionNames();
+                // Undo / redo (of anything, our own Link Sync steps included: their names start with "Perseus") = re-read.
+                if (e.Operation == ARDB.Events.UndoOperation.TransactionUndone || e.Operation == ARDB.Events.UndoOperation.TransactionRedone)
+                {
+                    Dispatcher.BeginInvoke(new Action(() => { _changeTimer.Stop(); _changeTimer.Start(); }));
+                    return;
+                }
                 if (names.Any(n => n.StartsWith("Perseus", StringComparison.Ordinal))) return;
                 var watched = _watched;
                 bool ours = e.GetModifiedElementIds().Concat(e.GetDeletedElementIds()).Any(id => watched.Contains(id.GetIdValue()));
+                // A copy of one of ours carries its record (read-only check, first few added only).
+                if (!ours) ours = e.GetAddedElementIds().Take(200).Any(id => doc.GetElement(id) is ARDB.FamilyInstance fi && MappedFamilyStore.Get(fi) != null);
                 bool linkReload = names.Any(n => n.IndexOf("Reload", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Link", StringComparison.OrdinalIgnoreCase) >= 0);
                 if (!ours && !linkReload) return;
                 Dispatcher.BeginInvoke(new Action(() => { _changeTimer.Stop(); _changeTimer.Start(); }));
@@ -308,10 +325,17 @@ namespace ProjectPerseus.ui
                 var events = ReviewStore.Load(_doc);
                 var records = MappedFamilyStore.All(_doc);
                 _log = LinkSyncLog.Load(_doc);
+                var copies = LinkSync.FindCopies(_doc, records, _log);
                 var register = new List<LinkSyncEvent>();
                 var items = new List<SyncItem>();
                 foreach (var l in mapped.Where(l => _linkPick.IsTicked(l.Uid)))
-                    items.AddRange(LinkSync.Collect(_doc, l, events, records, _log, register));
+                    items.AddRange(LinkSync.Collect(_doc, l, events, records, _log, register, copies));
+                if (copies.Count > 0 && !_doc.IsReadOnly)
+                {
+                    // Copies of our families carry the original's record: they're not linked to its consultant element.
+                    try { int n = LinkSync.StripCopies(_doc, copies); Log.Info($"[LinkSync] {n:N0} of {copies.Count:N0} copied famil(ies) of ours unlinked from the original's consultant element"); }
+                    catch (Exception ex) { Log.Info($"[LinkSync] couldn't unlink copies: {ex.Message}"); }
+                }
                 items = LinkSyncPlanner.Reconcile(items);
                 if (register.Count > 0 && !_doc.IsReadOnly)
                 {
@@ -484,9 +508,10 @@ namespace ProjectPerseus.ui
 
         /// <summary>
         /// The listed changes drawn in the model (federator/ChangeHighlightServer, its own layer next to Link Changes): moves as
-        /// a magenta ring on ours (this model) and a cyan ring where the linked model puts it, with a double-headed arrow; new as
-        /// a green box where ours will appear; orphans as red rings (solid on ours with no consultant element, dashed where the
-        /// consultant element lost its family of ours); type / replacement / match changes as a box on ours. In-sync rows aren't drawn.
+        /// a magenta box on ours (this model) and a cyan box where the linked model puts it, each with a badge, double-headed
+        /// arrow between; new as a green box where ours will appear; orphans red (solid on ours with no consultant element,
+        /// dashed where the consultant element lost its family of ours); type / replacement / match changes as a box on ours.
+        /// In-sync rows aren't drawn. Badges: click = select the row, right-click = the row menu (ui/BadgeHitOverlay).
         /// </summary>
         private void PushMarkers()
         {
@@ -508,23 +533,194 @@ namespace ProjectPerseus.ui
                     };
                     if (LinkSyncPlanner.IsOrphan(i.Kind))
                     {
-                        it.Ring = true;
                         it.Dashed = i.Kind == SyncKind.OursDeleted;            // linked orphan: where ours was (dashed), approve places it again
                         it.Glyph = i.Kind == SyncKind.OursDeleted ? '+' : '-';  // local orphan: approve deletes ours
                     }
                     if (i.GhostMin != null && i.GhostMax != null)
                     {
-                        // Moves: cyan ring where the linked model puts ours, magenta ring on ours, double-headed arrow between.
+                        // Moves: cyan box where the linked model puts ours, magenta box on ours (each with a badge), double-headed arrow between.
                         it.OldMin = i.GhostMin; it.OldMax = i.GhostMax;
                         it.Kind = ChangeHighlightServer.Kind.Linked;
                         it.OldKind = ChangeHighlightServer.Kind.Local;
-                        it.Ring = true; it.DoubleArrow = true;
+                        it.DoubleArrow = true;
                     }
                     items.Add(it);
                 }
             }
             ChangeHighlightController.ShowLayer(ChangeHighlightController.LinkSyncLayer, items.Count > 0 ? _doc : null, items);
             OwnershipUiEvent.Run(app => { try { app.ActiveUIDocument?.RefreshActiveView(); } catch { } });
+        }
+
+        // ═══════════════ Badges in the model + the row menu ═══════════════
+
+        private BadgeHitOverlay _badges;
+        private readonly DispatcherTimer _badgeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        private bool _badgeBusy, _badgeLogged;
+        private string _badgeViewSig;
+
+        private void StartBadges(IntPtr revitMain)
+        {
+            _badges = new BadgeHitOverlay(revitMain, OnBadgeClicked, BadgeTip, BadgeMenu);
+            _badgeTimer.Tick += (s, e) => Safe(BadgeTick);
+            _badgeTimer.Start();
+        }
+
+        private void StopBadges()
+        {
+            _badgeTimer.Stop();
+            try { _badges?.Close(); } catch { }
+            _badges = null;
+        }
+
+        private void BadgeTick()
+        {
+            if (_badges == null || _badgeBusy) return;
+            bool on = _showInModel.IsChecked == true && ChangeHighlightServer.Instance.Count > 0 && BadgeHitOverlay.RevitIsForeground();
+            if (!on) { _badges.HideTargets(); _badgeViewSig = null; return; }
+            _badgeBusy = true;
+            OwnershipUiEvent.Run(app =>
+            {
+                try
+                {
+                    Safe(() =>
+                    {
+                        if (_badges == null) return;
+                        if (!BadgeHitOverlay.Targets(app, _doc, this, k => k.StartsWith("ls:", StringComparison.Ordinal), ref _badgeViewSig,
+                                                     out var rect, out var targets, out var sig, out var info))
+                        { _badges.HideTargets(); return; }
+                        if (!_badgeLogged) { _badgeLogged = true; Log.Info($"[LinkSync] badge targets: {info}"); }
+                        _badges.Place(rect[0], rect[1], rect[2], rect[3], targets, sig);
+                    });
+                }
+                finally { _badgeBusy = false; }
+            });
+        }
+
+        private Row RowOf(string badgeKey)
+        {
+            if (badgeKey == null || !badgeKey.StartsWith("ls:", StringComparison.Ordinal)) return null;
+            string key = badgeKey.Substring(3);
+            return ((_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>()).FirstOrDefault(r => r.Item.Key == key);
+        }
+
+        private void OnBadgeClicked(string key, bool add)
+        {
+            var row = RowOf(key);
+            if (row == null) return;
+            if (add) { if (_grid.SelectedItems.Contains(row)) _grid.SelectedItems.Remove(row); else _grid.SelectedItems.Add(row); }
+            else { _grid.SelectedItems.Clear(); _grid.SelectedItem = row; }
+            _grid.ScrollIntoView(row);
+        }
+
+        private string BadgeTip(string key)
+        {
+            var row = RowOf(key);
+            if (row == null) return null;
+            return $"{row.Change} · {row.Category}\nOurs: {row.Ours}\nConsultant: {row.Consultant}\n" +
+                   (string.IsNullOrEmpty(row.Decision) ? "" : row.Decision + "\n") + "Click to select · Ctrl+click to add · right-click for actions";
+        }
+
+        private ContextMenu BadgeMenu(string key)
+        {
+            var row = RowOf(key);
+            if (row == null) return null;
+            if (!_grid.SelectedItems.Contains(row)) OnBadgeClicked(key, false);
+            var rows = _grid.SelectedItems.Cast<Row>().ToList();
+            if (rows.Count == 0) rows.Add(row);
+            var cm = new ContextMenu();
+            FillMenu(cm, rows);
+            return cm;
+        }
+
+        /// <summary>The row menu (badge right-click and the list's context menu): decide, check, connect / disconnect by hand.</summary>
+        private void FillMenu(ContextMenu cm, List<Row> rows)
+        {
+            cm.Items.Clear();
+            var items = rows.Select(r => r.Item).ToList();
+            var one = items.Count == 1 ? items[0] : null;
+            MenuItem Item(string header, string tip, Action click, bool enabled = true)
+            {
+                var mi = new MenuItem { Header = header, ToolTip = tip, IsEnabled = enabled };
+                mi.Click += (s, e) => Safe(click);
+                cm.Items.Add(mi);
+                return mi;
+            }
+            string n = items.Count == 1 ? "" : $" ({items.Count:N0})";
+            Item("Approve" + n + " — accept linked model position", "Take the consultant's state", () => Decide(items, true),
+                 items.Any(i => i.NeedsDecision || i.Kind == SyncKind.KeptByHand || i.Kind == SyncKind.KeptRejected));
+            Item("Reject" + n + " — retain current model position", "Keep ours as it is", () => Decide(items, false), items.Any(i => i.NeedsDecision));
+            cm.Items.Add(new Separator());
+            Item("Zoom to", "Zoom to ours and the consultant element", () => Find(false, false, false), one != null);
+            Item("Select ours", "Select our family in Revit", () => Find(false, true, false), one != null && one.OursId != 0);
+            Item("Select consultant", "Select the consultant element in Revit", () => Find(false, true, true), one != null && one.SourceId != 0);
+            cm.Items.Add(new Separator());
+            bool connected = one != null && one.OursId != 0 && one.Kind != SyncKind.Unlinked && one.Kind != SyncKind.Match;
+            Item("Disconnect from the consultant element", "Ours stays where it is as a family of this model only; neither is proposed again", () => Disconnect(one), connected);
+            Item(connected ? "Connect ours to another consultant element…" : "Connect ours to a consultant element…",
+                 "Pick the consultant element in the view (linked element)", () => PickConsultant(one), one != null && one.OursId != 0);
+            Item("Connect this consultant element to one of ours…", "Pick our family in the view", () => PickOurs(one),
+                 one != null && one.OursId == 0 && one.SourceId != 0);
+        }
+
+        private void Disconnect(SyncItem item)
+        {
+            if (item == null) return;
+            Api(app =>
+            {
+                string why = LinkSync.Disconnect(_doc, item, _me);
+                Refresh();
+                Status(why == null ? "Disconnected: ours is now a family of this model only." : "Couldn't disconnect: " + why, why != null);
+            }, needActive: true);
+        }
+
+        private void PickConsultant(SyncItem item)
+        {
+            if (item == null || item.OursId == 0) return;
+            Status("Pick the consultant element in the view (Esc to cancel)…");
+            Api(app =>
+            {
+                var uidoc = app.ActiveUIDocument;
+                ARDB.Reference r;
+                try { r = uidoc.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.LinkedElement, "Pick the consultant element to connect ours to"); }
+                catch (Autodesk.Revit.Exceptions.OperationCanceledException) { Status("Cancelled."); return; }
+                var inst = _doc.GetElement(r.ElementId) as ARDB.RevitLinkInstance;
+                var link = inst == null ? null : LinkSync.Links(_doc).FirstOrDefault(l => l.Uid == inst.UniqueId);
+                var source = link?.Instance?.GetLinkDocument()?.GetElement(r.LinkedElementId);
+                var ours = _doc.GetElement(RevitExtensions.CreateId(item.OursId)) as ARDB.FamilyInstance;
+                Connect(link, ours, source);
+            }, needActive: true);
+        }
+
+        private void PickOurs(SyncItem item)
+        {
+            if (item == null || item.SourceId == 0) return;
+            Status("Pick our family in the view (Esc to cancel)…");
+            Api(app =>
+            {
+                var uidoc = app.ActiveUIDocument;
+                ARDB.Reference r;
+                try { r = uidoc.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.Element, new FamilyInstanceFilter(), "Pick our family to connect to this consultant element"); }
+                catch (Autodesk.Revit.Exceptions.OperationCanceledException) { Status("Cancelled."); return; }
+                var link = LinkSync.Links(_doc).FirstOrDefault(l => l.Uid == item.LinkUid);
+                var source = link?.Instance?.GetLinkDocument()?.GetElement(item.NewSourceUid ?? item.SourceUid);
+                Connect(link, _doc.GetElement(r.ElementId) as ARDB.FamilyInstance, source);
+            }, needActive: true);
+        }
+
+        /// <summary>API context.</summary>
+        private void Connect(LinkSync.LinkInfo link, ARDB.FamilyInstance ours, ARDB.Element source)
+        {
+            if (link == null) { Status("That isn't in a loaded consultant link.", true); return; }
+            if (ours == null || source == null) { Status("Couldn't find both elements.", true); return; }
+            string why = LinkSync.Connect(_doc, link, ours, source, _me, out string note);
+            Refresh();
+            Status(why == null ? $"Connected ours to consultant element {source.Id.GetIdValue()}" + (note != null ? $" ({note})." : ".") : "Couldn't connect: " + why, why != null);
+        }
+
+        private class FamilyInstanceFilter : Autodesk.Revit.UI.Selection.ISelectionFilter
+        {
+            public bool AllowElement(ARDB.Element e) => e is ARDB.FamilyInstance;
+            public bool AllowReference(ARDB.Reference r, ARDB.XYZ p) => false;
         }
 
         // ═══════════════ Deciding ═══════════════

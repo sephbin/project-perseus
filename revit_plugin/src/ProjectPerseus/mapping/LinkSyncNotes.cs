@@ -84,6 +84,8 @@ namespace ProjectPerseus.mapping
         public static string Describe(LinkSyncEvent d, bool withWhen = true)
         {
             if (d == null) return "";
+            if (d.Kind == LinkSync.ConnectKind || d.Kind == LinkSync.DisconnectKind)
+                return $"{(d.Kind == LinkSync.ConnectKind ? "Connected" : "Disconnected")} by hand · {d.Author}" + (withWhen ? $" · {d.Utc.ToLocalTime():d MMM HH:mm}" : "");
             string kind = Enum.TryParse<SyncKind>(d.Kind ?? "", out var k) ? LinkSyncPlanner.Label(k).ToLowerInvariant() : d.Kind;
             return $"{(d.Approved ? "Accepted" : "Rejected")} ({kind}) · {d.Author}" + (withWhen ? $" · {d.Utc.ToLocalTime():d MMM HH:mm}" : "");
         }

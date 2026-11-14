@@ -70,3 +70,7 @@ to the consultant element it stands for, so later versions (moves, deletes, dele
   records registered when the panel first reads them). Approve places ours again, reject leaves it deleted (`linksync-rejected:<link>`).
 - Model markers: moves = magenta ring on ours (this model) + cyan ring where the linked model puts it + double-headed arrow; orphans =
   red rings (solid on ours / dashed at the consultant element whose ours was deleted).
+- (2026-11-14) Markers are boxes again (magenta ours / cyan linked position, a badge on each). Right-click a badge or a row: disconnect
+  ours from its consultant element (neither proposed again), connect ours to a consultant element / a consultant element to ours (picked
+  in Revit, one-to-one). A copy of one of ours (Revit copies the record) is unlinked on the next refresh: records keep the UniqueId they
+  were written on. Undo / redo refreshes the panel.

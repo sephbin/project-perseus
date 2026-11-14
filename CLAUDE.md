@@ -339,7 +339,8 @@ ProjectPerseus/
 │   │                             shown; unticked rows aren't drawn or baked ("shown" scope).
 │   ├── MultiPick.cs              NEW (2026-11-11). Drop-down tick list (All / None / presets, parent items with mixed state) for the
 │   │                             FederatorWindow filters (Change = Added / Deleted / Modified > aspects, Category, Level, Status, Assignee).
-│   ├── BadgeHitOverlay.cs        NEW (2026-11-11). Invisible click targets over the federator badges in the active 2D view: per-pixel
+│   ├── BadgeHitOverlay.cs        NEW (2026-11-11). Targets() = shared badge spot -> screen mapping with a key filter (Link Changes / Link Sync).
+│   │                             Invisible click targets over the federator badges in the active 2D view: per-pixel
 │   │                             transparent, non-activating window owned by Revit; only alpha-1 discs take clicks (select row, Ctrl adds;
 │   │                             right-click = review menu from the panel). Wheel / middle / right elsewhere re-posted to the Revit view.
 │   │                             FederatorWindow places it from a 150 ms API-context tick (UIView rect + zoom corners; hidden while moving)
@@ -361,10 +362,12 @@ ProjectPerseus/
 │   │                             follows ViewActivated), detail + Zoom / 3D / Select ours / Select consultant (review views), Approve / Reject
 │   │                             (selected, all shown; orphan approve = delete, confirmed), Write status parameters. Decision / Edited by /
 │   │                             Assignee / comments columns + assignee filter; comment thread, add comment, assign (multi-select).
-│   │                             Show in model: listed changes drawn on the ChangeHighlightServer "linksync" layer (moves: magenta ring on ours +
-│   │                             cyan ring at the linked position + double arrow; green where new families go; orphans red rings, solid = ours
-│   │                             without a consultant element, dashed = consultant element whose ours was deleted). Approve = Accept linked model
-│   │                             position / Reject = Retain current. Refresh registers existing links (connect events) once.
+│   │                             Show in model: listed changes drawn on the ChangeHighlightServer "linksync" layer (moves: magenta box on ours +
+│   │                             cyan box at the linked position, badge on each, double arrow; green where new families go; orphans red, solid =
+│   │                             ours without a consultant element, dashed = consultant element whose ours was deleted). Badges via ui/BadgeHitOverlay
+│   │                             ("ls:" keys): click selects, right-click = row menu (also on the list): approve / reject, zoom / select, Disconnect,
+│   │                             Connect (PickObject linked element / our family). Refresh registers existing links (connect events) once and
+│   │                             unlinks copies (LinkSync.FindCopies: record's OursUid != element). Undo / redo re-reads.
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.

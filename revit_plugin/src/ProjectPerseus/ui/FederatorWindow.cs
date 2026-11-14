@@ -1123,12 +1123,6 @@ namespace ProjectPerseus.ui
         private bool _badgeBusy, _badgeLogged;
         private string _badgeViewSig;
 
-        private static readonly HashSet<ARDB.ViewType> BadgeViewTypes = new HashSet<ARDB.ViewType>
-        {
-            ARDB.ViewType.FloorPlan, ARDB.ViewType.CeilingPlan, ARDB.ViewType.EngineeringPlan, ARDB.ViewType.AreaPlan,
-            ARDB.ViewType.Section, ARDB.ViewType.Elevation, ARDB.ViewType.Detail,
-        };
-
         private void StartBadges(IntPtr revitMain)
         {
             _badges = new BadgeHitOverlay(revitMain, OnBadgeClicked, BadgeTip, BadgeMenu);
@@ -1157,53 +1151,15 @@ namespace ProjectPerseus.ui
             });
         }
 
-        /// <summary>Badge spots from the last highlight build -> screen pixels of the active view (API context).</summary>
+        /// <summary>Badge spots from the last highlight build -> screen pixels of the active view (API context). Link Sync's own ("ls:") aren't ours.</summary>
         private void PlaceBadges(UIApplication app)
         {
             if (_badges == null) return;
-            var uidoc = app.ActiveUIDocument;
-            var view = uidoc?.ActiveView;
-            if (view == null || _doc == null || !uidoc.Document.Equals(_doc) || !BadgeViewTypes.Contains(view.ViewType))
+            if (!BadgeHitOverlay.Targets(app, _doc, this, k => !k.StartsWith("ls:", StringComparison.Ordinal), ref _badgeViewSig,
+                                         out var rect, out var targets, out var sig, out var info))
             { _badges.HideTargets(); return; }
-            Autodesk.Revit.UI.UIView uiView = null;
-            foreach (var uv in uidoc.GetOpenUIViews()) if (uv.ViewId == view.Id) { uiView = uv; break; }
-            if (uiView == null) { _badges.HideTargets(); return; }
-            var rect = uiView.GetWindowRectangle();
-            var zc = uiView.GetZoomCorners();
-            if (zc == null || zc.Count < 2) { _badges.HideTargets(); return; }
-            ARDB.XYZ c0 = zc[0], c1 = zc[1], right = view.RightDirection, up = view.UpDirection;
-
-            // Moving (pan / zoom / resize): stay hidden until the view has been still for one tick.
-            string viewSig = $"{view.Id.GetIdValue()}|{rect.Left},{rect.Top},{rect.Right},{rect.Bottom}|" +
-                             $"{c0.X:F4},{c0.Y:F4},{c0.Z:F4}|{c1.X:F4},{c1.Y:F4},{c1.Z:F4}";
-            if (viewSig != _badgeViewSig) { _badgeViewSig = viewSig; _badges.HideTargets(); return; }
-
-            var hits = ChangeHighlightServer.Instance.HitsFor(view.Id.GetIdValue(), out int stamp);
-            if (hits == null || hits.Count == 0) { _badges.HideTargets(); return; }
-            double spanU = (c1 - c0).DotProduct(right), spanV = (c1 - c0).DotProduct(up);
-            int w = rect.Right - rect.Left, h = rect.Bottom - rect.Top;
-            if (!(spanU > 0) || !(spanV > 0) || w <= 0 || h <= 0) { _badges.HideTargets(); return; }
-            double pxU = w / spanU, pxV = h / spanV;
-
-            // Leave out badges under this panel (the overlay would take the panel's clicks there).
-            bool panelShown = IsVisible && WindowState != WindowState.Minimized;
-            BadgeHitOverlay.TryGetRect(new WindowInteropHelper(this).Handle, out int pl, out int pt, out int pr, out int pb);
-            var targets = new List<BadgeHitOverlay.Target>();
-            foreach (var hit in hits)
-            {
-                var d = new ARDB.XYZ(hit.X, hit.Y, hit.Z) - c0;
-                double x = rect.Left + d.DotProduct(right) * pxU, y = rect.Bottom - d.DotProduct(up) * pxV;
-                if (x < rect.Left || x > rect.Right || y < rect.Top || y > rect.Bottom) continue;
-                if (panelShown && x >= pl && x <= pr && y >= pt && y <= pb) continue;
-                targets.Add(new BadgeHitOverlay.Target { Key = hit.Key, X = x, Y = y, R = hit.R * pxU + 2 });
-            }
-            if (!_badgeLogged)
-            {
-                _badgeLogged = true;
-                Log.Info($"[Federator] badge targets: view rect {rect.Left},{rect.Top}..{rect.Right},{rect.Bottom} px, " +
-                         $"{targets.Count} of {hits.Count} on screen, {pxU:F2} x {pxV:F2} px/ft");
-            }
-            _badges.Place(rect.Left, rect.Top, rect.Right, rect.Bottom, targets, $"{viewSig}|{stamp}|{pl},{pt},{pr},{pb}");
+            if (!_badgeLogged) { _badgeLogged = true; Log.Info($"[Federator] badge targets: {info}"); }
+            _badges.Place(rect[0], rect[1], rect[2], rect[3], targets, sig);
         }
 
         private void OnBadgeClicked(string key, bool add)
