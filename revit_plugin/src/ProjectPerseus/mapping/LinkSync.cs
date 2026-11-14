@@ -156,6 +156,10 @@ namespace ProjectPerseus.mapping
                                     case SyncKind.MappingType: rec.RejectedTargetUid = null; break;
                                     case SyncKind.Replaced: rec.RejectedReplacement = null; break;
                                     case SyncKind.Orphaned: rec.RejectedGone = false; break;
+                                    case SyncKind.ParameterChanged:
+                                        if (it.ParamHandEdit) { rec.ParamWritten = rec.ParamWritten ?? new Dictionary<string, string>(); rec.ParamWritten[it.ParamMapId ?? ""] = it.ParamLocal; }
+                                        else rec.ParamRejected?.Remove(it.ParamMapId ?? "");
+                                        break;
                                 }
                                 MappedFamilyStore.Write(ours, rec);
                                 break;
@@ -332,10 +336,13 @@ namespace ProjectPerseus.mapping
                 if (!ruleKeys.Contains(key) && !needed.Contains(fi.UniqueId)) continue;
                 input.Sources.Add(new SyncSource { Uid = fi.UniqueId, Id = fi.Id.GetIdValue(), TypeKey = key, Category = fi.Category.Name, Frame = FamilyPlacer.SourceFrame(fi, toHost) });
             }
+            bool anyParams = input.Rules.Any(x => x.Parameters != null && x.Parameters.Count > 0);
             foreach (var r in records)
             {
                 if (!(doc.GetElement(r.Element) is FamilyInstance fi)) continue;
-                input.Ours.Add(Ours(fi, r.Data));
+                var o = Ours(fi, r.Data);
+                if (anyParams) o.Params = ParamStates(doc, fi, linkDoc, r, input, link.Name);
+                input.Ours.Add(o);
             }
             var targetUids = new HashSet<string>(input.Rules.Where(r => !string.IsNullOrEmpty(r.TargetSymbolUid)).Select(r => r.TargetSymbolUid), StringComparer.Ordinal);
             var targetIds = new HashSet<ElementId>(targetUids.Select(u => doc.GetElement(u)?.Id).Where(id => id != null));
@@ -365,6 +372,24 @@ namespace ProjectPerseus.mapping
                 }
             }
             return items;
+        }
+
+        /// <summary>Mapped parameters of one of ours against its (current) consultant element, by the rule of the consultant's type.</summary>
+        private static List<ParamState> ParamStates(Document doc, FamilyInstance ours, Document linkDoc, MappedFamilyStore.Record r, SyncInput input, string linkName)
+        {
+            var list = new List<ParamState>();
+            string uid = MappedFamilyStore.Current(r, input.ReplacementMap);
+            var source = uid == null ? null : linkDoc.GetElement(uid);
+            if (source == null) return list;
+            string key = FamilyPlacer.TypeKey(source);
+            var rule = input.Rules.LastOrDefault(x => x.SourceKey == key && x.Enabled) ?? input.Rules.FirstOrDefault(x => x.Id == r.RuleId);
+            if (rule?.Parameters == null) return list;
+            foreach (var m in rule.Parameters.Where(x => x.Enabled && x.Source != null && x.Target != null))
+            {
+                try { var s = ParamValues.State(doc, ours, source, m, linkName); if (s != null) list.Add(s); }
+                catch (Exception ex) { Log.Info($"[LinkSync] parameter {m.Target?.Name}: {ex.Message}"); }
+            }
+            return list;
         }
 
         private const double MinMarker = 300 / MappingMath.MmPerFoot;
@@ -492,6 +517,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.Match: return 4;
                 case SyncKind.New: case SyncKind.OursDeleted: return 5;
                 case SyncKind.Orphaned: case SyncKind.Unlinked: return 6;
+                case SyncKind.ParameterChanged: return 7;   // after moves (re-placed families keep their id map) and placements
                 default: return 9;
             }
         }
@@ -632,6 +658,11 @@ namespace ProjectPerseus.mapping
                     case SyncKind.MappingType: if (rec == null) return "the local family has no Perseus record"; rec.RejectedTargetUid = it.TargetUid; break;
                     case SyncKind.Replaced: if (rec == null) return "the local family has no Perseus record"; rec.RejectedReplacement = it.NewSourceUid; break;
                     case SyncKind.Orphaned: if (rec == null) return "the local family has no Perseus record"; rec.RejectedGone = true; break;
+                    case SyncKind.ParameterChanged:
+                        if (rec == null) return "the local family has no Perseus record";
+                        rec.ParamRejected = rec.ParamRejected ?? new Dictionary<string, string>();
+                        rec.ParamRejected[it.ParamMapId ?? ""] = it.ParamSrc;
+                        break;
                     default: return null;
                 }
                 MappedFamilyStore.Write(ours, rec);
@@ -714,6 +745,9 @@ namespace ProjectPerseus.mapping
                     var fi = FamilyPlacer.Place(doc, inst, rule, sym, source, levels, FamilyPlacer.WorksetByName(doc, rule.Workset), user, out string warning);
                     if (fi == null) return warning ?? "couldn't place it";
                     res.Connects.Add(LinkSyncNotes.ConnectEvent(link.Uid, source.UniqueId, fi.UniqueId, user));
+                    var pp = new List<string>();
+                    ParamValues.Apply(doc, fi, source, rule, link.Name, null, pp);   // mapped parameter values on placement
+                    foreach (var p in pp) if (!res.Warnings.Contains(p)) res.Warnings.Add(p);
                     SetParameters(dec, fi, link.Name, source.Id.GetIdValue().ToString(), null);
                     res.Last = fi.Id;
                     return null;
@@ -722,6 +756,17 @@ namespace ProjectPerseus.mapping
                 case SyncKind.Unlinked:
                     doc.Delete(ours.Id);
                     return null;
+                case SyncKind.ParameterChanged:
+                {
+                    var src = linkDoc.GetElement(it.NewSourceUid ?? it.SourceUid);
+                    if (src == null) return "the consultant element is gone";
+                    var prule = link.Mapping.Rules.FirstOrDefault(x => x.Parameters?.Any(m => m.Id == it.ParamMapId) == true);
+                    if (prule == null) return "the parameter mapping was removed";
+                    var problems = new List<string>();
+                    if (ParamValues.Apply(doc, ours, src, prule, link.Name, it.ParamMapId, problems) == 0) return problems.FirstOrDefault() ?? "couldn't write the value";
+                    res.Last = ours.Id;
+                    return null;
+                }
                 default:
                     return null;
             }

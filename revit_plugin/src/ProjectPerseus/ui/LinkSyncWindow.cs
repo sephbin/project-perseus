@@ -65,7 +65,7 @@ namespace ProjectPerseus.ui
 
         private static readonly SyncKind[] DecisionKinds =
             { SyncKind.New, SyncKind.Match, SyncKind.Moved, SyncKind.ConsultantType, SyncKind.MappingType, SyncKind.Replaced, SyncKind.Orphaned,
-              SyncKind.Unlinked, SyncKind.OursDeleted };
+              SyncKind.Unlinked, SyncKind.OursDeleted, SyncKind.ParameterChanged };
 
         private class Row
         {
@@ -467,6 +467,18 @@ namespace ProjectPerseus.ui
                     catch (Exception ex) { Log.Info($"[LinkSync] couldn't unlink copies: {ex.Message}"); }
                 }
                 items = LinkSyncPlanner.Reconcile(items);
+                // "Always apply" parameter mappings: written straight away (hand edits are set aside, not overwritten).
+                var auto = items.Where(i => i.Kind == SyncKind.ParameterChanged && i.AlwaysApply && i.NeedsDecision).ToList();
+                if (auto.Count > 0 && !_doc.IsReadOnly)
+                {
+                    try
+                    {
+                        var r = LinkSync.Apply(_doc, auto.Select(i => new LinkSync.Decision { Item = i, Approve = true }).ToList(), mapped.ToDictionary(l => l.Uid), _me);
+                        Log.Info($"[LinkSync] always-apply parameters: {r.Approved:N0} written, {r.Skipped:N0} checked out by others, {r.Failed:N0} failed");
+                        if (r.Approved > 0) items = items.Except(auto).ToList();
+                    }
+                    catch (Exception ex) { Log.Info($"[LinkSync] always-apply parameters: {ex.Message}"); }
+                }
                 if (register.Count > 0 && !_doc.IsReadOnly)
                 {
                     // Families of ours linked before the log kept links: remember them, so deleting one later is noticed.
@@ -518,7 +530,7 @@ namespace ProjectPerseus.ui
                     EditedBy = t.i.OursEditedBy ?? "",
                     Assignee = t.notes.Assignee ?? "",
                     Comments = t.notes.Comments.Count > 0 ? t.notes.Comments.Count.ToString() : "",
-                    Item = t.i, Change = LinkSyncPlanner.Label(t.i.Kind), Link = names.TryGetValue(t.i.LinkUid ?? "", out var n) ? n : "?",
+                    Item = t.i, Change = LinkSyncPlanner.Label(t.i.Kind) + (t.i.ParamName != null ? " · " + t.i.ParamName : ""), Link = names.TryGetValue(t.i.LinkUid ?? "", out var n) ? n : "?",
                     Category = t.i.Category ?? "",
                     Consultant = $"{LinkSyncPlanner.Pretty(t.i.SourceTypeKey)} · {(t.i.Kind == SyncKind.Replaced ? $"{t.i.SourceId} → {t.i.NewSourceId}" : t.i.SourceId.ToString())}",
                     Ours = t.i.OursId == 0 ? (t.i.TargetName != null ? "(none) → " + t.i.TargetName : "(none)") : $"{t.i.OursType} · {t.i.OursId}",

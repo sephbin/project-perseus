@@ -241,7 +241,7 @@ namespace ProjectPerseus.ui
             _editor.Children.Add(Section("Parameters (consultant → local)"));
             _editor.Children.Add(new TextBlock
             {
-                Text = "Map consultant values onto the local family. Checked against the real consultant values (preview below). Mapping and checks only for now: values aren't written yet.",
+                Text = "Map consultant values onto the local family, checked against the real consultant values (preview below). Values are written when Link Sync places a family; later changes show in Link Sync as 'Parameter changed' (or are written straight away with Always apply).",
                 Foreground = Muted, TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 0, 0, 4),
             });
             _paramList = new ListBox { MinHeight = 44, MaxHeight = 150, Margin = new Thickness(0, 0, 0, 4) };
@@ -256,7 +256,7 @@ namespace ProjectPerseus.ui
             pick.Children.Add(_dstParam);
             _editor.Children.Add(pick);
             var pick2 = new WrapPanel();
-            _paramMode = new ComboBox { Width = 160, Margin = new Thickness(0, 0, 6, 4), ToolTip = "How changes of the consultant value reach the local family (from phase 3)" };
+            _paramMode = new ComboBox { Width = 160, Margin = new Thickness(0, 0, 6, 4), ToolTip = "How changes of the consultant value reach the local family: approved in Link Sync, or written on each Link Sync refresh" };
             _paramMode.Items.Add("Link Sync approval");
             _paramMode.Items.Add("Always apply");
             _paramMode.SelectedIndex = 0;

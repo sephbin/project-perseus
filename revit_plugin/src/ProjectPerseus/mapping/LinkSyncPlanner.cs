@@ -19,6 +19,7 @@ namespace ProjectPerseus.mapping
         OursDeleted,      // ours was linked to this consultant element and has been deleted here: place again (linked orphan)
         KeptByHand,       // ours moved by hand (consultant + rule unchanged): rejects the consultant position
         KeptRejected,     // a change the user rejected
+        ParameterChanged, // a mapped parameter: the local value isn't the consultant's (one item per parameter)
         Unmapped,         // its consultant type isn't mapped any more
         InSync,
     }
@@ -33,6 +34,17 @@ namespace ProjectPerseus.mapping
         public Frame Frame;
     }
 
+    /// <summary>One mapped parameter on one of ours (mapping/LinkSync reads the values; canonical texts from mapping/ParamCompat).</summary>
+    public class ParamState
+    {
+        public string MapId, Name;
+        public bool AlwaysApply;
+        public string Src;            // consultant value now (SourceCanon)
+        public string Expected;       // what the local value should be (LocalCanon), null = can't map (skipped)
+        public string Local;          // what the local value is (LocalCanon)
+        public string ExpectedShown, LocalShown;
+    }
+
     /// <summary>One of our family instances.</summary>
     public class SyncOurs
     {
@@ -42,6 +54,7 @@ namespace ProjectPerseus.mapping
         public string TypeName;
         public Frame Frame;
         public MappedFamilyData Record;   // null = not mapped (Match candidates)
+        public List<ParamState> Params = new List<ParamState>();
     }
 
     public class SyncItem
@@ -72,9 +85,12 @@ namespace ProjectPerseus.mapping
         /// linked model changes again; approving it later still takes the consultant's state.
         /// </summary>
         public bool Rejected;
+        /// <summary>ParameterChanged: the mapping, the parameter, local value now -> consultant's, canonical values for the record.</summary>
+        public string ParamMapId, ParamName, ParamFrom, ParamTo, ParamSrc, ParamLocal;
+        public bool ParamHandEdit, AlwaysApply;
 
         public bool NeedsDecision => !Rejected && LinkSyncPlanner.NeedsDecision(Kind);
-        public string Key => $"{Kind}|{LinkUid}|{OursId}|{SourceUid}";
+        public string Key => $"{Kind}|{LinkUid}|{OursId}|{SourceUid}" + (ParamMapId != null ? "|" + ParamMapId : "");
     }
 
     public class SyncInput
@@ -111,7 +127,8 @@ namespace ProjectPerseus.mapping
     {
         public static bool NeedsDecision(SyncKind k) =>
             k == SyncKind.Replaced || k == SyncKind.ConsultantType || k == SyncKind.MappingType || k == SyncKind.Moved ||
-            k == SyncKind.Match || k == SyncKind.New || k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted;
+            k == SyncKind.Match || k == SyncKind.New || k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted ||
+            k == SyncKind.ParameterChanged;
 
         /// <summary>Orphans: ours without a consultant element (local) or a consultant element whose linked family of ours was deleted (linked).</summary>
         public static bool IsOrphan(SyncKind k) => k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted;
@@ -140,6 +157,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.OursDeleted: return "Orphaned (local family deleted)";
                 case SyncKind.KeptByHand: return "Kept (edited by hand)";
                 case SyncKind.KeptRejected: return "Kept (rejected)";
+                case SyncKind.ParameterChanged: return "Parameter changed";
                 case SyncKind.Unmapped: return "Not mapped";
                 default: return "In sync";
             }
@@ -156,6 +174,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.Moved: return "Consultant moved";
                 case SyncKind.Orphaned: return "Consultant deleted";
                 case SyncKind.Unlinked: return "No consultant element";
+                case SyncKind.ParameterChanged: return "Consultant value changed";
                 case SyncKind.KeptByHand: return "Kept: edited by hand";
                 case SyncKind.KeptRejected: return "Kept: change rejected";
                 case SyncKind.Unmapped: return "Not mapped";
@@ -221,6 +240,19 @@ namespace ProjectPerseus.mapping
                     continue;
                 }
                 covered.Add(now.Uid);
+                foreach (var ps in o.Params ?? new List<ParamState>())
+                {
+                    var pi = ParamItem(r, ps);
+                    if (pi == null) continue;
+                    var it = Item(SyncKind.ParameterChanged, now);
+                    it.ParamMapId = ps.MapId; it.ParamName = ps.Name; it.ParamFrom = ps.LocalShown; it.ParamTo = ps.ExpectedShown;
+                    it.ParamSrc = ps.Src; it.ParamLocal = ps.Local; it.AlwaysApply = ps.AlwaysApply;
+                    it.Rejected = pi.Value.Rejected; it.ParamHandEdit = pi.Value.HandEdit;
+                    it.Detail = pi.Value.HandEdit ? $"{ps.Name} was edited by hand ('{ps.LocalShown}'); the consultant's is still '{ps.ExpectedShown}'. Approve = take the consultant's."
+                              : pi.Value.Rejected ? $"{ps.Name}: taking the consultant's '{ps.ExpectedShown}' was rejected; the local family keeps '{ps.LocalShown}'."
+                              : $"{ps.Name}: local '{ps.LocalShown}', consultant '{ps.ExpectedShown}'. Approve = write the consultant's" + (ps.AlwaysApply ? " (always applied)." : ".");
+                    items.Add(it);
+                }
 
                 rulesById.TryGetValue(r.RuleId ?? "", out var oldRule);
                 string baseType = r.SourceTypeKey ?? oldRule?.SourceKey ?? now.TypeKey;
@@ -385,6 +417,21 @@ namespace ProjectPerseus.mapping
             var matched = new HashSet<long>(items.Where(i => i.Kind == SyncKind.Match).Select(i => i.OursId));
             var seen = new HashSet<long>();
             return items.Where(i => i.Kind != SyncKind.Unlinked || (!matched.Contains(i.OursId) && seen.Add(i.OursId))).ToList();
+        }
+
+        /// <summary>
+        /// One mapped parameter: null = nothing to do (local already the consultant's value, or it can't map). Rejected = the
+        /// consultant value's change was rejected, or the local value was edited by hand since it was last written while the
+        /// consultant value stayed the same (the modeller keeps theirs).
+        /// </summary>
+        public static (bool Rejected, bool HandEdit)? ParamItem(MappedFamilyData r, ParamState ps)
+        {
+            if (ps == null || ps.Expected == null || ps.Local == ps.Expected) return null;
+            if (r?.ParamRejected != null && r.ParamRejected.TryGetValue(ps.MapId ?? "", out var rej) && rej == ps.Src) return (true, false);
+            if (r?.ParamBaseline != null && r.ParamBaseline.TryGetValue(ps.MapId ?? "", out var b) && b == ps.Src &&
+                r.ParamWritten != null && r.ParamWritten.TryGetValue(ps.MapId ?? "", out var w) && w != ps.Local)
+                return (true, true);
+            return (false, false);
         }
 
         private static long ParseId(string s) => long.TryParse(s, out var v) ? v : 0;

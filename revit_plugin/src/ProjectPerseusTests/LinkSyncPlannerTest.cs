@@ -189,6 +189,35 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void ParameterChangesAreOneItemEachAndHandEditsAreRejected()
+        {
+            var i = Input(Rule(TypeA, "ours"));
+            i.Sources.Add(Src("s1", TypeA, At(0, 0, 3000)));
+            var o = Ours(1, "ours", At(0, 0, 3000), "s1", TypeA, At(0, 0, 3000), At(0, 0, 3000));
+            o.Params.Add(new ParamState { MapId = "m1", Name = "Fire Rating", Src = "t:FR60", Expected = "t:FR60", Local = "t:FR30", ExpectedShown = "FR60", LocalShown = "FR30" });
+            o.Params.Add(new ParamState { MapId = "m2", Name = "K-factor", Src = "n:5.6", Expected = "d:5.6", Local = "d:5.6" });   // already the same
+            i.Ours.Add(o);
+            var item = LinkSyncPlanner.Plan(i).Single();
+            Assert.AreEqual(SyncKind.ParameterChanged, item.Kind);
+            Assert.AreEqual("m1", item.ParamMapId);
+            Assert.IsTrue(item.NeedsDecision);
+
+            // Written FR60 earlier; consultant still FR60; someone typed FR30 locally = rejected (hand edit).
+            o.Record.ParamBaseline["m1"] = "t:FR60";
+            o.Record.ParamWritten["m1"] = "t:FR60";
+            var hand = LinkSyncPlanner.Plan(i).Single();
+            Assert.IsTrue(hand.Rejected && hand.ParamHandEdit);
+
+            // The consultant then changes it: back for a decision.
+            o.Params[0].Src = "t:FR90"; o.Params[0].Expected = "t:FR90";
+            Assert.IsTrue(LinkSyncPlanner.Plan(i).Single().NeedsDecision);
+
+            // Rejecting that value sets it aside until the consultant changes it again.
+            o.Record.ParamRejected["m1"] = "t:FR90";
+            Assert.IsTrue(LinkSyncPlanner.Plan(i).Single().Rejected);
+        }
+
+        [TestMethod]
         public void HiddenCategoryIsNotMapped()
         {
             var i = Input(Rule(TypeA, "ours"));

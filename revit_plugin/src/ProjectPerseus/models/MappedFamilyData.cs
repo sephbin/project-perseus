@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace ProjectPerseus.models
 {
@@ -38,5 +39,12 @@ namespace ProjectPerseus.models
         /// While it hasn't moved since, the planner lists it as Moved (to decide) instead of Kept (edited by hand).
         /// </summary>
         public double[] HandEditReopened { get; set; }
+
+        // Parameter mapping (stage 5), per ParamMap.Id: the consultant value (ParamCompat.SourceCanon) when it was last written /
+        // accepted, what was written (ParamCompat.LocalCanon: a different local value since = edited by hand), and a consultant
+        // value whose change was rejected.
+        public Dictionary<string, string> ParamBaseline { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, string> ParamWritten { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, string> ParamRejected { get; set; } = new Dictionary<string, string>();
     }
 }

@@ -157,7 +157,7 @@ namespace ProjectPerseus.mapping
             };
         }
 
-        private static SourceValue Value(Document doc, Parameter p, ParamRef r)
+        internal static SourceValue Value(Document doc, Parameter p, ParamRef r)
         {
             var v = new SourceValue { HasValue = p.HasValue };
             try

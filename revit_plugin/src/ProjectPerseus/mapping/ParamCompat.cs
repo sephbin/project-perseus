@@ -27,6 +27,16 @@ namespace ProjectPerseus.mapping
         public string Problem;
     }
 
+    /// <summary>A value ready to write into a local parameter (ParamCompat.TargetValue).</summary>
+    public class TypedValue
+    {
+        public bool Ok, Empty;
+        public string Problem, Shown;
+        public string Text;
+        public int? Int;
+        public double? Internal, Display;
+    }
+
     public enum CompatLevel { Ok, Warn, Error }
 
     public class Compat
@@ -172,6 +182,44 @@ namespace ProjectPerseus.mapping
             if (d == Measure) return Ok($"{N(num)} ({L(dst)}, project units)");
             return Ok(N(num));
         }
+
+        /// <summary>
+        /// The value to write into the local parameter: Text, Int, Internal (Revit internal units, e.g. a length copied from a
+        /// length) or Display (a number in the host's display units for dst's spec: converted to internal on the Revit side).
+        /// Not Ok = nothing written (doesn't convert, or an empty consultant value into a non-text parameter).
+        /// </summary>
+        public static TypedValue TargetValue(ParamRef src, ParamRef dst, SourceValue v)
+        {
+            var c = Convert(src, dst, v);
+            var t = new TypedValue { Shown = c.Shown, Empty = c.Empty };
+            if (c.Empty) { if (dst.Kind == Text) { t.Ok = true; t.Text = ""; } else t.Problem = "empty"; return t; }
+            if (!c.Ok) { t.Problem = c.Problem; return t; }
+            string s = src.Kind, d = dst.Kind;
+            t.Ok = true;
+            if (d == Text) { t.Text = c.Shown; return t; }
+            if (s == Text)
+            {
+                if (d == YesNo) { TryParseYesNo(v.Text, out bool b); t.Int = b ? 1 : 0; return t; }
+                TryParseNumber(v.Text, out double n);
+                if (d == Integer) t.Int = (int)Math.Round(n); else if (d == Measure) t.Display = n; else t.Internal = n;
+                return t;
+            }
+            double num = s == Measure ? (v.Display ?? v.Number ?? 0) : v.Number ?? 0;
+            if (d == YesNo) t.Int = num != 0 ? 1 : 0;
+            else if (d == Integer) t.Int = (int)Math.Round(num);
+            else if (d == Measure) { if (s == Measure) t.Internal = v.Number; else t.Display = num; }
+            else t.Internal = num;   // Number
+            return t;
+        }
+
+        /// <summary>Canonical text of a consultant value (baselines / rejections): the raw number (internal) or the text.</summary>
+        public static string SourceCanon(SourceValue v) =>
+            v == null || !v.HasValue ? "empty" : v.Number.HasValue ? "n:" + Math.Round(v.Number.Value, 6).ToString("R", CultureInfo.InvariantCulture) : "t:" + (v.Text ?? "");
+
+        /// <summary>Canonical text of a local parameter value (what's written / what's there): by storage.</summary>
+        public static string LocalCanon(string storage, string text, int? i, double? internalValue) =>
+            storage == "String" ? "t:" + (text ?? "") : storage == "Integer" ? "i:" + i.GetValueOrDefault()
+            : "d:" + Math.Round(internalValue.GetValueOrDefault(), 6).ToString("R", CultureInfo.InvariantCulture);
 
         /// <summary>The mapping applied to the consultant values: counts, the first samples, the first problems.</summary>
         public static ParamPreview Preview(ParamRef src, ParamRef dst, IList<SourceValue> values, int samples = 6)
