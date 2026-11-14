@@ -263,6 +263,7 @@ namespace ProjectPerseus.ui
             pick2.Children.Add(_paramMode);
             pick2.Children.Add(Btn("Add / update", "Map the consultant parameter to the local one (one consultant parameter per local parameter)", AddParamMap));
             pick2.Children.Add(Btn("Remove", "Remove the selected parameter mapping", RemoveParamMap));
+            pick2.Children.Add(Btn("Add local parameter…", "The local family has no fitting parameter: add one (project parameter on its category, instance or type) and map the consultant parameter to it", AddLocalParam));
             pick2.Children.Add(Btn("↻", "Read the parameters again (e.g. after placing a test family: its instance parameters show)", () => { _paramsFor = null; LoadParams(); }));
             _editor.Children.Add(pick2);
             _paramInfo = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 0, 0, 4), Foreground = Muted };
@@ -783,6 +784,48 @@ namespace ProjectPerseus.ui
             if (m == null || _editing == null) { Status("Select a parameter mapping first."); return; }
             _editing.Parameters.RemoveAll(x => x.Id == m.Id);
             ParamsChanged($"{m.Source?.Name} → {m.Target?.Name} removed.");
+        }
+
+        /// <summary>Adds a local parameter for the picked consultant parameter (mapping/ParamCreator) and maps it.</summary>
+        private void AddLocalParam()
+        {
+            var src = _srcParam.SelectedItem as ParamRef;
+            if (src == null) { Status("Pick the consultant parameter first: the new local parameter is made for it.", true); return; }
+            var tt = _targets.FirstOrDefault(t => t.Uid == _editing?.TargetSymbolUid);
+            if (tt == null) { Status("Pick the local family type first.", true); return; }
+            var dlg = new AddParameterDialog(src, tt.Category) { Owner = this };
+            if (dlg.ShowDialog() != true) return;
+            CreateParam(new ParamCreator.Request { Name = dlg.ParamName, Spec = dlg.Spec, IsType = dlg.IsTypeParam, Category = tt.Category, SourceName = src.Name }, src);
+        }
+
+        private void CreateParam(ParamCreator.Request req, ParamRef src)
+        {
+            Status($"Adding '{req.Name}'…");
+            Api(app =>
+            {
+                var r = ParamCreator.Ensure(_doc, req);
+                if (r.Conflict != null)
+                {
+                    if (MessageBox.Show(this, r.Conflict, "Add local parameter", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                    { req.Force = true; CreateParam(req, src); }
+                    else Status("Not added.");
+                    return;
+                }
+                if (r.Error != null) { Status("Couldn't add the parameter: " + r.Error, true); return; }
+                if (_editing == null) return;
+                var c = ParamCompat.Check(src, r.Ref);
+                _editing.Parameters = _editing.Parameters ?? new List<ParamMap>();
+                if (c.Level != CompatLevel.Error)
+                {
+                    var existing = _editing.Parameters.FirstOrDefault(m => m.Target?.Key == r.Ref.Key);
+                    if (existing != null) existing.Source = src;
+                    else _editing.Parameters.Add(new ParamMap { Source = src, Target = r.Ref, AlwaysApply = _paramMode.SelectedIndex == 1 });
+                }
+                string what = r.Outcome == "created" ? "added" : r.Outcome == "extended" ? "already in the model: added to this category" : "already in the model";
+                ParamsChanged($"'{r.Ref.Name}' {what}" + (c.Level == CompatLevel.Error ? $", but not mapped: {c.Message}" : $"; mapped from {src.Name}."));
+                _paramsFor = null;
+                LoadParams();
+            }, needActive: true);
         }
 
         /// <summary>Parameter mappings edited: the other selected types get the same list (multi-select), then saved.</summary>

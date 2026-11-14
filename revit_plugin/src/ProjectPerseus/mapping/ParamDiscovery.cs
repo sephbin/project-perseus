@@ -87,8 +87,8 @@ namespace ProjectPerseus.mapping
                     var spec = Spec(def);
                     Add(new ParamRef
                     {
-                        Name = def.Name, Guid = (def as ExternalDefinition)?.GUID.ToString(), Storage = StorageOf(spec), Kind = KindOf(StorageOf(spec), spec),
-                        Spec = spec?.TypeId, SpecLabel = Label(spec), IsType = false, Origin = def is ExternalDefinition ? "shared" : "project",
+                        Name = def.Name, Guid = ParamCreator.SharedGuid(doc, def), Storage = StorageOf(spec), Kind = KindOf(StorageOf(spec), spec),
+                        Spec = spec?.TypeId, SpecLabel = Label(spec), IsType = false, Origin = ParamCreator.SharedGuid(doc, def) != null ? "shared" : "project",
                     });
                 }
             }

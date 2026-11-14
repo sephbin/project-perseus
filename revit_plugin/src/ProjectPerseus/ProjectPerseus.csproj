@@ -436,6 +436,7 @@
     <Compile Include="ui\ReplacementWindow.cs" />
     <Compile Include="ui\FamilyMappingWindow.cs" />
     <Compile Include="ui\LinkSyncWindow.cs" />
+    <Compile Include="ui\AddParameterDialog.cs" />
     <Compile Include="ui\ReviewViewsWindow.cs" />
     <Compile Include="ui\ViewImageStore.cs" />
     <Compile Include="ui\ChangeThumbnail.cs" />
@@ -472,6 +473,7 @@
     <Compile Include="mapping\LinkSync.cs" />
     <Compile Include="mapping\ParamCompat.cs" />
     <Compile Include="mapping\ParamDiscovery.cs" />
+    <Compile Include="mapping\ParamCreator.cs" />
     <Compile Include="mapping\LinkSyncNotes.cs" />
     <Compile Include="mapping\LinkSyncLog.cs" />
     <Compile Include="federator\ReplacementGroups.cs" />

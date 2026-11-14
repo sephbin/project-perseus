@@ -65,6 +65,22 @@ namespace ProjectPerseus.mapping
             return dash > 0 && dash > spec.LastIndexOf(':') ? spec.Substring(0, dash) : spec;
         }
 
+        /// <summary>
+        /// GUID of a parameter Perseus adds for a mapping: from name + data type (spec without version), so every user and model
+        /// generates the same definition, and "Fire Rating" as text and as a number are different parameters. (Perseus' own
+        /// Perseus_* parameters keep their name-only GUIDs: ids/SharedParameterManager.GuidFor.)
+        /// </summary>
+        public static Guid GuidFor(string name, string spec)
+        {
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+                return new Guid(md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(
+                    "ProjectPerseus.MappedParameter:" + (name ?? "").Trim().ToLowerInvariant() + "|" + SpecKey(spec).ToLowerInvariant())));
+        }
+
+        /// <summary>Data type a new local parameter gets for this consultant parameter (spec id): its own, element references as text.</summary>
+        public static string SpecForNew(ParamRef src, string textSpec) =>
+            src == null || src.Kind == Element || src.Kind == Text || string.IsNullOrEmpty(src.Spec) ? textSpec : src.Spec;
+
         private static string L(ParamRef p) => p.SpecLabel ?? p.Kind;
 
         public static Compat Check(ParamRef src, ParamRef dst)

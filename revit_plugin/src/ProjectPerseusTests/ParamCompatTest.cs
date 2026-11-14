@@ -75,6 +75,15 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void NewParameterGuidsFollowNameAndDataType()
+        {
+            Assert.AreEqual(ParamCompat.GuidFor("Fire Rating", Length), ParamCompat.GuidFor(" fire rating ", Length1));   // case, spaces, spec version
+            Assert.AreNotEqual(ParamCompat.GuidFor("Fire Rating", Length), ParamCompat.GuidFor("Fire Rating", "autodesk.spec:spec.string-2.0.0"));
+            Assert.AreEqual("text", ParamCompat.SpecForNew(P(ParamCompat.Element, "x"), "text"));
+            Assert.AreEqual(Length, ParamCompat.SpecForNew(P(ParamCompat.Measure, Length), "text"));
+        }
+
+        [TestMethod]
         public void KeysSeparateSharedBuiltInAndNamed()
         {
             var a = new ParamRef { Name = "Fire Rating", Guid = "g1", Storage = "String" };

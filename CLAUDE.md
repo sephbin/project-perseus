@@ -355,7 +355,8 @@ ProjectPerseus/
 │   │                             rotation with step nudges, workset), auto-saved; Test on one = TEMPORARY family (live re-place, follows a type
 │   │                             change made in Revit; deleted on moving on / close with empty Perseus planes). Placing for real = next phase.
 │   │                             Multi-select: edits apply the changed value to all selected types; Tolerance XY + Z column.
-│   │                             Parameters section (stage 5 phase 1): mappings + pickers + compatibility / preview; not written yet.
+│   │                             Parameters section (stage 5): mappings + pickers + compatibility / preview, Add local parameter… (phase 2); values not written yet.
+│   ├── AddParameterDialog.cs     NEW (2026-11-15). Add local parameter (name, data type, instance / type, company file) for the mapper.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
 │   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
 │   │                             EditFor(app, owner) = edit + save from anywhere (ribbon, Link Sync); an open FederatorWindow takes them (ReviewViewsSaved).
@@ -558,6 +559,10 @@ ProjectPerseus/
 │   ├── ParamCompat.cs            NEW (2026-11-14). Pure parameter-mapping checks (stage 5): kinds Text / Number / Measure / Integer /
 │   │                             YesNo / Element, spec-aware Check (text never silently to numbers, measures need the same spec, elements
 │   │                             only as text, read-only refused, type-from-instance warns), Convert + Preview. Tested in ParamCompatTest.cs.
+│   ├── ParamCreator.cs           NEW (2026-11-15). Adds a mapping's local parameter: project parameter (instance / type) on the family's
+│   │                             category; same-name model parameter with a fitting data type reused / extended (asks on kind / type
+│   │                             mismatch), else company shared parameter file (shared_params.json, user then %ProgramData%), else the
+│   │                             Perseus file (ParamCompat.GuidFor name + data type, group "Perseus <model>"); group Other.
 │   ├── ParamDiscovery.cs         NEW (2026-11-14). Consultant instance + type parameters with values (+ computed element id / link name);
 │   │                             local family type's type / instance (from a placed one) / project parameters of its category.
 │   ├── LinkSyncNotes.cs          NEW (2026-11-13). Pure fold of Link Sync events per item (keys: our family uid + "src:<link>|<consultant uid>"):

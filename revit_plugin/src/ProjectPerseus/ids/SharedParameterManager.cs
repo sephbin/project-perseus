@@ -330,7 +330,7 @@ namespace ProjectPerseus.ids
             return changed;
         }
 
-        private static void EnsureFileExists()
+        internal static void EnsureFileExists()
         {
             string path = FilePath;
             if (File.Exists(path)) return;

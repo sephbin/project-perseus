@@ -129,7 +129,7 @@ Map consultant parameter values onto our mapped families, per rule (consultant t
 ### Phases
 1. [DONE 2026-11-14] Detect + map (read only): parameter discovery both sides, per-rule mapping UI, compatibility check, preview. Copy mappings to
    other selected rules (mapper multi-select).
-2. Add parameters: Perseus shared parameter file (name + type GUID, group per model), project parameter binding (instance / type),
+2. [DONE 2026-11-15] Add parameters: Perseus shared parameter file (name + type GUID, group per model), project parameter binding (instance / type),
    reuse of existing same-name parameters, optional company shared parameter file.
 3. Apply: Link Sync "Parameter changed" (approve / reject, baseline, hand edits = rejected), always-apply mode, values on placement.
 4. Transforms: constants, prefix / suffix, lookup table ("FR60" -> "60/60/60"), default for empty, expressions (util/FilterEvaluator).
