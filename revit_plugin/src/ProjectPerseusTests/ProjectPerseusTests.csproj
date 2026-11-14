@@ -157,6 +157,7 @@
     <Compile Include="ReplacementGroupsTest.cs" />
     <Compile Include="MappingMathTest.cs" />
     <Compile Include="LinkSyncPlannerTest.cs" />
+    <Compile Include="ParamCompatTest.cs" />
     <Compile Include="ChangeFilterTest.cs" />
     <Compile Include="ViewTargetsTest.cs" />
     <Compile Include="OverlayShapesTest.cs" />

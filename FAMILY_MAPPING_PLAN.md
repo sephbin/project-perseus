@@ -80,3 +80,56 @@ to the consultant element it stands for, so later versions (moves, deletes, dele
   "Set aside" list under the open changes (lighter text, thinner markers) until the linked model changes again. Approve still takes the
   consultant's state; Reconsider puts it back for a decision.
 - (2026-11-14) A hand edit after Link Sync placed / accepted a family is a rejection: listed as Kept (edited by hand) in Set aside, 'Rejected by hand edit · <editor>'. Reconsider reopens it as Moved until it's moved again.
+
+## Stage 5: parameter mapping (planned 2026-11-14)
+
+Map consultant parameter values onto our mapped families, per rule (consultant type -> local family type).
+
+### Decisions (user, 2026-11-14)
+- **Apply mode per mapping**: through Link Sync approval (default) or "always apply" (opt in, written on each Link Sync run without asking).
+- **Adding parameters = project parameters only** (instance or type, bound to the category; shared definitions). No editing inside
+  families. Existing family parameters can still be mapping targets (if writable). "Add to family" (EditFamily + FamilyManager +
+  LoadFamily) only later, as its own opt-in, if needed for parameters that must drive geometry / formulas.
+- **Shared parameter file**: per user, the Perseus file in %AppData% as today. GUIDs are deterministic, so every user generates the same
+  definition; the file is only a local copy (the definition lives in the model once bound). New mapped parameters hash
+  **name + data type** (existing Perseus_* parameters keep their name-only GUIDs: changing them would orphan the bound ones). One group
+  per model inside the file (tidiness only). Optional machine-wide setting (IT, like archive.json) to use a company shared parameter file.
+
+### Parameters on each side
+- Consultant (source): instance + type parameters of the consultant element (marked which), built-ins (Mark, Comments, Level...), plus
+  computed fields (consultant element id, link name, IFC GUID).
+- Local (target): parameters on the target family type / its instances (family parameters) + project parameters bound to its category.
+  Writable only: read-only, formula-driven and reporting parameters are flagged / filtered out.
+- Identity: shared parameters by GUID, built-ins by BuiltInParameter, others by name + storage type (names collide).
+
+### Compatibility check + preview
+- Spec-aware: number -> number needs the same spec (length -> length ok, length -> area not; internal units are feet). Number -> text
+  formats with the project units. Text -> number parses and reports failures. Yes/No -> text "Yes"/"No"; ElementId (material, level)
+  -> its name as text; integer <-> number.
+- Preview on real consultant values: a few before/after samples + counts (empty / converted / failing) before saving.
+- Type-parameter target: one value per local type, so feed it from a consultant type parameter; warn when the consultant instances of
+  that type disagree.
+
+### Adding a parameter (project parameter)
+- Name, data type (spec), instance vs type (default = the source parameter's), group Other, categories (the rule's target category;
+  check Category.AllowsBoundParameters). Instance <-> type can't be switched later without losing values: chosen up front, and an
+  existing parameter of the wrong kind is warned about.
+- If the model already has a parameter of that name with a compatible type (e.g. a company standard), map to it instead of adding.
+  Same name with another type: warn (Revit allows it, people get confused).
+- Binding changes the model's parameter bindings: own clearly named transaction, like the Link Sync parameters.
+
+### Sync (Link Sync)
+- New change kind "Parameter changed" (one per parameter, so each can be approved / rejected), baseline = the consultant value at the
+  last accept, stored in the mapped-family record. Local edit of a mapped value = rejected (set aside), as for hand moves. Always-apply
+  mappings write straight away (logged), still skipping elements checked out by others.
+- New / re-placed families get mapped values on placement.
+- Several links writing one local parameter: warn in the mapper; the rule order decides.
+- Removing a mapping leaves written values in place (option to clear).
+
+### Phases
+1. [DONE 2026-11-14] Detect + map (read only): parameter discovery both sides, per-rule mapping UI, compatibility check, preview. Copy mappings to
+   other selected rules (mapper multi-select).
+2. Add parameters: Perseus shared parameter file (name + type GUID, group per model), project parameter binding (instance / type),
+   reuse of existing same-name parameters, optional company shared parameter file.
+3. Apply: Link Sync "Parameter changed" (approve / reject, baseline, hand edits = rejected), always-apply mode, values on placement.
+4. Transforms: constants, prefix / suffix, lookup table ("FR60" -> "60/60/60"), default for empty, expressions (util/FilterEvaluator).

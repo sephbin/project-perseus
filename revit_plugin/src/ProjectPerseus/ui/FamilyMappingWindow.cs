@@ -103,6 +103,14 @@ namespace ProjectPerseus.ui
         private readonly DispatcherTimer _liveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         private readonly DispatcherTimer _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
         private readonly MultiPick _categories;
+        // Parameter mapping (stage 5): the edited rule's mappings, the two parameter pickers, compatibility + preview.
+        private readonly ListBox _paramList;
+        private readonly ComboBox _srcParam, _dstParam, _paramMode;
+        private readonly TextBlock _paramInfo;
+        private ParamDiscovery.SourceParams _srcInfo = new ParamDiscovery.SourceParams();
+        private ParamDiscovery.TargetParams _dstInfo = new ParamDiscovery.TargetParams();
+        private string _paramsFor;
+        private bool _loadingParams;
         private bool _closing;
 
         private Row _current;
@@ -230,6 +238,36 @@ namespace ProjectPerseus.ui
             tolRow.Children.Add(new TextBlock { Text = " mm", VerticalAlignment = VerticalAlignment.Center });
             _editor.Children.Add(tolRow);
 
+            _editor.Children.Add(Section("Parameters (consultant → local)"));
+            _editor.Children.Add(new TextBlock
+            {
+                Text = "Map consultant values onto the local family. Checked against the real consultant values (preview below). Mapping and checks only for now: values aren't written yet.",
+                Foreground = Muted, TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 0, 0, 4),
+            });
+            _paramList = new ListBox { MinHeight = 44, MaxHeight = 150, Margin = new Thickness(0, 0, 0, 4) };
+            _editor.Children.Add(_paramList);
+            var pick = new WrapPanel();
+            _srcParam = new ComboBox { Width = 230, IsEditable = true, IsTextSearchEnabled = true, StaysOpenOnEdit = true, Margin = new Thickness(0, 0, 4, 4),
+                                       ToolTip = "Consultant parameter (instance / type, from the elements of this type in the link)" };
+            _dstParam = new ComboBox { Width = 230, IsEditable = true, IsTextSearchEnabled = true, StaysOpenOnEdit = true, Margin = new Thickness(0, 0, 4, 4),
+                                       ToolTip = "Local parameter on the mapped family type (type / instance / project parameters of its category)" };
+            pick.Children.Add(_srcParam);
+            pick.Children.Add(new TextBlock { Text = "→ ", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold });
+            pick.Children.Add(_dstParam);
+            _editor.Children.Add(pick);
+            var pick2 = new WrapPanel();
+            _paramMode = new ComboBox { Width = 160, Margin = new Thickness(0, 0, 6, 4), ToolTip = "How changes of the consultant value reach the local family (from phase 3)" };
+            _paramMode.Items.Add("Link Sync approval");
+            _paramMode.Items.Add("Always apply");
+            _paramMode.SelectedIndex = 0;
+            pick2.Children.Add(_paramMode);
+            pick2.Children.Add(Btn("Add / update", "Map the consultant parameter to the local one (one consultant parameter per local parameter)", AddParamMap));
+            pick2.Children.Add(Btn("Remove", "Remove the selected parameter mapping", RemoveParamMap));
+            pick2.Children.Add(Btn("↻", "Read the parameters again (e.g. after placing a test family: its instance parameters show)", () => { _paramsFor = null; LoadParams(); }));
+            _editor.Children.Add(pick2);
+            _paramInfo = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 0, 0, 4), Foreground = Muted };
+            _editor.Children.Add(_paramInfo);
+
             _editor.Children.Add(Section("Workset for placed families"));
             _workset = new ComboBox();
             _editor.Children.Add(_workset);
@@ -268,7 +306,10 @@ namespace ProjectPerseus.ui
             _suggestedOnly.Checked += (s, e) => Safe(Fill);
             _suggestedOnly.Unchecked += (s, e) => Safe(Fill);
             _grid.SelectionChanged += (s, e) => Safe(OnGridSelection);
-            _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor && ReadEditor()) { UpdateNote(); QueueLive(); QueueSave(); } });
+            _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor && ReadEditor()) { UpdateNote(); QueueLive(); QueueSave(); LoadParams(); } });
+            _srcParam.SelectionChanged += (s, e) => Safe(() => { if (!_loadingParams) UpdateParamInfo(); });
+            _dstParam.SelectionChanged += (s, e) => Safe(() => { if (!_loadingParams) UpdateParamInfo(); });
+            _paramList.SelectionChanged += (s, e) => Safe(ShowParamMap);
             _workset.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor && ReadEditor()) QueueSave(); });
             _categories.Changed += () => Safe(() => { Fill(); QueueSave(); });
             _liveTimer.Tick += (s, e) => Safe(() => { _liveTimer.Stop(); if (_testId != null) TestOnOne(false); });
@@ -480,6 +521,7 @@ namespace ProjectPerseus.ui
             _loadingEditor = false;
             _editor.IsEnabled = true;
             UpdateNote();
+            LoadParams();
             Status($"{s.Uids.Count} in the link · triage: {row.Stats.Describe()}" +
                    (_mappedByRule.TryGetValue(_editing.Id, out int n) ? $" · {n} local families mapped" : ""));
         }
@@ -616,7 +658,142 @@ namespace ProjectPerseus.ui
         private static bool SameRule(FamilyMapRule a, FamilyMapRule b) =>
             a.TargetSymbolUid == b.TargetSymbolUid && (a.Workset ?? "") == (b.Workset ?? "") &&
             a.OffsetMm.SequenceEqual(b.OffsetMm) && a.RotationDeg.SequenceEqual(b.RotationDeg) &&
-            a.ToleranceXyMm == b.ToleranceXyMm && a.ToleranceZMm == b.ToleranceZMm;
+            a.ToleranceXyMm == b.ToleranceXyMm && a.ToleranceZMm == b.ToleranceZMm &&
+            Newtonsoft.Json.JsonConvert.SerializeObject(a.Parameters ?? new List<ParamMap>()) == Newtonsoft.Json.JsonConvert.SerializeObject(b.Parameters ?? new List<ParamMap>());
+
+        // ═══════════════ Parameter mapping ═══════════════
+
+        /// <summary>Reads the consultant type's parameters (with values) and the local family type's (API context), once per type + target.</summary>
+        private void LoadParams()
+        {
+            if (_current == null || _editing == null) return;
+            var src = _current.Source;
+            string targetUid = _editing.TargetSymbolUid;
+            string key = src.Key + "|" + targetUid;
+            if (key == _paramsFor) { FillParamList(); return; }
+            _paramsFor = key;
+            _paramInfo.Text = "Reading parameters…";
+            string linkUid = _linkUid, linkName = _linkName;
+            Api(app =>
+            {
+                var linkDoc = LinkedElementRef.FindInstance(_doc, linkUid)?.GetLinkDocument();
+                var s = linkDoc == null ? new ParamDiscovery.SourceParams() : ParamDiscovery.Source(linkDoc, src.Uids, linkName);
+                var t = ParamDiscovery.Target(_doc, string.IsNullOrEmpty(targetUid) ? null : _doc.GetElement(targetUid) as ARDB.FamilySymbol);
+                if (_paramsFor != key) return;
+                _srcInfo = s; _dstInfo = t;
+                _loadingParams = true;
+                try { _srcParam.ItemsSource = s.Params; _dstParam.ItemsSource = t.Params; }
+                finally { _loadingParams = false; }
+                FillParamList();
+                UpdateParamInfo();
+            });
+        }
+
+        private class ParamMapItem
+        {
+            internal ParamMap Map;
+            internal string Text;
+            public override string ToString() => Text;
+        }
+
+        private void FillParamList()
+        {
+            var keep = (_paramList.SelectedItem as ParamMapItem)?.Map.Id;
+            _paramList.Items.Clear();
+            foreach (var m in _editing?.Parameters ?? new List<ParamMap>())
+            {
+                var dst = _dstInfo.Params.FirstOrDefault(p => p.Key == m.Target?.Key);
+                var c = string.IsNullOrEmpty(_editing.TargetSymbolUid) ? Compat.Warn("Pick the local family type first.")
+                      : dst == null && _dstInfo.Params.Count > 0 ? Compat.Warn($"{m.Target?.Name} isn't on this family type.")
+                      : ParamCompat.Check(m.Source, dst ?? m.Target);
+                var item = new ParamMapItem
+                {
+                    Map = m,
+                    Text = $"{c.Symbol}  {m.Source?.Name}  →  {m.Target?.Name}   ({(m.AlwaysApply ? "always apply" : "Link Sync approval")})",
+                };
+                _paramList.Items.Add(item);
+                if (m.Id == keep) _paramList.SelectedItem = item;
+            }
+            if (_paramList.Items.Count == 0) _paramList.Items.Add(new ParamMapItem { Text = "No parameters mapped." });
+        }
+
+        private void ShowParamMap()
+        {
+            var m = (_paramList.SelectedItem as ParamMapItem)?.Map;
+            if (m == null) return;
+            _loadingParams = true;
+            try
+            {
+                _srcParam.SelectedItem = _srcInfo.Params.FirstOrDefault(p => p.Key == m.Source?.Key);
+                _dstParam.SelectedItem = _dstInfo.Params.FirstOrDefault(p => p.Key == m.Target?.Key);
+                _paramMode.SelectedIndex = m.AlwaysApply ? 1 : 0;
+            }
+            finally { _loadingParams = false; }
+            UpdateParamInfo();
+        }
+
+        /// <summary>Compatibility of the picked pair + what the consultant values become.</summary>
+        private void UpdateParamInfo()
+        {
+            var src = _srcParam.SelectedItem as ParamRef;
+            var dst = _dstParam.SelectedItem as ParamRef;
+            string note = _dstInfo.NoInstance && !string.IsNullOrEmpty(_editing?.TargetSymbolUid)
+                ? "\nNo local family of this type is placed yet: its own instance parameters aren't listed (type and project parameters are). Test on one, then ↻."
+                : "";
+            if (src == null || dst == null)
+            {
+                _paramInfo.Foreground = Muted;
+                _paramInfo.Text = (string.IsNullOrEmpty(_editing?.TargetSymbolUid) ? "Pick the local family type first." :
+                                   $"Pick a consultant parameter ({_srcInfo.Params.Count}) and a local one ({_dstInfo.Params.Count(x => !x.ReadOnly)} writable).") + note;
+                return;
+            }
+            var c = ParamCompat.Check(src, dst);
+            _srcInfo.Values.TryGetValue(src.Key, out var values);
+            var p = ParamCompat.Preview(src, dst, values);
+            var lines = new List<string> { $"{c.Symbol} {c.Message}" };
+            if (c.Level != CompatLevel.Error)
+            {
+                lines.Add($"{p.Total:N0} consultant value(s): {p.Converted:N0} map, {p.Empty:N0} empty, {p.Failing:N0} fail" +
+                          (dst.IsType && !src.IsType && src.Computed == null ? $", {p.Distinct:N0} distinct" : "") + ".");
+                foreach (var sm in p.Samples) lines.Add($"   {sm.Item1}  →  {sm.Item2}");
+                if (p.Problems.Count > 0) lines.Add("Fails: " + string.Join("; ", p.Problems));
+            }
+            _paramInfo.Text = string.Join("\n", lines) + note;
+            _paramInfo.Foreground = c.Level == CompatLevel.Error ? Bad : c.Level == CompatLevel.Warn || p.Failing > 0 ? Frozen(0xB4, 0x6A, 0x00) : Ink;
+        }
+
+        private void AddParamMap()
+        {
+            if (_editing == null) return;
+            var src = _srcParam.SelectedItem as ParamRef;
+            var dst = _dstParam.SelectedItem as ParamRef;
+            if (src == null || dst == null) { Status("Pick a consultant parameter and a local one.", true); return; }
+            var c = ParamCompat.Check(src, dst);
+            if (c.Level == CompatLevel.Error) { Status("Can't map: " + c.Message, true); return; }
+            _editing.Parameters = _editing.Parameters ?? new List<ParamMap>();
+            var existing = _editing.Parameters.FirstOrDefault(m => m.Target?.Key == dst.Key);
+            if (existing != null) { existing.Source = src; existing.AlwaysApply = _paramMode.SelectedIndex == 1; }
+            else _editing.Parameters.Add(new ParamMap { Source = src, Target = dst, AlwaysApply = _paramMode.SelectedIndex == 1 });
+            ParamsChanged($"{src.Name} → {dst.Name} mapped" + (c.Level == CompatLevel.Warn ? " (with a warning)." : "."));
+        }
+
+        private void RemoveParamMap()
+        {
+            var m = (_paramList.SelectedItem as ParamMapItem)?.Map;
+            if (m == null || _editing == null) { Status("Select a parameter mapping first."); return; }
+            _editing.Parameters.RemoveAll(x => x.Id == m.Id);
+            ParamsChanged($"{m.Source?.Name} → {m.Target?.Name} removed.");
+        }
+
+        /// <summary>Parameter mappings edited: the other selected types get the same list (multi-select), then saved.</summary>
+        private void ParamsChanged(string message)
+        {
+            foreach (var o in _others) o.Value.Parameters = CloneParams(_editing.Parameters);
+            FillParamList();
+            QueueSave();
+            Status(message + (_others.Count > 0 ? $" Applied to all {_others.Count + 1} selected types." : "") +
+                   (string.IsNullOrEmpty(_editing.TargetSymbolUid) ? " (Saved once a local family type is picked.)" : ""));
+        }
 
         private void QueueLive()
         {
@@ -850,8 +1027,11 @@ namespace ProjectPerseus.ui
             Id = r.Id, Enabled = r.Enabled, SourceCategory = r.SourceCategory, SourceFamily = r.SourceFamily, SourceType = r.SourceType,
             TargetSymbolUid = r.TargetSymbolUid, TargetName = r.TargetName, OffsetMm = (double[])r.OffsetMm.Clone(),
             RotationDeg = (double[])r.RotationDeg.Clone(), Workset = r.Workset, Author = r.Author, SavedUtc = r.SavedUtc,
-            ToleranceXyMm = r.ToleranceXyMm, ToleranceZMm = r.ToleranceZMm,
+            ToleranceXyMm = r.ToleranceXyMm, ToleranceZMm = r.ToleranceZMm, Parameters = CloneParams(r.Parameters),
         };
+
+        private static List<ParamMap> CloneParams(List<ParamMap> list) =>
+            Newtonsoft.Json.JsonConvert.DeserializeObject<List<ParamMap>>(Newtonsoft.Json.JsonConvert.SerializeObject(list ?? new List<ParamMap>())) ?? new List<ParamMap>();
 
         private void Api(Action<UIApplication> work, bool needActive = false)
         {

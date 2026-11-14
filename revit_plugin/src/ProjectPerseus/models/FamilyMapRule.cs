@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace ProjectPerseus.models
 {
@@ -24,6 +25,8 @@ namespace ProjectPerseus.models
         /// <summary>Link Sync: how far ours may be from the expected position (horizontally / vertically, mm) before it's flagged.</summary>
         public double ToleranceXyMm { get; set; } = 25;
         public double ToleranceZMm { get; set; } = 25;
+        /// <summary>Consultant parameter -> local parameter mappings (stage 5; phase 1 = mapping + checks, nothing written yet).</summary>
+        public List<ParamMap> Parameters { get; set; } = new List<ParamMap>();
         public string Author { get; set; }
         public DateTime SavedUtc { get; set; }
 

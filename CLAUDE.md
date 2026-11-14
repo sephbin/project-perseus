@@ -355,6 +355,7 @@ ProjectPerseus/
 │   │                             rotation with step nudges, workset), auto-saved; Test on one = TEMPORARY family (live re-place, follows a type
 │   │                             change made in Revit; deleted on moving on / close with empty Perseus planes). Placing for real = next phase.
 │   │                             Multi-select: edits apply the changed value to all selected types; Tolerance XY + Z column.
+│   │                             Parameters section (stage 5 phase 1): mappings + pickers + compatibility / preview; not written yet.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
 │   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
 │   │                             EditFor(app, owner) = edit + save from anywhere (ribbon, Link Sync); an open FederatorWindow takes them (ReviewViewsSaved).
@@ -554,6 +555,11 @@ ProjectPerseus/
 │   │                             local (consultant deleted / existing family of ours with no consultant element within 300 mm) and linked (ours that
 │   │                             was linked - connect events in the Link Sync log - deleted here); Reconcile across links; moves vs the expected frame within the
 │   │                             rule's XY / Z tolerance (+1°); hand edit = expected unchanged since the last accept. Tested in LinkSyncPlannerTest.cs.
+│   ├── ParamCompat.cs            NEW (2026-11-14). Pure parameter-mapping checks (stage 5): kinds Text / Number / Measure / Integer /
+│   │                             YesNo / Element, spec-aware Check (text never silently to numbers, measures need the same spec, elements
+│   │                             only as text, read-only refused, type-from-instance warns), Convert + Preview. Tested in ParamCompatTest.cs.
+│   ├── ParamDiscovery.cs         NEW (2026-11-14). Consultant instance + type parameters with values (+ computed element id / link name);
+│   │                             local family type's type / instance (from a placed one) / project parameters of its category.
 │   ├── LinkSyncNotes.cs          NEW (2026-11-13). Pure fold of Link Sync events per item (keys: our family uid + "src:<link>|<consultant uid>"):
 │   │                             decisions (who accepted / rejected, when), comment thread, assignee. Tested in LinkSyncPlannerTest.cs.
 │   ├── LinkSyncLog.cs            NEW (2026-11-13). Schema PerseusLinkSyncEvents: append-only DataStorage per batch of models/LinkSyncEvent.
@@ -595,6 +601,8 @@ ProjectPerseus/
 │   ├── ViewCandidate.cs          NEW (2026-11-08). A view that can receive baked annotations.
 │   ├── FamilyMapRule.cs          NEW (2026-11-12). Consultant type (category / family / type) -> our FamilySymbol uid, offset mm, rotation °, workset,
 │   │                             Link Sync tolerance XY / Z mm (default 25).
+│   ├── ParamMap.cs               NEW (2026-11-14). ParamRef (parameter identity: shared GUID / built-in / name + storage) + ParamMap
+│   │                             (consultant -> local, AlwaysApply) on FamilyMapRule.Parameters.
 │   ├── MappedFamilyData.cs       NEW (2026-11-13). JSON of the v2 mapped-family record (see mapping/MappedFamilyStore).
 │   ├── LinkSyncRejections.cs     NEW (2026-11-13). Rejected New / Match proposals (consultant uids) per link.
 │   ├── LinkSyncEvent.cs          NEW (2026-11-13). Link Sync decision / comment / assignment event (mapping/LinkSyncLog).

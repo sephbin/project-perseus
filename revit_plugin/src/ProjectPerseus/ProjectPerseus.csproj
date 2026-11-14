@@ -470,6 +470,8 @@
     <Compile Include="mapping\FamilyPlacer.cs" />
     <Compile Include="mapping\LinkSyncPlanner.cs" />
     <Compile Include="mapping\LinkSync.cs" />
+    <Compile Include="mapping\ParamCompat.cs" />
+    <Compile Include="mapping\ParamDiscovery.cs" />
     <Compile Include="mapping\LinkSyncNotes.cs" />
     <Compile Include="mapping\LinkSyncLog.cs" />
     <Compile Include="federator\ReplacementGroups.cs" />
@@ -513,6 +515,7 @@
     <Compile Include="models\MappedFamilyData.cs" />
     <Compile Include="models\LinkSyncRejections.cs" />
     <Compile Include="models\LinkSyncEvent.cs" />
+    <Compile Include="models\ParamMap.cs" />
     <Compile Include="models\ReviewViewSettings.cs" />
     <Compile Include="models\ElementReviewState.cs" />
     <Compile Include="commands\ShowMarkersCommand.cs" />
