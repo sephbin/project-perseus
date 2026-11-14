@@ -158,9 +158,9 @@ namespace ProjectPerseus.ui
 
             var bottom = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
             var actions = new WrapPanel();
-            actions.Children.Add(Btn2("Approve selected", "Accept linked model position", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans - for the selected changes (one undo step)", () => DecideSelected(true)));
-            actions.Children.Add(Btn2("Reject selected", "Retain current model position", "Keep the local family as it is in this model (not proposed again until the linked model changes once more) - for the selected changes", () => DecideSelected(false)));
-            actions.Children.Add(Btn2("Approve all shown…", "Accept linked model position", "Approve every change listed that needs a decision", ApproveAllShown));
+            actions.Children.Add(Btn2("Approve selected", "Accept linked model state", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans - for the selected changes (one undo step)", () => DecideSelected(true)));
+            actions.Children.Add(Btn2("Reject selected", "Retain current model state", "Keep the local family as it is in this model (not proposed again until the linked model changes once more) - for the selected changes", () => DecideSelected(false)));
+            actions.Children.Add(Btn2("Approve all shown…", "Accept linked model state", "Approve every change listed that needs a decision", ApproveAllShown));
             actions.Children.Add(Btn("Write status parameters", "Write Perseus_LinkSource / Status / Decision / Comment / Assignee on our mapped families (for schedules, filters, tags)", WriteStatus));
             actions.Children.Add(Btn("Review views…", "Choose the views used to show changes (also on the ribbon)", OpenReviewViews));
             DockPanel.SetDock(actions, Dock.Top);
@@ -210,8 +210,8 @@ namespace ProjectPerseus.ui
             _side.Children.Add(find);
             _side.Children.Add(Section("Decide"));
             var decide = _decidePanel = new WrapPanel();
-            decide.Children.Add(Btn2("Approve", "Accept linked model position", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
-            decide.Children.Add(Btn2("Reject", "Retain current model position", "Keep the local family as it is in this model: the change is set aside (second list) until the linked model changes once more", () => DecideCurrent(false)));
+            decide.Children.Add(Btn2("Approve", "Accept linked model state", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
+            decide.Children.Add(Btn2("Reject", "Retain current model state", "Keep the local family as it is in this model: the change is set aside (second list) until the linked model changes once more", () => DecideCurrent(false)));
             decide.Children.Add(_reconsiderBtn = Btn2("Reconsider", "Back for a decision", "Forget the rejection: the change goes back to the list of changes to decide", ReconsiderSelected));
             _side.Children.Add(decide);
 
@@ -788,9 +788,9 @@ namespace ProjectPerseus.ui
                 return mi;
             }
             string n = items.Count == 1 ? "" : $" ({items.Count:N0})";
-            Item("Approve" + n + " — accept linked model position", "Take the consultant's state", () => Decide(items, true),
+            Item("Approve" + n + " — accept linked model state", "Take the consultant's state", () => Decide(items, true),
                  items.Any(i => i.NeedsDecision || i.Rejected || i.Kind == SyncKind.KeptByHand));
-            Item("Reject" + n + " — retain current model position", "Keep the local family as it is (set aside)", () => Decide(items, false), items.Any(i => i.NeedsDecision));
+            Item("Reject" + n + " — retain current model state", "Keep the local family as it is (set aside)", () => Decide(items, false), items.Any(i => i.NeedsDecision));
             if (items.Any(i => i.Rejected)) Item("Reconsider" + n + " — back for a decision", "Forget the rejection", () => Reconsider(items));
             cm.Items.Add(new Separator());
             Item("Zoom to", "Zoom to the local family and the consultant element", () => Find(false, false, false), one != null);
@@ -1028,7 +1028,7 @@ namespace ProjectPerseus.ui
         private static TextBlock Section(string text) =>
             new TextBlock { Text = text.ToUpperInvariant(), FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = Muted, Margin = new Thickness(0, 12, 0, 4) };
 
-        /// <summary>Two-line button: bold action + what it means (e.g. Approve / Accept linked model position).</summary>
+        /// <summary>Two-line button: bold action + what it means (e.g. Approve / Accept linked model state).</summary>
         private Button Btn2(string title, string subtitle, string tip, Action click)
         {
             var content = new StackPanel();
