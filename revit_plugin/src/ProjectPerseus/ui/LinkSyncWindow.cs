@@ -115,9 +115,9 @@ namespace ProjectPerseus.ui
             {
                 TextWrapping = TextWrapping.Wrap, Foreground = Muted, Margin = new Thickness(0, 0, 0, 8),
                 Text = "Keeps our mapped families matching the consultant links (rules from Family Mapping). Every change is listed on its own: approve it to take " +
-                       "the consultant's state, reject it to keep ours. Families moved by hand (beyond the mapping's tolerance) are listed as kept: approve to put them " +
-                       "back. Orphans: ours with no consultant element (consultant deleted it, or an existing family of ours with nothing near it) and " +
-                       "consultant elements whose family of ours was deleted here. The list updates when our families change. Use 'Only in the active view' to work your own zone.",
+                       "the consultant's state, reject it to keep the local family. Families moved by hand (beyond the mapping's tolerance) are listed as kept: approve to put them " +
+                       "back. Orphans: local families with no consultant element (the consultant deleted it, or an existing local family with nothing near it) and " +
+                       "consultant elements whose local family was deleted here. The list updates when local families change. Use 'Only in the active view' to work your own zone.",
             };
             DockPanel.SetDock(intro, Dock.Top);
             root.Children.Add(intro);
@@ -130,11 +130,11 @@ namespace ProjectPerseus.ui
             _kindPick.AddPreset("Changes", "Everything that differs from the consultant: decisions + edited by hand",
                                 DecisionKinds.Select(k => k.ToString()).Concat(new[] { SyncKind.KeptByHand.ToString() }).ToArray());
             _kindPick.AddPreset("Needs a decision", "New, match, moved, type changes, replaced, orphans", DecisionKinds.Select(k => k.ToString()).ToArray());
-            _kindPick.AddPreset("Orphans", "Ours without a consultant element + consultant elements whose family of ours was deleted",
+            _kindPick.AddPreset("Orphans", "Local families without a consultant element + consultant elements whose local family was deleted",
                                 SyncKind.Orphaned.ToString(), SyncKind.Unlinked.ToString(), SyncKind.OursDeleted.ToString());
             _kindPick.AddPreset("Kept", "Kept by hand / rejected", SyncKind.KeptByHand.ToString(), SyncKind.KeptRejected.ToString());
             _inView = new CheckBox { Content = "Only in the active view", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
-                                     ToolTip = "Only our families or consultant elements visible in the active view (follows view switches)" };
+                                     ToolTip = "Only local families or consultant elements visible in the active view (follows view switches)" };
             tools.Children.Add(Label("Links "));
             tools.Children.Add(_linkPick);
             tools.Children.Add(Label("Show "));
@@ -145,9 +145,9 @@ namespace ProjectPerseus.ui
             _assignFilter.SelectedIndex = 0;
             tools.Children.Add(_assignFilter);
             _showInModel = new CheckBox { Content = "Show in model", IsChecked = true, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
-                                          ToolTip = "Draw the listed changes in plans, sections and 3D: arrows from ours to where the mapping puts it, markers where new families will appear (selected rows stand out)" };
+                                          ToolTip = "Draw the listed changes in plans, sections and 3D: arrows from the local family to where the mapping puts it, markers where new families will appear (selected rows stand out)" };
             tools.Children.Add(_showInModel);
-            tools.Children.Add(Btn("Refresh", "Read the links and our families again", Refresh));
+            tools.Children.Add(Btn("Refresh", "Read the links and the local families again", Refresh));
             _summary = new TextBlock { Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
             tools.Children.Add(_summary);
             DockPanel.SetDock(tools, Dock.Top);
@@ -155,8 +155,8 @@ namespace ProjectPerseus.ui
 
             var bottom = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
             var actions = new WrapPanel();
-            actions.Children.Add(Btn2("Approve selected", "Accept linked model position", "Take the consultant's state: move ours to the linked model position, place new ones, change the type, follow the replacement, delete orphans - for the selected changes (one undo step)", () => DecideSelected(true)));
-            actions.Children.Add(Btn2("Reject selected", "Retain current model position", "Keep ours as it is in this model (not proposed again until the linked model changes once more) - for the selected changes", () => DecideSelected(false)));
+            actions.Children.Add(Btn2("Approve selected", "Accept linked model position", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans - for the selected changes (one undo step)", () => DecideSelected(true)));
+            actions.Children.Add(Btn2("Reject selected", "Retain current model position", "Keep the local family as it is in this model (not proposed again until the linked model changes once more) - for the selected changes", () => DecideSelected(false)));
             actions.Children.Add(Btn2("Approve all shown…", "Accept linked model position", "Approve every change listed that needs a decision", ApproveAllShown));
             actions.Children.Add(Btn("Write status parameters", "Write Perseus_LinkSource / Status / Decision / Comment / Assignee on our mapped families (for schedules, filters, tags)", WriteStatus));
             actions.Children.Add(Btn("Review views…", "Choose the views used to show changes (also on the ribbon)", OpenReviewViews));
@@ -181,7 +181,7 @@ namespace ProjectPerseus.ui
             Col("Link", nameof(Row.Link), 110);
             Col("Category", nameof(Row.Category), 110);
             Col("Consultant element", nameof(Row.Consultant), 0);
-            Col("Ours", nameof(Row.Ours), 0);
+            Col("Local family", nameof(Row.Ours), 0);
             Col("Decision", nameof(Row.Decision), 150);
             Col("Edited by", nameof(Row.EditedBy), 95);
             Col("Assignee", nameof(Row.Assignee), 95);
@@ -196,15 +196,15 @@ namespace ProjectPerseus.ui
             _side.Children.Add(_detail);
             _side.Children.Add(Section("Check"));
             var find = _checkPanel = new WrapPanel();
-            find.Children.Add(Btn("Zoom to", "Zoom to ours, the consultant element and where the mapping puts ours (this view if it shows them, else a review view, else your federator 3D view)", () => Find(false, false, false)));
+            find.Children.Add(Btn("Zoom to", "Zoom to the local family, the consultant element and where the mapping puts it (this view if it shows them, else a review view, else your federator 3D view)", () => Find(false, false, false)));
             find.Children.Add(Btn("Show in 3D", "Your federator 3D view with a section box around them", () => Find(true, false, false)));
-            find.Children.Add(Btn("Select ours", "Select our family in Revit", () => Find(false, true, false)));
+            find.Children.Add(Btn("Select local", "Select the local family in Revit", () => Find(false, true, false)));
             find.Children.Add(Btn("Select consultant", "Select the consultant element in Revit", () => Find(false, true, true)));
             _side.Children.Add(find);
             _side.Children.Add(Section("Decide"));
             var decide = _decidePanel = new WrapPanel();
-            decide.Children.Add(Btn2("Approve", "Accept linked model position", "Take the consultant's state: move ours to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
-            decide.Children.Add(Btn2("Reject", "Retain current model position", "Keep ours as it is in this model (not proposed again until the linked model changes once more)", () => DecideCurrent(false)));
+            decide.Children.Add(Btn2("Approve", "Accept linked model position", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
+            decide.Children.Add(Btn2("Reject", "Retain current model position", "Keep the local family as it is in this model (not proposed again until the linked model changes once more)", () => DecideCurrent(false)));
             _side.Children.Add(decide);
 
             _notePanel = new StackPanel();
@@ -214,12 +214,12 @@ namespace ProjectPerseus.ui
             _commentBox = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 48, MaxHeight = 120, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             _notePanel.Children.Add(_commentBox);
             var noteRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-            noteRow.Children.Add(Btn("Add comment", "Add the comment to the selected change(s) (also Perseus_LinkComment on ours where editable)", AddComment));
+            noteRow.Children.Add(Btn("Add comment", "Add the comment to the selected change(s) (also Perseus_LinkComment on the local family where editable)", AddComment));
             _notePanel.Children.Add(noteRow);
             var assignRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
             _assignBox = new ComboBox { IsEditable = true, Width = 150, Margin = new Thickness(0, 0, 6, 6), ToolTip = "A Revit username (people seen in this model are listed)" };
             assignRow.Children.Add(_assignBox);
-            assignRow.Children.Add(Btn("Assign", "Assign the selected change(s) (also Perseus_LinkAssignee on ours where editable)", () => Assign(_assignBox.Text?.Trim())));
+            assignRow.Children.Add(Btn("Assign", "Assign the selected change(s) (also Perseus_LinkAssignee on the local family where editable)", () => Assign(_assignBox.Text?.Trim())));
             assignRow.Children.Add(Btn("Unassign", "Clear the assignment of the selected change(s)", () => Assign("")));
             _notePanel.Children.Add(assignRow);
             _side.Children.Add(_notePanel);
@@ -230,7 +230,12 @@ namespace ProjectPerseus.ui
             Content = root;
             _side.IsEnabled = false;
 
-            _grid.SelectionChanged += (s, e) => Safe(() => { ShowCurrent(); PushMarkers(); });
+            _grid.SelectionChanged += (s, e) => Safe(() =>
+            {
+                ShowCurrent(); PushMarkers();
+                if (!_fromRevit) { _selectTimer.Stop(); _selectTimer.Start(); }
+            });
+            _selectTimer.Tick += (s, e) => Safe(() => { _selectTimer.Stop(); PushRevitSelection(); });
             _showInModel.Checked += (s, e) => Safe(PushMarkers);
             _showInModel.Unchecked += (s, e) => Safe(PushMarkers);
             _grid.MouseDoubleClick += (s, e) => Safe(() => Find(false, false, false));
@@ -248,7 +253,7 @@ namespace ProjectPerseus.ui
             _inView.Unchecked += (s, e) => Safe(Refresh);
             _viewTimer.Tick += (s, e) => Safe(() => { _viewTimer.Stop(); Refresh(); });
             _changeTimer.Tick += (s, e) => Safe(() => { _changeTimer.Stop(); Refresh(); });
-            Api(app => { app.ViewActivated += OnViewActivated; app.Application.DocumentChanged += OnDocumentChanged; });
+            Api(app => { app.ViewActivated += OnViewActivated; app.SelectionChanged += OnRevitSelectionChanged; app.Application.DocumentChanged += OnDocumentChanged; });
             Closed += (s, e) =>
             {
                 _viewTimer.Stop();
@@ -256,7 +261,7 @@ namespace ProjectPerseus.ui
                 StopBadges();
                 if (Instance == this) Instance = null;
                 ChangeHighlightController.ShowLayer(ChangeHighlightController.LinkSyncLayer, null, null);
-                OwnershipUiEvent.Run(a => { try { a.ViewActivated -= OnViewActivated; a.Application.DocumentChanged -= OnDocumentChanged; a.ActiveUIDocument?.RefreshActiveView(); } catch { } });
+                OwnershipUiEvent.Run(a => { try { a.ViewActivated -= OnViewActivated; a.SelectionChanged -= OnRevitSelectionChanged; a.Application.DocumentChanged -= OnDocumentChanged; a.ActiveUIDocument?.RefreshActiveView(); } catch { } });
             };
             Refresh();
         }
@@ -297,6 +302,78 @@ namespace ProjectPerseus.ui
                 Dispatcher.BeginInvoke(new Action(() => { _changeTimer.Stop(); _changeTimer.Start(); }));
             }
             catch (Exception ex) { Log.Info($"[LinkSync] watching changes: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Revit selection -> rows: picking a local family or consultant element of a listed change selects its row(s); clicking
+        /// empty space or anything else clears the row selection (and so the emphasised markers).
+        /// </summary>
+        private void OnRevitSelectionChanged(object sender, Autodesk.Revit.UI.Events.SelectionChangedEventArgs e)
+        {
+            try
+            {
+                var doc = e.GetDocument();
+                if (doc == null || !doc.Equals(_doc)) return;
+                var host = new HashSet<long>();
+                var linked = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var r in e.GetReferences() ?? new List<ARDB.Reference>())
+                {
+                    if (r == null) continue;
+                    if (r.LinkedElementId != ARDB.ElementId.InvalidElementId) linked.Add(doc.GetElement(r.ElementId)?.UniqueId + "|" + r.LinkedElementId.GetIdValue());
+                    else host.Add(r.ElementId.GetIdValue());
+                }
+                Dispatcher.BeginInvoke(new Action(() => Safe(() => SyncFromRevit(host, linked))));
+            }
+            catch (Exception ex) { Log.Info($"[LinkSync] selection changed: {ex.Message}"); }
+        }
+
+        private bool _fromRevit;
+        private readonly DispatcherTimer _selectTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        private const int MaxAutoSelect = 500;
+
+        /// <summary>
+        /// Rows picked in the list are selected in Revit too (local families; the consultant element when there's none), so
+        /// clicking elsewhere in Revit is a selection change that clears them again.
+        /// </summary>
+        private void PushRevitSelection()
+        {
+            var items = _grid.SelectedItems.Cast<Row>().Select(r => r.Item).ToList();
+            if (items.Count == 0 || items.Count > MaxAutoSelect) return;
+            Api(app =>
+            {
+                var uidoc = app.ActiveUIDocument;
+                if (uidoc?.Document == null || !uidoc.Document.Equals(_doc)) return;
+                var links = new Dictionary<string, ARDB.RevitLinkInstance>();
+                var refs = new List<ARDB.Reference>();
+                foreach (var i in items)
+                {
+                    var ours = i.OursId != 0 ? _doc.GetElement(RevitExtensions.CreateId(i.OursId)) : null;
+                    if (ours != null) { refs.Add(new ARDB.Reference(ours)); continue; }
+                    if (!links.TryGetValue(i.LinkUid ?? "", out var inst)) links[i.LinkUid ?? ""] = inst = LinkedElementRef.FindInstance(_doc, i.LinkUid);
+                    var src = inst?.GetLinkDocument()?.GetElement(i.NewSourceUid ?? i.SourceUid);
+                    if (src != null) { try { refs.Add(new ARDB.Reference(src).CreateLinkReference(inst)); } catch { } }
+                }
+                try { uidoc.Selection.SetReferences(refs); } catch (Exception ex) { Log.Info($"[LinkSync] select in Revit: {ex.Message}"); }
+            });
+        }
+
+        private void SyncFromRevit(HashSet<long> host, HashSet<string> linked)
+        {
+            var all = (_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>();
+            var rows = all.Where(r => (r.Item.OursId != 0 && host.Contains(r.Item.OursId)) ||
+                                      linked.Contains(r.Item.LinkUid + "|" + r.Item.SourceId) ||
+                                      (r.Item.NewSourceId != 0 && linked.Contains(r.Item.LinkUid + "|" + r.Item.NewSourceId))).ToList();
+            var now = _grid.SelectedItems.Cast<Row>().ToList();
+            if (rows.Count == 0 && now.Count == 0) return;
+            if (rows.Count > 0 && now.Count == rows.Count && now.All(rows.Contains)) return;
+            _fromRevit = true;
+            try
+            {
+                _grid.SelectedItems.Clear();
+                foreach (var r in rows) _grid.SelectedItems.Add(r);
+                if (rows.Count > 0) _grid.ScrollIntoView(rows[0]);
+            }
+            finally { _fromRevit = false; }
         }
 
         private void OnViewActivated(object sender, Autodesk.Revit.UI.Events.ViewActivatedEventArgs e)
@@ -422,7 +499,7 @@ namespace ProjectPerseus.ui
             lines.Add($"Consultant element {i.SourceId}" + (i.NewSourceId != 0 ? $" → {i.NewSourceId}" : "") +
                       (string.IsNullOrEmpty(i.SourceEditedBy) ? "" : $" · last edited by {i.SourceEditedBy} (in the link)"));
             if (i.OursId != 0)
-                lines.Add($"Ours {i.OursId} ({i.OursType})" + (string.IsNullOrEmpty(i.OursEditedBy) ? "" : $" · last edited by {i.OursEditedBy} (in this model)"));
+                lines.Add($"Local family {i.OursId} ({i.OursType})" + (string.IsNullOrEmpty(i.OursEditedBy) ? "" : $" · last edited by {i.OursEditedBy} (in this model)"));
             lines.Add("");
             if (notes.Decisions.Count == 0) lines.Add(i.NeedsDecision ? "Not decided yet." : "No decisions recorded.");
             else foreach (var d in notes.Decisions.Take(6)) lines.Add(LinkSyncNotes.Describe(d));
@@ -500,7 +577,7 @@ namespace ProjectPerseus.ui
                 after?.Invoke();
                 RefreshPeople();
                 Fill();
-                Status(done + "." + (p.Item2 > 0 ? $" {p.Item2:N0} of ours are checked out by others: their parameters weren't updated (the note is saved)." : ""));
+                Status(done + "." + (p.Item2 > 0 ? $" {p.Item2:N0} local families are checked out by others: their parameters weren't updated (the note is saved)." : ""));
             });
         }
 
@@ -616,7 +693,7 @@ namespace ProjectPerseus.ui
         {
             var row = RowOf(key);
             if (row == null) return null;
-            return $"{row.Change} · {row.Category}\nOurs: {row.Ours}\nConsultant: {row.Consultant}\n" +
+            return $"{row.Change} · {row.Category}\nLocal: {row.Ours}\nConsultant: {row.Consultant}\n" +
                    (string.IsNullOrEmpty(row.Decision) ? "" : row.Decision + "\n") + "Click to select · Ctrl+click to add · right-click for actions";
         }
 
@@ -648,17 +725,17 @@ namespace ProjectPerseus.ui
             string n = items.Count == 1 ? "" : $" ({items.Count:N0})";
             Item("Approve" + n + " — accept linked model position", "Take the consultant's state", () => Decide(items, true),
                  items.Any(i => i.NeedsDecision || i.Kind == SyncKind.KeptByHand || i.Kind == SyncKind.KeptRejected));
-            Item("Reject" + n + " — retain current model position", "Keep ours as it is", () => Decide(items, false), items.Any(i => i.NeedsDecision));
+            Item("Reject" + n + " — retain current model position", "Keep the local family as it is", () => Decide(items, false), items.Any(i => i.NeedsDecision));
             cm.Items.Add(new Separator());
-            Item("Zoom to", "Zoom to ours and the consultant element", () => Find(false, false, false), one != null);
-            Item("Select ours", "Select our family in Revit", () => Find(false, true, false), one != null && one.OursId != 0);
+            Item("Zoom to", "Zoom to the local family and the consultant element", () => Find(false, false, false), one != null);
+            Item("Select local", "Select the local family in Revit", () => Find(false, true, false), one != null && one.OursId != 0);
             Item("Select consultant", "Select the consultant element in Revit", () => Find(false, true, true), one != null && one.SourceId != 0);
             cm.Items.Add(new Separator());
             bool connected = one != null && one.OursId != 0 && one.Kind != SyncKind.Unlinked && one.Kind != SyncKind.Match;
-            Item("Disconnect from the consultant element", "Ours stays where it is as a family of this model only; neither is proposed again", () => Disconnect(one), connected);
-            Item(connected ? "Connect ours to another consultant element…" : "Connect ours to a consultant element…",
+            Item("Disconnect from the consultant element", "The local family stays where it is, as a family of this model only; neither is proposed again", () => Disconnect(one), connected);
+            Item(connected ? "Connect the local family to another consultant element…" : "Connect the local family to a consultant element…",
                  "Pick the consultant element in the view (linked element)", () => PickConsultant(one), one != null && one.OursId != 0);
-            Item("Connect this consultant element to one of ours…", "Pick our family in the view", () => PickOurs(one),
+            Item("Connect this consultant element to a local family…", "Pick the local family in the view", () => PickOurs(one),
                  one != null && one.OursId == 0 && one.SourceId != 0);
         }
 
@@ -669,7 +746,7 @@ namespace ProjectPerseus.ui
             {
                 string why = LinkSync.Disconnect(_doc, item, _me);
                 Refresh();
-                Status(why == null ? "Disconnected: ours is now a family of this model only." : "Couldn't disconnect: " + why, why != null);
+                Status(why == null ? "Disconnected: the local family now belongs to this model only." : "Couldn't disconnect: " + why, why != null);
             }, needActive: true);
         }
 
@@ -681,7 +758,7 @@ namespace ProjectPerseus.ui
             {
                 var uidoc = app.ActiveUIDocument;
                 ARDB.Reference r;
-                try { r = uidoc.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.LinkedElement, "Pick the consultant element to connect ours to"); }
+                try { r = uidoc.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.LinkedElement, "Pick the consultant element to connect the local family to"); }
                 catch (Autodesk.Revit.Exceptions.OperationCanceledException) { Status("Cancelled."); return; }
                 var inst = _doc.GetElement(r.ElementId) as ARDB.RevitLinkInstance;
                 var link = inst == null ? null : LinkSync.Links(_doc).FirstOrDefault(l => l.Uid == inst.UniqueId);
@@ -694,12 +771,12 @@ namespace ProjectPerseus.ui
         private void PickOurs(SyncItem item)
         {
             if (item == null || item.SourceId == 0) return;
-            Status("Pick our family in the view (Esc to cancel)…");
+            Status("Pick the local family in the view (Esc to cancel)…");
             Api(app =>
             {
                 var uidoc = app.ActiveUIDocument;
                 ARDB.Reference r;
-                try { r = uidoc.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.Element, new FamilyInstanceFilter(), "Pick our family to connect to this consultant element"); }
+                try { r = uidoc.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.Element, new FamilyInstanceFilter(), "Pick the local family to connect to this consultant element"); }
                 catch (Autodesk.Revit.Exceptions.OperationCanceledException) { Status("Cancelled."); return; }
                 var link = LinkSync.Links(_doc).FirstOrDefault(l => l.Uid == item.LinkUid);
                 var source = link?.Instance?.GetLinkDocument()?.GetElement(item.NewSourceUid ?? item.SourceUid);
@@ -714,7 +791,7 @@ namespace ProjectPerseus.ui
             if (ours == null || source == null) { Status("Couldn't find both elements.", true); return; }
             string why = LinkSync.Connect(_doc, link, ours, source, _me, out string note);
             Refresh();
-            Status(why == null ? $"Connected ours to consultant element {source.Id.GetIdValue()}" + (note != null ? $" ({note})." : ".") : "Couldn't connect: " + why, why != null);
+            Status(why == null ? $"Connected the local family to consultant element {source.Id.GetIdValue()}" + (note != null ? $" ({note})." : ".") : "Couldn't connect: " + why, why != null);
         }
 
         private class FamilyInstanceFilter : Autodesk.Revit.UI.Selection.ISelectionFilter
@@ -748,7 +825,7 @@ namespace ProjectPerseus.ui
             int deletes = approve ? todo.Count(i => LinkSyncPlanner.ApproveDeletes(i.Kind)) : 0;
             int unmapped = approve ? todo.Count(i => i.Kind == SyncKind.ConsultantType && i.TargetUid == null) : 0;
             string msg = $"{(approve ? "Approve" : "Reject")} {todo.Count:N0} change(s)?" +
-                         (deletes > 0 ? $"\n\n{deletes:N0} of them DELETE our family (no consultant element for it)." : "") +
+                         (deletes > 0 ? $"\n\n{deletes:N0} of them DELETE the local family (no consultant element for it)." : "") +
                          (unmapped > 0 ? $"\n\n{unmapped:N0} consultant type change(s) can't be approved until the new type is mapped." : "") +
                          "\n\nOne undo step.";
             if (todo.Count > 1 || deletes > 0)
@@ -777,7 +854,7 @@ namespace ProjectPerseus.ui
                 var links = LinkSync.Links(_doc).ToDictionary(l => l.Uid);
                 var r = LinkSync.WriteStatus(_doc, items, links, _logIndex);
                 try { LinkSync.WriteNotes(_doc, items, _logIndex); } catch (Exception ex) { Log.Info($"[LinkSync] notes parameters: {ex.Message}"); }
-                Status($"Status parameters written on {r.Item1:N0} of ours" + (r.Item2 > 0 ? $"; {r.Item2:N0} checked out by others." : ".") +
+                Status($"Status parameters written on {r.Item1:N0} local families" + (r.Item2 > 0 ? $"; {r.Item2:N0} checked out by others." : ".") +
                        (_inView.IsChecked == true ? " (only those in the active view)" : ""));
             });
         }
@@ -807,10 +884,10 @@ namespace ProjectPerseus.ui
                         uidoc.Selection.SetReferences(new List<ARDB.Reference> { new ARDB.Reference(source).CreateLinkReference(inst) });
                     }
                     else if (ours != null) uidoc.Selection.SetElementIds(new List<ARDB.ElementId> { ours.Id });
-                    else if (selectOnly) { Status("There's none of ours for this change yet."); return; }
+                    else if (selectOnly) { Status("There's no local family for this change yet."); return; }
                 }
                 catch (Exception ex) { Log.Info($"[LinkSync] select: {ex.Message}"); }
-                if (selectOnly) { Status(selectConsultant ? "Consultant element selected." : "Ours selected."); return; }
+                if (selectOnly) { Status(selectConsultant ? "Consultant element selected." : "Local family selected."); return; }
                 var pts = new List<ARDB.XYZ>();
                 var a = ours?.get_BoundingBox(null);
                 if (a != null) { pts.Add(a.Min); pts.Add(a.Max); }

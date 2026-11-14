@@ -354,6 +354,7 @@ ProjectPerseus/
 │   │                             (count, triage verdict, mapped to; category filter saved with the mapping) | rule editor (our type, offset /
 │   │                             rotation with step nudges, workset), auto-saved; Test on one = TEMPORARY family (live re-place, follows a type
 │   │                             change made in Revit; deleted on moving on / close with empty Perseus planes). Placing for real = next phase.
+│   │                             Multi-select: edits apply the changed value to all selected types; Tolerance XY + Z column.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
 │   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
 │   │                             EditFor(app, owner) = edit + save from anywhere (ribbon, Link Sync); an open FederatorWindow takes them (ReviewViewsSaved).
@@ -368,6 +369,7 @@ ProjectPerseus/
 │   │                             ("ls:" keys): click selects, right-click = row menu (also on the list): approve / reject, zoom / select, Disconnect,
 │   │                             Connect (PickObject linked element / our family). Refresh registers existing links (connect events) once and
 │   │                             unlinks copies (LinkSync.FindCopies: record's OursUid != element). Undo / redo re-reads.
+│   │                             Rows <-> Revit selection both ways. UI says "local family" (code: Ours*). Move arrow = gradient (GradientArrow).
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.

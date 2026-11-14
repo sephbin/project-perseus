@@ -74,3 +74,5 @@ to the consultant element it stands for, so later versions (moves, deletes, dele
   ours from its consultant element (neither proposed again), connect ours to a consultant element / a consultant element to ours (picked
   in Revit, one-to-one). A copy of one of ours (Revit copies the record) is unlinked on the next refresh: records keep the UniqueId they
   were written on. Undo / redo refreshes the panel.
+- (2026-11-14) "Ours" is "local family" in the UI. Link Sync rows follow the Revit selection both ways (clicking elsewhere clears them and
+  their emphasis); move arrows shade magenta -> cyan. Family mapping: Tolerance XY + Z column, multi-select edits.

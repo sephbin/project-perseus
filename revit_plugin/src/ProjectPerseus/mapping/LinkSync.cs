@@ -122,7 +122,7 @@ namespace ProjectPerseus.mapping
         {
             var ours = item.OursId != 0 ? doc.GetElement(RevitExtensions.CreateId(item.OursId)) : null;
             var rec = ours == null ? null : MappedFamilyStore.Get(ours);
-            if (rec == null) return "this family of ours isn't connected to a consultant element";
+            if (rec == null) return "this local family isn't connected to a consultant element";
             if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, ours.Id, out _) == CheckoutStatus.OwnedByOtherUser) return "it's checked out by another user";
             string link = rec.LinkInstanceUid, src = MappedFamilyStore.Current(rec, null);
             using (var tg = new TransactionGroup(doc, "Perseus: Link Sync disconnect"))
@@ -156,7 +156,7 @@ namespace ProjectPerseus.mapping
         internal static string Connect(Document doc, LinkInfo link, FamilyInstance ours, Element source, string user, out string note)
         {
             note = null;
-            if (link?.Instance == null || ours == null || source == null) return "pick one of ours and a consultant element";
+            if (link?.Instance == null || ours == null || source == null) return "pick a local family and a consultant element";
             if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, ours.Id, out _) == CheckoutStatus.OwnedByOtherUser) return "it's checked out by another user";
             var toHost = link.Instance.GetTotalTransform();
             string key = FamilyPlacer.TypeKey(source);
@@ -178,7 +178,7 @@ namespace ProjectPerseus.mapping
                         if (el == null || (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.Id, out _) == CheckoutStatus.OwnedByOtherUser)) continue;
                         MappedFamilyStore.Clear(el); ClearLinkParameters(el); dropped++;
                     }
-                    if (dropped > 0) note = $"{dropped} other famil{(dropped == 1 ? "y" : "ies")} of ours on that consultant element disconnected";
+                    if (dropped > 0) note = $"{dropped} other local famil{(dropped == 1 ? "y" : "ies")} on that consultant element disconnected";
                     var data = MappedFamilyStore.Write(ours, link.Uid, source.UniqueId, source.Id.GetIdValue(), rule?.Id, user, MappedFamilyStore.Linked,
                                                        key, FamilyPlacer.SourceFrame(source, toHost), FamilyPlacer.FrameOf(ours));
                     SetParameters($"Connected by hand · {user} · {DateTime.Now:yyyy-MM-dd HH:mm}", ours, link.Name, data.SourceId, null);
@@ -518,7 +518,7 @@ namespace ProjectPerseus.mapping
             long oid = it.OursId;
             while (oid != 0 && idMap.TryGetValue(oid, out var moved)) oid = moved;
             var ours = oid != 0 ? doc.GetElement(RevitExtensions.CreateId(oid)) as FamilyInstance : null;
-            if (oid != 0 && ours == null) return "ours is gone";
+            if (oid != 0 && ours == null) return "the local family is gone";
             if (ours != null && doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, ours.Id, out _) == CheckoutStatus.OwnedByOtherUser) return "skipped";
             var rec = ours != null ? MappedFamilyStore.Get(ours)?.Data : null;
             FamilyMapRule rule = link.Mapping.Rules.FirstOrDefault(r => r.Id == it.RuleId);
@@ -539,13 +539,13 @@ namespace ProjectPerseus.mapping
                         return null;
                     case SyncKind.Moved:
                     case SyncKind.KeptByHand:
-                        if (rec == null) return "ours has no Perseus record";
+                        if (rec == null) return "the local family has no Perseus record";
                         rec.RejectedExpected = MappingMath.Pack(it.Expected);
                         break;
-                    case SyncKind.ConsultantType: if (rec == null) return "ours has no Perseus record"; rec.RejectedSourceType = it.SourceTypeKey; break;
-                    case SyncKind.MappingType: if (rec == null) return "ours has no Perseus record"; rec.RejectedTargetUid = it.TargetUid; break;
-                    case SyncKind.Replaced: if (rec == null) return "ours has no Perseus record"; rec.RejectedReplacement = it.NewSourceUid; break;
-                    case SyncKind.Orphaned: if (rec == null) return "ours has no Perseus record"; rec.RejectedGone = true; break;
+                    case SyncKind.ConsultantType: if (rec == null) return "the local family has no Perseus record"; rec.RejectedSourceType = it.SourceTypeKey; break;
+                    case SyncKind.MappingType: if (rec == null) return "the local family has no Perseus record"; rec.RejectedTargetUid = it.TargetUid; break;
+                    case SyncKind.Replaced: if (rec == null) return "the local family has no Perseus record"; rec.RejectedReplacement = it.NewSourceUid; break;
+                    case SyncKind.Orphaned: if (rec == null) return "the local family has no Perseus record"; rec.RejectedGone = true; break;
                     default: return null;
                 }
                 MappedFamilyStore.Write(ours, rec);
@@ -557,7 +557,7 @@ namespace ProjectPerseus.mapping
             {
                 case SyncKind.Replaced:
                 {
-                    if (rec == null) return "ours has no Perseus record";
+                    if (rec == null) return "the local family has no Perseus record";
                     rec.SourceUid = it.NewSourceUid;
                     rec.SourceId = it.NewSourceId.ToString();
                     rec.RejectedReplacement = null;
@@ -569,7 +569,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.ConsultantType:
                 case SyncKind.MappingType:
                 {
-                    if (rec == null) return "ours has no Perseus record";
+                    if (rec == null) return "the local family has no Perseus record";
                     if (string.IsNullOrEmpty(it.TargetUid)) return $"{LinkSyncPlanner.Pretty(it.SourceTypeKey)} isn't mapped: map it in Family mapping first";
                     var sym = doc.GetElement(it.TargetUid) as FamilySymbol;
                     if (sym == null) return "our mapped type isn't in the model any more";

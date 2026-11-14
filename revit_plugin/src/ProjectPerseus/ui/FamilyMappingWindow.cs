@@ -107,6 +107,8 @@ namespace ProjectPerseus.ui
 
         private Row _current;
         private FamilyMapRule _editing;
+        // The other selected types (multi-select): an edit made in the editor is applied to each of them too.
+        private readonly List<KeyValuePair<Row, FamilyMapRule>> _others = new List<KeyValuePair<Row, FamilyMapRule>>();
         private ARDB.ElementId _testId;
         private string _testSourceUid;       // the consultant element the test stands at (kept while tuning)
         private TextBlock _testInfo;
@@ -120,6 +122,7 @@ namespace ProjectPerseus.ui
             public int Count { get; set; }
             public string Triage { get; set; }
             public string MappedTo { get; set; }
+            public string Tolerance { get; set; }
             public string Mapped { get; set; }
             internal FamilyPlacer.SourceType Source;
             internal TypeTriage Stats;
@@ -142,7 +145,7 @@ namespace ProjectPerseus.ui
             var intro = new TextBlock
             {
                 TextWrapping = TextWrapping.Wrap, Foreground = Muted, Margin = new Thickness(0, 0, 0, 8),
-                Text = "Map the consultant's family types to ours: which of our types stands for each of theirs, with its offset and rotation. Types people " +
+                Text = "Map the consultant's family types to local ones: which local type stands for each of theirs, with its offset and rotation. Types people " +
                        "reviewed in triage are suggested; types ignored or marked as noise are not. Tune one type at a time with Test on one (a temporary family, " +
                        "removed when you move on or close). Changes save automatically.",
             };
@@ -182,7 +185,7 @@ namespace ProjectPerseus.ui
 
             _grid = new DataGrid
             {
-                AutoGenerateColumns = false, IsReadOnly = true, SelectionMode = DataGridSelectionMode.Single, HeadersVisibility = DataGridHeadersVisibility.Column,
+                AutoGenerateColumns = false, IsReadOnly = true, SelectionMode = DataGridSelectionMode.Extended, HeadersVisibility = DataGridHeadersVisibility.Column,
                 GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, HorizontalGridLinesBrush = LineBrush, Background = Brushes.White,
                 RowHeaderWidth = 0, CanUserAddRows = false,
             };
@@ -191,13 +194,14 @@ namespace ProjectPerseus.ui
             _grid.Columns.Add(new DataGridTextColumn { Header = "In link", Binding = new System.Windows.Data.Binding(nameof(Row.Count)), Width = new DataGridLength(55) });
             _grid.Columns.Add(new DataGridTextColumn { Header = "Triage", Binding = new System.Windows.Data.Binding(nameof(Row.Triage)), Width = new DataGridLength(90) });
             _grid.Columns.Add(new DataGridTextColumn { Header = "Mapped to", Binding = new System.Windows.Data.Binding(nameof(Row.MappedTo)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+            _grid.Columns.Add(new DataGridTextColumn { Header = "Tolerance XY + Z", Binding = new System.Windows.Data.Binding(nameof(Row.Tolerance)), Width = new DataGridLength(100) });
             Grid.SetColumn(_grid, 0);
             body.Children.Add(_grid);
 
             _editor = new StackPanel();
             _title = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 2) };
             _editor.Children.Add(_title);
-            _editor.Children.Add(Section("Our family type"));
+            _editor.Children.Add(Section("Local family type"));
             _target = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, StaysOpenOnEdit = true };
             _editor.Children.Add(_target);
             _placementNote = new TextBlock { Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), FontSize = 11 };
@@ -210,7 +214,7 @@ namespace ProjectPerseus.ui
             _stepDeg = new TextBox { Text = "90", Width = 50 };
             _editor.Children.Add(Vector(_rotation, _stepDeg, "Step °"));
 
-            _editor.Children.Add(Section("Position tolerance (Link Sync flags ours only beyond it)"));
+            _editor.Children.Add(Section("Position tolerance (Link Sync flags the local family only beyond it)"));
             var tolRow = new WrapPanel();
             _tolXy = new TextBox { Width = 60, Text = "25", VerticalContentAlignment = VerticalAlignment.Center };
             _tolZ = new TextBox { Width = 60, Text = "25", VerticalContentAlignment = VerticalAlignment.Center };
@@ -232,7 +236,7 @@ namespace ProjectPerseus.ui
 
             _editor.Children.Add(Section("Try it"));
             var testRow = new WrapPanel();
-            _test = Btn("Test on one", "Place a temporary family of ours at a consultant element of this type (the one selected in Revit if any) and zoom to it. Changing the offset / rotation re-places it; changing its type in Revit changes the mapping. Removed when you move on or close.", TestOnOne);
+            _test = Btn("Test on one", "Place a temporary local family at a consultant element of this type (the one selected in Revit if any) and zoom to it. Changing the offset / rotation re-places it; changing its type in Revit changes the mapping. Removed when you move on or close.", TestOnOne);
             var prev = Btn("◀ Previous", "Move the test to the previous consultant element of this type", () => { _sample--; _testSourceUid = null; TestOnOne(); });
             _next = Btn("Next ▶", "Move the test to another consultant element of this type", () => { _sample++; _testSourceUid = null; TestOnOne(); });
             _removeTest = Btn("Remove test", "Delete the test family", RemoveTest);
@@ -244,7 +248,7 @@ namespace ProjectPerseus.ui
             findRow.Children.Add(Btn("Zoom to test", "Zoom to our test family and the consultant element (this view if it shows them, else a review view, else your federator 3D view)",
                                      () => FindTest(false, true, false)));
             findRow.Children.Add(Btn("Show in 3D", "Open your federator 3D view with a section box around the test and the consultant element", () => FindTest(true, true, false)));
-            findRow.Children.Add(Btn("Select ours", "Select our test family in Revit (e.g. to check it in Properties)", () => FindTest(false, false, false, selectOnly: true)));
+            findRow.Children.Add(Btn("Select local", "Select the local test family in Revit (e.g. to check it in Properties)", () => FindTest(false, false, false, selectOnly: true)));
             findRow.Children.Add(Btn("Select consultant", "Select the consultant element in Revit (Tab-select in the link)", () => FindTest(false, false, true, selectOnly: true)));
             _editor.Children.Add(findRow);
 
@@ -263,7 +267,7 @@ namespace ProjectPerseus.ui
             _filter.TextChanged += (s, e) => Safe(Fill);
             _suggestedOnly.Checked += (s, e) => Safe(Fill);
             _suggestedOnly.Unchecked += (s, e) => Safe(Fill);
-            _grid.SelectionChanged += (s, e) => Safe(() => Select(_grid.SelectedItem as Row));
+            _grid.SelectionChanged += (s, e) => Safe(OnGridSelection);
             _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor && ReadEditor()) { UpdateNote(); QueueLive(); QueueSave(); } });
             _workset.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor && ReadEditor()) QueueSave(); });
             _categories.Changed += () => Safe(() => { Fill(); QueueSave(); });
@@ -318,7 +322,7 @@ namespace ProjectPerseus.ui
 
         private void Reload()
         {
-            Status("Reading the link and our families…");
+            Status("Reading the link and the local families…");
             Api(app =>
             {
                 var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
@@ -340,7 +344,7 @@ namespace ProjectPerseus.ui
                 foreach (var c in _sources.Select(x => x.Category).Distinct()) _categories.SetTicked(c, !hidden.Contains(c));
                 BuildRows();
                 Fill();
-                Status($"{_sources.Count} consultant family type(s), {_targets.Count} of our family types, {_mapping.Rules.Count} mapped. " +
+                Status($"{_sources.Count} consultant family type(s), {_targets.Count} local family types, {_mapping.Rules.Count} mapped. " +
                        (_triageLabel != null ? $"Suggestions from the triage of {_triageLabel}."
                                              : "No triage for this link: open one of its comparisons in Link Changes to get suggestions (all types are listed meanwhile)."));
                 if (_triageLabel == null) _suggestedOnly.IsChecked = false;
@@ -359,6 +363,7 @@ namespace ProjectPerseus.ui
                 {
                     Category = s.Category, Type = s.ToString(), Count = s.Uids.Count, Triage = t.Verdict, Source = s, Stats = t,
                     MappedTo = rule?.TargetName ?? "",
+                    Tolerance = ToleranceText(rule),
                     Mapped = rule != null && _mappedByRule.TryGetValue(rule.Id, out int n) ? $"{n} / {s.Uids.Count}" : "",
                 });
             }
@@ -369,6 +374,7 @@ namespace ProjectPerseus.ui
             string q = _filter.Text?.Trim() ?? "";
             bool only = _suggestedOnly.IsChecked == true;
             var keep = _current?.Source.Key;
+            var keepAll = new HashSet<string>(_grid.SelectedItems.Cast<Row>().Select(r => r.Source.Key));
             var shown = _rows.Where(r => _categories.IsTicked(r.Category) && (!only || r.Triage == TypeTriage.Suggested || r.MappedTo != "")
                                          && (q.Length == 0 || (r.Category + " " + r.Type).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0))
                              .OrderBy(r => r.MappedTo != "" ? 0 : r.Triage == TypeTriage.Suggested ? 1 : r.Triage == TypeTriage.Unchanged ? 2 : 3)
@@ -380,6 +386,65 @@ namespace ProjectPerseus.ui
                             $"{_rows.Count(r => r.MappedTo != "")} mapped";
             var again = shown.FirstOrDefault(r => r.Source.Key == keep);
             if (again != null) _grid.SelectedItem = again;
+            foreach (var r in shown.Where(r => r != again && keepAll.Contains(r.Source.Key))) _grid.SelectedItems.Add(r);
+        }
+
+        /// <summary>"25 + 25" (XY + Z mm) for a mapped type, else empty.</summary>
+        private static string ToleranceText(FamilyMapRule rule) => rule == null ? "" : $"{Num(rule.ToleranceXyMm)} + {Num(rule.ToleranceZMm)}";
+
+        /// <summary>
+        /// Selection in the list: the first one (or the one being edited, if still selected) fills the editor; with several
+        /// selected, each edit made in the editor is applied to all of them (only the value changed), Test on one is off.
+        /// </summary>
+        private void OnGridSelection()
+        {
+            var rows = _grid.SelectedItems.Cast<Row>().ToList();
+            if (rows.Count == 0) return;
+            var primary = _current != null && rows.Contains(_current) ? _current : (_grid.SelectedItem as Row ?? rows[0]);
+            if (_saveTimer.IsEnabled) { _saveTimer.Stop(); SaveNow(); }
+            Select(primary);
+            _others.Clear();
+            foreach (var r in rows.Where(r => r != primary))
+            {
+                var rule = _mapping.Rules.FirstOrDefault(x => x.SourceKey == r.Source.Key);
+                _others.Add(new KeyValuePair<Row, FamilyMapRule>(r, rule != null ? Copy(rule)
+                    : new FamilyMapRule { SourceCategory = r.Source.Category, SourceFamily = r.Source.Family, SourceType = r.Source.Type }));
+            }
+            if (_others.Count == 0) _title.Text = $"{primary.Source.Category} · {primary.Source}";
+            if (_others.Count > 0)
+            {
+                RemoveTest();
+                _title.Text = $"{rows.Count} types selected · edits apply to all";
+                var all = new[] { _editing }.Concat(_others.Select(o => o.Value)).ToList();
+                var differ = new List<string>();
+                if (all.Select(x => x.TargetSymbolUid ?? "").Distinct().Count() > 1) differ.Add("type");
+                if (all.Select(x => string.Join(",", x.OffsetMm)).Distinct().Count() > 1) differ.Add("offset");
+                if (all.Select(x => string.Join(",", x.RotationDeg)).Distinct().Count() > 1) differ.Add("rotation");
+                if (all.Select(x => x.ToleranceXyMm + "/" + x.ToleranceZMm).Distinct().Count() > 1) differ.Add("tolerance");
+                if (all.Select(x => x.Workset ?? "").Distinct().Count() > 1) differ.Add("workset");
+                Status($"{rows.Count} types selected. Showing {primary.Source}; a value you change is set on all of them" +
+                       (differ.Count > 0 ? $" (they differ in {string.Join(", ", differ)})." : "."));
+            }
+            UpdateNote();
+        }
+
+        /// <summary>Copies the values the user just changed on the edited type (before -> now) to the other selected types.</summary>
+        private void Propagate(FamilyMapRule before, FamilyMapRule now)
+        {
+            if (before == null || now == null || _others.Count == 0) return;
+            foreach (var o in _others)
+            {
+                var r = o.Value;
+                if (before.TargetSymbolUid != now.TargetSymbolUid) { r.TargetSymbolUid = now.TargetSymbolUid; r.TargetName = now.TargetName; }
+                for (int i = 0; i < 3; i++)
+                {
+                    if (before.OffsetMm[i] != now.OffsetMm[i]) r.OffsetMm[i] = now.OffsetMm[i];
+                    if (before.RotationDeg[i] != now.RotationDeg[i]) r.RotationDeg[i] = now.RotationDeg[i];
+                }
+                if ((before.Workset ?? "") != (now.Workset ?? "")) r.Workset = now.Workset;
+                if (before.ToleranceXyMm != now.ToleranceXyMm) r.ToleranceXyMm = now.ToleranceXyMm;
+                if (before.ToleranceZMm != now.ToleranceZMm) r.ToleranceZMm = now.ToleranceZMm;
+            }
         }
 
         // ═══════════════ Editor ═══════════════
@@ -416,7 +481,7 @@ namespace ProjectPerseus.ui
             _editor.IsEnabled = true;
             UpdateNote();
             Status($"{s.Uids.Count} in the link · triage: {row.Stats.Describe()}" +
-                   (_mappedByRule.TryGetValue(_editing.Id, out int n) ? $" · {n} of ours mapped" : ""));
+                   (_mappedByRule.TryGetValue(_editing.Id, out int n) ? $" · {n} local families mapped" : ""));
         }
 
         private class TargetItem
@@ -437,7 +502,7 @@ namespace ProjectPerseus.ui
                 : $"Needs a host ({t.Placement}): can't be placed floating. Pick a work-plane- or level-based family.";
             if (t != null && t.FaceBased) _placementNote.Foreground = Frozen(0xB4, 0x6A, 0x00);
             _placementNote.Foreground = t != null && !t.Floating ? Bad : t != null && t.FaceBased ? Frozen(0xB4, 0x6A, 0x00) : Muted;
-            bool ok = t != null && t.Floating;
+            bool ok = t != null && t.Floating && _others.Count == 0;
             _test.IsEnabled = _next.IsEnabled = ok;
         }
 
@@ -445,6 +510,7 @@ namespace ProjectPerseus.ui
         private bool ReadEditor()
         {
             if (_editing == null) return false;
+            var before = Copy(_editing);
             var t = (_target.SelectedItem as TargetItem)?.T;
             _editing.TargetSymbolUid = t?.Uid;
             _editing.TargetName = t?.ToString();
@@ -459,6 +525,7 @@ namespace ProjectPerseus.ui
             if (!TryNum(_tolXy.Text, out double tx) || !TryNum(_tolZ.Text, out double tz) || tx < 0 || tz < 0) { Status("Tolerances must be numbers (mm).", true); return false; }
             _editing.ToleranceXyMm = tx;
             _editing.ToleranceZMm = tz;
+            Propagate(before, _editing);
             return true;
         }
 
@@ -504,29 +571,29 @@ namespace ProjectPerseus.ui
         private void SaveNow()
         {
             if (_modelKey == null) return;
-            FamilyMapRule rule = null;
-            if (_editing != null && !string.IsNullOrEmpty(_editing.TargetSymbolUid))
-            {
-                rule = Copy(_editing);
-                rule.Author = _me;
-                rule.SavedUtc = DateTime.UtcNow;
-            }
+            var rules = new List<KeyValuePair<Row, FamilyMapRule>>();
+            if (_editing != null) rules.Add(new KeyValuePair<Row, FamilyMapRule>(_current, _editing));
+            rules.AddRange(_others);
+            rules = rules.Where(kv => !string.IsNullOrEmpty(kv.Value.TargetSymbolUid))
+                         .Select(kv => { var c = Copy(kv.Value); c.Author = _me; c.SavedUtc = DateTime.UtcNow; return new KeyValuePair<Row, FamilyMapRule>(kv.Key, c); }).ToList();
             var hidden = _rows.Select(r => r.Category).Distinct(StringComparer.OrdinalIgnoreCase).Where(c => !_categories.IsTicked(c))
                               .OrderBy(c => c).ToList();
             string modelKey = _modelKey;
-            var row = _current;
             Api(app =>
             {
                 var mapping = FamilyMapStore.Load(_doc, modelKey);
                 bool changed = false;
-                if (rule != null)
+                var saved = new List<KeyValuePair<Row, FamilyMapRule>>();
+                foreach (var kv in rules)
                 {
+                    var rule = kv.Value;
                     var was = mapping.Rules.FirstOrDefault(r => r.SourceKey == rule.SourceKey);
                     if (was == null || !SameRule(was, rule))
                     {
                         mapping.Rules.RemoveAll(r => r.SourceKey == rule.SourceKey);
                         mapping.Rules.Add(rule);
                         changed = true;
+                        saved.Add(kv);
                     }
                 }
                 var oldHidden = (mapping.HiddenCategories ?? new List<string>()).OrderBy(c => c).ToList();
@@ -535,11 +602,13 @@ namespace ProjectPerseus.ui
                 FamilyMapStore.Save(_doc, modelKey, mapping, _me);
                 if (modelKey != _modelKey) return;
                 _mapping = mapping;
-                if (rule != null && row != null && !_closing)
+                if (saved.Count > 0 && !_closing)
                 {
-                    row.MappedTo = rule.TargetName ?? "";
+                    foreach (var kv in saved)
+                        if (kv.Key != null) { kv.Key.MappedTo = kv.Value.TargetName ?? ""; kv.Key.Tolerance = ToleranceText(kv.Value); }
                     _grid.Items.Refresh();
-                    Status($"Saved: {rule.SourceFamily} : {rule.SourceType} → {rule.TargetName}.");
+                    var first = saved[0].Value;
+                    Status(saved.Count == 1 ? $"Saved: {first.SourceFamily} : {first.SourceType} → {first.TargetName}." : $"Saved {saved.Count} types.");
                 }
             });
         }
@@ -563,7 +632,7 @@ namespace ProjectPerseus.ui
 
         private void TestOnOne(bool fresh)
         {
-            if (_editing == null || !ReadEditor() || string.IsNullOrEmpty(_editing.TargetSymbolUid)) { Status("Pick our family type first.", true); return; }
+            if (_editing == null || !ReadEditor() || string.IsNullOrEmpty(_editing.TargetSymbolUid)) { Status("Pick the local family type first.", true); return; }
             var rule = Copy(_editing);
             int sample = _sample;
             var old = _testId;
@@ -573,7 +642,7 @@ namespace ProjectPerseus.ui
                 var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
                 var linkDoc = inst?.GetLinkDocument();
                 var symbol = _doc.GetElement(rule.TargetSymbolUid) as ARDB.FamilySymbol;
-                if (linkDoc == null || symbol == null) { Status("The link isn't loaded or our family type is gone.", true); return; }
+                if (linkDoc == null || symbol == null) { Status("The link isn't loaded or the local family type is gone.", true); return; }
                 var sources = FamilyPlacer.SourceElements(linkDoc, rule);
                 if (sources.Count == 0) { Status("No consultant elements of this type in the link.", true); return; }
                 // The consultant element selected in Revit, when it's of this type; else the n-th sample.
@@ -744,7 +813,9 @@ namespace ProjectPerseus.ui
         {
             if (_editing == null) return;
             _saveTimer.Stop();
-            string key = _editing.SourceKey;
+            var keys = new HashSet<string>(new[] { _editing.SourceKey }.Concat(_others.Select(o => o.Value.SourceKey)));
+            if (keys.Count > 1 && MessageBox.Show(this, $"Clear the mapping of {keys.Count} types?", "Family mapping", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            foreach (var o in _others) { o.Value.TargetSymbolUid = null; o.Value.TargetName = null; }
             _loadingEditor = true;
             _target.SelectedItem = null;
             _target.Text = "";
@@ -755,12 +826,13 @@ namespace ProjectPerseus.ui
             Api(app =>
             {
                 var mapping = FamilyMapStore.Load(_doc, _modelKey);
-                if (mapping.Rules.RemoveAll(r => r.SourceKey == key) == 0) { Status("This type isn't mapped."); return; }
+                int n = mapping.Rules.RemoveAll(r => keys.Contains(r.SourceKey));
+                if (n == 0) { Status(keys.Count == 1 ? "This type isn't mapped." : "None of these types is mapped."); return; }
                 FamilyMapStore.Save(_doc, _modelKey, mapping, _me);
                 _mapping = mapping;
                 BuildRows();
                 Fill();
-                Status("Mapping cleared.");
+                Status(n == 1 ? "Mapping cleared." : $"Mapping cleared for {n} types.");
             });
         }
 

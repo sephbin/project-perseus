@@ -132,7 +132,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.New: return "New (place)";
                 case SyncKind.Orphaned: return "Orphaned (consultant deleted)";
                 case SyncKind.Unlinked: return "Orphaned (no consultant element)";
-                case SyncKind.OursDeleted: return "Orphaned (ours deleted)";
+                case SyncKind.OursDeleted: return "Orphaned (local family deleted)";
                 case SyncKind.KeptByHand: return "Kept (edited by hand)";
                 case SyncKind.KeptRejected: return "Kept (rejected)";
                 case SyncKind.Unmapped: return "Not mapped";
@@ -195,15 +195,15 @@ namespace ProjectPerseus.mapping
                     var it = Item(SyncKind.Replaced, null);
                     it.Category = now.Category;
                     it.NewSourceUid = repl; it.NewSourceId = now.Id;
-                    it.Detail = $"Consultant element {r.SourceId} was deleted and replaced by {now.Id} ({Pretty(now.TypeKey)}): ours follows it.";
+                    it.Detail = $"Consultant element {r.SourceId} was deleted and replaced by {now.Id} ({Pretty(now.TypeKey)}): the local family follows it.";
                     items.Add(it);
                     cur = repl;
                 }
                 if (now == null && (cur == null || !src.TryGetValue(cur, out now)))
                 {
                     var it = Item(r.RejectedGone ? SyncKind.KeptRejected : SyncKind.Orphaned, null);
-                    it.Detail = r.RejectedGone ? $"Consultant element {r.SourceId} is gone; keeping ours was chosen."
-                                               : $"Consultant element {r.SourceId} is gone and nothing replaced it. Approve = delete ours.";
+                    it.Detail = r.RejectedGone ? $"Consultant element {r.SourceId} is gone; keeping the local family was chosen."
+                                               : $"Consultant element {r.SourceId} is gone and nothing replaced it. Approve = delete the local family.";
                     items.Add(it);
                     continue;
                 }
@@ -221,7 +221,7 @@ namespace ProjectPerseus.mapping
                         it.RuleId = rule?.Id; it.TargetUid = rule?.TargetSymbolUid; it.TargetName = rule?.TargetName;
                         it.Detail = $"The consultant changed {Pretty(baseType)} to {Pretty(now.TypeKey)}. " +
                                     (rule == null ? "That type isn't mapped: map it in Family mapping to approve."
-                                     : rule.TargetSymbolUid == o.TypeUid ? "Ours stays the same type." : $"Approve = ours becomes {rule.TargetName}.");
+                                     : rule.TargetSymbolUid == o.TypeUid ? "The local family stays the same type." : $"Approve = the local family becomes {rule.TargetName}.");
                         items.Add(it);
                     }
                 }
@@ -235,7 +235,7 @@ namespace ProjectPerseus.mapping
                 {
                     var it = Item(SyncKind.MappingType, now);
                     it.RuleId = rule.Id; it.TargetUid = rule.TargetSymbolUid; it.TargetName = rule.TargetName;
-                    it.Detail = $"The mapping now uses {rule.TargetName}; ours is {o.TypeName}. Approve = change its type.";
+                    it.Detail = $"The mapping now uses {rule.TargetName}; the local family is {o.TypeName}. Approve = change its type.";
                     items.Add(it);
                 }
 
@@ -278,10 +278,10 @@ namespace ProjectPerseus.mapping
                     if (!MappingMath.Within(sd, tx, tz)) why.Add($"the consultant element moved {MappingMath.Describe(sd)}");
                     if (oursBase != null && !MappingMath.Within(MappingMath.Delta(MappingMath.Place(srcBase, posRule.OffsetMm, posRule.RotationDeg), oursBase), tx, tz))
                         why.Add("the mapping's offset / rotation changed");
-                    if (oursBase != null && !MappingMath.Within(MappingMath.Delta(o.Frame, oursBase), tx, tz)) why.Add("ours was also moved by hand");
+                    if (oursBase != null && !MappingMath.Within(MappingMath.Delta(o.Frame, oursBase), tx, tz)) why.Add("the local family was also moved by hand");
                 }
                 mv.Detail = (why.Count > 0 ? char.ToUpper(why[0][0]) + string.Join("; ", why).Substring(1) + ". " : "") +
-                            $"Ours is {MappingMath.Describe(d)} from where the mapping puts it. Approve = move ours.";
+                            $"The local family is {MappingMath.Describe(d)} from where the mapping puts it. Approve = move it.";
                 items.Add(mv);
             }
 
@@ -313,7 +313,7 @@ namespace ProjectPerseus.mapping
                     Kind = SyncKind.Match, LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
                     OursId = u.Id, OursType = u.TypeName, RuleId = rule.Id, TargetUid = rule.TargetSymbolUid, TargetName = rule.TargetName,
                     Expected = expectedOf[p.Item2],
-                    Detail = $"Ours ({u.TypeName}, not linked yet) is {p.Item1:N0} mm from where the mapping puts it. Approve = link it to this consultant element" +
+                    Detail = $"The local family ({u.TypeName}, not linked yet) is {p.Item1:N0} mm from where the mapping puts it. Approve = link it to this consultant element" +
                              (MappingMath.Within(MappingMath.Delta(u.Frame, expectedOf[p.Item2]), rule.ToleranceXyMm, rule.ToleranceZMm) ? "." : " (then listed as moved: it's beyond the tolerance)."),
                 });
             }
@@ -326,8 +326,8 @@ namespace ProjectPerseus.mapping
                 {
                     Kind = deleted ? SyncKind.OursDeleted : SyncKind.New, LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
                     RuleId = rule.Id, TargetUid = rule.TargetSymbolUid, TargetName = rule.TargetName, Expected = expectedOf[i],
-                    Detail = deleted ? $"Ours at {Pretty(s.TypeKey)} was deleted from this model; the consultant element is still there. Approve = place {rule.TargetName} again, reject = leave it deleted."
-                                     : $"{Pretty(s.TypeKey)} has none of ours. Approve = place {rule.TargetName}.",
+                    Detail = deleted ? $"The local family at {Pretty(s.TypeKey)} was deleted from this model; the consultant element is still there. Approve = place {rule.TargetName} again, reject = leave it deleted."
+                                     : $"{Pretty(s.TypeKey)} has no local family. Approve = place {rule.TargetName}.",
                 });
             }
 
@@ -343,7 +343,7 @@ namespace ProjectPerseus.mapping
                 {
                     Kind = SyncKind.Unlinked, LinkUid = input.LinkUid, OursId = u.Id, OursType = u.TypeName,
                     Category = input.Rules.FirstOrDefault(r => r.TargetSymbolUid == u.TypeUid)?.SourceCategory,
-                    Detail = $"Ours ({u.TypeName}) is a mapped type but no consultant element is within {MatchRadiusMm:N0} mm of it. Approve = delete ours, reject = keep it.",
+                    Detail = $"The local family ({u.TypeName}) is a mapped type but no consultant element is within {MatchRadiusMm:N0} mm of it. Approve = delete it, reject = keep it.",
                 });
             }
             return items;

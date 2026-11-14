@@ -541,6 +541,42 @@ namespace ProjectPerseus.federator
         private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted || k == Kind.Orphan ? '-' : k == Kind.Replaced ? 'r' : '~';
         private static char GlyphOf(Item it) => it.Glyph != '\0' ? it.Glyph : GlyphOf(it.Kind);
 
+        private const int GradientSteps = 12;
+
+        /// <summary>
+        /// Double-headed arrow from → to shaded from colour a (head at from) to colour b (head at to): the shaft in GradientSteps
+        /// pieces, each in its interpolated colour (pieces overlap slightly so no seams show).
+        /// </summary>
+        private static void GradientArrow(Frame f, Pt from, Pt to, double half, double w, Color a, Color b, Func<Color, Layer3D> tint)
+        {
+            double s = f.S;
+            var d = to - from; double len = d.Length;
+            if (len < 1e-9) return;
+            var dir = d * (1 / len);
+            double head = Math.Min(HeadLen * s, len * 0.3);
+            var t = new List<double>();
+            // Heads: a short arrow at each end, in that end's colour.
+            OverlayShapes.Arrow(t, from + dir * (head * 1.05), from, half, head, HeadHalf * s * head / (HeadLen * s));
+            tint(a).AddTris(f, t, w); t.Clear();
+            OverlayShapes.Arrow(t, to - dir * (head * 1.05), to, half, head, HeadHalf * s * head / (HeadLen * s));
+            tint(b).AddTris(f, t, w); t.Clear();
+            // Shaft between the heads.
+            var p0 = from + dir * head; var p1 = to - dir * head;
+            double shaft = (p1 - p0).Length;
+            if (shaft <= 1e-9) return;
+            double overlap = Math.Min(half, shaft / GradientSteps * 0.25);
+            for (int i = 0; i < GradientSteps; i++)
+            {
+                double u0 = (double)i / GradientSteps, u1 = (double)(i + 1) / GradientSteps, um = (u0 + u1) / 2;
+                var c = new Color((byte)Math.Round(a.Red + (b.Red - a.Red) * um), (byte)Math.Round(a.Green + (b.Green - a.Green) * um),
+                                  (byte)Math.Round(a.Blue + (b.Blue - a.Blue) * um));
+                var q0 = p0 + dir * Math.Max(0, u0 * shaft - overlap);
+                var q1 = p0 + dir * Math.Min(shaft, u1 * shaft + overlap);
+                OverlayShapes.Stroke(t, new[] { q0, q1 }, false, half);
+                tint(c).AddTris(f, t, w); t.Clear();
+            }
+        }
+
         /// <summary>Ring style: the circle around a (padded) rectangle; rect becomes the circle's bounds.</summary>
         private static List<Pt> RingAround(ref double[] rect, out Pt centre, out double radius)
         {
@@ -599,6 +635,13 @@ namespace ProjectPerseus.federator
             var white = new Layer3D();
             var selected = new Layer3D();   // selected rows: halo + glyph in Revit's selection colour instead of white
             Layer3D LayerOf(Kind k) { if (!layers.TryGetValue(k, out var l)) layers[k] = l = new Layer3D(); return l; }
+            var tints = new Dictionary<int, KeyValuePair<Color, Layer3D>>();   // gradient pieces, by packed RGB
+            Layer3D TintOf(Color c)
+            {
+                int key = (c.Red << 16) | (c.Green << 8) | c.Blue;
+                if (!tints.TryGetValue(key, out var kv)) tints[key] = kv = new KeyValuePair<Color, Layer3D>(c, new Layer3D());
+                return kv.Value;
+            }
             double s = f.S, eps = Layer * s;
             bool simple = visible.Count > FullDetailLimit;
             int drawn = 0;
@@ -682,12 +725,21 @@ namespace ProjectPerseus.federator
                             halo.AddTris(f, arrow, aw - eps);
                             arrow.Clear();
                         }
-                        OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
-                        if (both) OverlayShapes.Arrow(arrow, to, from, half, HeadLen * s, HeadHalf * s);
-                        else if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 20);
-                        var arrowLayer = LayerOf(both ? Kind.Ink : it.Kind == Kind.Replaced ? Kind.Replaced : Kind.Modified);
-                        arrowLayer.AddTris(f, arrow, aw);
-                        arrowLayer.AddLine(f, new[] { from, to }, false, aw);
+                        if (both && it.OldKind.HasValue)
+                        {
+                            // Gradient from the old box's colour (at from) to the new box's (at to): one colour per piece,
+                            // DirectContext3D batches being single-coloured.
+                            GradientArrow(f, from, to, half, aw, ColorOf(it.OldKind.Value), ColorOf(it.Kind), TintOf);
+                        }
+                        else
+                        {
+                            OverlayShapes.Arrow(arrow, from, to, half, HeadLen * s, HeadHalf * s);
+                            if (both) OverlayShapes.Arrow(arrow, to, from, half, HeadLen * s, HeadHalf * s);
+                            else if (!simple) OverlayShapes.Disc(arrow, from, StartDot * s, 20);
+                            var arrowLayer = LayerOf(both ? Kind.Ink : it.Kind == Kind.Replaced ? Kind.Replaced : Kind.Modified);
+                            arrowLayer.AddTris(f, arrow, aw);
+                            arrowLayer.AddLine(f, new[] { from, to }, false, aw);
+                        }
                     }
                 }
 
@@ -720,6 +772,7 @@ namespace ProjectPerseus.federator
             AddBatches(batches, white, new Color(255, 255, 255), lines: false);
             AddBatches(batches, selected, SelectionColor(), lines: false);
             foreach (var kv in layers) AddBatches(batches, kv.Value, ColorOf(kv.Key), lines: true);
+            foreach (var kv in tints.Values) AddBatches(batches, kv.Value, kv.Key, lines: false);
             if (clock.ElapsedMilliseconds > 250)
                 Log.Info($"[Federator] highlight build took {clock.ElapsedMilliseconds} ms for {drawn:N0} changes ({(simple ? "simple" : "full")} style)");
             return batches;

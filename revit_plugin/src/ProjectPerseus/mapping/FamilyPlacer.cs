@@ -461,7 +461,7 @@ namespace ProjectPerseus.mapping
             var r = new Result();
             var linkDoc = inst.GetLinkDocument();
             var symbol = host.GetElement(rule.TargetSymbolUid) as FamilySymbol;
-            if (linkDoc == null || symbol == null) { r.Warnings.Add(linkDoc == null ? "The link isn't loaded." : "Our family type isn't in the model any more."); return r; }
+            if (linkDoc == null || symbol == null) { r.Warnings.Add(linkDoc == null ? "The link isn't loaded." : "The local family type isn't in the model any more."); return r; }
             var mapped = new HashSet<string>(MappedFamilyStore.All(host, inst.UniqueId).Select(x => MappedFamilyStore.Current(x, replacementMap)), StringComparer.Ordinal);
             var sources = SourceElements(linkDoc, rule).Where(s => !mapped.Contains(s.UniqueId)).Take(limit).ToList();
             r.AlreadyMapped = SourceElements(linkDoc, rule).Count - sources.Count;
@@ -515,7 +515,7 @@ namespace ProjectPerseus.mapping
             var r = new Result();
             var linkDoc = inst.GetLinkDocument();
             var symbol = host.GetElement(rule.TargetSymbolUid) as FamilySymbol;
-            if (linkDoc == null || symbol == null) { r.Warnings.Add(linkDoc == null ? "The link isn't loaded." : "Our family type isn't in the model any more."); return r; }
+            if (linkDoc == null || symbol == null) { r.Warnings.Add(linkDoc == null ? "The link isn't loaded." : "The local family type isn't in the model any more."); return r; }
             var records = MappedFamilyStore.All(host);
             var mappedOurs = new HashSet<ElementId>(records.Select(x => x.Element));
             var mappedSources = new HashSet<string>(records.Where(x => x.LinkInstanceUid == inst.UniqueId)
@@ -555,7 +555,7 @@ namespace ProjectPerseus.mapping
             }
             r.Failed = sources.Count - r.Linked;   // consultant elements with none of ours nearby
             Log.Info($"[Mapping] link existing {rule.TargetName} to {rule.SourceFamily} : {rule.SourceType}: linked {r.Linked}, " +
-                     $"{r.Failed} consultant elements without one within {toleranceMm:0} mm, {ours.Count - usedO.Count} of ours left, {r.Skipped} checked out by others");
+                     $"{r.Failed} consultant elements without one within {toleranceMm:0} mm, {ours.Count - usedO.Count} local families left, {r.Skipped} checked out by others");
             return r;
         }
 
@@ -600,7 +600,7 @@ namespace ProjectPerseus.mapping
         {
             warning = null; replaced = false;
             var now = FrameOf(fi);
-            if (now == null) { warning = "ours has no location"; return null; }
+            if (now == null) { warning = "the local family has no location"; return null; }
             bool upright = !MappingMath.IsTilted(expected) && !MappingMath.IsTilted(now) && Math.Sign(expected.Z[2]) == Math.Sign(now.Z[2]);
             if (upright)
             {
