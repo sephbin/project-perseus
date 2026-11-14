@@ -76,3 +76,6 @@ to the consultant element it stands for, so later versions (moves, deletes, dele
   were written on. Undo / redo refreshes the panel.
 - (2026-11-14) "Ours" is "local family" in the UI. Link Sync rows follow the Revit selection both ways (clicking elsewhere clears them and
   their emphasis); move arrows shade magenta -> cyan. Family mapping: Tolerance XY + Z column, multi-select edits.
+- (2026-11-14) Rejecting = the modeller stands by the local position: the change keeps its kind, flagged rejected, and moves to a
+  "Set aside" list under the open changes (lighter text, thinner markers) until the linked model changes again. Approve still takes the
+  consultant's state; Reconsider puts it back for a decision.

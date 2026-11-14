@@ -67,8 +67,13 @@ namespace ProjectPerseus.mapping
         public string TargetName;
         public Frame Expected;           // where the mapping puts ours
         public string Detail;
+        /// <summary>
+        /// The change was rejected: the modeller stands by the local position. Still listed (set aside, second list) until the
+        /// linked model changes again; approving it later still takes the consultant's state.
+        /// </summary>
+        public bool Rejected;
 
-        public bool NeedsDecision => LinkSyncPlanner.NeedsDecision(Kind);
+        public bool NeedsDecision => !Rejected && LinkSyncPlanner.NeedsDecision(Kind);
         public string Key => $"{Kind}|{LinkUid}|{OursId}|{SourceUid}";
     }
 
@@ -190,18 +195,26 @@ namespace ProjectPerseus.mapping
                 string cur = r.SourceUid;
                 SyncSource now = null;
                 if (cur != null && input.ReplacementMap != null && input.ReplacementMap.TryGetValue(cur, out var repl) && repl != cur
-                    && repl != r.RejectedReplacement && src.TryGetValue(repl, out now))
+                    && src.TryGetValue(repl, out now))
                 {
                     var it = Item(SyncKind.Replaced, null);
                     it.Category = now.Category;
                     it.NewSourceUid = repl; it.NewSourceId = now.Id;
+                    if (repl == r.RejectedReplacement)
+                    {
+                        it.Rejected = true;
+                        it.Detail = $"Consultant element {r.SourceId} was replaced by {now.Id} ({Pretty(now.TypeKey)}); following it was rejected: the local family stays as it is.";
+                        items.Add(it);
+                        continue;
+                    }
                     it.Detail = $"Consultant element {r.SourceId} was deleted and replaced by {now.Id} ({Pretty(now.TypeKey)}): the local family follows it.";
                     items.Add(it);
                     cur = repl;
                 }
                 if (now == null && (cur == null || !src.TryGetValue(cur, out now)))
                 {
-                    var it = Item(r.RejectedGone ? SyncKind.KeptRejected : SyncKind.Orphaned, null);
+                    var it = Item(SyncKind.Orphaned, null);
+                    it.Rejected = r.RejectedGone;
                     it.Detail = r.RejectedGone ? $"Consultant element {r.SourceId} is gone; keeping the local family was chosen."
                                                : $"Consultant element {r.SourceId} is gone and nothing replaced it. Approve = delete the local family.";
                     items.Add(it);
@@ -215,9 +228,9 @@ namespace ProjectPerseus.mapping
                 bool typeChanged = !string.Equals(baseType, now.TypeKey, StringComparison.Ordinal);
                 if (typeChanged)
                 {
-                    if (r.RejectedSourceType != now.TypeKey)
                     {
                         var it = Item(SyncKind.ConsultantType, now);
+                        it.Rejected = r.RejectedSourceType == now.TypeKey;
                         it.RuleId = rule?.Id; it.TargetUid = rule?.TargetSymbolUid; it.TargetName = rule?.TargetName;
                         it.Detail = $"The consultant changed {Pretty(baseType)} to {Pretty(now.TypeKey)}. " +
                                     (rule == null ? "That type isn't mapped: map it in Family mapping to approve."
@@ -231,9 +244,10 @@ namespace ProjectPerseus.mapping
                     it.Detail = $"{Pretty(now.TypeKey)} isn't mapped any more (rule cleared or category turned off).";
                     items.Add(it);
                 }
-                else if (o.TypeUid != rule.TargetSymbolUid && r.RejectedTargetUid != rule.TargetSymbolUid)
+                else if (o.TypeUid != rule.TargetSymbolUid)
                 {
                     var it = Item(SyncKind.MappingType, now);
+                    it.Rejected = r.RejectedTargetUid == rule.TargetSymbolUid;
                     it.RuleId = rule.Id; it.TargetUid = rule.TargetSymbolUid; it.TargetName = rule.TargetName;
                     it.Detail = $"The mapping now uses {rule.TargetName}; the local family is {o.TypeName}. Approve = change its type.";
                     items.Add(it);
@@ -253,7 +267,8 @@ namespace ProjectPerseus.mapping
                 var rejected = MappingMath.Unpack(r.RejectedExpected);
                 if (rejected != null && MappingMath.Within(MappingMath.Delta(rejected, expected), tx, tz))
                 {
-                    var it = Item(SyncKind.KeptRejected, now);
+                    var it = Item(SyncKind.Moved, now);
+                    it.Rejected = true;
                     it.Expected = expected; it.RuleId = posRule.Id;
                     it.Detail = $"Moving it was rejected: {MappingMath.Describe(d)} from where the mapping puts it.";
                     items.Add(it);
@@ -286,7 +301,7 @@ namespace ProjectPerseus.mapping
             }
 
             // Consultant elements of mapped types without one of ours: link an unrecorded one at the spot, else place.
-            var todo = input.Sources.Where(s => !covered.Contains(s.Uid) && rules.ContainsKey(s.TypeKey ?? "") && !input.RejectedNew.Contains(s.Uid) && s.Frame != null).ToList();
+            var todo = input.Sources.Where(s => !covered.Contains(s.Uid) && rules.ContainsKey(s.TypeKey ?? "") && s.Frame != null).ToList();
             var pairs = new List<Tuple<double, int, int>>();
             var expectedOf = new Frame[todo.Count];
             for (int i = 0; i < todo.Count; i++)
@@ -303,14 +318,14 @@ namespace ProjectPerseus.mapping
             }
             var usedS = new HashSet<int>();
             var usedU = new HashSet<int>();
-            foreach (var p in pairs.OrderBy(x => x.Item1))
+            foreach (var p in pairs.OrderBy(x => input.RejectedNew.Contains(todo[x.Item2].Uid) ? 1 : 0).ThenBy(x => x.Item1))
             {
                 if (usedS.Contains(p.Item2) || usedU.Contains(p.Item3)) continue;
                 usedS.Add(p.Item2); usedU.Add(p.Item3);
                 var s = todo[p.Item2]; var u = input.Unrecorded[p.Item3]; var rule = rules[s.TypeKey];
                 items.Add(new SyncItem
                 {
-                    Kind = SyncKind.Match, LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
+                    Kind = SyncKind.Match, Rejected = input.RejectedNew.Contains(s.Uid), LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
                     OursId = u.Id, OursType = u.TypeName, RuleId = rule.Id, TargetUid = rule.TargetSymbolUid, TargetName = rule.TargetName,
                     Expected = expectedOf[p.Item2],
                     Detail = $"The local family ({u.TypeName}, not linked yet) is {p.Item1:N0} mm from where the mapping puts it. Approve = link it to this consultant element" +
@@ -324,7 +339,7 @@ namespace ProjectPerseus.mapping
                 bool deleted = input.Connected.Contains(s.Uid);
                 items.Add(new SyncItem
                 {
-                    Kind = deleted ? SyncKind.OursDeleted : SyncKind.New, LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
+                    Kind = deleted ? SyncKind.OursDeleted : SyncKind.New, Rejected = input.RejectedNew.Contains(s.Uid), LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
                     RuleId = rule.Id, TargetUid = rule.TargetSymbolUid, TargetName = rule.TargetName, Expected = expectedOf[i],
                     Detail = deleted ? $"The local family at {Pretty(s.TypeKey)} was deleted from this model; the consultant element is still there. Approve = place {rule.TargetName} again, reject = leave it deleted."
                                      : $"{Pretty(s.TypeKey)} has no local family. Approve = place {rule.TargetName}.",
@@ -338,10 +353,9 @@ namespace ProjectPerseus.mapping
                 if (usedU.Contains(j)) continue;
                 var u = input.Unrecorded[j];
                 if (u.TypeUid == null || !activeTargets.Contains(u.TypeUid)) continue;
-                if (u.Uid != null && input.KeptUnlinked.Contains(u.Uid)) continue;
                 items.Add(new SyncItem
                 {
-                    Kind = SyncKind.Unlinked, LinkUid = input.LinkUid, OursId = u.Id, OursType = u.TypeName,
+                    Kind = SyncKind.Unlinked, Rejected = u.Uid != null && input.KeptUnlinked.Contains(u.Uid), LinkUid = input.LinkUid, OursId = u.Id, OursType = u.TypeName,
                     Category = input.Rules.FirstOrDefault(r => r.TargetSymbolUid == u.TypeUid)?.SourceCategory,
                     Detail = $"The local family ({u.TypeName}) is a mapped type but no consultant element is within {MatchRadiusMm:N0} mm of it. Approve = delete it, reject = keep it.",
                 });

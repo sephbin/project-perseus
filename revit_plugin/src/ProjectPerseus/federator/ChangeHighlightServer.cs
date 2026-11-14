@@ -41,6 +41,7 @@ namespace ProjectPerseus.federator
             internal bool DoubleArrow;        // arrow between old and new boxes has heads at both ends (Ink)
             internal Kind? OldKind;           // old box drawn solid in this colour instead of the dashed grey ghost
             internal char Glyph;              // badge glyph ('\0' = the kind's)
+            internal bool Thin;               // lighter strokes (Link Sync: rejected changes, set aside)
         }
 
         /// <summary>Where a badge (or zoomed-out dot) was drawn: host point on the view plane + radius (feet).</summary>
@@ -667,7 +668,7 @@ namespace ProjectPerseus.federator
                 Pt ringC = default(Pt); double ringR = 0;
                 if (it.Ring) shape = RingAround(ref rect, out ringC, out ringR);
                 bool dashed = (it.Kind == Kind.Deleted || it.Dashed) && !simple;
-                double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s;
+                double half = (it.Emphasis ? StrokeHalfEmph : StrokeHalf) * s * (it.Thin ? 0.4 : 1);
                 Outline(f, rect, dashed, half, w, eps, LayerOf(it.Kind), simple && !it.Emphasis ? null : halo, simple, shape);
 
                 // Moved: dashed ghost at the old position + arrow old → new.

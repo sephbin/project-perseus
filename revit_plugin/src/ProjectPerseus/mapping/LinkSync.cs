@@ -45,7 +45,7 @@ namespace ProjectPerseus.mapping
         /// <summary>Our never-linked families the user chose to keep (Unlinked rejected), model-wide: our UniqueIds.</summary>
         private const string KeptUnlinkedKey = "linksync-kept-unlinked";
         /// <summary>Decision event kinds for connecting / disconnecting by hand (panel / badge menu).</summary>
-        internal const string ConnectKind = "Connect", DisconnectKind = "Disconnect";
+        internal const string ConnectKind = "Connect", DisconnectKind = "Disconnect", ReconsiderKind = "Reconsider";
 
         /// <summary>
         /// Records copied with our families (Revit copies the entity): the record's OursUid isn't the element's; older records
@@ -102,6 +102,76 @@ namespace ProjectPerseus.mapping
             foreach (var name in new[] { SharedParameterManager.LinkSourceName, SharedParameterManager.LinkStatusName, SharedParameterManager.LinkDecisionName,
                                          SharedParameterManager.LinkCommentName, SharedParameterManager.LinkAssigneeName })
                 Set(el, name, "");
+        }
+
+        private static void RememberMany(Document doc, string key, ICollection<string> uids, bool add, string user)
+        {
+            if (uids == null || uids.Count == 0) return;
+            var cur = FederatorSettingsStore.Load<LinkSyncRejections>(doc, key) ?? new LinkSyncRejections();
+            int before = cur.Sources.Count;
+            if (add) { foreach (var u in uids) if (!cur.Sources.Contains(u)) cur.Sources.Add(u); }
+            else cur.Sources.RemoveAll(uids.Contains);
+            if (cur.Sources.Count != before) FederatorSettingsStore.Save(doc, key, cur, user);
+        }
+
+        /// <summary>
+        /// Takes rejected (set aside) changes back for a decision: the rejection is forgotten (record fields / rejected lists),
+        /// logged as "back for a decision". One undo step. Returns (done, checked out by others).
+        /// </summary>
+        internal static Tuple<int, int> Reconsider(Document doc, List<SyncItem> items, string user)
+        {
+            int done = 0, skipped = 0;
+            var srcByLink = new Dictionary<string, HashSet<string>>();
+            var unkeep = new HashSet<string>(StringComparer.Ordinal);
+            var events = new List<LinkSyncEvent>();
+            using (var tg = new TransactionGroup(doc, "Perseus: Link Sync reconsider"))
+            {
+                tg.Start();
+                using (var tx = new Transaction(doc, "Perseus: Link Sync reconsider"))
+                {
+                    tx.Start();
+                    foreach (var it in items.Where(i => i.Rejected))
+                    {
+                        var ours = it.OursId != 0 ? doc.GetElement(RevitExtensions.CreateId(it.OursId)) : null;
+                        switch (it.Kind)
+                        {
+                            case SyncKind.New: case SyncKind.Match: case SyncKind.OursDeleted:
+                                if (!srcByLink.TryGetValue(it.LinkUid ?? "", out var set)) srcByLink[it.LinkUid ?? ""] = set = new HashSet<string>(StringComparer.Ordinal);
+                                set.Add(it.SourceUid);
+                                if (it.Kind == SyncKind.Match && ours != null) unkeep.Add(ours.UniqueId);
+                                break;
+                            case SyncKind.Unlinked:
+                                if (ours != null) unkeep.Add(ours.UniqueId);
+                                break;
+                            default:
+                            {
+                                var rec = ours == null ? null : MappedFamilyStore.Get(ours)?.Data;
+                                if (rec == null) continue;
+                                if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, ours.Id, out _) == CheckoutStatus.OwnedByOtherUser) { skipped++; continue; }
+                                switch (it.Kind)
+                                {
+                                    case SyncKind.Moved: rec.RejectedExpected = null; break;
+                                    case SyncKind.ConsultantType: rec.RejectedSourceType = null; break;
+                                    case SyncKind.MappingType: rec.RejectedTargetUid = null; break;
+                                    case SyncKind.Replaced: rec.RejectedReplacement = null; break;
+                                    case SyncKind.Orphaned: rec.RejectedGone = false; break;
+                                }
+                                MappedFamilyStore.Write(ours, rec);
+                                break;
+                            }
+                        }
+                        events.Add(new LinkSyncEvent { LinkUid = it.LinkUid, Key = LinkSyncNotes.KeyFor(it), Type = LinkSyncEvent.Decision, Kind = ReconsiderKind,
+                                                       Approved = false, Author = user, Utc = DateTime.UtcNow });
+                        done++;
+                    }
+                    LinkSyncLog.Add(doc, events, inTransaction: true);
+                    tx.Commit();
+                }
+                foreach (var kv in srcByLink) RememberMany(doc, RejectedKey(kv.Key), kv.Value, false, user);
+                RememberMany(doc, KeptUnlinkedKey, unkeep, false, user);
+                tg.Assimilate();
+            }
+            return Tuple.Create(done, skipped);
         }
 
         private static void Remember(Document doc, string key, string uid, bool add, string user)
@@ -444,6 +514,18 @@ namespace ProjectPerseus.mapping
             var idMap = new Dictionary<long, long>();
             var rejectedNew = new Dictionary<string, HashSet<string>>();
             var keptUnlinked = new HashSet<string>(StringComparer.Ordinal);
+            var unrejectNew = new Dictionary<string, HashSet<string>>();
+            var unkeep = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var d in decisions.Where(x => x.Approve && x.Item.Rejected))
+            {
+                var it = d.Item;
+                if (it.Kind == SyncKind.New || it.Kind == SyncKind.Match || it.Kind == SyncKind.OursDeleted)
+                {
+                    if (!unrejectNew.TryGetValue(it.LinkUid ?? "", out var set)) unrejectNew[it.LinkUid ?? ""] = set = new HashSet<string>(StringComparer.Ordinal);
+                    set.Add(it.SourceUid);
+                }
+                if ((it.Kind == SyncKind.Unlinked || it.Kind == SyncKind.Match) && it.OursUid != null) unkeep.Add(it.OursUid);
+            }
             var events = new List<LinkSyncEvent>();
             var levels = FamilyPlacer.Levels(doc);
             var ordered = decisions.OrderBy(d => Order(d.Item.Kind)).ToList();
@@ -492,6 +574,8 @@ namespace ProjectPerseus.mapping
                     foreach (var u in kv.Value) if (!cur.Sources.Contains(u)) cur.Sources.Add(u);
                     FederatorSettingsStore.Save(doc, RejectedKey(kv.Key), cur, user);
                 }
+                foreach (var kv in unrejectNew) RememberMany(doc, RejectedKey(kv.Key), kv.Value, false, user);
+                RememberMany(doc, KeptUnlinkedKey, unkeep, false, user);
                 if (keptUnlinked.Count > 0)
                 {
                     var cur = FederatorSettingsStore.Load<LinkSyncRejections>(doc, KeptUnlinkedKey) ?? new LinkSyncRejections();
@@ -718,7 +802,8 @@ namespace ProjectPerseus.mapping
                 {
                     var el = doc.GetElement(RevitExtensions.CreateId(g.Key));
                     if (el == null) continue;
-                    var open = g.Where(i => i.Kind != SyncKind.InSync).Select(i => LinkSyncPlanner.Status(i.Kind)).Distinct().ToList();
+                    var open = g.Where(i => i.Kind != SyncKind.InSync)
+                                .Select(i => i.Rejected ? $"Kept: {LinkSyncPlanner.Label(i.Kind).ToLowerInvariant()} rejected" : LinkSyncPlanner.Status(i.Kind)).Distinct().ToList();
                     string status = open.Count == 0 ? LinkSyncPlanner.Status(SyncKind.InSync) : string.Join("; ", open);
                     var first = g.First();
                     links.TryGetValue(first.LinkUid ?? "", out var link);

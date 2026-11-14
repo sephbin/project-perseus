@@ -42,7 +42,10 @@ namespace ProjectPerseus.ui
         private readonly string _me;
         private List<LinkSync.LinkInfo> _links = new List<LinkSync.LinkInfo>();
         private List<SyncItem> _items = new List<SyncItem>();
-        private readonly DataGrid _grid;
+        private readonly DataGrid _grid;          // open changes
+        private readonly DataGrid _aside;         // rejected changes, set aside (the modeller stands by the local position)
+        private readonly TextBlock _asideHeader;
+        private bool _selecting;
         private readonly MultiPick _linkPick, _kindPick;
         private readonly CheckBox _inView, _showInModel;
         private readonly TextBlock _summary, _status, _title, _detail;
@@ -125,14 +128,14 @@ namespace ProjectPerseus.ui
             var tools = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
             _linkPick = new MultiPick(220) { ToolTip = "Mapped links to check" };
             _kindPick = new MultiPick(200) { ToolTip = "Which changes to list" };
-            _kindPick.SetItems(Enum.GetValues(typeof(SyncKind)).Cast<SyncKind>().Select(k => new MultiPick.Item(k.ToString(), LinkSyncPlanner.Label(k))));
+            _kindPick.SetItems(Enum.GetValues(typeof(SyncKind)).Cast<SyncKind>().Where(k => k != SyncKind.KeptRejected).Select(k => new MultiPick.Item(k.ToString(), LinkSyncPlanner.Label(k))));
             foreach (SyncKind k in Enum.GetValues(typeof(SyncKind))) _kindPick.SetTicked(k.ToString(), LinkSyncPlanner.NeedsDecision(k) || k == SyncKind.KeptByHand);
             _kindPick.AddPreset("Changes", "Everything that differs from the consultant: decisions + edited by hand",
                                 DecisionKinds.Select(k => k.ToString()).Concat(new[] { SyncKind.KeptByHand.ToString() }).ToArray());
             _kindPick.AddPreset("Needs a decision", "New, match, moved, type changes, replaced, orphans", DecisionKinds.Select(k => k.ToString()).ToArray());
             _kindPick.AddPreset("Orphans", "Local families without a consultant element + consultant elements whose local family was deleted",
                                 SyncKind.Orphaned.ToString(), SyncKind.Unlinked.ToString(), SyncKind.OursDeleted.ToString());
-            _kindPick.AddPreset("Kept", "Kept by hand / rejected", SyncKind.KeptByHand.ToString(), SyncKind.KeptRejected.ToString());
+            _kindPick.AddPreset("Kept", "Moved by hand", SyncKind.KeptByHand.ToString());
             _inView = new CheckBox { Content = "Only in the active view", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
                                      ToolTip = "Only local families or consultant elements visible in the active view (follows view switches)" };
             tools.Children.Add(Label("Links "));
@@ -171,23 +174,27 @@ namespace ProjectPerseus.ui
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.2, GridUnitType.Star), MinWidth = 520 });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 300 });
-            _grid = new DataGrid
-            {
-                AutoGenerateColumns = false, IsReadOnly = true, SelectionMode = DataGridSelectionMode.Extended, HeadersVisibility = DataGridHeadersVisibility.Column,
-                GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, HorizontalGridLinesBrush = LineBrush, Background = Brushes.White,
-                RowHeaderWidth = 0, CanUserAddRows = false,
-            };
-            Col("Change", nameof(Row.Change), 150);
-            Col("Link", nameof(Row.Link), 110);
-            Col("Category", nameof(Row.Category), 110);
-            Col("Consultant element", nameof(Row.Consultant), 0);
-            Col("Local family", nameof(Row.Ours), 0);
-            Col("Decision", nameof(Row.Decision), 150);
-            Col("Edited by", nameof(Row.EditedBy), 95);
-            Col("Assignee", nameof(Row.Assignee), 95);
-            Col("💬", nameof(Row.Comments), 32);
-            Grid.SetColumn(_grid, 0);
-            body.Children.Add(_grid);
+            _grid = MakeGrid(false);
+            _aside = MakeGrid(true);
+            // Open changes on top, rejected ones set aside below (drag the splitter).
+            var lists = new Grid();
+            lists.RowDefinitions.Add(new RowDefinition { Height = new GridLength(2.2, GridUnitType.Star), MinHeight = 120 });
+            lists.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            lists.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            lists.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 60 });
+            Grid.SetRow(_grid, 0);
+            lists.Children.Add(_grid);
+            var splitter = new GridSplitter { Height = 6, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center,
+                                              Background = Brushes.Transparent, ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext };
+            Grid.SetRow(splitter, 1);
+            lists.Children.Add(splitter);
+            _asideHeader = new TextBlock { Foreground = Muted, Margin = new Thickness(0, 2, 0, 3), TextWrapping = TextWrapping.Wrap };
+            Grid.SetRow(_asideHeader, 2);
+            lists.Children.Add(_asideHeader);
+            Grid.SetRow(_aside, 3);
+            lists.Children.Add(_aside);
+            Grid.SetColumn(lists, 0);
+            body.Children.Add(lists);
 
             _side = new StackPanel();
             _title = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) };
@@ -204,7 +211,8 @@ namespace ProjectPerseus.ui
             _side.Children.Add(Section("Decide"));
             var decide = _decidePanel = new WrapPanel();
             decide.Children.Add(Btn2("Approve", "Accept linked model position", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
-            decide.Children.Add(Btn2("Reject", "Retain current model position", "Keep the local family as it is in this model (not proposed again until the linked model changes once more)", () => DecideCurrent(false)));
+            decide.Children.Add(Btn2("Reject", "Retain current model position", "Keep the local family as it is in this model: the change is set aside (second list) until the linked model changes once more", () => DecideCurrent(false)));
+            decide.Children.Add(_reconsiderBtn = Btn2("Reconsider", "Back for a decision", "Forget the rejection: the change goes back to the list of changes to decide", ReconsiderSelected));
             _side.Children.Add(decide);
 
             _notePanel = new StackPanel();
@@ -230,22 +238,30 @@ namespace ProjectPerseus.ui
             Content = root;
             _side.IsEnabled = false;
 
-            _grid.SelectionChanged += (s, e) => Safe(() =>
+            foreach (var g in new[] { _grid, _aside })
             {
-                ShowCurrent(); PushMarkers();
-                if (!_fromRevit) { _selectTimer.Stop(); _selectTimer.Start(); }
-            });
+                var grid = g;
+                grid.SelectionChanged += (s, e) => Safe(() =>
+                {
+                    if (_selecting) return;
+                    // One list at a time: picking rows in one clears the other.
+                    var other = grid == _grid ? _aside : _grid;
+                    if (grid.SelectedItems.Count > 0 && other.SelectedItems.Count > 0) { _selecting = true; try { other.SelectedItems.Clear(); } finally { _selecting = false; } }
+                    ShowCurrent(); PushMarkers();
+                    if (!_fromRevit) { _selectTimer.Stop(); _selectTimer.Start(); }
+                });
+                grid.MouseDoubleClick += (s, e) => Safe(() => Find(false, false, false));
+                grid.ContextMenu = new ContextMenu();
+                grid.ContextMenuOpening += (s, e) => Safe(() =>
+                {
+                    var rows = SelectedRows().ToList();
+                    if (rows.Count == 0) { e.Handled = true; return; }
+                    FillMenu(grid.ContextMenu, rows);
+                });
+            }
             _selectTimer.Tick += (s, e) => Safe(() => { _selectTimer.Stop(); PushRevitSelection(); });
             _showInModel.Checked += (s, e) => Safe(PushMarkers);
             _showInModel.Unchecked += (s, e) => Safe(PushMarkers);
-            _grid.MouseDoubleClick += (s, e) => Safe(() => Find(false, false, false));
-            _grid.ContextMenu = new ContextMenu();
-            _grid.ContextMenuOpening += (s, e) => Safe(() =>
-            {
-                var rows = _grid.SelectedItems.Cast<Row>().ToList();
-                if (rows.Count == 0) { e.Handled = true; return; }
-                FillMenu(_grid.ContextMenu, rows);
-            });
             _linkPick.Changed += () => Safe(Refresh);
             _kindPick.Changed += () => Safe(Fill);
             _assignFilter.SelectionChanged += (s, e) => { if (!_peopleLoading) Safe(Fill); };
@@ -266,13 +282,55 @@ namespace ProjectPerseus.ui
             Refresh();
         }
 
-        private void Col(string header, string path, double width)
+        private Button _reconsiderBtn;
+
+        /// <summary>A change list; the set-aside one (rejected) in a light weight and muted.</summary>
+        private DataGrid MakeGrid(bool aside)
         {
-            _grid.Columns.Add(new DataGridTextColumn
+            var g = new DataGrid
+            {
+                AutoGenerateColumns = false, IsReadOnly = true, SelectionMode = DataGridSelectionMode.Extended, HeadersVisibility = DataGridHeadersVisibility.Column,
+                GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, HorizontalGridLinesBrush = LineBrush, Background = Brushes.White,
+                RowHeaderWidth = 0, CanUserAddRows = false,
+            };
+            if (aside) { g.FontWeight = FontWeights.Light; g.Foreground = Muted; }
+            void Col(string header, string path, double width) => g.Columns.Add(new DataGridTextColumn
             {
                 Header = header, Binding = new System.Windows.Data.Binding(path),
                 Width = width > 0 ? new DataGridLength(width) : new DataGridLength(1, DataGridLengthUnitType.Star),
             });
+            Col("Change", nameof(Row.Change), 150);
+            Col("Link", nameof(Row.Link), 110);
+            Col("Category", nameof(Row.Category), 110);
+            Col("Consultant element", nameof(Row.Consultant), 0);
+            Col("Local family", nameof(Row.Ours), 0);
+            Col(aside ? "Rejected" : "Decision", nameof(Row.Decision), 150);
+            Col("Edited by", nameof(Row.EditedBy), 95);
+            Col("Assignee", nameof(Row.Assignee), 95);
+            Col("💬", nameof(Row.Comments), 32);
+            return g;
+        }
+
+        private IEnumerable<Row> AllRows() =>
+            ((_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>()).Concat((_aside.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>());
+
+        private IEnumerable<Row> SelectedRows() => _grid.SelectedItems.Cast<Row>().Concat(_aside.SelectedItems.Cast<Row>());
+
+        private DataGrid GridOf(Row r) => r.Item.Rejected ? _aside : _grid;
+
+        /// <summary>Selects exactly these rows (in whichever list they are).</summary>
+        private void SetSelection(IList<Row> rows)
+        {
+            _selecting = true;
+            try
+            {
+                _grid.SelectedItems.Clear();
+                _aside.SelectedItems.Clear();
+                foreach (var r in rows) GridOf(r).SelectedItems.Add(r);
+            }
+            finally { _selecting = false; }
+            if (rows.Count > 0) GridOf(rows[0]).ScrollIntoView(rows[0]);
+            ShowCurrent(); PushMarkers();
         }
 
         /// <summary>
@@ -337,7 +395,7 @@ namespace ProjectPerseus.ui
         /// </summary>
         private void PushRevitSelection()
         {
-            var items = _grid.SelectedItems.Cast<Row>().Select(r => r.Item).ToList();
+            var items = SelectedRows().Select(r => r.Item).ToList();
             if (items.Count == 0 || items.Count > MaxAutoSelect) return;
             Api(app =>
             {
@@ -359,20 +417,15 @@ namespace ProjectPerseus.ui
 
         private void SyncFromRevit(HashSet<long> host, HashSet<string> linked)
         {
-            var all = (_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>();
+            var all = AllRows();
             var rows = all.Where(r => (r.Item.OursId != 0 && host.Contains(r.Item.OursId)) ||
                                       linked.Contains(r.Item.LinkUid + "|" + r.Item.SourceId) ||
                                       (r.Item.NewSourceId != 0 && linked.Contains(r.Item.LinkUid + "|" + r.Item.NewSourceId))).ToList();
-            var now = _grid.SelectedItems.Cast<Row>().ToList();
+            var now = SelectedRows().ToList();
             if (rows.Count == 0 && now.Count == 0) return;
             if (rows.Count > 0 && now.Count == rows.Count && now.All(rows.Contains)) return;
             _fromRevit = true;
-            try
-            {
-                _grid.SelectedItems.Clear();
-                foreach (var r in rows) _grid.SelectedItems.Add(r);
-                if (rows.Count > 0) _grid.ScrollIntoView(rows[0]);
-            }
+            try { SetSelection(rows); }
             finally { _fromRevit = false; }
         }
 
@@ -440,7 +493,7 @@ namespace ProjectPerseus.ui
                 RefreshPeople();
                 Fill();
                 int decide = _items.Count(i => i.NeedsDecision);
-                Status($"{decide:N0} change(s) to decide{scope} · {_items.Count(i => i.Kind == SyncKind.KeptByHand || i.Kind == SyncKind.KeptRejected):N0} kept · " +
+                Status($"{decide:N0} change(s) to decide{scope} · {_items.Count(i => i.Rejected):N0} set aside (rejected) · {_items.Count(i => i.Kind == SyncKind.KeptByHand):N0} moved by hand · " +
                        $"{_items.Count(i => i.Kind == SyncKind.InSync):N0} in sync ({clock.ElapsedMilliseconds:N0} ms).");
             });
         }
@@ -448,7 +501,7 @@ namespace ProjectPerseus.ui
         private void Fill()
         {
             var names = _links.ToDictionary(l => l.Uid, l => l.Name);
-            var keep = new HashSet<string>(_grid.SelectedItems.Cast<Row>().Select(r => r.Item.Key));
+            var keep = new HashSet<string>(SelectedRows().Select(r => r.Item.Key));
             string who = _assignFilter.SelectedItem as string ?? AnyoneFilter;
             var rows = _items.Where(i => _kindPick.IsTicked(i.Kind.ToString()))
                 .OrderBy(i => Array.IndexOf(Enum.GetValues(typeof(SyncKind)), i.Kind)).ThenBy(i => i.Category).ThenBy(i => i.SourceTypeKey)
@@ -460,7 +513,7 @@ namespace ProjectPerseus.ui
                 .Select(t => new Row
                 {
                     Notes = t.notes,
-                    Decision = t.notes.LastDecision == null ? (t.i.NeedsDecision ? "Pending" : "") : LinkSyncNotes.Describe(t.notes.LastDecision, false),
+                    Decision = t.notes.LastDecision == null ? (t.i.NeedsDecision ? "Pending" : t.i.Rejected ? "Rejected" : "") : LinkSyncNotes.Describe(t.notes.LastDecision, false),
                     EditedBy = t.i.OursEditedBy ?? "",
                     Assignee = t.notes.Assignee ?? "",
                     Comments = t.notes.Comments.Count > 0 ? t.notes.Comments.Count.ToString() : "",
@@ -470,19 +523,29 @@ namespace ProjectPerseus.ui
                     Ours = t.i.OursId == 0 ? (t.i.TargetName != null ? "(none) → " + t.i.TargetName : "(none)") : $"{t.i.OursType} · {t.i.OursId}",
                     Detail = t.i.Detail,
                 }).ToList();
-            _grid.ItemsSource = rows;
-            foreach (var r in rows.Where(r => keep.Contains(r.Item.Key))) _grid.SelectedItems.Add(r);
-            var byKind = _items.GroupBy(i => i.Kind).ToDictionary(g => g.Key, g => g.Count());
-            _summary.Text = $"{rows.Count:N0} shown · " + string.Join(" · ", DecisionKinds.Where(byKind.ContainsKey).Select(k => $"{byKind[k]:N0} {LinkSyncPlanner.Label(k).ToLowerInvariant()}"));
+            _selecting = true;
+            try
+            {
+                _grid.ItemsSource = rows.Where(r => !r.Item.Rejected).ToList();
+                _aside.ItemsSource = rows.Where(r => r.Item.Rejected).ToList();
+                foreach (var r in rows.Where(r => keep.Contains(r.Item.Key))) GridOf(r).SelectedItems.Add(r);
+            }
+            finally { _selecting = false; }
+            int asideCount = rows.Count(r => r.Item.Rejected);
+            _asideHeader.Text = $"Set aside: {asideCount:N0} rejected change(s) — the modeller keeps the local position. They stay here until the linked model " +
+                                "changes again. Approve takes the consultant's state after all; Reconsider puts a change back above.";
+            var byKind = _items.Where(i => !i.Rejected).GroupBy(i => i.Kind).ToDictionary(g => g.Key, g => g.Count());
+            _summary.Text = $"{rows.Count - asideCount:N0} shown · {asideCount:N0} set aside · " + string.Join(" · ", DecisionKinds.Where(byKind.ContainsKey).Select(k => $"{byKind[k]:N0} {LinkSyncPlanner.Label(k).ToLowerInvariant()}"));
             ShowCurrent();
             PushMarkers();
         }
 
         private void ShowCurrent()
         {
-            var sel = _grid.SelectedItems.Cast<Row>().ToList();
+            var sel = SelectedRows().ToList();
             _side.IsEnabled = sel.Count > 0;
             _checkPanel.IsEnabled = _decidePanel.IsEnabled = sel.Count == 1;
+            _reconsiderBtn.Visibility = sel.Any(r => r.Item.Rejected) ? Visibility.Visible : Visibility.Collapsed;
             _thread.Children.Clear();
             if (sel.Count != 1)
             {
@@ -543,14 +606,14 @@ namespace ProjectPerseus.ui
         {
             string text = _commentBox.Text?.Trim();
             if (string.IsNullOrEmpty(text)) { Status("Type a comment first."); return; }
-            var items = _grid.SelectedItems.Cast<Row>().Select(r => r.Item).ToList();
+            var items = SelectedRows().Select(r => r.Item).ToList();
             if (items.Count == 0) { Status("Select a change first."); return; }
             Note(items, i => new LinkSyncEvent { Type = LinkSyncEvent.Comment, Text = text }, $"Comment added to {items.Count:N0} change(s)", () => _commentBox.Text = "");
         }
 
         private void Assign(string who)
         {
-            var items = _grid.SelectedItems.Cast<Row>().Select(r => r.Item).ToList();
+            var items = SelectedRows().Select(r => r.Item).ToList();
             if (items.Count == 0) { Status("Select a change first."); return; }
             if (who == null) return;
             Note(items, i => new LinkSyncEvent { Type = LinkSyncEvent.Assign, Assignee = who },
@@ -595,14 +658,14 @@ namespace ProjectPerseus.ui
             var items = new List<ChangeHighlightServer.Item>();
             if (_showInModel.IsChecked == true)
             {
-                var selected = new HashSet<string>(_grid.SelectedItems.Cast<Row>().Select(r => r.Item.Key));
-                foreach (var r in (_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>())
+                var selected = new HashSet<string>(SelectedRows().Select(r => r.Item.Key));
+                foreach (var r in AllRows())
                 {
                     var i = r.Item;
                     if (i.Kind == SyncKind.InSync || i.Kind == SyncKind.Unmapped || i.ShowMin == null || i.ShowMax == null) continue;
                     var it = new ChangeHighlightServer.Item
                     {
-                        Min = i.ShowMin, Max = i.ShowMax, Key = "ls:" + i.Key, Emphasis = selected.Contains(i.Key),
+                        Min = i.ShowMin, Max = i.ShowMax, Key = "ls:" + i.Key, Emphasis = selected.Contains(i.Key), Thin = i.Rejected,
                         Kind = i.Kind == SyncKind.New ? ChangeHighlightServer.Kind.Added
                              : LinkSyncPlanner.IsOrphan(i.Kind) ? ChangeHighlightServer.Kind.Orphan
                              : i.Kind == SyncKind.Replaced ? ChangeHighlightServer.Kind.Replaced
@@ -677,16 +740,17 @@ namespace ProjectPerseus.ui
         {
             if (badgeKey == null || !badgeKey.StartsWith("ls:", StringComparison.Ordinal)) return null;
             string key = badgeKey.Substring(3);
-            return ((_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>()).FirstOrDefault(r => r.Item.Key == key);
+            return AllRows().FirstOrDefault(r => r.Item.Key == key);
         }
 
         private void OnBadgeClicked(string key, bool add)
         {
             var row = RowOf(key);
             if (row == null) return;
-            if (add) { if (_grid.SelectedItems.Contains(row)) _grid.SelectedItems.Remove(row); else _grid.SelectedItems.Add(row); }
-            else { _grid.SelectedItems.Clear(); _grid.SelectedItem = row; }
-            _grid.ScrollIntoView(row);
+            var rows = SelectedRows().ToList();
+            if (add) { if (rows.Contains(row)) rows.Remove(row); else rows.Add(row); }
+            else rows = new List<Row> { row };
+            SetSelection(rows);
         }
 
         private string BadgeTip(string key)
@@ -701,8 +765,8 @@ namespace ProjectPerseus.ui
         {
             var row = RowOf(key);
             if (row == null) return null;
-            if (!_grid.SelectedItems.Contains(row)) OnBadgeClicked(key, false);
-            var rows = _grid.SelectedItems.Cast<Row>().ToList();
+            if (!SelectedRows().Contains(row)) OnBadgeClicked(key, false);
+            var rows = SelectedRows().ToList();
             if (rows.Count == 0) rows.Add(row);
             var cm = new ContextMenu();
             FillMenu(cm, rows);
@@ -724,8 +788,9 @@ namespace ProjectPerseus.ui
             }
             string n = items.Count == 1 ? "" : $" ({items.Count:N0})";
             Item("Approve" + n + " — accept linked model position", "Take the consultant's state", () => Decide(items, true),
-                 items.Any(i => i.NeedsDecision || i.Kind == SyncKind.KeptByHand || i.Kind == SyncKind.KeptRejected));
-            Item("Reject" + n + " — retain current model position", "Keep the local family as it is", () => Decide(items, false), items.Any(i => i.NeedsDecision));
+                 items.Any(i => i.NeedsDecision || i.Rejected || i.Kind == SyncKind.KeptByHand));
+            Item("Reject" + n + " — retain current model position", "Keep the local family as it is (set aside)", () => Decide(items, false), items.Any(i => i.NeedsDecision));
+            if (items.Any(i => i.Rejected)) Item("Reconsider" + n + " — back for a decision", "Forget the rejection", () => Reconsider(items));
             cm.Items.Add(new Separator());
             Item("Zoom to", "Zoom to the local family and the consultant element", () => Find(false, false, false), one != null);
             Item("Select local", "Select the local family in Revit", () => Find(false, true, false), one != null && one.OursId != 0);
@@ -804,15 +869,29 @@ namespace ProjectPerseus.ui
 
         private void DecideCurrent(bool approve)
         {
-            var row = _grid.SelectedItems.Cast<Row>().FirstOrDefault();
+            var row = SelectedRows().FirstOrDefault();
             if (row != null) Decide(new List<SyncItem> { row.Item }, approve);
         }
 
-        private void DecideSelected(bool approve) => Decide(_grid.SelectedItems.Cast<Row>().Select(r => r.Item).ToList(), approve);
+        private void ReconsiderSelected() => Reconsider(SelectedRows().Select(r => r.Item).ToList());
+
+        private void Reconsider(List<SyncItem> items)
+        {
+            var todo = items.Where(i => i.Rejected).ToList();
+            if (todo.Count == 0) { Status("Nothing set aside selected."); return; }
+            Api(app =>
+            {
+                var r = LinkSync.Reconsider(_doc, todo, _me);
+                Refresh();
+                Status($"{r.Item1:N0} change(s) back for a decision." + (r.Item2 > 0 ? $" {r.Item2:N0} checked out by others." : ""));
+            }, needActive: true);
+        }
+
+        private void DecideSelected(bool approve) => Decide(SelectedRows().Select(r => r.Item).ToList(), approve);
 
         private void ApproveAllShown()
         {
-            var shown = ((_grid.ItemsSource as IEnumerable<Row>) ?? Enumerable.Empty<Row>()).Select(r => r.Item).Where(i => i.NeedsDecision).ToList();
+            var shown = AllRows().Select(r => r.Item).Where(i => i.NeedsDecision).ToList();
             if (shown.Count == 0) { Status("Nothing listed needs a decision."); return; }
             Decide(shown, true);
         }
@@ -820,7 +899,8 @@ namespace ProjectPerseus.ui
         private void Decide(List<SyncItem> items, bool approve)
         {
             // Approve: changes needing a decision + "kept" ones (= move back to the consultant position). Reject: decisions only.
-            var todo = items.Where(i => approve ? (i.NeedsDecision || i.Kind == SyncKind.KeptByHand || i.Kind == SyncKind.KeptRejected) : i.NeedsDecision).ToList();
+            // Approve also takes set-aside (rejected) changes: the modeller changed their mind.
+            var todo = items.Where(i => approve ? (i.NeedsDecision || i.Rejected || i.Kind == SyncKind.KeptByHand) : i.NeedsDecision).ToList();
             if (todo.Count == 0) { Status(approve ? "Nothing selected to approve." : "Nothing selected to reject (kept / in-sync rows have nothing to reject)."); return; }
             int deletes = approve ? todo.Count(i => LinkSyncPlanner.ApproveDeletes(i.Kind)) : 0;
             int unmapped = approve ? todo.Count(i => i.Kind == SyncKind.ConsultantType && i.TargetUid == null) : 0;
@@ -865,7 +945,7 @@ namespace ProjectPerseus.ui
 
         private void Find(bool force3D, bool selectOnly, bool selectConsultant)
         {
-            var row = _grid.SelectedItems.Cast<Row>().FirstOrDefault();
+            var row = SelectedRows().FirstOrDefault();
             if (row == null) { Status("Select a change first."); return; }
             var it = row.Item;
             Api(app =>

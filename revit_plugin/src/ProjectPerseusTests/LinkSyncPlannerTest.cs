@@ -76,9 +76,14 @@ namespace ProjectPerseusTests
             var o = Ours(1, "ours", At(0, 0, 3000), "s1", TypeA, At(0, 0, 3000), At(0, 0, 3000));
             o.Record.RejectedExpected = MappingMath.Pack(At(500, 0, 3000));
             i.Ours.Add(o);
-            CollectionAssert.AreEqual(new[] { SyncKind.KeptRejected }, Kinds(i));
+            var set = LinkSyncPlanner.Plan(i).Single();
+            Assert.AreEqual(SyncKind.Moved, set.Kind);
+            Assert.IsTrue(set.Rejected);          // set aside, still listed
+            Assert.IsFalse(set.NeedsDecision);
             i.Sources[0].Frame = At(900, 0, 3000);
-            CollectionAssert.AreEqual(new[] { SyncKind.Moved }, Kinds(i));
+            var again = LinkSyncPlanner.Plan(i).Single();
+            Assert.AreEqual(SyncKind.Moved, again.Kind);
+            Assert.IsFalse(again.Rejected);
         }
 
         [TestMethod]
@@ -120,7 +125,7 @@ namespace ProjectPerseusTests
             i.Ours.Add(Ours(1, "ours", At(0, 0, 3000), "s1", TypeA, At(0, 0, 3000), At(0, 0, 3000)));
             CollectionAssert.AreEqual(new[] { SyncKind.Orphaned }, Kinds(i));
             i.Ours[0].Record.RejectedGone = true;
-            CollectionAssert.AreEqual(new[] { SyncKind.KeptRejected }, Kinds(i));
+            Assert.IsTrue(LinkSyncPlanner.Plan(i).Single(x => x.Kind == SyncKind.Orphaned).Rejected);
         }
 
         [TestMethod]
@@ -134,7 +139,7 @@ namespace ProjectPerseusTests
             Assert.AreEqual(7, items.Single(x => x.Kind == SyncKind.Match).OursId);
             Assert.AreEqual("s2", items.Single(x => x.Kind == SyncKind.New).SourceUid);
             i.RejectedNew.Add("s2");
-            Assert.IsFalse(LinkSyncPlanner.Plan(i).Any(x => x.Kind == SyncKind.New));
+            Assert.IsTrue(LinkSyncPlanner.Plan(i).Single(x => x.Kind == SyncKind.New).Rejected);
         }
 
         [TestMethod]
@@ -148,7 +153,7 @@ namespace ProjectPerseusTests
             Assert.AreEqual(7, items.Single(x => x.Kind == SyncKind.Match).OursId);
             Assert.AreEqual(8, items.Single(x => x.Kind == SyncKind.Unlinked).OursId);
             i.KeptUnlinked.Add("u8");
-            Assert.IsFalse(LinkSyncPlanner.Plan(i).Any(x => x.Kind == SyncKind.Unlinked));
+            Assert.IsTrue(LinkSyncPlanner.Plan(i).Single(x => x.Kind == SyncKind.Unlinked).Rejected);
         }
 
         [TestMethod]
