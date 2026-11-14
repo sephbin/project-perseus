@@ -65,7 +65,17 @@ namespace ProjectPerseusTests
             var i = Input(Rule(TypeA, "ours"));
             i.Sources.Add(Src("s1", TypeA, At(0, 0, 3000)));
             i.Ours.Add(Ours(1, "ours", At(400, 0, 3000), "s1", TypeA, At(0, 0, 3000), At(0, 0, 3000)));   // we moved it
-            CollectionAssert.AreEqual(new[] { SyncKind.KeptByHand }, Kinds(i));
+            var kept = LinkSyncPlanner.Plan(i).Single();
+            Assert.AreEqual(SyncKind.KeptByHand, kept.Kind);
+            Assert.IsTrue(kept.Rejected);           // a hand edit rejects the linked position: set aside
+            // Reconsidered: back for a decision while it stays put ...
+            i.Ours[0].Record.HandEditReopened = MappingMath.Pack(At(400, 0, 3000));
+            var back = LinkSyncPlanner.Plan(i).Single();
+            Assert.AreEqual(SyncKind.Moved, back.Kind);
+            Assert.IsTrue(back.NeedsDecision);
+            // ... moved by hand again = rejected again.
+            i.Ours[0].Frame = At(800, 0, 3000);
+            Assert.IsTrue(LinkSyncPlanner.Plan(i).Single().Rejected);
         }
 
         [TestMethod]

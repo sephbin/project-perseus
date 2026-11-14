@@ -275,9 +275,22 @@ namespace ProjectPerseus.mapping
                     continue;
                 }
                 var oursBase = MappingMath.Unpack(r.OursFrame);
-                if (oursBase != null && MappingMath.Within(MappingMath.Delta(oursBase, expected), tx, tz))
+                var reopened = MappingMath.Unpack(r.HandEditReopened);
+                bool handEdit = oursBase != null && MappingMath.Within(MappingMath.Delta(oursBase, expected), tx, tz);
+                if (handEdit && reopened != null && MappingMath.Within(MappingMath.Delta(o.Frame, reopened), tx, tz))
                 {
+                    // The hand edit was taken back for a decision and the family hasn't moved since.
+                    var it = Item(SyncKind.Moved, now);
+                    it.Expected = expected; it.RuleId = posRule.Id;
+                    it.Detail = $"Moved by hand {MappingMath.Describe(d)} from the consultant position, back for a decision. Approve = move it back, reject = keep it.";
+                    items.Add(it);
+                    continue;
+                }
+                if (handEdit)
+                {
+                    // Edited by hand after Link Sync placed / accepted it: the modeller rejects the linked position (set aside).
                     var it = Item(SyncKind.KeptByHand, now);
+                    it.Rejected = true;
                     it.Expected = expected; it.RuleId = posRule.Id;
                     it.Detail = $"Moved by hand {MappingMath.Describe(d)} from the consultant position (keeps its own position). Approve = move it back.";
                     items.Add(it);

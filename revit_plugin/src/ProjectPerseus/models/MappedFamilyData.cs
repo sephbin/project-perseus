@@ -33,5 +33,10 @@ namespace ProjectPerseus.models
         public string RejectedTargetUid { get; set; }
         public string RejectedReplacement { get; set; }
         public bool RejectedGone { get; set; }
+        /// <summary>
+        /// A hand edit (= rejecting the linked position) taken back for a decision: the local family's frame at that moment.
+        /// While it hasn't moved since, the planner lists it as Moved (to decide) instead of Kept (edited by hand).
+        /// </summary>
+        public double[] HandEditReopened { get; set; }
     }
 }

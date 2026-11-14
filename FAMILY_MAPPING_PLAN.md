@@ -79,3 +79,4 @@ to the consultant element it stands for, so later versions (moves, deletes, dele
 - (2026-11-14) Rejecting = the modeller stands by the local position: the change keeps its kind, flagged rejected, and moves to a
   "Set aside" list under the open changes (lighter text, thinner markers) until the linked model changes again. Approve still takes the
   consultant's state; Reconsider puts it back for a decision.
+- (2026-11-14) A hand edit after Link Sync placed / accepted a family is a rejection: listed as Kept (edited by hand) in Set aside, 'Rejected by hand edit · <editor>'. Reconsider reopens it as Moved until it's moved again.

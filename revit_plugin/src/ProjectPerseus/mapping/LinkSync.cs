@@ -151,6 +151,7 @@ namespace ProjectPerseus.mapping
                                 switch (it.Kind)
                                 {
                                     case SyncKind.Moved: rec.RejectedExpected = null; break;
+                                    case SyncKind.KeptByHand: rec.HandEditReopened = MappingMath.Pack(FamilyPlacer.FrameOf(ours)); break;
                                     case SyncKind.ConsultantType: rec.RejectedSourceType = null; break;
                                     case SyncKind.MappingType: rec.RejectedTargetUid = null; break;
                                     case SyncKind.Replaced: rec.RejectedReplacement = null; break;
@@ -625,6 +626,7 @@ namespace ProjectPerseus.mapping
                     case SyncKind.KeptByHand:
                         if (rec == null) return "the local family has no Perseus record";
                         rec.RejectedExpected = MappingMath.Pack(it.Expected);
+                        rec.HandEditReopened = null;
                         break;
                     case SyncKind.ConsultantType: if (rec == null) return "the local family has no Perseus record"; rec.RejectedSourceType = it.SourceTypeKey; break;
                     case SyncKind.MappingType: if (rec == null) return "the local family has no Perseus record"; rec.RejectedTargetUid = it.TargetUid; break;
@@ -684,6 +686,7 @@ namespace ProjectPerseus.mapping
                     data.SourceFrame = MappingMath.Pack(srcFrame);
                     data.OursFrame = MappingMath.Pack(FamilyPlacer.FrameOf(now));
                     data.RejectedExpected = null;
+                    data.HandEditReopened = null;
                     data.By = user; data.Utc = DateTime.UtcNow;
                     MappedFamilyStore.Write(now, data);
                     SetParameters(dec, now, link.Name, data.SourceId, null);
@@ -803,7 +806,7 @@ namespace ProjectPerseus.mapping
                     var el = doc.GetElement(RevitExtensions.CreateId(g.Key));
                     if (el == null) continue;
                     var open = g.Where(i => i.Kind != SyncKind.InSync)
-                                .Select(i => i.Rejected ? $"Kept: {LinkSyncPlanner.Label(i.Kind).ToLowerInvariant()} rejected" : LinkSyncPlanner.Status(i.Kind)).Distinct().ToList();
+                                .Select(i => i.Rejected && i.Kind != SyncKind.KeptByHand ? $"Kept: {LinkSyncPlanner.Label(i.Kind).ToLowerInvariant()} rejected" : LinkSyncPlanner.Status(i.Kind)).Distinct().ToList();
                     string status = open.Count == 0 ? LinkSyncPlanner.Status(SyncKind.InSync) : string.Join("; ", open);
                     var first = g.First();
                     links.TryGetValue(first.LinkUid ?? "", out var link);

@@ -371,7 +371,8 @@ ProjectPerseus/
 │   │                             unlinks copies (LinkSync.FindCopies: record's OursUid != element). Undo / redo re-reads.
 │   │                             Rows <-> Revit selection both ways. UI says "local family" (code: Ours*). Move arrow = gradient (GradientArrow).
 │   │                             Rejected changes = SyncItem.Rejected (kind kept), "Set aside" second list (splitter, light weight, thin
-│   │                             markers); Reconsider (LinkSync.Reconsider) puts them back; Approve still possible.
+│   │                             markers); a hand edit after Link Sync is rejected too (KeptByHand, set aside); Reconsider puts them back
+│   │                             (hand edits: MappedFamilyData.HandEditReopened -> Moved until moved again); Approve still possible.
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.

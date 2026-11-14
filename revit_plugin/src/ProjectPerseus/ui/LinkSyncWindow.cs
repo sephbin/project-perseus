@@ -513,7 +513,8 @@ namespace ProjectPerseus.ui
                 .Select(t => new Row
                 {
                     Notes = t.notes,
-                    Decision = t.notes.LastDecision == null ? (t.i.NeedsDecision ? "Pending" : t.i.Rejected ? "Rejected" : "") : LinkSyncNotes.Describe(t.notes.LastDecision, false),
+                    Decision = t.i.Kind == SyncKind.KeptByHand ? "Rejected by hand edit" + (string.IsNullOrEmpty(t.i.OursEditedBy) ? "" : " · " + t.i.OursEditedBy)
+                             : t.notes.LastDecision == null ? (t.i.NeedsDecision ? "Pending" : t.i.Rejected ? "Rejected" : "") : LinkSyncNotes.Describe(t.notes.LastDecision, false),
                     EditedBy = t.i.OursEditedBy ?? "",
                     Assignee = t.notes.Assignee ?? "",
                     Comments = t.notes.Comments.Count > 0 ? t.notes.Comments.Count.ToString() : "",
