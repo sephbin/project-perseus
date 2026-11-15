@@ -222,6 +222,10 @@ namespace ProjectPerseus.ui
             var typeLabel = new TextBlock { Text = "Type ", VerticalAlignment = VerticalAlignment.Center, Foreground = Muted, Width = 60 };
             DockPanel.SetDock(typeLabel, Dock.Left);
             typeRow.Children.Add(typeLabel);
+            var pickBtn = Btn("Pick in model", "Pick a placed family in the model (this view): its type becomes the local type of this mapping", PickTarget);
+            pickBtn.Margin = new Thickness(4, 0, 0, 0);
+            DockPanel.SetDock(pickBtn, Dock.Right);
+            typeRow.Children.Add(pickBtn);
             _target = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, StaysOpenOnEdit = true };
             // Large projects have thousands of types: only draw the rows on screen.
             _target.ItemsPanel = new ItemsPanelTemplate(new FrameworkElementFactory(typeof(VirtualizingStackPanel)));
@@ -543,6 +547,46 @@ namespace ProjectPerseus.ui
             LoadParams();
             Status($"{s.Uids.Count} in the link · triage: {row.Stats.Describe()}" +
                    (_mappedByRule.TryGetValue(_editing.Id, out int n) ? $" · {n} local families mapped" : ""));
+        }
+
+        /// <summary>Pick a placed local family in the active view: its type becomes the mapping's local type (category switched to it).</summary>
+        private void PickTarget()
+        {
+            if (_editing == null) { Status("Select a consultant type first."); return; }
+            string ruleId = _editing.Id;
+            Status("Pick a local family in the view (Esc to cancel)…");
+            Api(app =>
+            {
+                ARDB.Reference r;
+                try
+                {
+                    r = app.ActiveUIDocument.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.Element, new LocalFamilyFilter(),
+                                                                  "Pick a local family: its type becomes the local type of this mapping (Esc to cancel)");
+                }
+                catch (Autodesk.Revit.Exceptions.OperationCanceledException) { Status("Pick cancelled."); return; }
+                var symbol = (_doc.GetElement(r?.ElementId) as ARDB.FamilyInstance)?.Symbol;
+                if (symbol == null) { Status("That isn't a family in this model.", true); return; }
+                if (_editing == null || _editing.Id != ruleId) return;   // moved on meanwhile
+                string uid = symbol.UniqueId, name = $"{symbol.FamilyName} : {symbol.Name}";
+                if (!_targets.Any(t => t.Uid == uid))
+                {
+                    _targets = FamilyPlacer.TargetTypes(_doc);   // a type loaded / made since the list was read
+                    FillTargetCategories();
+                }
+                var tt = _targets.FirstOrDefault(t => t.Uid == uid);
+                if (tt == null) { Status($"{name} can't be used here (in-place, view-based or annotation family).", true); return; }
+                SetTargetCategory(tt.Category);
+                FillTargets(uid);
+                if (!ReadEditor()) return;
+                UpdateNote(); QueueLive(); QueueSave(); LoadParams();
+                Status($"Local type: {name}" + (tt.Floating ? "." : $" — needs a host ({tt.Placement}), so it can't be placed floating: pick a work-plane- or level-based family."), !tt.Floating);
+            }, needActive: true);
+        }
+
+        private class LocalFamilyFilter : Autodesk.Revit.UI.Selection.ISelectionFilter
+        {
+            public bool AllowElement(ARDB.Element e) => e is ARDB.FamilyInstance;
+            public bool AllowReference(ARDB.Reference r, ARDB.XYZ p) => false;
         }
 
         /// <summary>A category of local family types (Name null = all categories).</summary>
