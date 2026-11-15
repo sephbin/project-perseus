@@ -21,6 +21,16 @@ namespace ProjectPerseus.mapping
             internal List<ParamRef> Params = new List<ParamRef>();
             /// <summary>Per ParamRef.Key: one value per consultant element (instance parameters) or per type (type parameters).</summary>
             internal Dictionary<string, List<SourceValue>> Values = new Dictionary<string, List<SourceValue>>();
+            /// <summary>Per consultant element (same order): its values by ParamRef.Key (type ones repeated) + row by name (expressions).</summary>
+            internal List<ElementSample> Elements = new List<ElementSample>();
+            /// <summary>Parameter names usable as row["..."].</summary>
+            internal List<string> RowNames = new List<string>();
+        }
+
+        internal class ElementSample
+        {
+            internal Dictionary<string, SourceValue> Values = new Dictionary<string, SourceValue>();
+            internal Dictionary<string, string> Row = new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
         internal class TargetParams
@@ -38,7 +48,8 @@ namespace ProjectPerseus.mapping
         {
             var res = new SourceParams();
             var byKey = new Dictionary<string, ParamRef>();
-            var typeSeen = new HashSet<long>();
+            var typeCache = new Dictionary<long, List<Tuple<ParamRef, SourceValue>>>();
+            var names = new HashSet<string>(StringComparer.Ordinal);
             void Add(ParamRef r, SourceValue v)
             {
                 if (!byKey.ContainsKey(r.Key)) { byKey[r.Key] = r; res.Params.Add(r); res.Values[r.Key] = new List<SourceValue>(); }
@@ -48,18 +59,52 @@ namespace ProjectPerseus.mapping
             {
                 var el = linkDoc.GetElement(uid);
                 if (el == null) continue;
-                foreach (Parameter p in el.Parameters) { var r = Ref(p, false, true); if (r != null) Add(r, Value(linkDoc, p, r)); }
-                var type = linkDoc.GetElement(el.GetTypeId());
-                if (type != null && typeSeen.Add(type.Id.GetIdValue()))
-                    foreach (Parameter p in type.Parameters) { var r = Ref(p, true, true); if (r != null) Add(r, Value(linkDoc, p, r)); }
-                Add(new ParamRef { Name = "Consultant element id", Computed = ComputedElementId, Storage = "String", Kind = ParamCompat.Text, SpecLabel = "Text", Origin = "computed" },
-                    new SourceValue { HasValue = true, Text = el.Id.GetIdValue().ToString() });
-                Add(new ParamRef { Name = "Link name", Computed = ComputedLinkName, Storage = "String", Kind = ParamCompat.Text, SpecLabel = "Text", Origin = "computed" },
-                    new SourceValue { HasValue = true, Text = linkName ?? "" });
+                var s = Sample(linkDoc, el, linkName, typeCache, Add);
+                res.Elements.Add(s);
+                names.UnionWith(s.Row.Keys);
             }
+            res.RowNames = names.OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase).ToList();
             res.Params = res.Params.OrderBy(p => p.Computed != null ? 0 : 1).ThenBy(p => p.IsType).ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             return res;
         }
+
+        /// <summary>
+        /// One consultant element: values by key (type parameters from typeCache, read once per type) and its row by name (instance first,
+        /// then type, then the computed fields). add = called for instance values and for type values the first time a type is read.
+        /// </summary>
+        private static ElementSample Sample(Document linkDoc, Element el, string linkName, Dictionary<long, List<Tuple<ParamRef, SourceValue>>> typeCache, Action<ParamRef, SourceValue> add)
+        {
+            var s = new ElementSample();
+            void Put(ParamRef r, SourceValue v)
+            {
+                s.Values[r.Key] = v;
+                if (!s.Row.ContainsKey(r.Name)) s.Row[r.Name] = v.HasValue ? v.Text ?? "" : "";
+            }
+            foreach (Parameter p in el.Parameters) { var r = Ref(p, false, true); if (r == null) continue; var v = Value(linkDoc, p, r); add?.Invoke(r, v); Put(r, v); }
+            var type = linkDoc.GetElement(el.GetTypeId());
+            if (type != null)
+            {
+                long tid = type.Id.GetIdValue();
+                if (typeCache == null || !typeCache.TryGetValue(tid, out var list))
+                {
+                    list = new List<Tuple<ParamRef, SourceValue>>();
+                    foreach (Parameter p in type.Parameters) { var r = Ref(p, true, true); if (r == null) continue; var v = Value(linkDoc, p, r); list.Add(Tuple.Create(r, v)); add?.Invoke(r, v); }
+                    if (typeCache != null) typeCache[tid] = list;
+                }
+                foreach (var x in list) Put(x.Item1, x.Item2);
+            }
+            var idRef = new ParamRef { Name = "Consultant element id", Computed = ComputedElementId, Storage = "String", Kind = ParamCompat.Text, SpecLabel = "Text", Origin = "computed" };
+            var idVal = new SourceValue { HasValue = true, Text = el.Id.GetIdValue().ToString() };
+            var lnRef = new ParamRef { Name = "Link name", Computed = ComputedLinkName, Storage = "String", Kind = ParamCompat.Text, SpecLabel = "Text", Origin = "computed" };
+            var lnVal = new SourceValue { HasValue = true, Text = linkName ?? "" };
+            add?.Invoke(idRef, idVal); Put(idRef, idVal);
+            add?.Invoke(lnRef, lnVal); Put(lnRef, lnVal);
+            return s;
+        }
+
+        /// <summary>A consultant element's parameters by name, for expressions reading row["..."].</summary>
+        internal static Dictionary<string, string> Row(Element el, string linkName) =>
+            el == null ? new Dictionary<string, string>() : Sample(el.Document, el, linkName, null, null).Row;
 
         /// <summary>Where values can go on a local family type: its type parameters, its instance parameters, project parameters of its category.</summary>
         internal static TargetParams Target(Document doc, FamilySymbol symbol)

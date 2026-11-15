@@ -156,5 +156,28 @@ namespace ProjectPerseusTests
             Assert.AreEqual(ParamCompat.SourceCanon(T("FR60")), ParamTransforms.SourceCanon(src, null, T("FR60")));              // identity unchanged
             Assert.IsTrue(ParamTransforms.IsIdentity(new ParamTransform { Lookup = new List<LookupEntry> { new LookupEntry() } }));
         }
+        [TestMethod]
+        public void ExpressionsReadOtherConsultantParameters()
+        {
+            var dst = P(ParamCompat.Text);
+            var row = new Dictionary<string, string> { { "Mark", "SP-12" }, { "Level", "L03" } };
+            var t = new ParamTransform { Expression = "value + ' / ' + row[\"Mark\"]" };
+            Assert.IsTrue(ParamTransforms.UsesRow(t));
+            Assert.AreEqual("FR60 / SP-12", ParamTransforms.Convert(P(ParamCompat.Text), t, dst, T("FR60"), row).Shown);
+            // expression only (no consultant parameter)
+            var only = new ParamTransform { Expression = "row[\"Mark\"] + '-' + row[\"Level\"]" };
+            Assert.IsTrue(ParamTransforms.ExpressionOnly(null, only));
+            Assert.AreEqual(CompatLevel.Ok, ParamTransforms.Check(null, only, dst).Level);
+            Assert.AreEqual("SP-12-L03", ParamTransforms.TargetValue(null, only, dst, new SourceValue(), row).Text);
+            var rows = new List<Dictionary<string, string>> { row, new Dictionary<string, string> { { "Mark", "SP-13" }, { "Level", "L04" } } };
+            var pv = ParamTransforms.Preview(null, only, dst, null, 6, rows);
+            Assert.AreEqual(2, pv.Total);
+            Assert.AreEqual(2, pv.Converted);
+            Assert.AreEqual("SP-13-L04", pv.Samples[1].Item2);
+            // a row change changes the canon (Link Sync re-opens)
+            Assert.AreNotEqual(ParamTransforms.SourceCanon(null, only, null, rows[0]), ParamTransforms.SourceCanon(null, only, null, rows[1]));
+            Assert.AreEqual(CompatLevel.Error, ParamTransforms.Check(null, new ParamTransform { Prefix = "x" }, dst).Level);
+            Assert.IsTrue(new ParamMap { Target = dst, Transform = only }.Usable);
+        }
     }
 }

@@ -569,8 +569,10 @@ ProjectPerseus/
 │   ├── ParamTransforms.cs        NEW (2026-11-15). Pure transforms of a mapping (models/ParamTransform): constant | default for empty ->
 │   │                             lookup table -> expression (util/FilterEvaluator.TryCompute: value / number / empty) -> prefix / suffix; changed
 │   │                             values become text. Check / Convert / TargetValue / SourceCanon / Preview wrap ParamCompat. Tested in ParamCompatTest.cs.
+│   │                             row["Name"] = other parameters of the consultant element (UsesRow); ExpressionOnly = no consultant parameter.
 │   ├── ParamValues.cs            NEW (2026-11-15). Mapped parameters on real elements: Find / Read / State (planner input) / Write /
-│   │                             Apply (writes + records ParamBaseline / ParamWritten in MappedFamilyData). Link Sync kind ParameterChanged
+│   │                             Apply (writes + records ParamBaseline / ParamWritten in MappedFamilyData). Clear (removed mapping: written values
+│   │                             cleared unless edited by hand since). Link Sync kind ParameterChanged
 │   │                             (approve writes, reject remembers the consultant value, hand edit since written = rejected), always-apply
 │   │                             mappings written on refresh, values written on placement.
 │   ├── ParamDiscovery.cs         NEW (2026-11-14). Consultant instance + type parameters with values (+ computed element id / link name);

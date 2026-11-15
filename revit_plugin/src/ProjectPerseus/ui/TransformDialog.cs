@@ -23,7 +23,8 @@ namespace ProjectPerseus.ui
         private static readonly Brush Bad = new SolidColorBrush(Color.FromRgb(0xC0, 0x26, 0x26));
 
         private readonly ParamRef _src, _dst;
-        private readonly IList<SourceValue> _values;
+        private readonly IList<SourceValue> _values, _aligned;
+        private readonly IList<Dictionary<string, string>> _rows2;
         private readonly CheckBox _useConstant, _strict;
         private readonly TextBox _constant, _default, _expression, _prefix, _suffix;
         private readonly ObservableCollection<LookupEntry> _rows;
@@ -35,9 +36,12 @@ namespace ProjectPerseus.ui
         /// <summary>The edited transform (null = copied as it is).</summary>
         internal ParamTransform Result { get; private set; }
 
-        internal TransformDialog(ParamRef src, ParamRef dst, ParamTransform current, IList<SourceValue> values)
+        /// <param name="values">Preview values per element / type; aligned + rows = one per consultant element (expressions reading row["..."]).</param>
+        internal TransformDialog(ParamRef src, ParamRef dst, ParamTransform current, IList<SourceValue> values,
+                                 IList<SourceValue> aligned, IList<Dictionary<string, string>> rows, IList<string> rowNames)
         {
             _src = src; _dst = dst; _values = values ?? new List<SourceValue>();
+            _aligned = aligned ?? new List<SourceValue>(); _rows2 = rows ?? new List<Dictionary<string, string>>();
             var t = current ?? new ParamTransform();
             Title = "Perseus — Transform value";
             Width = 560; Height = 720; MinHeight = 480; ResizeMode = ResizeMode.CanResizeWithGrip;
@@ -67,7 +71,7 @@ namespace ProjectPerseus.ui
                        "makes it text, which is then written like text (numbers in it can still fill a number or a length, in project units).",
             });
 
-            _useConstant = new CheckBox { Content = "Constant: write this value instead of the consultant's", FontWeight = FontWeights.SemiBold, IsChecked = t.Constant != null || src == null, IsEnabled = src != null };
+            _useConstant = new CheckBox { Content = "Constant: write this value instead of the consultant's", FontWeight = FontWeights.SemiBold, IsChecked = t.Constant != null || (src == null && string.IsNullOrWhiteSpace(t.Expression)) };
             body.Children.Add(_useConstant);
             _constant = Box(t.Constant ?? "");
             body.Children.Add(_constant);
@@ -107,11 +111,29 @@ namespace ProjectPerseus.ui
             _sourceSteps.Children.Add(new TextBlock
             {
                 TextWrapping = TextWrapping.Wrap, Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 2, 0, 0),
-                Text = "Python-like, on value (text), number (its number: project units for lengths etc.) and empty. Examples:\n" +
+                Text = "Python-like, on value (text), number (its number: project units for lengths etc.), empty, and row[\"Name\"] = any other " +
+                       "parameter of the same consultant element (as text). Without a consultant parameter the expression alone makes the value. Examples:\n" +
                        "  value.upper()      number / 1000      round(number, 1)\n" +
                        "  \"FRL \" + value if not empty else \"N/A\"\n" +
-                       "  re.sub(r\"FR(\\d+)\", r\"\\1/\\1/\\1\", value)     value.replace(\"-\", \"/\")",
+                       "  re.sub(r\"FR(\\d+)\", r\"\\1/\\1/\\1\", value)     value.replace(\"-\", \"/\")\n" +
+                       "  row[\"Mark\"] + \"-\" + row[\"Level\"]      value + \" (\" + row[\"Comments\"] + \")\"",
             });
+            var insert = new ComboBox { Margin = new Thickness(0, 4, 0, 0), IsEditable = true, IsTextSearchEnabled = true, Text = "",
+                                        ToolTip = "Insert row[\"…\"] for another parameter of the consultant element at the cursor" };
+            insert.Items.Add("Insert a consultant parameter…");
+            foreach (var n in rowNames ?? new List<string>()) insert.Items.Add(n);
+            insert.SelectedIndex = 0;
+            insert.SelectionChanged += (s, e) =>
+            {
+                if (insert.SelectedIndex <= 0) return;
+                string add = "row[\"" + ((string)insert.SelectedItem).Replace("\"", "\\\"") + "\"]";
+                int at = Math.Min(_expression.CaretIndex, _expression.Text.Length);
+                _expression.Text = _expression.Text.Insert(at, add);
+                _expression.CaretIndex = at + add.Length;
+                _expression.Focus();
+                insert.SelectedIndex = 0;
+            };
+            _sourceSteps.Children.Add(insert);
 
             _sourceSteps.Children.Add(Label("4. Prefix / suffix"));
             var ps = new Grid();
@@ -194,7 +216,8 @@ namespace ProjectPerseus.ui
             {
                 var t = Read();
                 var c = ParamTransforms.Check(_src, t, _dst);
-                var p = ParamTransforms.Preview(_src, t, _dst, _values, 12);
+                bool perElement = ParamTransforms.UsesRow(t) || ParamTransforms.ExpressionOnly(_src, t);
+                var p = ParamTransforms.Preview(_src, t, _dst, perElement ? _aligned : _values, 12, perElement ? _rows2 : null);
                 var lines = new List<string> { $"{c.Symbol} {c.Message}" };
                 if (c.Level != CompatLevel.Error)
                 {

@@ -46,11 +46,12 @@ namespace ProjectPerseus.mapping
             var p = Find(ours, m.Target);
             if (p == null || p.IsReadOnly) return null;
             var v = Read(source, m.Source, linkName);
-            var tv = ParamTransforms.TargetValue(m.Source, m.Transform, m.Target, v);
+            var row = ParamTransforms.UsesRow(m.Transform) ? ParamDiscovery.Row(source, linkName) : null;
+            var tv = ParamTransforms.TargetValue(m.Source, m.Transform, m.Target, v, row);
             return new ParamState
             {
                 MapId = m.Id, Name = m.Target.Name, AlwaysApply = m.AlwaysApply,
-                Src = ParamTransforms.SourceCanon(m.Source, m.Transform, v),
+                Src = ParamTransforms.SourceCanon(m.Source, m.Transform, v, row),
                 Expected = tv.Ok ? Canon(doc, p, tv) : null,
                 Local = LocalCanon(p),
                 ExpectedShown = tv.Ok ? tv.Shown : tv.Problem,
@@ -119,7 +120,8 @@ namespace ProjectPerseus.mapping
             if (p == null) { problem = $"{m.Target?.Name} isn't on the local family"; return null; }
             if (p.IsReadOnly) { problem = $"{m.Target.Name} is read-only"; return null; }
             var v = Read(source, m.Source, linkName);
-            var tv = ParamTransforms.TargetValue(m.Source, m.Transform, m.Target, v);
+            var row = ParamTransforms.UsesRow(m.Transform) ? ParamDiscovery.Row(source, linkName) : null;
+            var tv = ParamTransforms.TargetValue(m.Source, m.Transform, m.Target, v, row);
             if (!tv.Ok) { problem = $"{m.Target.Name}: {tv.Problem}"; return null; }
             if (!Resolve(doc, p, tv, out var text, out var i, out var d)) { problem = $"{m.Target.Name}: doesn't fit"; return null; }
             bool ok;
@@ -130,7 +132,7 @@ namespace ProjectPerseus.mapping
                 default: ok = Math.Abs(p.AsDouble() - d) < 1e-9 || p.Set(d); break;
             }
             if (!ok) { problem = $"{m.Target.Name}: Revit refused the value"; return null; }
-            return Tuple.Create(ParamTransforms.SourceCanon(m.Source, m.Transform, v), LocalCanon(p));
+            return Tuple.Create(ParamTransforms.SourceCanon(m.Source, m.Transform, v, row), LocalCanon(p));
         }
 
         /// <summary>
@@ -158,6 +160,62 @@ namespace ProjectPerseus.mapping
             }
             if (rec != null && n > 0) MappedFamilyStore.Write(ours, rec);
             return n;
+        }
+
+        internal class ClearResult { internal int Cleared, HandEdited, Skipped, Failed; }
+
+        /// <summary>
+        /// A removed mapping: clears the values it wrote on the local families of this link (ruleIds = only families placed by these rules,
+        /// null = all) and forgets its baseline / written / rejected entries. Values edited by hand since (local value != written) are kept.
+        /// Own transaction (one undo step); elements checked out by others skipped.
+        /// </summary>
+        internal static ClearResult Clear(Document doc, string linkUid, ParamMap m, ICollection<string> ruleIds)
+        {
+            var res = new ClearResult();
+            if (m?.Target == null) return res;
+            var typesDone = new HashSet<long>();
+            using (var tx = new Transaction(doc, "Perseus: clear mapped parameter values"))
+            {
+                tx.Start();
+                foreach (var r in MappedFamilyStore.All(doc, linkUid))
+                {
+                    var d = r.Data;
+                    if (d?.ParamWritten == null || !d.ParamWritten.TryGetValue(m.Id, out var written)) continue;
+                    if (ruleIds != null && !ruleIds.Contains(d.RuleId)) continue;
+                    var el = doc.GetElement(r.Element);
+                    if (el == null) continue;
+                    if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.Id, out _) == CheckoutStatus.OwnedByOtherUser) { res.Skipped++; continue; }
+                    var p = Find(el, m.Target);
+                    bool again = m.Target.IsType && !typesDone.Add(el.GetTypeId().GetIdValue());
+                    if (p != null && !again)
+                    {
+                        if (LocalCanon(p) != written) res.HandEdited++;
+                        else if (m.Target.IsType && doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.GetTypeId(), out _) == CheckoutStatus.OwnedByOtherUser) res.Skipped++;
+                        else if (!p.IsReadOnly && ClearOne(p)) res.Cleared++;
+                        else res.Failed++;
+                    }
+                    d.ParamWritten.Remove(m.Id);
+                    d.ParamBaseline?.Remove(m.Id);
+                    d.ParamRejected?.Remove(m.Id);
+                    MappedFamilyStore.Write(el, d);
+                }
+                tx.Commit();
+            }
+            return res;
+        }
+
+        /// <summary>Empties a parameter: text = "", others Parameter.ClearValue (no value; by reflection, not in every Revit version).</summary>
+        private static bool ClearOne(Parameter p)
+        {
+            try
+            {
+                if (p.StorageType == StorageType.String) return p.Set("");
+                var mi = p.GetType().GetMethod("ClearValue", Type.EmptyTypes);
+                if (mi == null) return false;
+                mi.Invoke(p, null);
+                return true;
+            }
+            catch { return false; }
         }
     }
 }

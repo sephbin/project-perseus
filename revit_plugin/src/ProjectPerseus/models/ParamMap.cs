@@ -51,7 +51,7 @@ namespace ProjectPerseus.models
 
         /// <summary>Can be applied: a target and a consultant parameter or a constant.</summary>
         [Newtonsoft.Json.JsonIgnore]
-        public bool Usable => Enabled && Target != null && (Source != null || Transform?.Constant != null);
+        public bool Usable => Enabled && Target != null && (Source != null || Transform?.Constant != null || !string.IsNullOrWhiteSpace(Transform?.Expression));
     }
 
     /// <summary>
@@ -69,7 +69,8 @@ namespace ProjectPerseus.models
         public List<LookupEntry> Lookup { get; set; } = new List<LookupEntry>();
         /// <summary>true = a value not in the table isn't written (shown as a problem); false = passed on unchanged.</summary>
         public bool LookupStrict { get; set; }
-        /// <summary>util/FilterEvaluator expression; names: value (text), number, empty.</summary>
+        /// <summary>util/FilterEvaluator expression; names: value (text), number, empty; row["Name"] = any parameter of the same consultant
+        /// element (instance first, then type). Without a consultant parameter the expression alone makes the value.</summary>
         public string Expression { get; set; }
         public string Prefix { get; set; }
         public string Suffix { get; set; }

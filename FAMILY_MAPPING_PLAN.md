@@ -136,4 +136,6 @@ Map consultant parameter values onto our mapped families, per rule (consultant t
    Order: constant | default -> lookup -> expression -> prefix / suffix (models/ParamTransform, mapping/ParamTransforms). A step that changes the value
    makes it text (then converted like a text parameter); unchanged values keep their kind. Baselines use the transformed value, so editing a lookup
    table re-opens rejected decisions. Mapper: Transform… (ui/TransformDialog, live preview, table filled from consultant values); a mapping without a
-   consultant parameter = constant. Not yet: other consultant parameters inside an expression (row["Mark"]), clearing values when a mapping is removed.
+   consultant parameter = constant. Follow-up (2026-11-15): expressions read other parameters of the same consultant element (row["Mark"], instance then
+   type, as text; ParamDiscovery.Row / SourceParams.Elements for per-element previews) and can make the value alone (no consultant parameter);
+   removing a mapping offers to clear the values it wrote (ParamValues.Clear: hand-edited values kept, record entries forgotten, one undo step).

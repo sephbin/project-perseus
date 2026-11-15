@@ -712,7 +712,7 @@ namespace ProjectPerseus.ui
                 var item = new ParamMapItem
                 {
                     Map = m,
-                    Text = $"{c.Symbol}  {(m.Source?.Name ?? "(constant)")}  →  {m.Target?.Name}   ({(m.AlwaysApply ? "always apply" : "Link Sync approval")}{(tx.Length > 0 ? " · " + tx : "")})",
+                    Text = $"{c.Symbol}  {(m.Source?.Name ?? (m.Transform?.Constant != null ? "(constant)" : "(expression)"))}  →  {m.Target?.Name}   ({(m.AlwaysApply ? "always apply" : "Link Sync approval")}{(tx.Length > 0 ? " · " + tx : "")})",
                 };
                 _paramList.Items.Add(item);
                 if (m.Id == keep) _paramList.SelectedItem = item;
@@ -741,11 +741,11 @@ namespace ProjectPerseus.ui
             var src = _srcParam.SelectedItem as ParamRef;
             var dst = _dstParam.SelectedItem as ParamRef;
             var tf = dst == null ? null : _editing?.Parameters?.FirstOrDefault(m => m.Target?.Key == dst.Key)?.Transform;
-            if (tf != null && tf.Constant == null && src == null) tf = null;
+            if (tf != null && src == null && tf.Constant == null && !ParamTransforms.ExpressionOnly(null, tf)) tf = null;
             string note = _dstInfo.NoInstance && !string.IsNullOrEmpty(_editing?.TargetSymbolUid)
                 ? "\nNo local family of this type is placed yet: its own instance parameters aren't listed (type and project parameters are). Test on one, then ↻."
                 : "";
-            if ((src == null && tf?.Constant == null) || dst == null)
+            if ((src == null && tf?.Constant == null && !ParamTransforms.ExpressionOnly(null, tf)) || dst == null)
             {
                 _paramInfo.Foreground = Muted;
                 _paramInfo.Text = (string.IsNullOrEmpty(_editing?.TargetSymbolUid) ? "Pick the local family type first." :
@@ -753,9 +753,9 @@ namespace ProjectPerseus.ui
                 return;
             }
             var c = ParamTransforms.Check(src, tf, dst);
-            List<SourceValue> values = null;
-            if (src != null) _srcInfo.Values.TryGetValue(src.Key, out values);
-            var p = ParamTransforms.Preview(src, tf, dst, values);
+            bool perElement = ParamTransforms.UsesRow(tf) || ParamTransforms.ExpressionOnly(src, tf);
+            var values = perElement ? Aligned(src) : PerKey(src);
+            var p = ParamTransforms.Preview(src, tf, dst, values, 6, perElement ? Rows() : null);
             var lines = new List<string> { $"{c.Symbol} {c.Message}" };
             if (!ParamTransforms.IsIdentity(tf)) lines.Add("Transform: " + ParamTransforms.Describe(tf));
             if (c.Level != CompatLevel.Error)
@@ -778,11 +778,11 @@ namespace ProjectPerseus.ui
             _editing.Parameters = _editing.Parameters ?? new List<ParamMap>();
             var existing = _editing.Parameters.FirstOrDefault(m => m.Target?.Key == dst.Key);
             var tf = existing?.Transform;
-            if (src == null && tf?.Constant == null)
+            if (src == null && tf?.Constant == null && !ParamTransforms.ExpressionOnly(null, tf))
             {
-                // No consultant parameter: a constant value.
+                // No consultant parameter: a constant value (an expression of other parameters: Transform…).
                 string k = TextPrompt.Ask(new System.Windows.Interop.WindowInteropHelper(this).Handle, "Constant value",
-                    $"No consultant parameter is picked. Write the same value into {dst.Name} on every local family of this mapping:", "");
+                    $"No consultant parameter is picked. Write the same value into {dst.Name} on every local family of this mapping (for a value made from other consultant parameters, cancel and use Transform…):", "");
                 if (k == null) return;
                 tf = new ParamTransform { Constant = k };
             }
@@ -791,16 +791,44 @@ namespace ProjectPerseus.ui
             if (c.Level == CompatLevel.Error) { Status("Can't map: " + c.Message, true); return; }
             if (existing != null) { existing.Source = src; existing.Transform = tf; existing.AlwaysApply = _paramMode.SelectedIndex == 1; }
             else _editing.Parameters.Add(new ParamMap { Source = src, Target = dst, Transform = tf, AlwaysApply = _paramMode.SelectedIndex == 1 });
-            ParamsChanged($"{src?.Name ?? $"Constant '{tf?.Constant}'"} → {dst.Name} mapped" + (c.Level == CompatLevel.Warn ? " (with a warning)." : "."));
+            ParamsChanged($"{src?.Name ?? (tf?.Constant != null ? $"Constant '{tf.Constant}'" : "Expression")} → {dst.Name} mapped" + (c.Level == CompatLevel.Warn ? " (with a warning)." : "."));
         }
 
         private void RemoveParamMap()
         {
             var m = (_paramList.SelectedItem as ParamMapItem)?.Map;
             if (m == null || _editing == null) { Status("Select a parameter mapping first."); return; }
+            var answer = MessageBox.Show(this,
+                $"Remove the mapping to {m.Target?.Name}.\n\nAlso clear the values it wrote on the local families?\n\n" +
+                "Yes = clear them (values edited by hand since are kept)\nNo = leave the values as they are\nCancel = keep the mapping",
+                "Remove parameter mapping", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.No);
+            if (answer == MessageBoxResult.Cancel) return;
+            var edited = new HashSet<string>(new[] { _editing.Id }.Concat(_others.Select(o => o.Value.Id)));
             _editing.Parameters.RemoveAll(x => x.Id == m.Id);
-            ParamsChanged($"{m.Source?.Name} → {m.Target?.Name} removed.");
+            ParamsChanged($"{(m.Source?.Name ?? "(value)")} → {m.Target?.Name} removed.");
+            if (answer != MessageBoxResult.Yes) return;
+            // Mapping ids are copied between selected types: clear everywhere unless an unselected rule still uses it.
+            bool usedElsewhere = _mapping?.Rules?.Any(r => !edited.Contains(r.Id) && r.Parameters?.Any(x => x.Id == m.Id) == true) == true;
+            string linkUid = _linkUid;
+            Api(app =>
+            {
+                var r = ParamValues.Clear(_doc, linkUid, m, usedElsewhere ? edited : null);
+                Status($"{m.Target?.Name}: {r.Cleared:N0} value(s) cleared" +
+                       (r.HandEdited > 0 ? $", {r.HandEdited:N0} edited by hand kept" : "") +
+                       (r.Skipped > 0 ? $", {r.Skipped:N0} checked out by others skipped" : "") +
+                       (r.Failed > 0 ? $", {r.Failed:N0} couldn't be cleared" : "") + ".", r.Failed > 0);
+            }, needActive: true);
         }
+
+        /// <summary>Preview values of a consultant parameter: one per element (instance) or per type.</summary>
+        private List<SourceValue> PerKey(ParamRef src) =>
+            src != null && _srcInfo.Values.TryGetValue(src.Key, out var v) ? v : new List<SourceValue>();
+
+        /// <summary>One value per consultant element (lined up with Rows()), for expressions reading other parameters.</summary>
+        private List<SourceValue> Aligned(ParamRef src) =>
+            _srcInfo.Elements.Select(e => src != null && e.Values.TryGetValue(src.Key, out var v) ? v : new SourceValue()).ToList();
+
+        private List<Dictionary<string, string>> Rows() => _srcInfo.Elements.Select(e => e.Row).ToList();
 
         /// <summary>Edits the transform of the selected mapping (or of the picked pair, mapping it first) with a live preview.</summary>
         private void EditTransform()
@@ -817,12 +845,11 @@ namespace ProjectPerseus.ui
                 if (src0 == null) m.Transform = new ParamTransform { Constant = "" };
             }
             var target = _dstInfo.Params.FirstOrDefault(p => p.Key == m.Target?.Key) ?? m.Target;
-            List<SourceValue> values = null;
-            if (m.Source != null) _srcInfo.Values.TryGetValue(m.Source.Key, out values);
-            var dlg = new TransformDialog(m.Source, target, m.Transform, values ?? new List<SourceValue>()) { Owner = this };
+            var dlg = new TransformDialog(m.Source, target, m.Transform, PerKey(m.Source), Aligned(m.Source), Rows(), _srcInfo.RowNames) { Owner = this };
             if (dlg.ShowDialog() != true) return;
             var tf = dlg.Result;
-            if (m.Source == null && tf?.Constant == null) { Status("Without a consultant parameter the mapping needs a constant value.", true); return; }
+            if (m.Source == null && tf?.Constant == null && !ParamTransforms.ExpressionOnly(null, tf))
+            { Status("Without a consultant parameter the mapping needs a constant value or an expression.", true); return; }
             var c = ParamTransforms.Check(m.Source, tf, target);
             if (c.Level == CompatLevel.Error) { Status("Not changed: " + c.Message, true); return; }
             m.Transform = ParamTransforms.IsIdentity(tf) ? null : tf;
