@@ -46,11 +46,11 @@ namespace ProjectPerseus.mapping
             var p = Find(ours, m.Target);
             if (p == null || p.IsReadOnly) return null;
             var v = Read(source, m.Source, linkName);
-            var tv = ParamCompat.TargetValue(m.Source, m.Target, v);
+            var tv = ParamTransforms.TargetValue(m.Source, m.Transform, m.Target, v);
             return new ParamState
             {
                 MapId = m.Id, Name = m.Target.Name, AlwaysApply = m.AlwaysApply,
-                Src = ParamCompat.SourceCanon(v),
+                Src = ParamTransforms.SourceCanon(m.Source, m.Transform, v),
                 Expected = tv.Ok ? Canon(doc, p, tv) : null,
                 Local = LocalCanon(p),
                 ExpectedShown = tv.Ok ? tv.Shown : tv.Problem,
@@ -119,7 +119,7 @@ namespace ProjectPerseus.mapping
             if (p == null) { problem = $"{m.Target?.Name} isn't on the local family"; return null; }
             if (p.IsReadOnly) { problem = $"{m.Target.Name} is read-only"; return null; }
             var v = Read(source, m.Source, linkName);
-            var tv = ParamCompat.TargetValue(m.Source, m.Target, v);
+            var tv = ParamTransforms.TargetValue(m.Source, m.Transform, m.Target, v);
             if (!tv.Ok) { problem = $"{m.Target.Name}: {tv.Problem}"; return null; }
             if (!Resolve(doc, p, tv, out var text, out var i, out var d)) { problem = $"{m.Target.Name}: doesn't fit"; return null; }
             bool ok;
@@ -130,7 +130,7 @@ namespace ProjectPerseus.mapping
                 default: ok = Math.Abs(p.AsDouble() - d) < 1e-9 || p.Set(d); break;
             }
             if (!ok) { problem = $"{m.Target.Name}: Revit refused the value"; return null; }
-            return Tuple.Create(ParamCompat.SourceCanon(v), LocalCanon(p));
+            return Tuple.Create(ParamTransforms.SourceCanon(m.Source, m.Transform, v), LocalCanon(p));
         }
 
         /// <summary>
@@ -142,7 +142,7 @@ namespace ProjectPerseus.mapping
             if (rule?.Parameters == null || rule.Parameters.Count == 0 || ours == null || source == null) return 0;
             var rec = MappedFamilyStore.Get(ours)?.Data;
             int n = 0;
-            foreach (var m in rule.Parameters.Where(x => x.Enabled && x.Source != null && x.Target != null && (only == null || x.Id == only)))
+            foreach (var m in rule.Parameters.Where(x => x.Usable && (only == null || x.Id == only)))
             {
                 var done = Write(doc, ours, source, m, linkName, out var problem);
                 if (done == null) { if (problem != null && problems != null && !problems.Contains(problem)) problems.Add(problem); continue; }

@@ -156,6 +156,7 @@ ProjectPerseus/
 │   │                             EPPlus' IBM437 works on .NET 8 (Revit 2025+). No-op on .NET Framework.
 │   ├── FilterEvaluator.cs        Python-subset expression evaluator for key schedule import filters and marker set
 │   │                             filters (TryEvaluate: no logging, returns the error, for per-element loops).
+│   │                             TryCompute = value result with bare names (parameter-mapping transforms); x if c else y; re.sub.
 │   │                             Supports row["Col"] access, re.search/match/findall, math.*,
 │   │                             string methods, comparisons, and/or/not, len/float/int/str.
 │   │                             No external dependencies — pure C# recursive-descent evaluator.
@@ -356,6 +357,8 @@ ProjectPerseus/
 │   │                             change made in Revit; deleted on moving on / close with empty Perseus planes). Placing for real = next phase.
 │   │                             Multi-select: edits apply the changed value to all selected types; Tolerance XY + Z column.
 │   │                             Parameters section (stage 5): mappings + pickers + compatibility / preview, Add local parameter…; values written by Link Sync.
+│   ├── TransformDialog.cs        NEW (2026-11-15). Mapper's Transform… editor: constant, default, lookup table (+ fill from consultant values,
+│   │                             strict), expression, prefix / suffix, live preview.
 │   ├── AddParameterDialog.cs     NEW (2026-11-15). Add local parameter (name, data type, instance / type, company file) for the mapper.
 │   ├── ReviewViewsWindow.cs      NEW (2026-11-12). Modal editor of the review views (models/ReviewViewSettings): all views | chosen views in
 │   │                             priority order (up/down, sort by type, add active view), auto-capture option, "Save and capture images now".
@@ -563,6 +566,9 @@ ProjectPerseus/
 │   │                             category; same-name model parameter with a fitting data type reused / extended (asks on kind / type
 │   │                             mismatch), else company shared parameter file (shared_params.json, user then %ProgramData%), else the
 │   │                             Perseus file (ParamCompat.GuidFor name + data type, group "Perseus <model>"); group Other.
+│   ├── ParamTransforms.cs        NEW (2026-11-15). Pure transforms of a mapping (models/ParamTransform): constant | default for empty ->
+│   │                             lookup table -> expression (util/FilterEvaluator.TryCompute: value / number / empty) -> prefix / suffix; changed
+│   │                             values become text. Check / Convert / TargetValue / SourceCanon / Preview wrap ParamCompat. Tested in ParamCompatTest.cs.
 │   ├── ParamValues.cs            NEW (2026-11-15). Mapped parameters on real elements: Find / Read / State (planner input) / Write /
 │   │                             Apply (writes + records ParamBaseline / ParamWritten in MappedFamilyData). Link Sync kind ParameterChanged
 │   │                             (approve writes, reject remembers the consultant value, hand edit since written = rejected), always-apply
@@ -611,7 +617,7 @@ ProjectPerseus/
 │   ├── FamilyMapRule.cs          NEW (2026-11-12). Consultant type (category / family / type) -> our FamilySymbol uid, offset mm, rotation °, workset,
 │   │                             Link Sync tolerance XY / Z mm (default 25).
 │   ├── ParamMap.cs               NEW (2026-11-14). ParamRef (parameter identity: shared GUID / built-in / name + storage) + ParamMap
-│   │                             (consultant -> local, AlwaysApply) on FamilyMapRule.Parameters.
+│   │                             (consultant -> local, AlwaysApply, Transform: models ParamTransform + LookupEntry) on FamilyMapRule.Parameters.
 │   ├── MappedFamilyData.cs       NEW (2026-11-13). JSON of the v2 mapped-family record (see mapping/MappedFamilyStore).
 │   ├── LinkSyncRejections.cs     NEW (2026-11-13). Rejected New / Match proposals (consultant uids) per link.
 │   ├── LinkSyncEvent.cs          NEW (2026-11-13). Link Sync decision / comment / assignment event (mapping/LinkSyncLog).

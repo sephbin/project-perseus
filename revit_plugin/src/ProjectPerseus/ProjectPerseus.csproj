@@ -475,6 +475,8 @@
     <Compile Include="mapping\ParamDiscovery.cs" />
     <Compile Include="mapping\ParamCreator.cs" />
     <Compile Include="mapping\ParamValues.cs" />
+    <Compile Include="mapping\ParamTransforms.cs" />
+    <Compile Include="ui\TransformDialog.cs" />
     <Compile Include="mapping\LinkSyncNotes.cs" />
     <Compile Include="mapping\LinkSyncLog.cs" />
     <Compile Include="federator\ReplacementGroups.cs" />

@@ -263,6 +263,7 @@ namespace ProjectPerseus.ui
             pick2.Children.Add(_paramMode);
             pick2.Children.Add(Btn("Add / update", "Map the consultant parameter to the local one (one consultant parameter per local parameter)", AddParamMap));
             pick2.Children.Add(Btn("Remove", "Remove the selected parameter mapping", RemoveParamMap));
+            pick2.Children.Add(Btn("Transform…", "Change the consultant value before it's written: constant, default for empty values, lookup table (e.g. FR60 → 60/60/60), expression, prefix / suffix", EditTransform));
             pick2.Children.Add(Btn("Add local parameter…", "The local family has no fitting parameter: add one (project parameter on its category, instance or type) and map the consultant parameter to it", AddLocalParam));
             pick2.Children.Add(Btn("↻", "Read the parameters again (e.g. after placing a test family: its instance parameters show)", () => { _paramsFor = null; LoadParams(); }));
             _editor.Children.Add(pick2);
@@ -706,11 +707,12 @@ namespace ProjectPerseus.ui
                 var dst = _dstInfo.Params.FirstOrDefault(p => p.Key == m.Target?.Key);
                 var c = string.IsNullOrEmpty(_editing.TargetSymbolUid) ? Compat.Warn("Pick the local family type first.")
                       : dst == null && _dstInfo.Params.Count > 0 ? Compat.Warn($"{m.Target?.Name} isn't on this family type.")
-                      : ParamCompat.Check(m.Source, dst ?? m.Target);
+                      : ParamTransforms.Check(m.Source, m.Transform, dst ?? m.Target);
+                string tx = ParamTransforms.Describe(m.Transform);
                 var item = new ParamMapItem
                 {
                     Map = m,
-                    Text = $"{c.Symbol}  {m.Source?.Name}  →  {m.Target?.Name}   ({(m.AlwaysApply ? "always apply" : "Link Sync approval")})",
+                    Text = $"{c.Symbol}  {(m.Source?.Name ?? "(constant)")}  →  {m.Target?.Name}   ({(m.AlwaysApply ? "always apply" : "Link Sync approval")}{(tx.Length > 0 ? " · " + tx : "")})",
                 };
                 _paramList.Items.Add(item);
                 if (m.Id == keep) _paramList.SelectedItem = item;
@@ -738,24 +740,28 @@ namespace ProjectPerseus.ui
         {
             var src = _srcParam.SelectedItem as ParamRef;
             var dst = _dstParam.SelectedItem as ParamRef;
+            var tf = dst == null ? null : _editing?.Parameters?.FirstOrDefault(m => m.Target?.Key == dst.Key)?.Transform;
+            if (tf != null && tf.Constant == null && src == null) tf = null;
             string note = _dstInfo.NoInstance && !string.IsNullOrEmpty(_editing?.TargetSymbolUid)
                 ? "\nNo local family of this type is placed yet: its own instance parameters aren't listed (type and project parameters are). Test on one, then ↻."
                 : "";
-            if (src == null || dst == null)
+            if ((src == null && tf?.Constant == null) || dst == null)
             {
                 _paramInfo.Foreground = Muted;
                 _paramInfo.Text = (string.IsNullOrEmpty(_editing?.TargetSymbolUid) ? "Pick the local family type first." :
                                    $"Pick a consultant parameter ({_srcInfo.Params.Count}) and a local one ({_dstInfo.Params.Count(x => !x.ReadOnly)} writable).") + note;
                 return;
             }
-            var c = ParamCompat.Check(src, dst);
-            _srcInfo.Values.TryGetValue(src.Key, out var values);
-            var p = ParamCompat.Preview(src, dst, values);
+            var c = ParamTransforms.Check(src, tf, dst);
+            List<SourceValue> values = null;
+            if (src != null) _srcInfo.Values.TryGetValue(src.Key, out values);
+            var p = ParamTransforms.Preview(src, tf, dst, values);
             var lines = new List<string> { $"{c.Symbol} {c.Message}" };
+            if (!ParamTransforms.IsIdentity(tf)) lines.Add("Transform: " + ParamTransforms.Describe(tf));
             if (c.Level != CompatLevel.Error)
             {
                 lines.Add($"{p.Total:N0} consultant value(s): {p.Converted:N0} map, {p.Empty:N0} empty, {p.Failing:N0} fail" +
-                          (dst.IsType && !src.IsType && src.Computed == null ? $", {p.Distinct:N0} distinct" : "") + ".");
+                          (src != null && dst.IsType && !src.IsType && src.Computed == null ? $", {p.Distinct:N0} distinct" : "") + ".");
                 foreach (var sm in p.Samples) lines.Add($"   {sm.Item1}  →  {sm.Item2}");
                 if (p.Problems.Count > 0) lines.Add("Fails: " + string.Join("; ", p.Problems));
             }
@@ -768,14 +774,24 @@ namespace ProjectPerseus.ui
             if (_editing == null) return;
             var src = _srcParam.SelectedItem as ParamRef;
             var dst = _dstParam.SelectedItem as ParamRef;
-            if (src == null || dst == null) { Status("Pick a consultant parameter and a local one.", true); return; }
-            var c = ParamCompat.Check(src, dst);
-            if (c.Level == CompatLevel.Error) { Status("Can't map: " + c.Message, true); return; }
+            if (dst == null) { Status("Pick a local parameter (and a consultant one, or leave it empty for a constant value).", true); return; }
             _editing.Parameters = _editing.Parameters ?? new List<ParamMap>();
             var existing = _editing.Parameters.FirstOrDefault(m => m.Target?.Key == dst.Key);
-            if (existing != null) { existing.Source = src; existing.AlwaysApply = _paramMode.SelectedIndex == 1; }
-            else _editing.Parameters.Add(new ParamMap { Source = src, Target = dst, AlwaysApply = _paramMode.SelectedIndex == 1 });
-            ParamsChanged($"{src.Name} → {dst.Name} mapped" + (c.Level == CompatLevel.Warn ? " (with a warning)." : "."));
+            var tf = existing?.Transform;
+            if (src == null && tf?.Constant == null)
+            {
+                // No consultant parameter: a constant value.
+                string k = TextPrompt.Ask(new System.Windows.Interop.WindowInteropHelper(this).Handle, "Constant value",
+                    $"No consultant parameter is picked. Write the same value into {dst.Name} on every local family of this mapping:", "");
+                if (k == null) return;
+                tf = new ParamTransform { Constant = k };
+            }
+            else if (src != null && tf?.Constant != null) tf = null;   // a consultant parameter picked: no longer a constant
+            var c = ParamTransforms.Check(src, tf, dst);
+            if (c.Level == CompatLevel.Error) { Status("Can't map: " + c.Message, true); return; }
+            if (existing != null) { existing.Source = src; existing.Transform = tf; existing.AlwaysApply = _paramMode.SelectedIndex == 1; }
+            else _editing.Parameters.Add(new ParamMap { Source = src, Target = dst, Transform = tf, AlwaysApply = _paramMode.SelectedIndex == 1 });
+            ParamsChanged($"{src?.Name ?? $"Constant '{tf?.Constant}'"} → {dst.Name} mapped" + (c.Level == CompatLevel.Warn ? " (with a warning)." : "."));
         }
 
         private void RemoveParamMap()
@@ -784,6 +800,36 @@ namespace ProjectPerseus.ui
             if (m == null || _editing == null) { Status("Select a parameter mapping first."); return; }
             _editing.Parameters.RemoveAll(x => x.Id == m.Id);
             ParamsChanged($"{m.Source?.Name} → {m.Target?.Name} removed.");
+        }
+
+        /// <summary>Edits the transform of the selected mapping (or of the picked pair, mapping it first) with a live preview.</summary>
+        private void EditTransform()
+        {
+            if (_editing == null) return;
+            var m = (_paramList.SelectedItem as ParamMapItem)?.Map;
+            var dst = _dstParam.SelectedItem as ParamRef;
+            if (m == null && dst != null) m = _editing.Parameters?.FirstOrDefault(x => x.Target?.Key == dst.Key);
+            if (m == null)
+            {
+                var src0 = _srcParam.SelectedItem as ParamRef;
+                if (dst == null) { Status("Select a parameter mapping (or pick a local parameter) first.", true); return; }
+                m = new ParamMap { Source = src0, Target = dst, AlwaysApply = _paramMode.SelectedIndex == 1 };
+                if (src0 == null) m.Transform = new ParamTransform { Constant = "" };
+            }
+            var target = _dstInfo.Params.FirstOrDefault(p => p.Key == m.Target?.Key) ?? m.Target;
+            List<SourceValue> values = null;
+            if (m.Source != null) _srcInfo.Values.TryGetValue(m.Source.Key, out values);
+            var dlg = new TransformDialog(m.Source, target, m.Transform, values ?? new List<SourceValue>()) { Owner = this };
+            if (dlg.ShowDialog() != true) return;
+            var tf = dlg.Result;
+            if (m.Source == null && tf?.Constant == null) { Status("Without a consultant parameter the mapping needs a constant value.", true); return; }
+            var c = ParamTransforms.Check(m.Source, tf, target);
+            if (c.Level == CompatLevel.Error) { Status("Not changed: " + c.Message, true); return; }
+            m.Transform = ParamTransforms.IsIdentity(tf) ? null : tf;
+            _editing.Parameters = _editing.Parameters ?? new List<ParamMap>();
+            if (!_editing.Parameters.Contains(m)) _editing.Parameters.Add(m);
+            ParamsChanged($"{m.Target?.Name}: " + (m.Transform == null ? "copied as it is." : ParamTransforms.Describe(m.Transform) + "."));
+            UpdateParamInfo();
         }
 
         /// <summary>Adds a local parameter for the picked consultant parameter (mapping/ParamCreator) and maps it.</summary>

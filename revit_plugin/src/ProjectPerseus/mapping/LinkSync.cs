@@ -384,7 +384,7 @@ namespace ProjectPerseus.mapping
             string key = FamilyPlacer.TypeKey(source);
             var rule = input.Rules.LastOrDefault(x => x.SourceKey == key && x.Enabled) ?? input.Rules.FirstOrDefault(x => x.Id == r.RuleId);
             if (rule?.Parameters == null) return list;
-            foreach (var m in rule.Parameters.Where(x => x.Enabled && x.Source != null && x.Target != null))
+            foreach (var m in rule.Parameters.Where(x => x.Usable))
             {
                 try { var s = ParamValues.State(doc, ours, source, m, linkName); if (s != null) list.Add(s); }
                 catch (Exception ex) { Log.Info($"[LinkSync] parameter {m.Target?.Name}: {ex.Message}"); }

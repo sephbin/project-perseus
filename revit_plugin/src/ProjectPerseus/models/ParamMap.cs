@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace ProjectPerseus.models
 {
@@ -45,5 +46,38 @@ namespace ProjectPerseus.models
         public ParamRef Target { get; set; }
         /// <summary>false = changes go through Link Sync approval (default); true = written on each Link Sync run.</summary>
         public bool AlwaysApply { get; set; }
+        /// <summary>What happens to the consultant value before it's written (stage 5 phase 4); null = copied as it is.</summary>
+        public ParamTransform Transform { get; set; }
+
+        /// <summary>Can be applied: a target and a consultant parameter or a constant.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public bool Usable => Enabled && Target != null && (Source != null || Transform?.Constant != null);
+    }
+
+    /// <summary>
+    /// Steps between the consultant value and the local one (mapping/ParamTransforms), in this order: constant (instead of the
+    /// consultant value) | default for an empty value -> lookup table -> expression -> prefix / suffix. Any step that changes the value
+    /// makes it text, then converted to the local parameter like a text parameter (so "2400" can still fill a length).
+    /// </summary>
+    public class ParamTransform
+    {
+        /// <summary>Written instead of the consultant value (no consultant parameter needed).</summary>
+        public string Constant { get; set; }
+        /// <summary>Used when the consultant value is empty.</summary>
+        public string Default { get; set; }
+        /// <summary>Consultant value -> local value (trimmed, case-insensitive).</summary>
+        public List<LookupEntry> Lookup { get; set; } = new List<LookupEntry>();
+        /// <summary>true = a value not in the table isn't written (shown as a problem); false = passed on unchanged.</summary>
+        public bool LookupStrict { get; set; }
+        /// <summary>util/FilterEvaluator expression; names: value (text), number, empty.</summary>
+        public string Expression { get; set; }
+        public string Prefix { get; set; }
+        public string Suffix { get; set; }
+    }
+
+    public class LookupEntry
+    {
+        public string From { get; set; }
+        public string To { get; set; }
     }
 }

@@ -27,6 +27,9 @@ namespace ProjectPerseus.util
     //   len(x), float(x), int(x), str(x), bool(x), abs(x), round(x)
     //   == != < > <= >=   and / or / not   + - * / %
     //   True / False / None
+    //   a if cond else b                  — conditional
+    //   re.sub(r"pattern", r"repl", text) — regex replace (\1 groups)
+    //   bare names (TryCompute's names: e.g. value / number for parameter-mapping transforms)
     //
     // On any parse or runtime error, returns false and logs a warning.
     internal static class FilterEvaluator
@@ -50,9 +53,32 @@ namespace ProjectPerseus.util
             try
             {
                 var p = new Parser(expression.Trim(), row);
-                object value = p.ParseOr();
+                object value = p.ParseTernary();
                 p.ExpectEnd();
                 result = Truthy(value);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Evaluates an expression to a value (string / double / bool / null / list) instead of a truth value: parameter-mapping
+        /// transforms (mapping/ParamTransforms). names = bare identifiers (e.g. value, number); row as for filters. Never logs.
+        /// </summary>
+        public static bool TryCompute(string expression, Dictionary<string, string> row, Dictionary<string, object> names, out object value, out string error)
+        {
+            value = null;
+            error = null;
+            if (string.IsNullOrWhiteSpace(expression)) { error = "empty expression"; return false; }
+            try
+            {
+                var p = new Parser(expression.Trim(), row ?? new Dictionary<string, string>(), names);
+                value = p.ParseTernary();
+                p.ExpectEnd();
                 return true;
             }
             catch (Exception ex)
@@ -212,11 +238,29 @@ namespace ProjectPerseus.util
             private readonly List<Tok>                    _t;
             private          int                          _p;
             private readonly Dictionary<string, string>  _row;
+            private readonly Dictionary<string, object>  _names;
 
-            public Parser(string src, Dictionary<string, string> row)
+            public Parser(string src, Dictionary<string, string> row, Dictionary<string, object> names = null)
             {
                 _t   = Tokenize(src);
                 _row = row;
+                _names = names;
+            }
+
+            // ternary := or_expr ('if' or_expr 'else' ternary)?
+            public object ParseTernary()
+            {
+                object v = ParseOr();
+                if (Cur.Type == TT.Ident && Cur.Text == "if")
+                {
+                    Eat();
+                    object cond = ParseOr();
+                    if (!(Cur.Type == TT.Ident && Cur.Text == "else")) throw new FormatException("Expected 'else' after 'x if condition'");
+                    Eat();
+                    object other = ParseTernary();
+                    return Truthy(cond) ? v : other;
+                }
+                return v;
             }
 
             public void ExpectEnd()
@@ -403,7 +447,7 @@ namespace ProjectPerseus.util
                 if (t.Type == TT.LParen)
                 {
                     Eat();
-                    object inner = ParseOr();
+                    object inner = ParseTernary();
                     Expect(TT.RParen, ")");
                     return inner;
                 }
@@ -426,6 +470,7 @@ namespace ProjectPerseus.util
                         Expect(TT.RParen, ")");
                         return CallBuiltin(t.Text, args);
                     }
+                    if (_names != null && _names.TryGetValue(t.Text, out object named)) return named;
                     throw new FormatException($"Unknown name '{t.Text}' — did you mean row[\"{t.Text}\"]?");
                 }
                 throw new FormatException($"Unexpected '{t.Text}'");
@@ -435,8 +480,8 @@ namespace ProjectPerseus.util
             {
                 var args = new List<object>();
                 if (Cur.Type == TT.RParen) return args;
-                args.Add(ParseOr());
-                while (Cur.Type == TT.Comma) { Eat(); args.Add(ParseOr()); }
+                args.Add(ParseTernary());
+                while (Cur.Type == TT.Comma) { Eat(); args.Add(ParseTernary()); }
                 return args;
             }
 
@@ -492,6 +537,9 @@ namespace ProjectPerseus.util
                     case "strip":      return s.Trim();
                     case "lstrip":     return s.TrimStart();
                     case "rstrip":     return s.TrimEnd();
+                    case "title":      return System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(s.ToLowerInvariant());
+                    case "capitalize": return s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s.Substring(1).ToLowerInvariant();
+                    case "zfill":      return s.PadLeft((int)PyNum(args.Count > 0 ? args[0] : null), '0');
                     case "replace":
                         if (args.Count < 2) throw new FormatException("replace() needs 2 args");
                         return s.Replace(Arg(0), Arg(1));
@@ -523,6 +571,12 @@ namespace ProjectPerseus.util
 
             private static object ReMethod(string method, List<object> args)
             {
+                if (method == "sub")
+                {
+                    if (args.Count < 3) throw new FormatException("re.sub() needs (pattern, replacement, string)");
+                    string repl = Regex.Replace(PyStr(args[1]).Replace("$", "$$"), @"\\(\d)", "$${$1}");   // Python \1 -> .NET ${1}
+                    return Regex.Replace(PyStr(args[2]), PyStr(args[0]), repl);
+                }
                 if (args.Count < 2)
                     throw new FormatException($"re.{method}() needs (pattern, string)");
                 string pattern = PyStr(args[0]);

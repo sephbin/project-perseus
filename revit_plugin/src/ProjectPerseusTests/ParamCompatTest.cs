@@ -92,5 +92,69 @@ namespace ProjectPerseusTests
             Assert.AreNotEqual(a.Key, b.Key);
             Assert.AreNotEqual(b.Key, c.Key);
         }
+        // ── Transforms (phase 4) ──
+
+        private static SourceValue T(string s) => new SourceValue { HasValue = true, Text = s };
+        private static SourceValue Len(double ft, double mm) => new SourceValue { HasValue = true, Text = mm + " mm", Number = ft, Display = mm };
+
+        [TestMethod]
+        public void LookupTableDefaultAndStrict()
+        {
+            var src = P(ParamCompat.Text); var dst = P(ParamCompat.Text);
+            var t = new ParamTransform { Default = "N/A", Lookup = new List<LookupEntry> { new LookupEntry { From = "FR60", To = "60/60/60" } } };
+            Assert.AreEqual("60/60/60", ParamTransforms.Convert(src, t, dst, T(" fr60 ")).Shown);
+            Assert.AreEqual("FR90", ParamTransforms.Convert(src, t, dst, T("FR90")).Shown);           // not strict: passed on
+            Assert.AreEqual("N/A", ParamTransforms.Convert(src, t, dst, T("")).Shown);                 // default, then not in the table
+            t.LookupStrict = true;
+            var miss = ParamTransforms.Convert(src, t, dst, T("FR90"));
+            Assert.IsFalse(miss.Ok);
+            StringAssert.Contains(miss.Problem, "lookup");
+        }
+
+        [TestMethod]
+        public void ExpressionsPrefixSuffixAndConstants()
+        {
+            var src = P(ParamCompat.Text); var dst = P(ParamCompat.Text);
+            Assert.AreEqual("FRL 60/60/60", ParamTransforms.Convert(src, new ParamTransform { Expression = "re.sub(r\"FR(\\d+)\", r\"\\1/\\1/\\1\", value)", Prefix = "FRL " }, dst, T("FR60")).Shown);
+            Assert.IsTrue(ParamTransforms.Convert(src, new ParamTransform { Expression = "value.upper()" }, dst, T("")).Empty);   // empty without a default stays empty
+            Assert.AreEqual("A-01", ParamTransforms.Convert(src, new ParamTransform { Expression = "value.upper() if len(value) > 2 else 'short'" }, dst, T("a-01")).Shown);
+            var bad = ParamTransforms.Convert(src, new ParamTransform { Expression = "value.nope()" }, dst, T("x"));
+            Assert.IsFalse(bad.Ok);
+            var k = new ParamTransform { Constant = "Supplied by consultant" };
+            Assert.AreEqual(CompatLevel.Ok, ParamTransforms.Check(null, k, dst).Level);
+            Assert.AreEqual("Supplied by consultant", ParamTransforms.TargetValue(null, k, dst, new SourceValue()).Text);
+            Assert.AreEqual(1, ParamTransforms.Preview(null, k, dst, null).Total);
+        }
+
+        [TestMethod]
+        public void UnchangedValuesKeepTheirKindChangedOnesBecomeText()
+        {
+            var len = P(ParamCompat.Measure, Length, "Length");
+            // default only: a real length is still copied exactly (internal units)
+            var t = new ParamTransform { Default = "0" };
+            var tv = ParamTransforms.TargetValue(len, t, len, Len(2400 / 304.8, 2400));
+            Assert.AreEqual(2400 / 304.8, tv.Internal.Value, 1e-9);
+            // empty -> default "0" -> text -> length in project units
+            var tv0 = ParamTransforms.TargetValue(len, t, len, new SourceValue());
+            Assert.IsTrue(tv0.Ok);
+            Assert.AreEqual(0, tv0.Display.Value, 1e-9);
+            // expression on the number (display units) into a number parameter
+            var tv2 = ParamTransforms.TargetValue(len, new ParamTransform { Expression = "number / 1000" }, P(ParamCompat.Number), Len(2400 / 304.8, 2400));
+            Assert.AreEqual(2.4, tv2.Internal.Value, 1e-9);
+            // a prefix makes it text: text into a length warns
+            Assert.AreEqual(CompatLevel.Warn, ParamTransforms.Check(len, new ParamTransform { Prefix = "L=" }, len).Level);
+            Assert.AreEqual(CompatLevel.Ok, ParamTransforms.Check(len, new ParamTransform { Suffix = "!" }, P(ParamCompat.Text)).Level);
+        }
+
+        [TestMethod]
+        public void SourceCanonFollowsTheTransform()
+        {
+            var src = P(ParamCompat.Text);
+            var a = new ParamTransform { Lookup = new List<LookupEntry> { new LookupEntry { From = "FR60", To = "60/60/60" } } };
+            var b = new ParamTransform { Lookup = new List<LookupEntry> { new LookupEntry { From = "FR60", To = "-/60/60" } } };
+            Assert.AreNotEqual(ParamTransforms.SourceCanon(src, a, T("FR60")), ParamTransforms.SourceCanon(src, b, T("FR60")));   // new table re-opens
+            Assert.AreEqual(ParamCompat.SourceCanon(T("FR60")), ParamTransforms.SourceCanon(src, null, T("FR60")));              // identity unchanged
+            Assert.IsTrue(ParamTransforms.IsIdentity(new ParamTransform { Lookup = new List<LookupEntry> { new LookupEntry() } }));
+        }
     }
 }
