@@ -115,10 +115,7 @@ namespace ProjectPerseus.mapping
             var byKey = new Dictionary<string, ParamRef>();
             void Add(ParamRef r) { if (r != null && !byKey.ContainsKey(r.Key)) { byKey[r.Key] = r; res.Params.Add(r); } }
             foreach (Parameter p in symbol.Parameters) Add(Ref(p, true, false, bound));
-            var inst = new FilteredElementCollector(doc).OfClass(typeof(FamilyInstance)).WhereElementIsNotElementType()
-                .Cast<FamilyInstance>().FirstOrDefault(fi => fi.Symbol?.Id == symbol.Id)
-                ?? new FilteredElementCollector(doc).OfClass(typeof(FamilyInstance)).WhereElementIsNotElementType()
-                .Cast<FamilyInstance>().FirstOrDefault(fi => fi.Symbol?.Family?.Id == symbol.Family?.Id);
+            var inst = FirstInstance(doc, symbol);
             if (inst != null) foreach (Parameter p in inst.Parameters) Add(Ref(p, false, false, bound));
             else
             {
@@ -140,6 +137,29 @@ namespace ProjectPerseus.mapping
             res.Params = res.Params.Where(p => !p.Name.StartsWith("Perseus_Link", StringComparison.Ordinal))
                                    .OrderBy(p => p.ReadOnly).ThenBy(p => p.IsType).ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             return res;
+        }
+
+        /// <summary>
+        /// A placed instance of the type, else of another type of its family. Filtered inside Revit (category + FamilyInstanceFilter):
+        /// walking every family instance of a large model took seconds.
+        /// </summary>
+        private static FamilyInstance FirstInstance(Document doc, FamilySymbol symbol)
+        {
+            FamilyInstance Of(ElementId typeId)
+            {
+                var c = new FilteredElementCollector(doc);
+                if (symbol.Category != null) c = c.OfCategoryId(symbol.Category.Id);
+                return c.WhereElementIsNotElementType().WherePasses(new FamilyInstanceFilter(doc, typeId)).FirstElement() as FamilyInstance;
+            }
+            var fi = Of(symbol.Id);
+            if (fi != null || symbol.Family == null) return fi;
+            foreach (var id in symbol.Family.GetFamilySymbolIds())
+            {
+                if (id == symbol.Id) continue;
+                fi = Of(id);
+                if (fi != null) return fi;
+            }
+            return null;
         }
 
         private static HashSet<string> BoundNames(Document doc, Category cat)

@@ -357,6 +357,8 @@ ProjectPerseus/
 │   │                             change made in Revit; deleted on moving on / close with empty Perseus planes). Placing for real = next phase.
 │   │                             Multi-select: edits apply the changed value to all selected types; Tolerance XY + Z column.
 │   │                             Parameters section (stage 5): mappings + pickers + compatibility / preview, Add local parameter…; values written by Link Sync.
+│   │                             Local type picker = Category drop-down (default: consultant type's category) + virtualized type list (mapped
+│   │                             type always kept listed); consultant parameter values cached per consultant type (not re-read on a type pick).
 │   ├── TransformDialog.cs        NEW (2026-11-15). Mapper's Transform… editor: constant, default, lookup table (+ fill from consultant values,
 │   │                             strict), expression, prefix / suffix, live preview.
 │   ├── AddParameterDialog.cs     NEW (2026-11-15). Add local parameter (name, data type, instance / type, company file) for the mapper.

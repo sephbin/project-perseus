@@ -95,7 +95,7 @@ namespace ProjectPerseus.ui
         private readonly TextBox _filter;
         private readonly CheckBox _suggestedOnly;
         private readonly TextBlock _summary, _status, _title, _placementNote;
-        private readonly ComboBox _target, _workset;
+        private readonly ComboBox _target, _targetCat, _workset;
         private readonly TextBox[] _offset = new TextBox[3], _rotation = new TextBox[3];
         private readonly TextBox _stepMm, _stepDeg, _tolXy, _tolZ;
         private readonly StackPanel _editor;
@@ -109,7 +109,7 @@ namespace ProjectPerseus.ui
         private readonly TextBlock _paramInfo;
         private ParamDiscovery.SourceParams _srcInfo = new ParamDiscovery.SourceParams();
         private ParamDiscovery.TargetParams _dstInfo = new ParamDiscovery.TargetParams();
-        private string _paramsFor;
+        private string _paramsFor, _srcFor;
         private bool _loadingParams;
         private bool _closing;
 
@@ -210,8 +210,25 @@ namespace ProjectPerseus.ui
             _title = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 2) };
             _editor.Children.Add(_title);
             _editor.Children.Add(Section("Local family type"));
+            var catRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+            var catLabel = new TextBlock { Text = "Category ", VerticalAlignment = VerticalAlignment.Center, Foreground = Muted, Width = 60 };
+            DockPanel.SetDock(catLabel, Dock.Left);
+            catRow.Children.Add(catLabel);
+            _targetCat = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, StaysOpenOnEdit = true,
+                                        ToolTip = "Category of the local family types listed below (starts on the consultant type's category)" };
+            catRow.Children.Add(_targetCat);
+            _editor.Children.Add(catRow);
+            var typeRow = new DockPanel();
+            var typeLabel = new TextBlock { Text = "Type ", VerticalAlignment = VerticalAlignment.Center, Foreground = Muted, Width = 60 };
+            DockPanel.SetDock(typeLabel, Dock.Left);
+            typeRow.Children.Add(typeLabel);
             _target = new ComboBox { IsEditable = true, IsTextSearchEnabled = true, StaysOpenOnEdit = true };
-            _editor.Children.Add(_target);
+            // Large projects have thousands of types: only draw the rows on screen.
+            _target.ItemsPanel = new ItemsPanelTemplate(new FrameworkElementFactory(typeof(VirtualizingStackPanel)));
+            VirtualizingPanel.SetIsVirtualizing(_target, true);
+            VirtualizingPanel.SetVirtualizationMode(_target, VirtualizationMode.Recycling);
+            typeRow.Children.Add(_target);
+            _editor.Children.Add(typeRow);
             _placementNote = new TextBlock { Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), FontSize = 11 };
             _editor.Children.Add(_placementNote);
 
@@ -265,7 +282,7 @@ namespace ProjectPerseus.ui
             pick2.Children.Add(Btn("Remove", "Remove the selected parameter mapping", RemoveParamMap));
             pick2.Children.Add(Btn("Transform…", "Change the consultant value before it's written: constant, default for empty values, lookup table (e.g. FR60 → 60/60/60), expression, prefix / suffix", EditTransform));
             pick2.Children.Add(Btn("Add local parameter…", "The local family has no fitting parameter: add one (project parameter on its category, instance or type) and map the consultant parameter to it", AddLocalParam));
-            pick2.Children.Add(Btn("↻", "Read the parameters again (e.g. after placing a test family: its instance parameters show)", () => { _paramsFor = null; LoadParams(); }));
+            pick2.Children.Add(Btn("↻", "Read the parameters again (e.g. after placing a test family: its instance parameters show)", () => { _paramsFor = null; _srcFor = null; LoadParams(); }));
             _editor.Children.Add(pick2);
             _paramInfo = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 0, 0, 4), Foreground = Muted };
             _editor.Children.Add(_paramInfo);
@@ -309,6 +326,7 @@ namespace ProjectPerseus.ui
             _suggestedOnly.Unchecked += (s, e) => Safe(Fill);
             _grid.SelectionChanged += (s, e) => Safe(OnGridSelection);
             _target.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor && ReadEditor()) { UpdateNote(); QueueLive(); QueueSave(); LoadParams(); } });
+            _targetCat.SelectionChanged += (s, e) => Safe(() => { if (!_loadingEditor && _targetCat.SelectedItem != null) FillTargets(_editing?.TargetSymbolUid); });
             _srcParam.SelectionChanged += (s, e) => Safe(() => { if (!_loadingParams) UpdateParamInfo(); });
             _dstParam.SelectionChanged += (s, e) => Safe(() => { if (!_loadingParams) UpdateParamInfo(); });
             _paramList.SelectionChanged += (s, e) => Safe(ShowParamMap);
@@ -380,7 +398,9 @@ namespace ProjectPerseus.ui
                 _workset.Items.Add(ActiveWorkset);
                 foreach (var w in FamilyPlacer.Worksets(_doc)) _workset.Items.Add(w);
                 _workset.IsEnabled = _doc.IsWorkshared;
+                FillTargetCategories();
                 _loadingEditor = false;
+                _srcFor = null; _paramsFor = null;
                 var hidden = new HashSet<string>(_mapping.HiddenCategories ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
                 _categories.SetItems(_sources.GroupBy(x => x.Category).OrderBy(g => g.Key)
                     .Select(g => new MultiPick.Item(g.Key, $"{g.Key}  ({g.Count()})")));
@@ -507,11 +527,8 @@ namespace ProjectPerseus.ui
             };
             _loadingEditor = true;
             _title.Text = $"{s.Category} · {s}";
-            _target.Items.Clear();
-            // Our types of the same category first.
-            foreach (var t in _targets.OrderBy(t => t.Category == s.Category ? 0 : 1).ThenBy(t => t.Category).ThenBy(t => t.Preference).ThenBy(t => t.Family).ThenBy(t => t.Type))
-                _target.Items.Add(new TargetItem(t, t.Category == s.Category));
-            _target.SelectedItem = _target.Items.Cast<TargetItem>().FirstOrDefault(i => i.T.Uid == _editing.TargetSymbolUid);
+            SetTargetCategory(DefaultTargetCategory(s.Category, _editing.TargetSymbolUid));
+            FillTargets(_editing.TargetSymbolUid);
             for (int i = 0; i < 3; i++)
             {
                 _offset[i].Text = Num(_editing.OffsetMm[i]);
@@ -526,6 +543,67 @@ namespace ProjectPerseus.ui
             LoadParams();
             Status($"{s.Uids.Count} in the link · triage: {row.Stats.Describe()}" +
                    (_mappedByRule.TryGetValue(_editing.Id, out int n) ? $" · {n} local families mapped" : ""));
+        }
+
+        /// <summary>A category of local family types (Name null = all categories).</summary>
+        private class CatItem
+        {
+            internal readonly string Name;
+            private readonly int _count;
+            internal CatItem(string name, int count) { Name = name; _count = count; }
+            public override string ToString() => (Name ?? "All categories") + "  (" + _count + ")";
+        }
+
+        /// <summary>The category list above the local types (keeps the picked one).</summary>
+        private void FillTargetCategories()
+        {
+            string keep = (_targetCat.SelectedItem as CatItem)?.Name;
+            bool was = _loadingEditor; _loadingEditor = true;
+            try
+            {
+                var items = new List<CatItem> { new CatItem(null, _targets.Count) };
+                items.AddRange(_targets.GroupBy(t => t.Category).OrderBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase).Select(g => new CatItem(g.Key, g.Count())));
+                _targetCat.ItemsSource = items;
+                _targetCat.SelectedItem = items.FirstOrDefault(c => c.Name == keep && keep != null) ?? items[0];
+            }
+            finally { _loadingEditor = was; }
+        }
+
+        /// <summary>The consultant type's own category when there are local types in it, else the mapped type's, else all.</summary>
+        private string DefaultTargetCategory(string sourceCategory, string targetUid)
+        {
+            if (_targets.Any(t => t.Category == sourceCategory)) return sourceCategory;
+            return _targets.FirstOrDefault(t => t.Uid == targetUid)?.Category;
+        }
+
+        private void SetTargetCategory(string category)
+        {
+            var items = _targetCat.Items.Cast<CatItem>().ToList();
+            if (items.Count == 0) return;
+            bool was = _loadingEditor; _loadingEditor = true;
+            try { _targetCat.SelectedItem = items.FirstOrDefault(c => c.Name == category && category != null) ?? items[0]; }
+            finally { _loadingEditor = was; }
+        }
+
+        /// <summary>
+        /// The local types of the picked category (preferred placement first). The mapped type stays listed (on top) even
+        /// when it's in another category, so changing the category never drops the mapping.
+        /// </summary>
+        private void FillTargets(string keepUid)
+        {
+            string cat = (_targetCat.SelectedItem as CatItem)?.Name;
+            var items = _targets.Where(t => cat == null || t.Category == cat || (keepUid != null && t.Uid == keepUid))
+                                .OrderBy(t => cat != null && t.Category != cat ? 0 : 1)
+                                .ThenBy(t => t.Category).ThenBy(t => t.Preference).ThenBy(t => t.Family).ThenBy(t => t.Type)
+                                .Select(t => new TargetItem(t, cat != null && t.Category == cat)).ToList();
+            bool was = _loadingEditor; _loadingEditor = true;
+            try
+            {
+                _target.ItemsSource = items;
+                _target.SelectedItem = keepUid == null ? null : items.FirstOrDefault(i => i.T.Uid == keepUid);
+                if (_target.SelectedItem == null) _target.Text = "";
+            }
+            finally { _loadingEditor = was; }
         }
 
         private class TargetItem
@@ -676,13 +754,19 @@ namespace ProjectPerseus.ui
             _paramsFor = key;
             _paramInfo.Text = "Reading parameters…";
             string linkUid = _linkUid, linkName = _linkName;
+            string srcKey = linkUid + "|" + src.Key;
+            var known = srcKey == _srcFor ? _srcInfo : null;   // the consultant values only change with the consultant type
             Api(app =>
             {
-                var linkDoc = LinkedElementRef.FindInstance(_doc, linkUid)?.GetLinkDocument();
-                var s = linkDoc == null ? new ParamDiscovery.SourceParams() : ParamDiscovery.Source(linkDoc, src.Uids, linkName);
+                var s = known;
+                if (s == null)
+                {
+                    var linkDoc = LinkedElementRef.FindInstance(_doc, linkUid)?.GetLinkDocument();
+                    s = linkDoc == null ? new ParamDiscovery.SourceParams() : ParamDiscovery.Source(linkDoc, src.Uids, linkName);
+                }
                 var t = ParamDiscovery.Target(_doc, string.IsNullOrEmpty(targetUid) ? null : _doc.GetElement(targetUid) as ARDB.FamilySymbol);
                 if (_paramsFor != key) return;
-                _srcInfo = s; _dstInfo = t;
+                _srcInfo = s; _dstInfo = t; _srcFor = srcKey;
                 _loadingParams = true;
                 try { _srcParam.ItemsSource = s.Params; _dstParam.ItemsSource = t.Params; }
                 finally { _loadingParams = false; }
@@ -1014,17 +1098,8 @@ namespace ProjectPerseus.ui
         private void TakeTestType(string ruleId, string uid, string name, List<FamilyPlacer.TargetType> targets, bool isNew)
         {
             if (_editing == null || _editing.Id != ruleId || _current == null) return;
-            if (targets != null) _targets = targets;
-            _loadingEditor = true;
-            try
-            {
-                var s = _current.Source;
-                _target.Items.Clear();
-                foreach (var t in _targets.OrderBy(t => t.Category == s.Category ? 0 : 1).ThenBy(t => t.Category).ThenBy(t => t.Preference).ThenBy(t => t.Family).ThenBy(t => t.Type))
-                    _target.Items.Add(new TargetItem(t, t.Category == s.Category));
-                _target.SelectedItem = _target.Items.Cast<TargetItem>().FirstOrDefault(i => i.T.Uid == uid);
-            }
-            finally { _loadingEditor = false; }
+            if (targets != null) { _targets = targets; FillTargetCategories(); }
+            FillTargets(uid);
             if (_target.SelectedItem == null) { Status($"The test family is now {name}, which can't be placed floating: not taken into the mapping.", true); return; }
             if (ReadEditor()) QueueSave();
             UpdateNote();
