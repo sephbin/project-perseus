@@ -119,6 +119,8 @@ namespace ProjectPerseus.ui
         private readonly List<KeyValuePair<Row, FamilyMapRule>> _others = new List<KeyValuePair<Row, FamilyMapRule>>();
         private ARDB.ElementId _testId;
         private string _testSourceUid;       // the consultant element the test stands at (kept while tuning)
+        // Where the test was put: consultant frame, the rule's frame and where Revit actually placed it (hand moves are measured from it).
+        private mapping.Frame _testSource, _testExpected, _testPlaced;
         private TextBlock _testInfo;
         private int _sample;
         private bool _loadingEditor;
@@ -1099,6 +1101,9 @@ namespace ProjectPerseus.ui
                 _testId = fi?.Id;
                 _testSourceUid = source.UniqueId;
                 if (fi == null) { Status("Not placed: " + warning, true); _testInfo.Text = ""; return; }
+                _testSource = FamilyPlacer.SourceFrame(source, inst.GetTotalTransform());
+                _testExpected = MappingMath.Place(_testSource, rule.OffsetMm, rule.RotationDeg);
+                _testPlaced = FamilyPlacer.FrameOf(fi);
                 var srcPos = FamilyPlacer.SourceFrame(source, inst.GetTotalTransform()).O;
                 var ourPos = FamilyPlacer.Position(fi);
                 string level = (source.get_Parameter(ARDB.BuiltInParameter.FAMILY_LEVEL_PARAM) ?? source.get_Parameter(ARDB.BuiltInParameter.SCHEDULE_LEVEL_PARAM))?.AsValueString();
@@ -1106,7 +1111,7 @@ namespace ProjectPerseus.ui
                                  (string.IsNullOrEmpty(level) ? "" : $" on {level}") + $" · sample {index + 1} of {sources.Count}" +
                                  (ourPos != null ? $" · {MappingMath.Distance(srcPos, ourPos) * MappingMath.MmPerFoot:N0} mm from its insertion point" : "");
                 if (fresh) ShowTest(app, inst, fi, source, false, false, false);
-                Status(fresh ? "Test placed. Adjust the offset / rotation (it re-places in place), or change its type in Revit (the mapping follows), ◀ / ▶ to check other elements. Changes save automatically."
+                Status(fresh ? "Test placed. Adjust the offset / rotation (it re-places in place), or move / rotate it or change its type in Revit (the mapping follows), ◀ / ▶ to check other elements. Changes save automatically."
                              : "Test re-placed." + (warning != null ? "" : ""), warning != null);
                 if (warning != null) Status("⚠ " + warning, true);
             }, needActive: true);
@@ -1129,7 +1134,9 @@ namespace ProjectPerseus.ui
                 if (!e.GetModifiedElementIds().Contains(id)) return;
                 var fi = doc.GetElement(id) as ARDB.FamilyInstance;
                 var symbol = fi?.Symbol;
-                if (symbol == null || symbol.UniqueId == _editing.TargetSymbolUid) return;
+                if (symbol == null) return;
+                if (symbol.UniqueId == _editing.TargetSymbolUid) { CaptureTestMove(fi); return; }
+                _testPlaced = FamilyPlacer.FrameOf(fi);   // a new type may stand differently: measure later moves from here
                 bool known = _targets.Any(t => t.Uid == symbol.UniqueId);
                 var targets = known ? null : FamilyPlacer.TargetTypes(doc);   // a type made just now (Duplicate)
                 string uid = symbol.UniqueId, name = $"{symbol.FamilyName} : {symbol.Name}";
@@ -1137,6 +1144,41 @@ namespace ProjectPerseus.ui
                 Dispatcher.BeginInvoke(new Action(() => Safe(() => TakeTestType(rule, uid, name, targets, !known))));
             }
             catch (Exception ex) { Log.Info($"[Mapping] watching the test family: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// The user moved / rotated the test family in Revit: work out the offset and rotation that place it there and put them
+        /// in the editor (saved; not re-placed, it already stands there). DocumentChanged context.
+        /// </summary>
+        private void CaptureTestMove(ARDB.FamilyInstance fi)
+        {
+            if (_testSource == null || _testExpected == null || _testPlaced == null || _others.Count > 0) return;
+            var now = FamilyPlacer.FrameOf(fi);
+            if (now == null) return;
+            var d = MappingMath.Delta(now, _testPlaced);
+            if (d.TotalMm < 0.05 && d.AngleDeg < 0.005) return;   // a parameter edit, not a move
+            var rule = MappingMath.Corrected(_testExpected, _testPlaced, now);
+            if (!MappingMath.Solve(_testSource, rule, (double[])_editing.RotationDeg.Clone(), out var off, out var rot))
+            {
+                Status("The test family was mirrored in Revit: a mapping can only move and rotate it, so this wasn't taken. Undo the mirror, or use the rotation fields.", true);
+                _testPlaced = now;
+                return;
+            }
+            string ruleId = _editing.Id;
+            var placedNow = now;
+            Dispatcher.BeginInvoke(new Action(() => Safe(() =>
+            {
+                if (_editing == null || _editing.Id != ruleId) return;
+                _loadingEditor = true;
+                try { for (int i = 0; i < 3; i++) { _offset[i].Text = Num(off[i]); _rotation[i].Text = Num(rot[i]); } }
+                finally { _loadingEditor = false; }
+                if (!ReadEditor()) return;
+                _testExpected = MappingMath.Place(_testSource, _editing.OffsetMm, _editing.RotationDeg);
+                _testPlaced = placedNow;
+                QueueSave();
+                Status($"Moved in Revit: offset {Num(off[0])} / {Num(off[1])} / {Num(off[2])} mm, rotation {Num(rot[0])} / {Num(rot[1])} / {Num(rot[2])}° taken into the mapping (saved).");
+                Log.Info($"[Mapping] test family moved in Revit -> offset {string.Join(",", off)} rotation {string.Join(",", rot)}");
+            })));
         }
 
         private void TakeTestType(string ruleId, string uid, string name, List<FamilyPlacer.TargetType> targets, bool isNew)

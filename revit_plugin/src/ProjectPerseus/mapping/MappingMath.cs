@@ -56,6 +56,109 @@ namespace ProjectPerseus.mapping
             };
         }
 
+        /// <summary>
+        /// The rule frame that makes the family land at <paramref name="now"/>, given that the rule frame
+        /// <paramref name="expected"/> made it land at <paramref name="placed"/> (Revit may realise a frame differently, e.g. a
+        /// level-based family stays upright). The same expected -> placed relation (in expected's axes) is applied to now.
+        /// </summary>
+        public static Frame Corrected(Frame expected, Frame placed, Frame now)
+        {
+            var E = new[] { expected.X, expected.Y, expected.Z };
+            var P = new[] { placed.X, placed.Y, placed.Z };
+            var N = new[] { now.X, now.Y, now.Z };
+            // C[i,j] = E_i · P_j (placed axes in expected's coordinates); ct = placed origin in expected's coordinates.
+            var c = new double[3, 3];
+            for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) c[i, j] = Dot(E[i], P[j]);
+            var d = Sub(placed.O, expected.O);
+            var ct = new[] { Dot(E[0], d), Dot(E[1], d), Dot(E[2], d) };
+            // now = E' · C  =>  E'_i = sum_j C[i,j] N_j
+            var axes = new double[3][];
+            for (int i = 0; i < 3; i++)
+            {
+                axes[i] = new double[3];
+                for (int j = 0; j < 3; j++) for (int k = 0; k < 3; k++) axes[i][k] += c[i, j] * N[j][k];
+                axes[i] = Unit(axes[i]);
+            }
+            var o = (double[])now.O.Clone();
+            for (int i = 0; i < 3; i++) for (int k = 0; k < 3; k++) o[k] -= ct[i] * axes[i][k];
+            return new Frame { O = o, X = axes[0], Y = axes[1], Z = axes[2] };
+        }
+
+        /// <summary>
+        /// Inverse of Place: the offset (mm, plan axes of the source + up) and rotation (° about the source's X, Y, Z) that put a
+        /// family at <paramref name="target"/>. Of the two equivalent rotations the one nearer <paramref name="prefer"/> is
+        /// returned. False when the target is mirrored relative to the source (no rotation gives it).
+        /// </summary>
+        public static bool Solve(Frame source, Frame target, double[] prefer, out double[] offsetMm, out double[] rotationDeg)
+        {
+            var px = PlanDirection(source);
+            var d = Sub(target.O, source.O);
+            offsetMm = new[]
+            {
+                Tidy((d[0] * px[0] + d[1] * px[1]) * MmPerFoot, 0.1),
+                Tidy((-d[0] * px[1] + d[1] * px[0]) * MmPerFoot, 0.1),
+                Tidy(d[2] * MmPerFoot, 0.1),
+            };
+            var S = new[] { source.X, source.Y, source.Z };
+            var T = new[] { target.X, target.Y, target.Z };
+            var r = new double[3, 3];
+            for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) r[i, j] = Dot(S[i], T[j]);
+            double det = r[0, 0] * (r[1, 1] * r[2, 2] - r[1, 2] * r[2, 1]) - r[0, 1] * (r[1, 0] * r[2, 2] - r[1, 2] * r[2, 0])
+                       + r[0, 2] * (r[1, 0] * r[2, 1] - r[1, 1] * r[2, 0]);
+            rotationDeg = (double[])(prefer ?? new double[3]).Clone();
+            if (det < 0) return false;
+            const double toDeg = 180 / Math.PI;
+            double sb = Math.Max(-1, Math.Min(1, -r[2, 0]));
+            double[] a1, a2;
+            if (Math.Abs(sb) > 1 - 1e-9)
+            {
+                // Gimbal lock (Y = ±90°): only X - Z (or X + Z) is defined; keep the preferred X.
+                double b = Math.Sign(sb) * 90;
+                double x = prefer?[0] ?? 0;
+                double zMinusX = Math.Atan2(-r[0, 1], r[1, 1]) * toDeg;   // with X = 0
+                double z = sb > 0 ? zMinusX + x : zMinusX - x;
+                a1 = a2 = new[] { x, b, z };
+            }
+            else
+            {
+                double b = Math.Asin(sb) * toDeg;
+                double x = Math.Atan2(r[2, 1], r[2, 2]) * toDeg, z = Math.Atan2(r[1, 0], r[0, 0]) * toDeg;
+                a1 = new[] { x, b, z };
+                a2 = new[] { x + 180, 180 - b, z + 180 };
+            }
+            double[] Norm(double[] a) => new[] { Tidy(Wrap(a[0]), 0.01), Tidy(Wrap(a[1]), 0.01), Tidy(Wrap(a[2]), 0.01) };
+            a1 = Norm(a1); a2 = Norm(a2);
+            double Dist(double[] a)
+            {
+                if (prefer == null) return Math.Abs(a[0]) + Math.Abs(a[1]) + Math.Abs(a[2]);
+                double s = 0;
+                for (int i = 0; i < 3; i++) s += Math.Abs(Wrap(a[i] - prefer[i]));
+                return s;
+            }
+            rotationDeg = Dist(a2) < Dist(a1) - 1e-6 ? a2 : a1;
+            return true;
+        }
+
+        /// <summary>Angle in (-180, 180].</summary>
+        private static double Wrap(double deg)
+        {
+            deg %= 360;
+            if (deg <= -180) deg += 360;
+            if (deg > 180) deg -= 360;
+            return deg;
+        }
+
+        /// <summary>Rounded to a step, without -0.</summary>
+        private static double Tidy(double v, double step)
+        {
+            double r = Math.Round(v / step) * step;
+            r = Math.Round(r, 6);
+            return r == 0 ? 0 : r;
+        }
+
+        private static double Dot(double[] a, double[] b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        private static double[] Sub(double[] a, double[] b) => new[] { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+
         /// <summary>R = Rz · Ry · Rx (degrees): rotate about X first, then Y, then Z (all local).</summary>
         public static double[,] Rotation(double xDeg, double yDeg, double zDeg)
         {

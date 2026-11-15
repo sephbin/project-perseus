@@ -54,5 +54,66 @@ namespace ProjectPerseusTests
             Assert.AreEqual(TypeTriage.Unchanged, new TypeTriage().Verdict);
             Assert.AreEqual(TypeTriage.NotWanted, new TypeTriage { Changes = 5, Cared = 5, NoiseCategory = true }.Verdict);
         }
-    }
+        // ── Capturing a hand move of the test family (Solve / Corrected) ──
+
+        private static void Same(Frame a, Frame b)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                Assert.AreEqual(a.O[k], b.O[k], 1e-6, "O");
+                Assert.AreEqual(a.X[k], b.X[k], 1e-6, "X");
+                Assert.AreEqual(a.Y[k], b.Y[k], 1e-6, "Y");
+                Assert.AreEqual(a.Z[k], b.Z[k], 1e-6, "Z");
+            }
+        }
+
+        [TestMethod]
+        public void SolveIsTheInverseOfPlace()
+        {
+            var turned = new Frame { O = new[] { 10.0, 20, 3 }, X = new[] { 0.0, 1, 0 }, Y = new[] { -1.0, 0, 0 }, Z = new[] { 0.0, 0, 1 } };
+            var ceiling = new Frame { O = new[] { 0.0, 0, 10 }, X = new[] { 1.0, 0, 0 }, Y = new[] { 0.0, -1, 0 }, Z = new[] { 0.0, 0, -1 } };
+            foreach (var src in new[] { turned, ceiling })
+            foreach (var rot in new[] { new[] { 0.0, 0, 0 }, new[] { 0.0, 0, 37.5 }, new[] { 180.0, 0, 90 }, new[] { 12.0, -30, 45 } })
+            {
+                var off = new[] { 150.0, -75.5, 2400 };
+                var f = MappingMath.Place(src, off, rot);
+                Assert.IsTrue(MappingMath.Solve(src, f, rot, out var o, out var r));
+                CollectionAssert.AreEqual(off, o);
+                for (int k = 0; k < 3; k++) Assert.AreEqual(rot[k], r[k], 1e-6);
+                Same(f, MappingMath.Place(src, o, r));
+            }
+        }
+
+        [TestMethod]
+        public void SolveWithoutAPreferenceStillRoundTrips()
+        {
+            var src = new Frame { O = new[] { 1.0, 2, 3 }, X = new[] { 0.6, 0.8, 0 }, Y = new[] { -0.8, 0.6, 0 }, Z = new[] { 0.0, 0, 1 } };
+            var f = MappingMath.Place(src, new[] { 0.0, 0, 0 }, new[] { 180.0, 0, 0 });
+            Assert.IsTrue(MappingMath.Solve(src, f, null, out _, out var r));
+            Same(f, MappingMath.Place(src, new double[3], r));
+            var mirrored = new Frame { O = src.O, X = new[] { -0.6, -0.8, 0 }, Y = src.Y, Z = src.Z };
+            Assert.IsFalse(MappingMath.Solve(src, mirrored, null, out _, out _));
+        }
+
+        [TestMethod]
+        public void CorrectedKeepsHowRevitRealisedThePlacement()
+        {
+            // Ceiling device (Z down), level-based family: Revit placed it upright (flipped about X) and 0.5 ft lower.
+            var src = new Frame { O = new[] { 0.0, 0, 10 }, X = new[] { 1.0, 0, 0 }, Y = new[] { 0.0, -1, 0 }, Z = new[] { 0.0, 0, -1 } };
+            var expected = MappingMath.Place(src, new double[3], new double[3]);
+            var placed = new Frame { O = new[] { 0.0, 0, 9.5 }, X = new[] { 1.0, 0, 0 }, Y = new[] { 0.0, 1, 0 }, Z = new[] { 0.0, 0, 1 } };
+            Same(expected, MappingMath.Corrected(expected, placed, placed));   // not moved: same rule
+            // The user turned it 90° in plan and moved it 1 ft along +X.
+            var now = new Frame { O = new[] { 1.0, 0, 9.5 }, X = new[] { 0.0, 1, 0 }, Y = new[] { -1.0, 0, 0 }, Z = new[] { 0.0, 0, 1 } };
+            var rule = MappingMath.Corrected(expected, placed, now);
+            Assert.IsTrue(MappingMath.Solve(src, rule, new double[3], out var off, out var rot));
+            Assert.AreEqual(304.8, off[0], 1e-6);
+            Assert.AreEqual(0, off[2], 1e-6);
+            // Placing with the solved rule points the plan direction where the user turned it.
+            var again = MappingMath.Place(src, off, rot);
+            var dir = MappingMath.PlanDirection(again);
+            Assert.AreEqual(0, dir[0], 1e-6);
+            Assert.AreEqual(1, dir[1], 1e-6);
+        }
+        }
 }

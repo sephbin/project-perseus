@@ -360,6 +360,7 @@ ProjectPerseus/
 │   │                             Local type picker = Category drop-down (default: consultant type's category) + virtualized type list (mapped
 │   │                             type always kept listed); consultant parameter values cached per consultant type (not re-read on a type pick); Pick in model
 │   │                             (PickObject a placed family -> its type).
+│   │                             Moving / rotating the test family by hand = offset / rotation captured (MappingMath.Corrected + Solve).
 │   ├── TransformDialog.cs        NEW (2026-11-15). Mapper's Transform… editor: constant, default, lookup table (+ fill from consultant values,
 │   │                             strict), expression, prefix / suffix, live preview.
 │   ├── AddParameterDialog.cs     NEW (2026-11-15). Add local parameter (name, data type, instance / type, company file) for the mapper.
@@ -549,6 +550,7 @@ ProjectPerseus/
 ├── mapping/                      NEW (2026-11-12, v1.3). Family mapping: our families at the consultants' locations. Plan in
 │   │                             /FAMILY_MAPPING_PLAN.md.
 │   ├── MappingMath.cs            Pure: Frame (origin + axes) and Place(source frame, offset mm in its axes, rotation ° X->Y->Z);
+│   │                             Solve = inverse of Place; Corrected = rule frame for a hand-moved family;
 │   │                             plan direction / tilt for upright-only families. Tested in MappingMathTest.cs.
 │   ├── TypeTriage.cs             Pure: what triage says about a consultant type (changes / reviewed / ignored / noise) -> Suggested /
 │   │                             Not wanted / No changes. Tested in MappingMathTest.cs.
