@@ -562,9 +562,7 @@ namespace ProjectPerseus.mapping
                 using (var tx = new Transaction(doc, "Perseus: Link Sync"))
                 {
                     tx.Start();
-                    var fo = tx.GetFailureHandlingOptions();
-                    fo.SetFailuresPreprocessor(new FamilyPlacer.Quiet());
-                    tx.SetFailureHandlingOptions(fo);
+                    var quiet = new FamilyPlacer.Quiet().On(tx);
                     for (int i = 0; i < ordered.Count; i++)
                     {
                         if (i % 20 == 0) progress?.Invoke($"{i} of {ordered.Count}", (double)i / ordered.Count);
@@ -594,6 +592,14 @@ namespace ProjectPerseus.mapping
                     events.AddRange(res.Connects);
                     LinkSyncLog.Add(doc, events, inTransaction: true);
                     tx.Commit();
+                    if (quiet.RolledBack)
+                    {
+                        // Nothing was applied: leave the group unassimilated (rolled back on dispose).
+                        res.Approved = res.Rejected = res.Replaced = 0; res.Failed = ordered.Count; res.Last = null;
+                        res.Warnings.Insert(0, "Revit refused the changes, nothing was applied: " + string.Join(" ", quiet.Errors));
+                        return res;
+                    }
+                    foreach (var e in quiet.Errors) if (!res.Warnings.Contains("Revit: " + e)) res.Warnings.Add("Revit: " + e);
                 }
                 foreach (var kv in rejectedNew)
                 {

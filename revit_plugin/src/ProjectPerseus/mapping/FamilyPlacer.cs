@@ -256,6 +256,18 @@ namespace ProjectPerseus.mapping
                     if (level == null) { warning = "the model has no levels"; return null; }
                     fi = host.Create.NewFamilyInstance(p, symbol, hostEl, level, StructuralType.NonStructural);
                     hostNormal = hostEl is Wall wall ? wall.Orientation : XYZ.BasisZ;
+                    if (hostEl is Wall)
+                    {
+                        // Revit puts a wall-hosted family at the level (the wall's base); its height is the elevation / sill parameter.
+                        host.Regenerate();
+                        double dz = p.Z - fi.GetTotalTransform().Origin.Z;
+                        foreach (var bip in new[] { BuiltInParameter.INSTANCE_ELEVATION_PARAM, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM })
+                        {
+                            var hp = fi.get_Parameter(bip);
+                            if (hp == null || hp.IsReadOnly || hp.StorageType != Autodesk.Revit.DB.StorageType.Double) continue;
+                            try { hp.Set(hp.AsDouble() + dz); break; } catch { }
+                        }
+                    }
                     Log.Info($"[Mapping] {symbol.FamilyName}: placed in {kind} {hostEl.Id.GetIdValue()} on '{level.Name}'");
                     break;
                 }
@@ -550,9 +562,7 @@ namespace ProjectPerseus.mapping
                 using (var tx = new Transaction(host, "Perseus: place mapped families"))
                 {
                     tx.Start();
-                    var fo = tx.GetFailureHandlingOptions();
-                    fo.SetFailuresPreprocessor(new Quiet());
-                    tx.SetFailureHandlingOptions(fo);
+                    var quiet = new Quiet().On(tx);
                     for (int i = 0; i < sources.Count; i++)
                     {
                         if (i % 25 == 0) progress?.Invoke($"{i} of {sources.Count}", (double)i / sources.Count);
@@ -572,6 +582,8 @@ namespace ProjectPerseus.mapping
                         }
                     }
                     tx.Commit();
+                    foreach (var e in quiet.Errors) if (!r.Warnings.Contains("Revit: " + e)) r.Warnings.Add("Revit: " + e);
+                    if (quiet.RolledBack) { r.Failed += r.Placed; r.Placed = 0; r.Last = null; }
                 }
                 tg.Assimilate();
             }
@@ -792,12 +804,40 @@ namespace ProjectPerseus.mapping
             }
         }
 
+        /// <summary>
+        /// No Revit dialogs while placing: warnings are dropped; errors are resolved with Revit's default resolution when it has
+        /// one (usually deleting the offending family), else the transaction is rolled back. Either way the error text is kept
+        /// in Errors so the caller can report it. Pair with FailureHandlingOptions.SetClearAfterRollback(true).
+        /// </summary>
         internal class Quiet : IFailuresPreprocessor
         {
+            internal readonly List<string> Errors = new List<string>();
+            internal bool RolledBack;
+
             public FailureProcessingResult PreprocessFailures(FailuresAccessor a)
             {
-                a.DeleteAllWarnings();
-                return FailureProcessingResult.Continue;
+                bool resolved = false, stuck = false;
+                foreach (var f in a.GetFailureMessages())
+                {
+                    if (f.GetSeverity() == FailureSeverity.Warning) { a.DeleteWarning(f); continue; }
+                    string text = f.GetDescriptionText();
+                    if (!Errors.Contains(text)) Errors.Add(text);
+                    if (f.HasResolutions()) { try { a.ResolveFailure(f); resolved = true; continue; } catch { } }
+                    stuck = true;
+                }
+                if (Errors.Count > 0) Log.Info($"[Mapping] Revit errors while placing: {string.Join(" | ", Errors)}" + (stuck ? " (rolled back)" : " (resolved)"));
+                if (stuck) { RolledBack = true; return FailureProcessingResult.ProceedWithRollBack; }
+                return resolved ? FailureProcessingResult.ProceedWithCommit : FailureProcessingResult.Continue;
+            }
+
+            /// <summary>Puts this preprocessor on a transaction (no dialogs, also after a roll back).</summary>
+            internal Quiet On(Transaction tx)
+            {
+                var fo = tx.GetFailureHandlingOptions();
+                fo.SetFailuresPreprocessor(this);
+                fo.SetClearAfterRollback(true);
+                tx.SetFailureHandlingOptions(fo);
+                return this;
             }
         }
     }

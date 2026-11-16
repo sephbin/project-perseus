@@ -1109,17 +1109,27 @@ namespace ProjectPerseus.ui
                 _sample = index;
                 string warning;
                 ARDB.FamilyInstance fi;
+                FamilyPlacer.Quiet quiet;
+                ARDB.ElementId placedId = null;
                 using (var tx = new ARDB.Transaction(_doc, "Perseus: test mapped family"))
                 {
                     tx.Start();
-                    var fo = tx.GetFailureHandlingOptions();
-                    fo.SetFailuresPreprocessor(new FamilyPlacer.Quiet());
-                    tx.SetFailureHandlingOptions(fo);
+                    quiet = new FamilyPlacer.Quiet().On(tx);
                     if (old != null && _doc.GetElement(old) != null) _doc.Delete(old);
                     fi = FamilyPlacer.Place(_doc, inst, rule, symbol, source, FamilyPlacer.Levels(_doc), FamilyPlacer.WorksetByName(_doc, rule.Workset), _me, out warning);
+                    placedId = fi?.Id;
                     tx.Commit();
                 }
-                _testId = fi?.Id;
+                // Revit can refuse it when the transaction commits (an error it resolved by deleting the family, or a roll back).
+                if (fi != null && !fi.IsValidObject) fi = null;
+                if (fi == null && placedId != null)
+                {
+                    warning = "Revit refused it" + (quiet.Errors.Count > 0 ? ": " + string.Join(" ", quiet.Errors) : "") +
+                              (warning != null ? $" ({warning})" : "");
+                    Log.Info($"[Mapping] test family refused by Revit: {warning}");
+                }
+                if (quiet.RolledBack && old != null && _doc.GetElement(old) == null) old = null;
+                _testId = fi?.Id ?? (quiet.RolledBack && old != null ? old : null);
                 _testSourceUid = source.UniqueId;
                 if (fi == null) { Status("Not placed: " + warning, true); _testInfo.Text = ""; return; }
                 _testSource = FamilyPlacer.SourceFrame(source, inst.GetTotalTransform());
