@@ -135,6 +135,14 @@ namespace ProjectPerseus.mapping
                     double across = (v - t.Multiply(v.DotProduct(t))).GetLength();
                     string label = $"wall {e.Id.GetIdValue()} ({along * MappingMath.MmPerFoot:N0} mm past its end, {across * MappingMath.MmPerFoot:N0} mm from its line, {w.Width * MappingMath.MmPerFoot:N0} mm thick)";
                     if (along > 10 / MappingMath.MmPerFoot || across > w.Width / 2 + tol) { why = (why == null ? "" : why + "; ") + label; continue; }
+                    // At a T / L junction the abutting wall's location line runs on to the other wall's centre while its body
+                    // stops at that wall's face: only a wall whose SOLID is at the point can host the penetration.
+                    var n = t.CrossProduct(XYZ.BasisZ).Normalize();
+                    if (!BodyAt(w, new XYZ(pr.XYZPoint.X, pr.XYZPoint.Y, p.Z), n, w.Width / 2 + tol))
+                    {
+                        why = (why == null ? "" : why + "; ") + label.TrimEnd(')') + ", but its body doesn't reach the point: cut back at a wall join)";
+                        continue;
+                    }
                     d = Math.Max(0, across - w.Width / 2);
                 }
                 else
@@ -145,6 +153,39 @@ namespace ProjectPerseus.mapping
                 if (d < bestD) { bestD = d; best = e; }
             }
             return bestD <= tol ? best : null;
+        }
+
+        /// <summary>
+        /// True when the wall's solid crosses a short line through <paramref name="centre"/> along the wall's normal (so the
+        /// wall body really is at that point: not cut back by a join, not below / above it). True when the geometry can't be read.
+        /// </summary>
+        private static bool BodyAt(Wall w, XYZ centre, XYZ normal, double halfLength)
+        {
+            try
+            {
+                var line = Line.CreateBound(centre - normal.Multiply(halfLength), centre + normal.Multiply(halfLength));
+                var opts = new SolidCurveIntersectionOptions { ResultType = SolidCurveIntersectionMode.CurveSegmentsInside };
+                bool anySolid = false;
+                foreach (var g in w.get_Geometry(new Options { ComputeReferences = false }) ?? Enumerable.Empty<GeometryObject>())
+                {
+                    var solids = g is Solid s ? new[] { s }
+                               : g is GeometryInstance gi ? gi.GetInstanceGeometry().OfType<Solid>().ToArray() : new Solid[0];
+                    foreach (var so in solids)
+                    {
+                        if (so == null || so.Volume <= 1e-9) continue;
+                        anySolid = true;
+                        var hit = so.IntersectWithCurve(line, opts);
+                        for (int i = 0; hit != null && i < hit.SegmentCount; i++)
+                            if (hit.GetCurveSegment(i).Length > 1 / MappingMath.MmPerFoot) return true;
+                    }
+                }
+                return !anySolid;
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"[Mapping] wall {w.Id.GetIdValue()} body check failed: {ex.Message}");
+                return true;
+            }
         }
 
         internal static List<string> Worksets(Document host)
