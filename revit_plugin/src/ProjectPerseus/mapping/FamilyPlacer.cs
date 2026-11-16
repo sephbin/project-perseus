@@ -137,8 +137,7 @@ namespace ProjectPerseus.mapping
                     if (along > 10 / MappingMath.MmPerFoot || across > w.Width / 2 + tol) { why = (why == null ? "" : why + "; ") + label; continue; }
                     // At a T / L junction the abutting wall's location line runs on to the other wall's centre while its body
                     // stops at that wall's face: only a wall whose SOLID is at the point can host the penetration.
-                    var n = t.CrossProduct(XYZ.BasisZ).Normalize();
-                    if (!BodyAt(w, new XYZ(pr.XYZPoint.X, pr.XYZPoint.Y, p.Z), n, w.Width / 2 + tol))
+                    if (!BodyAt(w, pr.XYZPoint, t))
                     {
                         why = (why == null ? "" : why + "; ") + label.TrimEnd(')') + ", but its body doesn't reach the point: cut back at a wall join)";
                         continue;
@@ -156,16 +155,15 @@ namespace ProjectPerseus.mapping
         }
 
         /// <summary>
-        /// True when the wall's solid crosses a short line through <paramref name="centre"/> along the wall's normal (so the
-        /// wall body really is at that point: not cut back by a join, not below / above it). True when the geometry can't be read.
+        /// True when the wall's body reaches the point along the wall: the solid's extent along its direction <paramref name="t"/>
+        /// covers <paramref name="onLine"/> (the point projected on the location line). Holes cut by openings already there don't
+        /// change that extent, a join that cuts the wall back does. True when the geometry can't be read.
         /// </summary>
-        private static bool BodyAt(Wall w, XYZ centre, XYZ normal, double halfLength)
+        private static bool BodyAt(Wall w, XYZ onLine, XYZ t)
         {
             try
             {
-                var line = Line.CreateBound(centre - normal.Multiply(halfLength), centre + normal.Multiply(halfLength));
-                var opts = new SolidCurveIntersectionOptions { ResultType = SolidCurveIntersectionMode.CurveSegmentsInside };
-                bool anySolid = false;
+                double min = double.MaxValue, max = double.MinValue;
                 foreach (var g in w.get_Geometry(new Options { ComputeReferences = false }) ?? Enumerable.Empty<GeometryObject>())
                 {
                     var solids = g is Solid s ? new[] { s }
@@ -173,13 +171,20 @@ namespace ProjectPerseus.mapping
                     foreach (var so in solids)
                     {
                         if (so == null || so.Volume <= 1e-9) continue;
-                        anySolid = true;
-                        var hit = so.IntersectWithCurve(line, opts);
-                        for (int i = 0; hit != null && i < hit.SegmentCount; i++)
-                            if (hit.GetCurveSegment(i).Length > 1 / MappingMath.MmPerFoot) return true;
+                        foreach (Edge e in so.Edges)
+                            foreach (var q in e.Tessellate())
+                            {
+                                double d = (q - onLine).DotProduct(t);
+                                if (d < min) min = d;
+                                if (d > max) max = d;
+                            }
                     }
                 }
-                return !anySolid;
+                if (min > max) return true;
+                double slack = 5 / MappingMath.MmPerFoot;
+                bool ok = min <= slack && max >= -slack;
+                if (!ok) Log.Info($"[Mapping] wall {w.Id.GetIdValue()}: body runs {min * MappingMath.MmPerFoot:N0} to {max * MappingMath.MmPerFoot:N0} mm from the point along it (cut back at a join)");
+                return ok;
             }
             catch (Exception ex)
             {
