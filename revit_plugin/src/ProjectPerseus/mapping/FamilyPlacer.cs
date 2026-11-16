@@ -193,6 +193,25 @@ namespace ProjectPerseus.mapping
             }
         }
 
+        private static string Mm(XYZ q) => q == null ? "-" : $"({q.X * MappingMath.MmPerFoot:N0}, {q.Y * MappingMath.MmPerFoot:N0}, {q.Z * MappingMath.MmPerFoot:N0})";
+
+        /// <summary>Diagnostics for hosted placement: where the consultant element is (host mm) and the target point.</summary>
+        private static void LogSourceGeometry(Element source, Transform toHost, XYZ p)
+        {
+            try
+            {
+                string line = "", box = "";
+                if (source.Location is LocationCurve lc && lc.Curve != null)
+                    line = $", line {Mm(toHost.OfPoint(lc.Curve.GetEndPoint(0)))} -> {Mm(toHost.OfPoint(lc.Curve.GetEndPoint(1)))}";
+                else if (source.Location is LocationPoint lp) line = $", point {Mm(toHost.OfPoint(lp.Point))}";
+                var bb = source.get_BoundingBox(null);
+                if (bb != null) box = $", box {Mm(toHost.OfPoint(bb.Min))} .. {Mm(toHost.OfPoint(bb.Max))}";
+                string origin = source is FamilyInstance fi ? $", family origin {Mm(toHost.OfPoint(fi.GetTotalTransform().Origin))}" : "";
+                Log.Info($"[Mapping] consultant {source.Id.GetIdValue()}{line}{box}{origin}; target {Mm(p)} (host mm)");
+            }
+            catch (Exception ex) { Log.Info($"[Mapping] consultant geometry: {ex.Message}"); }
+        }
+
         internal static List<string> Worksets(Document host)
         {
             if (!host.IsWorkshared) return new List<string>();
@@ -310,6 +329,7 @@ namespace ProjectPerseus.mapping
                 case FamilyPlacementType.OneLevelBasedHosted:
                 {
                     string kind = HostKindOf(symbol.Family);
+                    LogSourceGeometry(source, inst.GetTotalTransform(), p);
                     var hostEl = FindHost(host, kind, p, out string notHere);
                     if (hostEl == null)
                     {

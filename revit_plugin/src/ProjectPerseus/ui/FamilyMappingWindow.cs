@@ -581,13 +581,67 @@ namespace ProjectPerseus.ui
                 }
                 var tt = _targets.FirstOrDefault(t => t.Uid == uid);
                 if (tt == null) { Status($"{name} can't be used here (in-place, view-based or annotation family).", true); return; }
+                // A family the team already placed at a consultant element of this type: its position is the mapping's offset.
+                string learnt = LearnFromPlaced(_doc.GetElement(r.ElementId) as ARDB.FamilyInstance, out var off, out var rot);
                 SetTargetCategory(tt.Category);
                 FillTargets(uid);
+                if (off != null)
+                {
+                    _loadingEditor = true;
+                    try { for (int i = 0; i < 3; i++) { _offset[i].Text = Num(off[i]); _rotation[i].Text = Num(rot[i]); } }
+                    finally { _loadingEditor = false; }
+                }
                 if (!ReadEditor()) return;
                 UpdateNote(); QueueLive(); QueueSave(); LoadParams();
-                Status($"Local type: {name}" + (tt.Placeable ? "." : $" — needs a host ({tt.Placement}) Perseus can't place: pick a work-plane-, level- or wall / floor-hosted family."), !tt.Placeable);
+                Status($"Local type: {name}" + (tt.Placeable ? "." : $" — needs a host ({tt.Placement}) Perseus can't place: pick a work-plane-, level- or wall / floor-hosted family.") +
+                       (learnt != null ? " " + learnt : ""), !tt.Placeable);
             }, needActive: true);
         }
+
+        /// <summary>
+        /// When the picked local family sits at a consultant element of the selected type (nearest within 1.5 m), the offset and
+        /// rotation that put it there (MappingMath.Solve). Returns a status sentence (null when nothing nearby); off / rot null
+        /// when not learnt. API context.
+        /// </summary>
+        private string LearnFromPlaced(ARDB.FamilyInstance ours, out double[] off, out double[] rot)
+        {
+            off = rot = null;
+            try
+            {
+                var placed = ours == null ? null : FamilyPlacer.FrameOf(ours);
+                var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                var linkDoc = inst?.GetLinkDocument();
+                if (placed == null || linkDoc == null || _editing == null) return null;
+                var toHost = inst.GetTotalTransform();
+                var o = new ARDB.XYZ(placed.O[0], placed.O[1], placed.O[2]);
+                ARDB.Element best = null; mapping.Frame bestFrame = null; double bestD = 1500 / MappingMath.MmPerFoot;
+                foreach (var s in FamilyPlacer.SourceElements(linkDoc, _editing))
+                {
+                    var f = FamilyPlacer.SourceFrame(s, toHost);
+                    double d = o.DistanceTo(new ARDB.XYZ(f.O[0], f.O[1], f.O[2]));
+                    if (d < bestD) { bestD = d; best = s; bestFrame = f; }
+                }
+                if (best == null) { Log.Info($"[Mapping] picked {ours.Id.GetIdValue()}: no consultant element of this type within 1.5 m"); return null; }
+                if (!MappingMath.Solve(bestFrame, placed, (double[])_editing.RotationDeg.Clone(), out off, out rot))
+                {
+                    off = rot = null;
+                    return $"It sits at consultant element {best.Id.GetIdValue()} but is mirrored relative to it, so its offset wasn't taken.";
+                }
+                Log.Info($"[Mapping] picked {ours.Id.GetIdValue()} at consultant {best.Id.GetIdValue()} ({bestD * MappingMath.MmPerFoot:N0} mm apart): " +
+                         $"ours {Mm(o)}, consultant frame {Mm(bestFrame)} -> offset {string.Join(",", off)} rotation {string.Join(",", rot)}");
+                return $"Offset {Num(off[0])} / {Num(off[1])} / {Num(off[2])} mm and rotation {Num(rot[0])} / {Num(rot[1])} / {Num(rot[2])}° " +
+                       $"taken from where it sits at consultant element {best.Id.GetIdValue()} ({bestD * MappingMath.MmPerFoot:N0} mm from its centre).";
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"[Mapping] learning the offset from the picked family failed: {ex.Message}");
+                off = rot = null;
+                return null;
+            }
+        }
+
+        private static string Mm(ARDB.XYZ p) => $"({p.X * MappingMath.MmPerFoot:N0}, {p.Y * MappingMath.MmPerFoot:N0}, {p.Z * MappingMath.MmPerFoot:N0})";
+        private static string Mm(mapping.Frame f) => Mm(new ARDB.XYZ(f.O[0], f.O[1], f.O[2]));
 
         private class LocalFamilyFilter : Autodesk.Revit.UI.Selection.ISelectionFilter
         {

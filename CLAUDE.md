@@ -359,7 +359,7 @@ ProjectPerseus/
 │   │                             Parameters section (stage 5): mappings + pickers + compatibility / preview, Add local parameter…; values written by Link Sync.
 │   │                             Local type picker = Category drop-down (default: consultant type's category) + virtualized type list (mapped
 │   │                             type always kept listed); consultant parameter values cached per consultant type (not re-read on a type pick); Pick in model
-│   │                             (PickObject a placed family -> its type).
+│   │                             (PickObject a placed family -> its type; placed at a consultant element of the type (1.5 m) = its offset / rotation learnt).
 │   │                             Moving / rotating the test family by hand = offset / rotation captured (MappingMath.Corrected + Solve).
 │   ├── TransformDialog.cs        NEW (2026-11-15). Mapper's Transform… editor: constant, default, lookup table (+ fill from consultant values,
 │   │                             strict), expression, prefix / suffix, live preview.
