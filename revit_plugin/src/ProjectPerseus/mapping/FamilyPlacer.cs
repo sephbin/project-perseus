@@ -104,10 +104,15 @@ namespace ProjectPerseus.mapping
 
         /// <summary>
         /// Our wall / floor / ceiling / roof at a point for a hosted family: elements whose box holds the point (50 mm), nearest
-        /// first (walls: plan distance to the wall's body; others: height). Null when none is within 50 mm.
+        /// first. Walls: the point must lie ALONG the wall (within 10 mm of its length: at a junction the wall that runs through
+        /// it, not the one ending next to it, where Revit clamps the family to the wall's end and it cuts nothing) and within
+        /// half the wall's width + 50 mm across it. Others: height distance. Null when none qualifies.
         /// </summary>
-        internal static Element FindHost(Document host, string kind, XYZ p)
+        internal static Element FindHost(Document host, string kind, XYZ p) => FindHost(host, kind, p, out _);
+
+        internal static Element FindHost(Document host, string kind, XYZ p, out string why)
         {
+            why = null;
             var cat = kind == "floor" ? BuiltInCategory.OST_Floors : kind == "ceiling" ? BuiltInCategory.OST_Ceilings
                     : kind == "roof" ? BuiltInCategory.OST_Roofs : BuiltInCategory.OST_Walls;
             double tol = 50 / MappingMath.MmPerFoot;
@@ -120,8 +125,17 @@ namespace ProjectPerseus.mapping
                 if (e is Wall w && w.Location is LocationCurve lc)
                 {
                     var c = lc.Curve;
-                    var pr = c.Project(new XYZ(p.X, p.Y, c.GetEndPoint(0).Z));
-                    d = pr == null ? double.MaxValue : Math.Max(0, pr.Distance - w.Width / 2);
+                    var flat = new XYZ(p.X, p.Y, c.GetEndPoint(0).Z);
+                    var pr = c.Project(flat);
+                    if (pr == null) continue;
+                    var v = flat - pr.XYZPoint;
+                    XYZ t;
+                    try { t = c.ComputeDerivatives(pr.Parameter, false).BasisX.Normalize(); } catch { continue; }
+                    double along = Math.Abs(v.DotProduct(t));                    // beyond the wall's end
+                    double across = (v - t.Multiply(v.DotProduct(t))).GetLength();
+                    string label = $"wall {e.Id.GetIdValue()} ({along * MappingMath.MmPerFoot:N0} mm past its end, {across * MappingMath.MmPerFoot:N0} mm from its line, {w.Width * MappingMath.MmPerFoot:N0} mm thick)";
+                    if (along > 10 / MappingMath.MmPerFoot || across > w.Width / 2 + tol) { why = (why == null ? "" : why + "; ") + label; continue; }
+                    d = Math.Max(0, across - w.Width / 2);
                 }
                 else
                 {
@@ -250,8 +264,13 @@ namespace ProjectPerseus.mapping
                 case FamilyPlacementType.OneLevelBasedHosted:
                 {
                     string kind = HostKindOf(symbol.Family);
-                    var hostEl = FindHost(host, kind, p);
-                    if (hostEl == null) { warning = $"no {kind} of ours at the consultant element ({symbol.FamilyName} is {kind}-hosted)"; return null; }
+                    var hostEl = FindHost(host, kind, p, out string notHere);
+                    if (hostEl == null)
+                    {
+                        warning = $"no {kind} of ours runs through the consultant element ({symbol.FamilyName} is {kind}-hosted)" + (notHere != null ? $"; nearby: {notHere}" : "");
+                        Log.Info($"[Mapping] {warning}");
+                        return null;
+                    }
                     var level = host.GetElement(hostEl.LevelId) as Level ?? LevelBelow(levels, p.Z);
                     if (level == null) { warning = "the model has no levels"; return null; }
                     fi = host.Create.NewFamilyInstance(p, symbol, hostEl, level, StructuralType.NonStructural);
