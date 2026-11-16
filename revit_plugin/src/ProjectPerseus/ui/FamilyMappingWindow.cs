@@ -360,9 +360,12 @@ namespace ProjectPerseus.ui
                 if (Instance == this) Instance = null;
                 var revitApp = _doc?.Application;
                 if (revitApp != null) OwnershipUiEvent.Run(a => { try { revitApp.DocumentChanged -= OnDocumentChanged; } catch { } });
+                OwnershipUiEvent.Run(a => { try { a.SelectionChanged -= OnRevitSelectionChanged; } catch { } });
             };
             // Watch the test family: a type change made in Revit (type selector, or Edit Type > Duplicate) is taken into the mapping.
             Api(app => app.Application.DocumentChanged += OnDocumentChanged);
+            // Follow Revit's selection: a link picks that link, a linked element (Tab / Select links) also its consultant type's row.
+            Api(app => app.SelectionChanged += OnRevitSelectionChanged);
             _editor.IsEnabled = false;
             _linkBox.SelectionChanged += (s, e) => Safe(LinkChanged);
             _linkBox.SelectedItem = links.FirstOrDefault(l => l.Uid == preferredLink) ?? links[0];
@@ -423,7 +426,74 @@ namespace ProjectPerseus.ui
                        (_triageLabel != null ? $"Suggestions from the triage of {_triageLabel}."
                                              : "No triage for this link: open one of its comparisons in Link Changes to get suggestions (all types are listed meanwhile)."));
                 if (_triageLabel == null) _suggestedOnly.IsChecked = false;
+                if (_pendingSourceUid != null) { var u = _pendingSourceUid; _pendingSourceUid = null; SelectSourceRow(u); }
             });
+        }
+
+        // ═══════════════ Following Revit's selection ═══════════════
+
+        private string _pendingSourceUid;   // consultant element to select once the link switched to has loaded
+
+        private void OnRevitSelectionChanged(object sender, Autodesk.Revit.UI.Events.SelectionChangedEventArgs e)
+        {
+            try
+            {
+                if (_closing || _doc == null) return;
+                var doc = e.GetDocument();
+                if (doc == null || !doc.Equals(_doc)) return;
+                string linkUid = null, srcUid = null;
+                foreach (var r in e.GetReferences() ?? new List<ARDB.Reference>())
+                {
+                    if (!(doc.GetElement(r?.ElementId) is ARDB.RevitLinkInstance li)) continue;
+                    linkUid = li.UniqueId;
+                    if (r.LinkedElementId != ARDB.ElementId.InvalidElementId) srcUid = li.GetLinkDocument()?.GetElement(r.LinkedElementId)?.UniqueId;
+                    if (srcUid != null) break;   // prefer a linked element over a bare link
+                }
+                if (linkUid == null) return;
+                Dispatcher.BeginInvoke(new Action(() => Safe(() => FollowRevitSelection(linkUid, srcUid))));
+            }
+            catch (Exception ex) { Log.Info($"[Mapping] following the Revit selection: {ex.Message}"); }
+        }
+
+        private void FollowRevitSelection(string linkUid, string srcUid)
+        {
+            if (_closing) return;
+            var choice = _linkBox.Items.OfType<LinkChoice>().FirstOrDefault(l => l.Uid == linkUid);
+            if (choice == null) return;
+            if (linkUid != _linkUid)
+            {
+                _pendingSourceUid = srcUid;
+                _linkBox.SelectedItem = choice;   // LinkChanged -> Reload -> then the row
+                Status($"Switched to {choice.Name} (selected in Revit)…");
+                return;
+            }
+            if (srcUid != null) SelectSourceRow(srcUid);
+        }
+
+        /// <summary>Selects the row of the consultant type of a linked element (un-hiding it from the suggested-only / text filter).</summary>
+        private void SelectSourceRow(string srcUid)
+        {
+            var row = _rows.FirstOrDefault(r => r.Source.Uids.Contains(srcUid));
+            if (row == null) { Status("The selected consultant element isn't a family type listed here (not a family, or nested in another)."); return; }
+            if (_current != null && _current.Source.Key == row.Source.Key) return;   // already on it (also the test's own consultant element)
+            if (_grid.SelectedItems.Count > 1 && _grid.SelectedItems.Cast<Row>().Any(r => r.Source.Key == row.Source.Key)) return;
+            if (!_categories.IsTicked(row.Category))
+            {
+                Status($"{row.Type} is in {row.Category}, which is filtered off: tick it in the category list to see it.", true);
+                return;
+            }
+            var shown = (_grid.ItemsSource as IEnumerable<Row>)?.ToList() ?? new List<Row>();
+            if (!shown.Contains(row))
+            {
+                if (_suggestedOnly.IsChecked == true) _suggestedOnly.IsChecked = false;
+                if (!string.IsNullOrEmpty(_filter.Text)) _filter.Text = "";
+                Fill();
+                shown = (_grid.ItemsSource as IEnumerable<Row>)?.ToList() ?? new List<Row>();
+                if (!shown.Contains(row)) return;
+            }
+            _grid.SelectedItem = row;
+            _grid.ScrollIntoView(row);
+            Status($"{row.Category}: {row.Type} (selected in Revit).");
         }
 
         private void BuildRows()
