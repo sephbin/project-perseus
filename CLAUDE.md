@@ -551,6 +551,7 @@ ProjectPerseus/
 │   │                             /FAMILY_MAPPING_PLAN.md.
 │   ├── MappingMath.cs            Pure: Frame (origin + axes) and Place(source frame, offset mm in its axes, rotation ° X->Y->Z);
 │   │                             Solve = inverse of Place; Corrected = rule frame for a hand-moved family;
+│   │                             Realisation / Realise = how Revit realised a rule frame (stored per placed family, used by the planner);
 │   │                             plan direction / tilt for upright-only families. Tested in MappingMathTest.cs.
 │   ├── TypeTriage.cs             Pure: what triage says about a consultant type (changes / reviewed / ignored / noise) -> Suggested /
 │   │                             Not wanted / No changes. Tested in MappingMathTest.cs.
@@ -593,6 +594,8 @@ ProjectPerseus/
 │                                 consultant frame (family transform, else location), Place (floating first: level-based on the level below +
 │                                 offset, plan rotation only; work-plane / face-based like Rhino.Inside's Add Component (Work Plane): SketchPlane as host element,
 │                                 at the target height facing up/down (offset 0), or through the point when tilted; hosted = refused),
+│                                 Hosted (wall / floor / ceiling / roof) families: FindHost = our host at the point, snapped along it only.
+│                                 Line-based consultant families (framing voids): frame origin = element centre.
 │                                 PlaceAll (skips consultant elements already mapped, incl. via replacements; one undo step), LinkExisting
 │                                 (nearest expected position within tolerance, one-to-one). Records carry the sync baseline. MoveTo (in place,
 │                                 else re-place with instance parameters copied), FrameOf, TypeKey, UnusedPerseusPlanes.

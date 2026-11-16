@@ -129,13 +129,13 @@ namespace ProjectPerseus.mapping
 
         /// <summary>Writes a fresh record (placed / linked now) with the sync baseline.</summary>
         internal static MappedFamilyData Write(Element el, string linkInstanceUid, string sourceUid, long sourceId, string ruleId, string by, string how,
-                                               string sourceTypeKey = null, Frame sourceFrame = null, Frame oursFrame = null)
+                                               string sourceTypeKey = null, Frame sourceFrame = null, Frame oursFrame = null, double[] realisation = null)
         {
             var d = new MappedFamilyData
             {
                 LinkInstanceUid = linkInstanceUid, SourceUid = sourceUid, SourceId = sourceId.ToString(), RuleId = ruleId, By = by,
                 Utc = DateTime.UtcNow, How = how ?? Placed, SourceTypeKey = sourceTypeKey,
-                SourceFrame = MappingMath.Pack(sourceFrame), OursFrame = MappingMath.Pack(oursFrame),
+                SourceFrame = MappingMath.Pack(sourceFrame), OursFrame = MappingMath.Pack(oursFrame), Realisation = realisation,
             };
             Write(el, d);
             return d;

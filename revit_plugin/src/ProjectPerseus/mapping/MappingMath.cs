@@ -57,6 +57,40 @@ namespace ProjectPerseus.mapping
         }
 
         /// <summary>
+        /// How Revit realised a rule frame: the placed frame in the rule frame's own coordinates (origin + X, Y, Z axes, 12
+        /// numbers). keepOrigin false = axes only (a level-based family standing upright under a ceiling device); true also keeps
+        /// the origin offset (a hosted family sits in our wall, not exactly at the consultant's point).
+        /// </summary>
+        public static double[] Realisation(Frame rule, Frame placed, bool keepOrigin)
+        {
+            if (rule == null || placed == null) return null;
+            var E = new[] { rule.X, rule.Y, rule.Z };
+            var d = keepOrigin ? Sub(placed.O, rule.O) : new double[3];
+            var c = new double[12];
+            for (int i = 0; i < 3; i++) c[i] = Dot(E[i], d);
+            var P = new[] { placed.X, placed.Y, placed.Z };
+            for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) c[3 + 3 * j + i] = Dot(E[i], P[j]);
+            return c;
+        }
+
+        /// <summary>Where a rule frame ends up given a realisation (null = exactly the rule frame).</summary>
+        public static Frame Realise(Frame rule, double[] c)
+        {
+            if (rule == null || c == null || c.Length < 12) return rule;
+            var E = new[] { rule.X, rule.Y, rule.Z };
+            double[] Of(double a, double b, double cc) => new[]
+            {
+                a * E[0][0] + b * E[1][0] + cc * E[2][0], a * E[0][1] + b * E[1][1] + cc * E[2][1], a * E[0][2] + b * E[1][2] + cc * E[2][2],
+            };
+            var o = Of(c[0], c[1], c[2]);
+            return new Frame
+            {
+                O = new[] { rule.O[0] + o[0], rule.O[1] + o[1], rule.O[2] + o[2] },
+                X = Unit(Of(c[3], c[4], c[5])), Y = Unit(Of(c[6], c[7], c[8])), Z = Unit(Of(c[9], c[10], c[11])),
+            };
+        }
+
+        /// <summary>
         /// The rule frame that makes the family land at <paramref name="now"/>, given that the rule frame
         /// <paramref name="expected"/> made it land at <paramref name="placed"/> (Revit may realise a frame differently, e.g. a
         /// level-based family stays upright). The same expected -> placed relation (in expected's axes) is applied to now.

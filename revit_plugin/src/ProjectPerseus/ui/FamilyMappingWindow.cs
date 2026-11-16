@@ -581,7 +581,7 @@ namespace ProjectPerseus.ui
                 FillTargets(uid);
                 if (!ReadEditor()) return;
                 UpdateNote(); QueueLive(); QueueSave(); LoadParams();
-                Status($"Local type: {name}" + (tt.Floating ? "." : $" — needs a host ({tt.Placement}), so it can't be placed floating: pick a work-plane- or level-based family."), !tt.Floating);
+                Status($"Local type: {name}" + (tt.Placeable ? "." : $" — needs a host ({tt.Placement}) Perseus can't place: pick a work-plane-, level- or wall / floor-hosted family."), !tt.Placeable);
             }, needActive: true);
         }
 
@@ -667,10 +667,11 @@ namespace ProjectPerseus.ui
                 : t.FaceBased ? "Face-based: placed on a work plane (a Perseus sketch plane at the target height, facing like the consultant element). A work-plane-based version of the family is preferred."
                 : t.FullRotation ? "Work-plane-based (preferred): placed on a Perseus sketch plane at the target height, facing like the consultant element; tilted elements get a plane through the point."
                 : t.Floating ? "Level-based: placed on the level below; it always stands upright, so only the Z rotation applies. A work-plane-based family can also tilt."
-                : $"Needs a host ({t.Placement}): can't be placed floating. Pick a work-plane- or level-based family.";
-            if (t != null && t.FaceBased) _placementNote.Foreground = Frozen(0xB4, 0x6A, 0x00);
-            _placementNote.Foreground = t != null && !t.Floating ? Bad : t != null && t.FaceBased ? Frozen(0xB4, 0x6A, 0x00) : Muted;
-            bool ok = t != null && t.Floating && _others.Count == 0;
+                : t.Hosted ? $"{char.ToUpper(t.HostKind[0]) + t.HostKind.Substring(1)}-hosted: placed in the local {t.HostKind} at the consultant element (nothing is placed where there's no {t.HostKind} of ours). " +
+                             $"It takes the {t.HostKind}'s direction and depth; the offset moves it along the {t.HostKind}, rotation doesn't apply."
+                : $"Needs a host ({t.Placement}) Perseus can't place. Pick a work-plane-, level- or wall / floor-hosted family.";
+            _placementNote.Foreground = t != null && !t.Placeable ? Bad : t != null && t.FaceBased ? Frozen(0xB4, 0x6A, 0x00) : Muted;
+            bool ok = t != null && t.Placeable && _others.Count == 0;
             _test.IsEnabled = _next.IsEnabled = ok;
         }
 
@@ -1186,7 +1187,7 @@ namespace ProjectPerseus.ui
             if (_editing == null || _editing.Id != ruleId || _current == null) return;
             if (targets != null) { _targets = targets; FillTargetCategories(); }
             FillTargets(uid);
-            if (_target.SelectedItem == null) { Status($"The test family is now {name}, which can't be placed floating: not taken into the mapping.", true); return; }
+            if (_target.SelectedItem == null) { Status($"The test family is now {name}, which Perseus can't place: not taken into the mapping.", true); return; }
             if (ReadEditor()) QueueSave();
             UpdateNote();
             Status($"Type changed in Revit: {(isNew ? "new type " : "")}{name} is now this mapping's type (saved).");

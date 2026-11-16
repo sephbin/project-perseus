@@ -115,5 +115,22 @@ namespace ProjectPerseusTests
             Assert.AreEqual(0, dir[0], 1e-6);
             Assert.AreEqual(1, dir[1], 1e-6);
         }
+            [TestMethod]
+        public void RealisationCarriesHowRevitPlacedIt()
+        {
+            // A hosted family placed 100 mm off the rule point (wall face) and turned 90° (the wall's direction).
+            var rule = new Frame { O = new[] { 5.0, 5, 1 }, X = new[] { 1.0, 0, 0 }, Y = new[] { 0.0, 1, 0 }, Z = new[] { 0.0, 0, 1 } };
+            var placed = new Frame { O = new[] { 5.0, 5 + 100 * Ft, 1 }, X = new[] { 0.0, 1, 0 }, Y = new[] { -1.0, 0, 0 }, Z = new[] { 0.0, 0, 1 } };
+            var c = MappingMath.Realisation(rule, placed, true);
+            Same(placed, MappingMath.Realise(rule, c));
+            // The consultant element moves 1 ft along +X and turns 90°: ours follows with the same relation.
+            var rule2 = new Frame { O = new[] { 6.0, 5, 1 }, X = new[] { 0.0, 1, 0 }, Y = new[] { -1.0, 0, 0 }, Z = new[] { 0.0, 0, 1 } };
+            var now = MappingMath.Realise(rule2, c);
+            Assert.AreEqual(6 - 100 * Ft, now.O[0], 1e-9);
+            Assert.AreEqual(-1, now.X[0], 1e-9);
+            // Axes only: the origin stays on the rule point.
+            Assert.AreEqual(5, MappingMath.Realise(rule, MappingMath.Realisation(rule, placed, false)).O[1], 1e-9);
+            Assert.AreSame(rule, MappingMath.Realise(rule, null));
+        }
         }
 }

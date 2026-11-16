@@ -36,13 +36,18 @@ namespace ProjectPerseus.mapping
             internal bool WorkPlaneFlag;
             internal bool Floating => Placement == FamilyPlacementType.OneLevelBased || Placement == FamilyPlacementType.TwoLevelsBased
                                       || Placement == FamilyPlacementType.WorkPlaneBased;
+            /// <summary>Hosted by a wall / floor / ceiling / roof: placed in ours at the target point (e.g. a wall penetration).</summary>
+            internal bool Hosted => Placement == FamilyPlacementType.OneLevelBasedHosted;
+            /// <summary>"wall" / "floor" / "ceiling" / "roof" for hosted families.</summary>
+            internal string HostKind = "wall";
+            internal bool Placeable => Floating || Hosted;
             /// <summary>Placed on a work plane (full rotation): work-plane-based or face-based.</summary>
             internal bool FullRotation => Placement == FamilyPlacementType.WorkPlaneBased || WorkPlaneFlag;
             internal bool FaceBased => Placement == FamilyPlacementType.WorkPlaneBased && !WorkPlaneFlag;
             /// <summary>work-plane-based / face-based / level-based / hosted (needs a wall, ceiling...).</summary>
-            internal string Hosting => !Floating ? "hosted" : FaceBased ? "face-based" : FullRotation ? "work-plane-based" : "level-based";
+            internal string Hosting => Hosted ? HostKind + "-hosted" : !Floating ? "hosted" : FaceBased ? "face-based" : FullRotation ? "work-plane-based" : "level-based";
             /// <summary>Preferred first: work-plane-based, then level-based, then face-based, hosted last.</summary>
-            internal int Preference => !Floating ? 3 : FaceBased ? 2 : FullRotation ? 0 : 1;
+            internal int Preference => Hosted ? 2 : !Floating ? 3 : FaceBased ? 2 : FullRotation ? 0 : 1;
             public override string ToString() => $"{Family} : {Type}";
         }
 
@@ -83,9 +88,49 @@ namespace ProjectPerseus.mapping
                 if (p == FamilyPlacementType.ViewBased || p == FamilyPlacementType.CurveBasedDetail || p == FamilyPlacementType.Invalid) continue;
                 bool wp = false;
                 try { wp = s.Family.get_Parameter(BuiltInParameter.FAMILY_WORK_PLANE_BASED)?.AsInteger() == 1; } catch { }
-                list.Add(new TargetType { Uid = s.UniqueId, Category = s.Category.Name, Family = s.FamilyName, Type = s.Name, Placement = p, WorkPlaneFlag = wp });
+                list.Add(new TargetType { Uid = s.UniqueId, Category = s.Category.Name, Family = s.FamilyName, Type = s.Name, Placement = p, WorkPlaneFlag = wp,
+                                          HostKind = HostKindOf(s.Family) });
             }
             return list.OrderBy(t => t.Category).ThenBy(t => t.Preference).ThenBy(t => t.Family).ThenBy(t => t.Type).ToList();
+        }
+
+        /// <summary>What a hosted family goes in (Family "Host" behaviour): wall (default), floor, ceiling or roof.</summary>
+        internal static string HostKindOf(Family f)
+        {
+            int b = 1;
+            try { b = f.get_Parameter(BuiltInParameter.FAMILY_HOSTING_BEHAVIOR)?.AsInteger() ?? 1; } catch { }
+            return b == 2 ? "floor" : b == 3 ? "ceiling" : b == 4 ? "roof" : "wall";
+        }
+
+        /// <summary>
+        /// Our wall / floor / ceiling / roof at a point for a hosted family: elements whose box holds the point (50 mm), nearest
+        /// first (walls: plan distance to the wall's body; others: height). Null when none is within 50 mm.
+        /// </summary>
+        internal static Element FindHost(Document host, string kind, XYZ p)
+        {
+            var cat = kind == "floor" ? BuiltInCategory.OST_Floors : kind == "ceiling" ? BuiltInCategory.OST_Ceilings
+                    : kind == "roof" ? BuiltInCategory.OST_Roofs : BuiltInCategory.OST_Walls;
+            double tol = 50 / MappingMath.MmPerFoot;
+            Element best = null;
+            double bestD = double.MaxValue;
+            foreach (var e in new FilteredElementCollector(host).OfCategory(cat).WhereElementIsNotElementType()
+                         .WherePasses(new BoundingBoxContainsPointFilter(p, tol)))
+            {
+                double d;
+                if (e is Wall w && w.Location is LocationCurve lc)
+                {
+                    var c = lc.Curve;
+                    var pr = c.Project(new XYZ(p.X, p.Y, c.GetEndPoint(0).Z));
+                    d = pr == null ? double.MaxValue : Math.Max(0, pr.Distance - w.Width / 2);
+                }
+                else
+                {
+                    var bb = e.get_BoundingBox(null);
+                    d = bb == null ? double.MaxValue : Math.Max(0, Math.Max(bb.Min.Z - p.Z, p.Z - bb.Max.Z));
+                }
+                if (d < bestD) { bestD = d; best = e; }
+            }
+            return bestD <= tol ? best : null;
         }
 
         internal static List<string> Worksets(Document host)
@@ -102,6 +147,16 @@ namespace ProjectPerseus.mapping
             if (el is FamilyInstance fi)
             {
                 try { t = fi.GetTotalTransform(); } catch { t = null; }
+                // Line-based (structural framing, e.g. penetration voids drawn as framing): the transform sits at the line's start,
+                // so a mapped family would drift with the length. Use the element's centre (its box, else the line's middle).
+                if (t != null && fi.Location is LocationCurve flc && flc.Curve != null)
+                {
+                    XYZ centre = null;
+                    var bb = el.get_BoundingBox(null);
+                    if (bb != null && bb.Max.DistanceTo(bb.Min) > 1e-3) centre = (bb.Min + bb.Max) / 2;
+                    else { try { centre = flc.Curve.Evaluate(0.5, true); } catch { } }
+                    if (centre != null) t.Origin = centre;
+                }
             }
             if (t == null)
             {
@@ -166,6 +221,7 @@ namespace ProjectPerseus.mapping
             var p = new XYZ(f.O[0], f.O[1], f.O[2]);
             if (!symbol.IsActive) { symbol.Activate(); host.Regenerate(); }
             FamilyInstance fi;
+            XYZ hostNormal = null;   // hosted: Revit keeps it in the host, so it's only snapped along the host
             bool workPlaneFlag = false;
             try { workPlaneFlag = symbol.Family.get_Parameter(BuiltInParameter.FAMILY_WORK_PLANE_BASED)?.AsInteger() == 1; } catch { }
             if (workPlaneFlag && (placement == FamilyPlacementType.OneLevelBased || placement == FamilyPlacementType.TwoLevelsBased))
@@ -191,8 +247,20 @@ namespace ProjectPerseus.mapping
                     if (fi == null) return null;
                     break;
                 }
+                case FamilyPlacementType.OneLevelBasedHosted:
+                {
+                    string kind = HostKindOf(symbol.Family);
+                    var hostEl = FindHost(host, kind, p);
+                    if (hostEl == null) { warning = $"no {kind} of ours at the consultant element ({symbol.FamilyName} is {kind}-hosted)"; return null; }
+                    var level = host.GetElement(hostEl.LevelId) as Level ?? LevelBelow(levels, p.Z);
+                    if (level == null) { warning = "the model has no levels"; return null; }
+                    fi = host.Create.NewFamilyInstance(p, symbol, hostEl, level, StructuralType.NonStructural);
+                    hostNormal = hostEl is Wall wall ? wall.Orientation : XYZ.BasisZ;
+                    Log.Info($"[Mapping] {symbol.FamilyName}: placed in {kind} {hostEl.Id.GetIdValue()} on '{level.Name}'");
+                    break;
+                }
                 default:
-                    warning = $"{symbol.FamilyName} needs a host ({placement}): only level-, work-plane- and face-based families are placed";
+                    warning = $"{symbol.FamilyName} needs a host ({placement}): only level-, work-plane-, face-based and wall / floor / ceiling / roof-hosted families are placed";
                     return null;
             }
             if (workset != null && workset != WorksetId.InvalidWorksetId)
@@ -200,10 +268,11 @@ namespace ProjectPerseus.mapping
                 var wp = fi.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
                 if (wp != null && !wp.IsReadOnly) wp.Set(workset.IntegerValue);
             }
-            string residual = SnapTo(host, fi, p);
+            string residual = SnapTo(host, fi, p, hostNormal);
             if (residual != null) warning = warning == null ? residual : warning + "; " + residual;
+            var placedFrame = FrameOf(fi);
             MappedFamilyStore.Write(fi, inst.UniqueId, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Placed,
-                                    TypeKey(source), src, FrameOf(fi));
+                                    TypeKey(source), src, placedFrame, MappingMath.Realisation(f, placedFrame, hostNormal != null));
             return fi;
         }
 
@@ -212,13 +281,20 @@ namespace ProjectPerseus.mapping
         /// things for level-, face- and work-plane-based families (and their sign follows the host's side), so the
         /// result is measured and corrected instead of trusted. Returns a warning when Revit kept it away.
         /// </summary>
-        private static string SnapTo(Document host, FamilyInstance fi, XYZ target)
+        private static string SnapTo(Document host, FamilyInstance fi, XYZ target, XYZ keepInHost = null)
         {
             try
             {
                 host.Regenerate();
                 var at = fi.GetTotalTransform().Origin;
                 var delta = target - at;
+                if (keepInHost != null)
+                {
+                    // Hosted: it can't leave the wall / floor; only move it along it (its depth in the host is the family's).
+                    var n = keepInHost.Normalize();
+                    delta -= n.Multiply(delta.DotProduct(n));
+                    target = at + delta;
+                }
                 if (delta.GetLength() < 0.5 / MappingMath.MmPerFoot) return null;
                 Log.Info($"[Mapping] placed {delta.GetLength() * MappingMath.MmPerFoot:N0} mm from the target (dx {delta.X * MappingMath.MmPerFoot:N0}, dy {delta.Y * MappingMath.MmPerFoot:N0}, dz {delta.Z * MappingMath.MmPerFoot:N0} mm): moving it onto the target");
                 ElementTransformUtils.MoveElement(host, fi.Id, delta);

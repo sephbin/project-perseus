@@ -26,6 +26,11 @@ namespace ProjectPerseus.models
         public string SourceTypeKey { get; set; }
         public double[] SourceFrame { get; set; }
         public double[] OursFrame { get; set; }
+        /// <summary>
+        /// How Revit realised the rule frame when Perseus placed it (MappingMath.Realisation): axes always (e.g. a level-based family
+        /// standing upright under a ceiling device), origin offset only for hosted families (in our wall / floor). Null = exactly.
+        /// </summary>
+        public double[] Realisation { get; set; }
 
         // Rejected changes: not proposed again until the consultant / mapping changes once more.
         /// <summary>Expected frame (consultant + rule) at which a move was rejected.</summary>

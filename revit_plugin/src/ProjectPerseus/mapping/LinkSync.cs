@@ -707,7 +707,7 @@ namespace ProjectPerseus.mapping
                     rule = rule ?? link.Mapping.Rules.FirstOrDefault(r => r.Id == rec?.RuleId);
                     if (rule == null) return "no mapping rule for it";
                     var srcFrame = FamilyPlacer.SourceFrame(source, toHost);
-                    var expected = MappingMath.Place(srcFrame, rule.OffsetMm, rule.RotationDeg);
+                    var expected = MappingMath.Realise(MappingMath.Place(srcFrame, rule.OffsetMm, rule.RotationDeg), rec?.Realisation);
                     var now = FamilyPlacer.MoveTo(doc, ours, expected, rule.ToleranceXyMm, rule.ToleranceZMm, inst, rule, source, levels, user, out string warning, out bool replaced);
                     if (now == null) return warning ?? "couldn't move it";
                     if (replaced) { idMap[oid] = now.Id.GetIdValue(); res.Replaced++; }

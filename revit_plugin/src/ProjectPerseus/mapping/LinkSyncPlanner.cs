@@ -288,7 +288,7 @@ namespace ProjectPerseus.mapping
                 // Position against the rule of its current consultant type (else the rule it was placed by).
                 var posRule = rule ?? oldRule;
                 if (posRule == null || o.Frame == null || now.Frame == null) continue;
-                var expected = MappingMath.Place(now.Frame, posRule.OffsetMm, posRule.RotationDeg);
+                var expected = MappingMath.Realise(MappingMath.Place(now.Frame, posRule.OffsetMm, posRule.RotationDeg), r.Realisation);
                 var d = MappingMath.Delta(o.Frame, expected);
                 double tx = posRule.ToleranceXyMm, tz = posRule.ToleranceZMm;
                 if (MappingMath.Within(d, tx, tz))
@@ -336,7 +336,7 @@ namespace ProjectPerseus.mapping
                 {
                     var sd = MappingMath.Delta(now.Frame, srcBase);
                     if (!MappingMath.Within(sd, tx, tz)) why.Add($"the consultant element moved {MappingMath.Describe(sd)}");
-                    if (oursBase != null && !MappingMath.Within(MappingMath.Delta(MappingMath.Place(srcBase, posRule.OffsetMm, posRule.RotationDeg), oursBase), tx, tz))
+                    if (oursBase != null && !MappingMath.Within(MappingMath.Delta(MappingMath.Realise(MappingMath.Place(srcBase, posRule.OffsetMm, posRule.RotationDeg), r.Realisation), oursBase), tx, tz))
                         why.Add("the mapping's offset / rotation changed");
                     if (oursBase != null && !MappingMath.Within(MappingMath.Delta(o.Frame, oursBase), tx, tz)) why.Add("the local family was also moved by hand");
                 }
