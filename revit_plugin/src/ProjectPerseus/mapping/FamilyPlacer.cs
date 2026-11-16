@@ -196,7 +196,7 @@ namespace ProjectPerseus.mapping
         private static string Mm(XYZ q) => q == null ? "-" : $"({q.X * MappingMath.MmPerFoot:N0}, {q.Y * MappingMath.MmPerFoot:N0}, {q.Z * MappingMath.MmPerFoot:N0})";
 
         /// <summary>Diagnostics for hosted placement: where the consultant element is (host mm) and the target point.</summary>
-        private static void LogSourceGeometry(Element source, Transform toHost, XYZ p)
+        internal static void LogSourceGeometry(Element source, Transform toHost, XYZ p)
         {
             try
             {

@@ -118,6 +118,8 @@ namespace ProjectPerseus.ui
         // The other selected types (multi-select): an edit made in the editor is applied to each of them too.
         private readonly List<KeyValuePair<Row, FamilyMapRule>> _others = new List<KeyValuePair<Row, FamilyMapRule>>();
         private ARDB.ElementId _testId;
+        // The "test" is a family the team placed (Pick in model): moves are captured, but Perseus never deletes or re-places it.
+        private bool _testIsExisting;
         private string _testSourceUid;       // the consultant element the test stands at (kept while tuning)
         // Where the test was put: consultant frame, the rule's frame and where Revit actually placed it (hand moves are measured from it).
         private mapping.Frame _testSource, _testExpected, _testPlaced;
@@ -582,7 +584,24 @@ namespace ProjectPerseus.ui
                 var tt = _targets.FirstOrDefault(t => t.Uid == uid);
                 if (tt == null) { Status($"{name} can't be used here (in-place, view-based or annotation family).", true); return; }
                 // A family the team already placed at a consultant element of this type: its position is the mapping's offset.
-                string learnt = LearnFromPlaced(_doc.GetElement(r.ElementId) as ARDB.FamilyInstance, out var off, out var rot);
+                var picked = _doc.GetElement(r.ElementId) as ARDB.FamilyInstance;
+                string learnt = LearnFromPlaced(picked, null, out var off, out var rot, out bool nearby);
+                if (!nearby && picked != null)
+                {
+                    // None of this type close by: let the user show which consultant element this family belongs to.
+                    Status("No consultant element of this type within 1.5 m: pick the consultant element this family belongs to (Esc to skip)…");
+                    var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
+                    ARDB.Element chosen = null;
+                    try
+                    {
+                        var lr = app.ActiveUIDocument.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.LinkedElement,
+                                     "Pick the consultant element this local family belongs to (Esc to skip)");
+                        if (lr != null && inst != null && lr.ElementId == inst.Id) chosen = inst.GetLinkDocument()?.GetElement(lr.LinkedElementId);
+                        else if (lr != null) learnt = "That element is in another link: offset not taken.";
+                    }
+                    catch (Autodesk.Revit.Exceptions.OperationCanceledException) { }
+                    if (chosen != null) learnt = LearnFromPlaced(picked, chosen, out off, out rot, out _);
+                }
                 SetTargetCategory(tt.Category);
                 FillTargets(uid);
                 if (off != null)
@@ -599,13 +618,15 @@ namespace ProjectPerseus.ui
         }
 
         /// <summary>
-        /// When the picked local family sits at a consultant element of the selected type (nearest within 1.5 m), the offset and
-        /// rotation that put it there (MappingMath.Solve). Returns a status sentence (null when nothing nearby); off / rot null
+        /// The offset and rotation that put the picked local family where it is relative to a consultant element
+        /// (MappingMath.Solve): <paramref name="forced"/> when given, else the nearest element of the selected type
+        /// (<paramref name="nearby"/> = within 1.5 m; the nearest is logged either way). Returns a status sentence; off / rot null
         /// when not learnt. API context.
         /// </summary>
-        private string LearnFromPlaced(ARDB.FamilyInstance ours, out double[] off, out double[] rot)
+        private string LearnFromPlaced(ARDB.FamilyInstance ours, ARDB.Element forced, out double[] off, out double[] rot, out bool nearby)
         {
             off = rot = null;
+            nearby = false;
             try
             {
                 var placed = ours == null ? null : FamilyPlacer.FrameOf(ours);
@@ -614,23 +635,41 @@ namespace ProjectPerseus.ui
                 if (placed == null || linkDoc == null || _editing == null) return null;
                 var toHost = inst.GetTotalTransform();
                 var o = new ARDB.XYZ(placed.O[0], placed.O[1], placed.O[2]);
-                ARDB.Element best = null; mapping.Frame bestFrame = null; double bestD = 1500 / MappingMath.MmPerFoot;
-                foreach (var s in FamilyPlacer.SourceElements(linkDoc, _editing))
+                ARDB.Element best = null; mapping.Frame bestFrame = null; double bestD = double.MaxValue;
+                foreach (var s in forced != null ? new List<ARDB.Element> { forced } : FamilyPlacer.SourceElements(linkDoc, _editing))
                 {
                     var f = FamilyPlacer.SourceFrame(s, toHost);
                     double d = o.DistanceTo(new ARDB.XYZ(f.O[0], f.O[1], f.O[2]));
                     if (d < bestD) { bestD = d; best = s; bestFrame = f; }
                 }
-                if (best == null) { Log.Info($"[Mapping] picked {ours.Id.GetIdValue()}: no consultant element of this type within 1.5 m"); return null; }
+                if (best == null) { Log.Info($"[Mapping] picked {ours.Id.GetIdValue()}: no consultant elements of this type in the link"); return null; }
+                Log.Info($"[Mapping] picked {ours.Id.GetIdValue()} at {Mm(o)}; " + (forced != null ? "chosen" : "nearest") +
+                         $" consultant {best.Id.GetIdValue()} ({TypeName(best)}) frame {Mm(bestFrame)}, {bestD * MappingMath.MmPerFoot:N0} mm apart");
+                FamilyPlacer.LogSourceGeometry(best, toHost, o);
+                nearby = forced != null || bestD <= 1500 / MappingMath.MmPerFoot;
+                if (!nearby) return null;
                 if (!MappingMath.Solve(bestFrame, placed, (double[])_editing.RotationDeg.Clone(), out off, out rot))
                 {
                     off = rot = null;
-                    return $"It sits at consultant element {best.Id.GetIdValue()} but is mirrored relative to it, so its offset wasn't taken.";
+                    return $"It is mirrored relative to consultant element {best.Id.GetIdValue()}, so its offset wasn't taken.";
                 }
-                Log.Info($"[Mapping] picked {ours.Id.GetIdValue()} at consultant {best.Id.GetIdValue()} ({bestD * MappingMath.MmPerFoot:N0} mm apart): " +
-                         $"ours {Mm(o)}, consultant frame {Mm(bestFrame)} -> offset {string.Join(",", off)} rotation {string.Join(",", rot)}");
+                Log.Info($"[Mapping] -> offset {string.Join(",", off)} rotation {string.Join(",", rot)}");
+                // The picked family becomes the test: moving it in Revit adjusts the mapping; Select consultant / zoom work on it.
+                if (_testId != null && !_testIsExisting && _doc.GetElement(_testId) != null)
+                {
+                    using (var tx = new ARDB.Transaction(_doc, "Perseus: remove test family")) { tx.Start(); _doc.Delete(_testId); tx.Commit(); }
+                }
+                _testId = ours.Id;
+                _testIsExisting = true;
+                _testSourceUid = best.UniqueId;
+                _testSource = bestFrame;
+                _testExpected = MappingMath.Place(bestFrame, off, rot);
+                _testPlaced = placed;
+                _testInfo.Text = $"Test: your existing {ours.Symbol?.FamilyName} (Id {ours.Id.GetIdValue()}) at consultant element Id {best.Id.GetIdValue()} · " +
+                                 "move it in Revit to adjust the mapping (Perseus won't delete or move it)";
                 return $"Offset {Num(off[0])} / {Num(off[1])} / {Num(off[2])} mm and rotation {Num(rot[0])} / {Num(rot[1])} / {Num(rot[2])}° " +
-                       $"taken from where it sits at consultant element {best.Id.GetIdValue()} ({bestD * MappingMath.MmPerFoot:N0} mm from its centre).";
+                       $"taken from where it sits relative to consultant element {best.Id.GetIdValue()} ({bestD * MappingMath.MmPerFoot:N0} mm from its centre)." +
+                       (forced != null && !FamilyPlacer.SourceElements(linkDoc, _editing).Any(x => x.Id == forced.Id) ? " Note: that element isn't of the selected consultant type." : "");
             }
             catch (Exception ex)
             {
@@ -639,6 +678,9 @@ namespace ProjectPerseus.ui
                 return null;
             }
         }
+
+        private static string TypeName(ARDB.Element e) =>
+            e is ARDB.FamilyInstance fi ? $"{fi.Category?.Name}: {fi.Symbol?.FamilyName}: {fi.Symbol?.Name}" : e.Category?.Name ?? e.GetType().Name;
 
         private static string Mm(ARDB.XYZ p) => $"({p.X * MappingMath.MmPerFoot:N0}, {p.Y * MappingMath.MmPerFoot:N0}, {p.Z * MappingMath.MmPerFoot:N0})";
         private static string Mm(mapping.Frame f) => Mm(new ARDB.XYZ(f.O[0], f.O[1], f.O[2]));
@@ -1102,7 +1144,7 @@ namespace ProjectPerseus.ui
 
         private void QueueLive()
         {
-            if (_testId == null) return;
+            if (_testId == null || _testIsExisting) return;
             _liveTimer.Stop();
             _liveTimer.Start();
         }
@@ -1169,7 +1211,7 @@ namespace ProjectPerseus.ui
                 {
                     tx.Start();
                     quiet = new FamilyPlacer.Quiet().On(tx);
-                    if (old != null && _doc.GetElement(old) != null) _doc.Delete(old);
+                    if (old != null && !_testIsExisting && _doc.GetElement(old) != null) _doc.Delete(old);
                     fi = FamilyPlacer.Place(_doc, inst, rule, symbol, source, FamilyPlacer.Levels(_doc), FamilyPlacer.WorksetByName(_doc, rule.Workset), _me, out warning);
                     placedId = fi?.Id;
                     tx.Commit();
@@ -1182,6 +1224,7 @@ namespace ProjectPerseus.ui
                               (warning != null ? $" ({warning})" : "");
                     Log.Info($"[Mapping] test family refused by Revit: {warning}");
                 }
+                if (_testIsExisting) { old = null; _testIsExisting = false; }   // the team's family stays, it's just no longer the test
                 if (quiet.RolledBack && old != null && _doc.GetElement(old) == null) old = null;
                 _testId = fi?.Id ?? (quiet.RolledBack && old != null ? old : null);
                 _testSourceUid = source.UniqueId;
@@ -1327,6 +1370,8 @@ namespace ProjectPerseus.ui
         private void RemoveTest(bool cleanPlanes)
         {
             var id = _testId;
+            if (_testIsExisting) id = null;   // the team's own family: only forget it
+            _testIsExisting = false;
             _testId = null;
             _testSourceUid = null;
             _testInfo.Text = "";
