@@ -121,6 +121,10 @@ namespace ProjectPerseus.ui
         private string _testSourceUid;       // the consultant element the test stands at (kept while tuning)
         // Where the test was put: consultant frame, the rule's frame and where Revit actually placed it (hand moves are measured from it).
         private mapping.Frame _testSource, _testExpected, _testPlaced;
+        // Order the test walks the consultant elements in (◀ / ▶): those visible in the active view first. Per type + view.
+        private string _testOrderKey;
+        private List<string> _testOrder = new List<string>();
+        private int _testInView;
         private TextBlock _testInfo;
         private int _sample;
         private bool _loadingEditor;
@@ -1069,9 +1073,25 @@ namespace ProjectPerseus.ui
                 if (linkDoc == null || symbol == null) { Status("The link isn't loaded or the local family type is gone.", true); return; }
                 var sources = FamilyPlacer.SourceElements(linkDoc, rule);
                 if (sources.Count == 0) { Status("No consultant elements of this type in the link.", true); return; }
+                var uidoc = app.ActiveUIDocument;
+                // Elements visible in the active view come first (worked out once per type + view, so ◀ / ▶ keep their place).
+                var view = uidoc.ActiveView;
+                string orderKey = rule.SourceKey + "|" + _linkUid + "|" + (view?.Id.GetIdValue() ?? 0);
+                if (orderKey != _testOrderKey)
+                {
+                    HashSet<long> visible = null;
+                    try { visible = ReviewNavigator.VisibleLinkedIds(_doc, view, inst); } catch (Exception ex) { Log.Info($"[Mapping] visible consultant elements: {ex.Message}"); }
+                    visible = visible ?? new HashSet<long>();
+                    _testOrder = sources.OrderBy(x => visible.Contains(x.Id.GetIdValue()) ? 0 : 1).Select(x => x.UniqueId).ToList();
+                    _testInView = sources.Count(x => visible.Contains(x.Id.GetIdValue()));
+                    _testOrderKey = orderKey;
+                    if (keepSource == null) sample = 0;   // new view: start at the first one in it
+                }
+                var rank = new Dictionary<string, int>();
+                for (int k = 0; k < _testOrder.Count; k++) rank[_testOrder[k]] = k;
+                sources = sources.OrderBy(x => rank.TryGetValue(x.UniqueId, out int k) ? k : int.MaxValue).ToList();
                 // The consultant element selected in Revit, when it's of this type; else the n-th sample.
                 ARDB.Element source = keepSource == null ? null : sources.FirstOrDefault(x => x.UniqueId == keepSource);
-                var uidoc = app.ActiveUIDocument;
                 if (source == null)
                 try
                 {
@@ -1110,6 +1130,7 @@ namespace ProjectPerseus.ui
                 string level = (source.get_Parameter(ARDB.BuiltInParameter.FAMILY_LEVEL_PARAM) ?? source.get_Parameter(ARDB.BuiltInParameter.SCHEDULE_LEVEL_PARAM))?.AsValueString();
                 _testInfo.Text = $"Test: our {symbol.FamilyName} (Id {fi.Id.GetIdValue()}) at consultant element Id {source.Id.GetIdValue()}" +
                                  (string.IsNullOrEmpty(level) ? "" : $" on {level}") + $" · sample {index + 1} of {sources.Count}" +
+                                 (_testInView == 0 ? " (none in this view)" : index < _testInView ? $" ({index + 1} of {_testInView} in this view)" : $" (outside this view; {_testInView} in it)") +
                                  (ourPos != null ? $" · {MappingMath.Distance(srcPos, ourPos) * MappingMath.MmPerFoot:N0} mm from its insertion point" : "");
                 if (fresh) ShowTest(app, inst, fi, source, false, false, false);
                 Status(fresh ? "Test placed. Adjust the offset / rotation (it re-places in place), or move / rotate it or change its type in Revit (the mapping follows), ◀ / ▶ to check other elements. Changes save automatically."
