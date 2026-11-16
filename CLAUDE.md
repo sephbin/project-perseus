@@ -382,6 +382,8 @@ ProjectPerseus/
 │   │                             Rejected changes = SyncItem.Rejected (kind kept), "Set aside" second list (splitter, light weight, thin
 │   │                             markers); a hand edit after Link Sync is rejected too (KeptByHand, set aside); Reconsider puts them back
 │   │                             (hand edits: MappedFamilyData.HandEditReopened -> Moved until moved again); Approve still possible.
+│   │                             Possible matches: teal Kind.Match + chain-link badge; only matches selected = Match / Not a match buttons;
+│   │                             Not a match = pair kept in LinkSyncRejections.Matches -> linked element becomes New, ours Unlinked.
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.

@@ -10,5 +10,8 @@ namespace ProjectPerseus.models
     public class LinkSyncRejections
     {
         public List<string> Sources { get; set; } = new List<string>();
+
+        /// <summary>Possible matches rejected ("not a match"): "&lt;consultant uid&gt;|&lt;our family uid&gt;" pairs never proposed again.</summary>
+        public List<string> Matches { get; set; } = new List<string>();
     }
 }

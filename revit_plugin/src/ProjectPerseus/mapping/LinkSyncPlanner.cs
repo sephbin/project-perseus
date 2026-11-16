@@ -108,6 +108,8 @@ namespace ProjectPerseus.mapping
         public IDictionary<string, string> ReplacementMap = new Dictionary<string, string>();
         /// <summary>Consultant uids whose New / Match / OursDeleted proposal was rejected.</summary>
         public HashSet<string> RejectedNew = new HashSet<string>(StringComparer.Ordinal);
+        public HashSet<string> RejectedMatches = new HashSet<string>(StringComparer.Ordinal);   // "<consultant uid>|<our uid>": not a match
+        public static string MatchKey(string sourceUid, string oursUid) => sourceUid + "|" + oursUid;
         /// <summary>Consultant uids that have been linked to one of ours (mapping/LinkSyncNotes.Connected): none of ours now = ours was deleted.</summary>
         public HashSet<string> Connected = new HashSet<string>(StringComparer.Ordinal);
         /// <summary>Our unrecorded families whose Unlinked (orphan) proposal was rejected (our UniqueIds; matched against SyncOurs.Uid).</summary>
@@ -150,7 +152,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.ConsultantType: return "Consultant type changed";
                 case SyncKind.MappingType: return "Mapping type changed";
                 case SyncKind.Moved: return "Moved";
-                case SyncKind.Match: return "Match (link existing)";
+                case SyncKind.Match: return "Possible match (connect existing)";
                 case SyncKind.New: return "New (place)";
                 case SyncKind.Orphaned: return "Orphaned (consultant deleted)";
                 case SyncKind.Unlinked: return "Orphaned (no consultant element)";
@@ -357,6 +359,7 @@ namespace ProjectPerseus.mapping
                 {
                     var u = input.Unrecorded[j];
                     if (u.TypeUid != rule.TargetSymbolUid || u.Frame == null) continue;
+                    if (u.Uid != null && input.RejectedMatches.Contains(SyncInput.MatchKey(todo[i].Uid, u.Uid))) continue;   // "not a match"
                     var d = MappingMath.Delta(u.Frame, expectedOf[i]);
                     if (d.XyMm <= Math.Max(rule.ToleranceXyMm, MatchRadiusMm) && d.ZMm <= Math.Max(rule.ToleranceZMm, MatchRadiusMm)) pairs.Add(Tuple.Create(d.TotalMm, i, j));
                 }
@@ -402,7 +405,9 @@ namespace ProjectPerseus.mapping
                 {
                     Kind = SyncKind.Unlinked, Rejected = u.Uid != null && input.KeptUnlinked.Contains(u.Uid), LinkUid = input.LinkUid, OursId = u.Id, OursType = u.TypeName,
                     Category = input.Rules.FirstOrDefault(r => r.TargetSymbolUid == u.TypeUid)?.SourceCategory,
-                    Detail = $"The local family ({u.TypeName}) is a mapped type but no consultant element is within {MatchRadiusMm:N0} mm of it. Approve = delete it, reject = keep it.",
+                    Detail = (u.Uid != null && input.RejectedMatches.Any(k => k.EndsWith("|" + u.Uid, StringComparison.Ordinal))
+                                 ? $"The local family ({u.TypeName}) was marked as not a match for the consultant element near it, and no other consultant element is within {MatchRadiusMm:N0} mm."
+                                 : $"The local family ({u.TypeName}) is a mapped type but no consultant element is within {MatchRadiusMm:N0} mm of it.") + " Approve = delete it, reject = keep it.",
                 });
             }
             return items;

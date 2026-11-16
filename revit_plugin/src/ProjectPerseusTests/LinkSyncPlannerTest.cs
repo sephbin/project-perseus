@@ -153,6 +153,21 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void RejectedMatchBecomesAnAddition()
+        {
+            var i = Input(Rule(TypeA, "ours"));
+            i.Sources.Add(Src("s1", TypeA, At(0, 0, 3000)));
+            i.Unrecorded.Add(new SyncOurs { Id = 7, Uid = "u7", TypeUid = "ours", TypeName = "ours", Frame = At(15, 0, 3000) });
+            Assert.AreEqual(SyncKind.Match, LinkSyncPlanner.Plan(i).Single().Kind);
+            i.RejectedMatches.Add(SyncInput.MatchKey("s1", "u7"));
+            var items = LinkSyncPlanner.Plan(i);
+            var add = items.Single(x => x.Kind == SyncKind.New);
+            Assert.AreEqual("s1", add.SourceUid);
+            Assert.IsFalse(add.Rejected);                                       // up for a decision, not set aside
+            Assert.AreEqual(7, items.Single(x => x.Kind == SyncKind.Unlinked).OursId);
+        }
+
+        [TestMethod]
         public void ExistingFamilyMatchesWithinProximityElseIsAnOrphan()
         {
             var i = Input(Rule(TypeA, "ours"));

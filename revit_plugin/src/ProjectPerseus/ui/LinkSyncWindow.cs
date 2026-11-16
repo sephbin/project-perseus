@@ -158,9 +158,9 @@ namespace ProjectPerseus.ui
 
             var bottom = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
             var actions = new WrapPanel();
-            actions.Children.Add(Btn2("Approve selected", "Accept linked model state", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans - for the selected changes (one undo step)", () => DecideSelected(true)));
-            actions.Children.Add(Btn2("Reject selected", "Retain current model state", "Keep the local family as it is in this model (not proposed again until the linked model changes once more) - for the selected changes", () => DecideSelected(false)));
-            actions.Children.Add(Btn2("Approve all shown…", "Accept linked model state", "Approve every change listed that needs a decision", ApproveAllShown));
+            actions.Children.Add(_approveSel = Btn2("Approve selected", "Accept linked model state", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans - for the selected changes (one undo step)", () => DecideSelected(true)));
+            actions.Children.Add(_rejectSel = Btn2("Reject selected", "Retain current model state", "Keep the local family as it is in this model (not proposed again until the linked model changes once more) - for the selected changes", () => DecideSelected(false)));
+            actions.Children.Add(_approveAll = Btn2("Approve all shown…", "Accept linked model state", "Approve every change listed that needs a decision", ApproveAllShown));
             actions.Children.Add(Btn("Write status parameters", "Write Perseus_LinkSource / Status / Decision / Comment / Assignee on our mapped families (for schedules, filters, tags)", WriteStatus));
             actions.Children.Add(Btn("Review views…", "Choose the views used to show changes (also on the ribbon)", OpenReviewViews));
             DockPanel.SetDock(actions, Dock.Top);
@@ -210,8 +210,8 @@ namespace ProjectPerseus.ui
             _side.Children.Add(find);
             _side.Children.Add(Section("Decide"));
             var decide = _decidePanel = new WrapPanel();
-            decide.Children.Add(Btn2("Approve", "Accept linked model state", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
-            decide.Children.Add(Btn2("Reject", "Retain current model state", "Keep the local family as it is in this model: the change is set aside (second list) until the linked model changes once more", () => DecideCurrent(false)));
+            decide.Children.Add(_approveOne = Btn2("Approve", "Accept linked model state", "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans", () => DecideCurrent(true)));
+            decide.Children.Add(_rejectOne = Btn2("Reject", "Retain current model state", "Keep the local family as it is in this model: the change is set aside (second list) until the linked model changes once more", () => DecideCurrent(false)));
             decide.Children.Add(_reconsiderBtn = Btn2("Reconsider", "Back for a decision", "Forget the rejection: the change goes back to the list of changes to decide", ReconsiderSelected));
             _side.Children.Add(decide);
 
@@ -668,6 +668,7 @@ namespace ProjectPerseus.ui
         /// </summary>
         private void PushMarkers()
         {
+            UpdateDecideLabels();   // runs on every selection / list change, like the markers
             var items = new List<ChangeHighlightServer.Item>();
             if (_showInModel.IsChecked == true)
             {
@@ -682,6 +683,7 @@ namespace ProjectPerseus.ui
                         Kind = i.Kind == SyncKind.New ? ChangeHighlightServer.Kind.Added
                              : LinkSyncPlanner.IsOrphan(i.Kind) ? ChangeHighlightServer.Kind.Orphan
                              : i.Kind == SyncKind.Replaced ? ChangeHighlightServer.Kind.Replaced
+                             : i.Kind == SyncKind.Match ? ChangeHighlightServer.Kind.Match
                              : ChangeHighlightServer.Kind.Modified,
                     };
                     if (LinkSyncPlanner.IsOrphan(i.Kind))
@@ -1049,6 +1051,57 @@ namespace ProjectPerseus.ui
             var b = new Button { Content = content, ToolTip = tip, Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 6), Background = Brushes.White };
             b.Click += (s, e) => Safe(click);
             return b;
+        }
+
+        private Button _approveSel, _rejectSel, _approveAll, _approveOne, _rejectOne;
+        private bool? _matchLabels, _matchAllLabel;
+
+        /// <summary>
+        /// Only possible matches selected (or, for "all shown", listed for a decision): the buttons say what they do to a match
+        /// (connect the local family to the linked element / not a match: the linked element becomes an addition).
+        /// </summary>
+        private void UpdateDecideLabels()
+        {
+            if (_approveSel == null) return;
+            var sel = SelectedRows().Select(r => r.Item).ToList();
+            bool matches = sel.Count > 0 && sel.All(i => i.Kind == SyncKind.Match);
+            if (_matchLabels != matches)
+            {
+                _matchLabels = matches;
+                string n = sel.Count > 1 ? " selected" : "";
+                if (matches)
+                {
+                    SetBtn2(_approveSel, "Match selected", "Connect to linked element");
+                    SetBtn2(_rejectSel, "Not a match", "Add linked element instead");
+                    SetBtn2(_approveOne, "Match", "Connect to linked element");
+                    SetBtn2(_rejectOne, "Not a match", "Add linked element instead");
+                }
+                else
+                {
+                    SetBtn2(_approveSel, "Approve selected", "Accept linked model state");
+                    SetBtn2(_rejectSel, "Reject selected", "Retain current model state");
+                    SetBtn2(_approveOne, "Approve", "Accept linked model state");
+                    SetBtn2(_rejectOne, "Reject", "Retain current model state");
+                }
+                string tipA = matches ? "Connect the local family to the linked element: it is then kept in step with it (no new family placed)" : null;
+                string tipR = matches ? "Not the same element: the local family stays unlinked and the linked element is listed as an addition (to place a new local family) instead" : null;
+                foreach (var b in new[] { _approveSel, _approveOne }) b.ToolTip = tipA ?? "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans";
+                foreach (var b in new[] { _rejectSel, _rejectOne }) b.ToolTip = tipR ?? "Keep the local family as it is in this model: the change is set aside (second list) until the linked model changes once more";
+            }
+            var shown = AllRows().Select(r => r.Item).Where(i => i.NeedsDecision).ToList();
+            bool allMatch = shown.Count > 0 && shown.All(i => i.Kind == SyncKind.Match);
+            if (_matchAllLabel != allMatch)
+            {
+                _matchAllLabel = allMatch;
+                if (allMatch) SetBtn2(_approveAll, "Match all shown…", "Connect to linked elements");
+                else SetBtn2(_approveAll, "Approve all shown…", "Accept linked model state");
+            }
+        }
+
+        private static void SetBtn2(Button b, string title, string subtitle)
+        {
+            if (b?.Content is StackPanel sp && sp.Children.Count >= 2 && sp.Children[0] is TextBlock t && sp.Children[1] is TextBlock st)
+            { t.Text = title; st.Text = subtitle; }
         }
 
         private Button Btn(string text, string tip, Action click)

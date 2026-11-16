@@ -311,6 +311,7 @@ namespace ProjectPerseus.mapping
             };
             var rej = FederatorSettingsStore.Load<LinkSyncRejections>(doc, RejectedKey(link.Uid));
             if (rej?.Sources != null) foreach (var u in rej.Sources) input.RejectedNew.Add(u);
+            if (rej?.Matches != null) foreach (var m in rej.Matches) input.RejectedMatches.Add(m);
             var kept = FederatorSettingsStore.Load<LinkSyncRejections>(doc, KeptUnlinkedKey);
             if (kept?.Sources != null) foreach (var u in kept.Sources) input.KeptUnlinked.Add(u);
             input.Connected = LinkSyncNotes.Connected(log, link.Uid);
@@ -500,6 +501,9 @@ namespace ProjectPerseus.mapping
             catch { return null; }
         }
 
+        // A rejected match in the rejectedNew sets (saved into LinkSyncRejections.Matches, not Sources).
+        private const string MatchPrefix = "match:";
+
         private static SyncOurs Ours(FamilyInstance fi, MappedFamilyData record) => new SyncOurs
         {
             Id = fi.Id.GetIdValue(), Uid = fi.UniqueId, TypeUid = fi.Symbol?.UniqueId, TypeName = fi.Symbol == null ? "?" : $"{fi.Symbol.FamilyName} : {fi.Symbol.Name}",
@@ -604,7 +608,12 @@ namespace ProjectPerseus.mapping
                 foreach (var kv in rejectedNew)
                 {
                     var cur = FederatorSettingsStore.Load<LinkSyncRejections>(doc, RejectedKey(kv.Key)) ?? new LinkSyncRejections();
-                    foreach (var u in kv.Value) if (!cur.Sources.Contains(u)) cur.Sources.Add(u);
+                    cur.Matches = cur.Matches ?? new List<string>();
+                    foreach (var u in kv.Value)
+                    {
+                        if (u.StartsWith(MatchPrefix, StringComparison.Ordinal)) { var m = u.Substring(MatchPrefix.Length); if (!cur.Matches.Contains(m)) cur.Matches.Add(m); }
+                        else if (!cur.Sources.Contains(u)) cur.Sources.Add(u);
+                    }
                     FederatorSettingsStore.Save(doc, RejectedKey(kv.Key), cur, user);
                 }
                 foreach (var kv in unrejectNew) RememberMany(doc, RejectedKey(kv.Key), kv.Value, false, user);
@@ -648,8 +657,15 @@ namespace ProjectPerseus.mapping
                     case SyncKind.Unlinked:
                         keptUnlinked.Add(ours.UniqueId);
                         return null;
-                    case SyncKind.New:
                     case SyncKind.Match:
+                    {
+                        // Not a match: remember the pair; the linked element is then proposed as an addition, ours as unlinked.
+                        if (ours == null) return "the local family is gone";
+                        if (!rejectedNew.TryGetValue(link.Uid, out var mset)) rejectedNew[link.Uid] = mset = new HashSet<string>(StringComparer.Ordinal);
+                        mset.Add(MatchPrefix + SyncInput.MatchKey(it.SourceUid, ours.UniqueId));
+                        return null;
+                    }
+                    case SyncKind.New:
                     case SyncKind.OursDeleted:
                         if (!rejectedNew.TryGetValue(link.Uid, out var set)) rejectedNew[link.Uid] = set = new HashSet<string>(StringComparer.Ordinal);
                         set.Add(it.SourceUid);

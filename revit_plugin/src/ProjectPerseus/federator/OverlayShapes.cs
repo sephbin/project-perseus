@@ -266,7 +266,7 @@ namespace ProjectPerseus.federator
             return t < 0 ? double.NaN : t;
         }
 
-        /// <summary>Badge glyph strokes centred on c: '+' added, '−' deleted, 'r' replaced (⇌), '~' modified.</summary>
+        /// <summary>Badge glyph strokes centred on c: '+' added, '−' deleted, 'r' replaced (⇌), 'm' match (chain link), '~' modified.</summary>
         public static void Glyph(List<double> tris, char glyph, Pt c, double size, double half)
         {
             switch (glyph)
@@ -284,6 +284,22 @@ namespace ProjectPerseus.federator
                     Stroke(tris, new[] { new Pt(c.U - size, c.V + dy), new Pt(c.U + size, c.V + dy), new Pt(c.U + size - barb, c.V + dy + barb) }, false, half, true);
                     Stroke(tris, new[] { new Pt(c.U + size, c.V - dy), new Pt(c.U - size, c.V - dy), new Pt(c.U - size + barb, c.V - dy - barb) }, false, half, true);
                     break;
+                case 'm':
+                {
+                    // Chain link: two interlocking rounded loops, tilted 45°.
+                    double rx = size * 0.62, ry = size * 0.34, off = size * 0.4, cs = Math.Cos(Math.PI / 4), sn = Math.Sin(Math.PI / 4);
+                    foreach (int side in new[] { -1, 1 })
+                    {
+                        var loop = new List<Pt>();
+                        for (int i = 0; i < 24; i++)
+                        {
+                            double a = 2 * Math.PI * i / 24, x = side * off + rx * Math.Cos(a), y = ry * Math.Sin(a);
+                            loop.Add(new Pt(c.U + x * cs - y * sn, c.V + x * sn + y * cs));
+                        }
+                        Stroke(tris, loop, true, half);
+                    }
+                    break;
+                }
                 default:
                     // One smooth period of a sine, finely sampled so the mitred ribbon reads as a curve.
                     var wave = new List<Pt>();

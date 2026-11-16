@@ -26,7 +26,7 @@ namespace ProjectPerseus.federator
     internal class ChangeHighlightServer : IDirectContext3DServer
     {
         // Local / Linked / Orphan / Ink: Link Sync (ours in this model magenta, the linked model's position cyan, orphans red, move arrows ink).
-        internal enum Kind : byte { Added, Modified, Deleted, Ghost, Replaced, Local, Linked, Orphan, Ink }
+        internal enum Kind : byte { Added, Modified, Deleted, Ghost, Replaced, Local, Linked, Orphan, Ink, Match }
 
         internal struct Item
         {
@@ -535,11 +535,12 @@ namespace ProjectPerseus.federator
                 case Kind.Linked: return new Color(0, 172, 230);
                 case Kind.Orphan: return new Color(232, 32, 32);
                 case Kind.Ink: return new Color(55, 65, 81);
+                case Kind.Match: return new Color(0, 137, 123);   // teal: Link Sync's possible match
                 default: return new Color(224, 130, 0);
             }
         }
 
-        private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted || k == Kind.Orphan ? '-' : k == Kind.Replaced ? 'r' : '~';
+        private static char GlyphOf(Kind k) => k == Kind.Added ? '+' : k == Kind.Deleted || k == Kind.Orphan ? '-' : k == Kind.Replaced ? 'r' : k == Kind.Match ? 'm' : '~';
         private static char GlyphOf(Item it) => it.Glyph != '\0' ? it.Glyph : GlyphOf(it.Kind);
 
         private const int GradientSteps = 12;
