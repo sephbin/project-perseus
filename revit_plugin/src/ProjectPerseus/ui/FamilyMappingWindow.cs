@@ -49,18 +49,42 @@ namespace ProjectPerseus.ui
 
         private class LinkChoice
         {
-            internal string Uid, Name, ModelKey;
+            internal string Uid, Name, ModelKey, BaseName;
             internal bool Loaded = true;
             internal int Mapped;
             public override string ToString() =>
                 Loaded ? Name : Name + (Uid == null ? "  (not linked here" : "  (not loaded") + $" · {Mapped} mapped)";
         }
 
-        /// <summary>A name for a consultant model known only by its key (no link instance in this model).</summary>
-        private static string NameOfKey(string key)
+        /// <summary>
+        /// A name for a consultant model known only by its key (no link instance in this model): the name saved with the
+        /// mapping, else a link type still in this model, else a cached / archived version's title, else the file name /
+        /// a short cloud id. API context.
+        /// </summary>
+        private static string NameOfKey(ARDB.Document doc, string key, FamilyMapping mapping)
         {
+            if (!string.IsNullOrWhiteSpace(mapping?.ModelName)) return mapping.ModelName;
+            try
+            {
+                foreach (ARDB.RevitLinkType lt in new ARDB.FilteredElementCollector(doc).OfClass(typeof(ARDB.RevitLinkType)))
+                {
+                    if (!ARDB.ExternalFileUtils.IsExternalFileReference(doc, lt.Id)) continue;
+                    var mp = ARDB.ExternalFileUtils.GetExternalFileReference(doc, lt.Id)?.GetAbsolutePath();
+                    if (mp == null) continue;
+                    string k = mp.CloudPath ? "cloud|" + mp.GetModelGUID().ToString("N")
+                                            : "file|" + System.IO.Path.GetFullPath(ARDB.ModelPathUtils.ConvertModelPathToUserVisiblePath(mp)).ToLowerInvariant();
+                    if (k == key) return lt.Name;
+                }
+            }
+            catch (Exception ex) { Log.Info($"[Mapping] link types for a model name: {ex.Message}"); }
             var title = VersionCatalog.List(key).Select(v => v.Title).FirstOrDefault(t => !string.IsNullOrEmpty(t));
             if (title != null) return title;
+            try
+            {
+                title = LinkArchive.List(LinkArchive.RootFor(doc), key).Select(e => e.Title).FirstOrDefault(t => !string.IsNullOrEmpty(t));
+                if (title != null) return title;
+            }
+            catch (Exception ex) { Log.Info($"[Mapping] archive for a model name: {ex.Message}"); }
             int bar = key.IndexOf('|');
             string rest = bar < 0 ? key : key.Substring(bar + 1);
             if (key.StartsWith("file|")) return System.IO.Path.GetFileNameWithoutExtension(rest);
@@ -83,10 +107,11 @@ namespace ProjectPerseus.ui
             // Mappings saved in this model (by consultant model): unloaded links with one are listed for review, as are mapped
             // consultant models with no link here at all, so you can see what's mapped and which link to load.
             var mapped = new Dictionary<string, int>();
+            var mappings = new Dictionary<string, FamilyMapping>();
             foreach (var key in FamilyMapStore.ModelKeys(doc))
             {
-                int n = FamilyMapStore.Load(doc, key).Rules.Count;
-                if (n > 0) mapped[key] = n;
+                var m = FamilyMapStore.Load(doc, key);
+                if (m.Rules.Count > 0) { mapped[key] = m.Rules.Count; mappings[key] = m; }
             }
             foreach (ARDB.RevitLinkInstance inst in new ARDB.FilteredElementCollector(doc).OfClass(typeof(ARDB.RevitLinkInstance)))
             {
@@ -95,10 +120,13 @@ namespace ProjectPerseus.ui
                 string key = VersionCatalog.ModelKey(doc, inst, linkDoc, name);
                 mapped.TryGetValue(key, out int n);
                 if (linkDoc == null && n == 0) continue;   // unloaded and nothing mapped: nothing to see
-                links.Add(new LinkChoice { Uid = inst.UniqueId, Name = name, ModelKey = key, Loaded = linkDoc != null, Mapped = n });
+                links.Add(new LinkChoice { Uid = inst.UniqueId, Name = name, BaseName = name, ModelKey = key, Loaded = linkDoc != null, Mapped = n });
             }
             foreach (var kv in mapped.Where(kv => !links.Any(l => l.ModelKey == kv.Key)))
-                links.Add(new LinkChoice { Uid = null, Name = NameOfKey(kv.Key), ModelKey = kv.Key, Loaded = false, Mapped = kv.Value });
+            {
+                string name = NameOfKey(doc, kv.Key, mappings[kv.Key]);
+                links.Add(new LinkChoice { Uid = null, Name = name, BaseName = name, ModelKey = kv.Key, Loaded = false, Mapped = kv.Value });
+            }
             if (links.Count == 0)
             {
                 Autodesk.Revit.UI.TaskDialog.Show("Family mapping", "This model has no loaded Revit links to map from, and no saved mappings.");
@@ -405,7 +433,7 @@ namespace ProjectPerseus.ui
             if (l == null) return;
             if (_saveTimer.IsEnabled) { _saveTimer.Stop(); SaveNow(); }
             RemoveTest();
-            _linkUid = l.Uid; _modelKey = l.ModelKey; _linkName = l.Name;
+            _linkUid = l.Uid; _modelKey = l.ModelKey; _linkName = l.Name; _modelName = l.BaseName;
             _linkLoaded = l.Loaded;
             Title = "Perseus — Family mapping · " + l.Name + (l.Loaded ? "" : " (review only: link not loaded)");
             _current = null; _editing = null;
@@ -423,6 +451,7 @@ namespace ProjectPerseus.ui
         private string _triageLabel;
         // The picked link isn't loaded (or isn't linked here): its saved mapping is listed read-only.
         private bool _linkLoaded = true;
+        private string _modelName;   // the link's name without the "#2" of duplicates: saved with the mapping
 
         // ═══════════════ Loading ═══════════════
 
@@ -959,7 +988,7 @@ namespace ProjectPerseus.ui
         /// </summary>
         private void SaveNow()
         {
-            if (_modelKey == null) return;
+            if (_modelKey == null || !_linkLoaded) return;   // review only: never re-save a mapping read without its link
             var rules = new List<KeyValuePair<Row, FamilyMapRule>>();
             if (_editing != null) rules.Add(new KeyValuePair<Row, FamilyMapRule>(_current, _editing));
             rules.AddRange(_others);
@@ -967,7 +996,7 @@ namespace ProjectPerseus.ui
                          .Select(kv => { var c = Copy(kv.Value); c.Author = _me; c.SavedUtc = DateTime.UtcNow; return new KeyValuePair<Row, FamilyMapRule>(kv.Key, c); }).ToList();
             var hidden = _rows.Select(r => r.Category).Distinct(StringComparer.OrdinalIgnoreCase).Where(c => !_categories.IsTicked(c))
                               .OrderBy(c => c).ToList();
-            string modelKey = _modelKey;
+            string modelKey = _modelKey, modelName = _modelName;
             Api(app =>
             {
                 var mapping = FamilyMapStore.Load(_doc, modelKey);
@@ -987,8 +1016,9 @@ namespace ProjectPerseus.ui
                 }
                 var oldHidden = (mapping.HiddenCategories ?? new List<string>()).OrderBy(c => c).ToList();
                 if (!oldHidden.SequenceEqual(hidden, StringComparer.OrdinalIgnoreCase)) { mapping.HiddenCategories = hidden; changed = true; }
+                if (string.IsNullOrWhiteSpace(mapping.ModelName) && mapping.Rules.Count > 0) changed = true;   // older mapping: record the name
                 if (!changed) return;
-                FamilyMapStore.Save(_doc, modelKey, mapping, _me);
+                FamilyMapStore.Save(_doc, modelKey, mapping, _me, modelName);
                 if (modelKey != _modelKey) return;
                 _mapping = mapping;
                 if (saved.Count > 0 && !_closing)
@@ -1533,7 +1563,7 @@ namespace ProjectPerseus.ui
                 var mapping = FamilyMapStore.Load(_doc, _modelKey);
                 int n = mapping.Rules.RemoveAll(r => keys.Contains(r.SourceKey));
                 if (n == 0) { Status(keys.Count == 1 ? "This type isn't mapped." : "None of these types is mapped."); return; }
-                FamilyMapStore.Save(_doc, _modelKey, mapping, _me);
+                FamilyMapStore.Save(_doc, _modelKey, mapping, _me, _modelName);
                 _mapping = mapping;
                 BuildRows();
                 Fill();

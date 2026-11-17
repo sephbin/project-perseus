@@ -20,7 +20,10 @@ namespace ProjectPerseus.mapping
         internal static System.Collections.Generic.List<string> ModelKeys(Document doc) =>
             System.Linq.Enumerable.ToList(System.Linq.Enumerable.Select(FederatorSettingsStore.Keys(doc, "familymap:"), k => k.Substring("familymap:".Length)));
 
-        internal static void Save(Document doc, string modelKey, FamilyMapping mapping, string user) =>
+        internal static void Save(Document doc, string modelKey, FamilyMapping mapping, string user, string modelName = null)
+        {
+            if (!string.IsNullOrWhiteSpace(modelName)) mapping.ModelName = modelName;
             FederatorSettingsStore.Save(doc, Key(modelKey), mapping, user);
+        }
     }
 }
