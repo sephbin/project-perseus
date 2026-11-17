@@ -50,7 +50,22 @@ namespace ProjectPerseus.ui
         private class LinkChoice
         {
             internal string Uid, Name, ModelKey;
-            public override string ToString() => Name;
+            internal bool Loaded = true;
+            internal int Mapped;
+            public override string ToString() =>
+                Loaded ? Name : Name + (Uid == null ? "  (not linked here" : "  (not loaded") + $" · {Mapped} mapped)";
+        }
+
+        /// <summary>A name for a consultant model known only by its key (no link instance in this model).</summary>
+        private static string NameOfKey(string key)
+        {
+            var title = VersionCatalog.List(key).Select(v => v.Title).FirstOrDefault(t => !string.IsNullOrEmpty(t));
+            if (title != null) return title;
+            int bar = key.IndexOf('|');
+            string rest = bar < 0 ? key : key.Substring(bar + 1);
+            if (key.StartsWith("file|")) return System.IO.Path.GetFileNameWithoutExtension(rest);
+            if (key.StartsWith("cloud|")) return "Cloud model " + rest.Substring(0, Math.Min(8, rest.Length));
+            return rest;
         }
 
         /// <summary>Opens the window on the active model (or brings it to the front). API context.</summary>
@@ -65,22 +80,34 @@ namespace ProjectPerseus.ui
             if (Instance != null && Instance.IsLoaded && doc.Equals(Instance._doc)) { Instance.Activate(); return; }
             Instance?.Close();
             var links = new List<LinkChoice>();
+            // Mappings saved in this model (by consultant model): unloaded links with one are listed for review, as are mapped
+            // consultant models with no link here at all, so you can see what's mapped and which link to load.
+            var mapped = new Dictionary<string, int>();
+            foreach (var key in FamilyMapStore.ModelKeys(doc))
+            {
+                int n = FamilyMapStore.Load(doc, key).Rules.Count;
+                if (n > 0) mapped[key] = n;
+            }
             foreach (ARDB.RevitLinkInstance inst in new ARDB.FilteredElementCollector(doc).OfClass(typeof(ARDB.RevitLinkInstance)))
             {
                 var linkDoc = inst.GetLinkDocument();
-                if (linkDoc == null) continue;   // unloaded: nothing to map from
                 string name = doc.GetElement(inst.GetTypeId())?.Name ?? inst.Name;
-                links.Add(new LinkChoice { Uid = inst.UniqueId, Name = name, ModelKey = VersionCatalog.ModelKey(doc, inst, linkDoc, name) });
+                string key = VersionCatalog.ModelKey(doc, inst, linkDoc, name);
+                mapped.TryGetValue(key, out int n);
+                if (linkDoc == null && n == 0) continue;   // unloaded and nothing mapped: nothing to see
+                links.Add(new LinkChoice { Uid = inst.UniqueId, Name = name, ModelKey = key, Loaded = linkDoc != null, Mapped = n });
             }
+            foreach (var kv in mapped.Where(kv => !links.Any(l => l.ModelKey == kv.Key)))
+                links.Add(new LinkChoice { Uid = null, Name = NameOfKey(kv.Key), ModelKey = kv.Key, Loaded = false, Mapped = kv.Value });
             if (links.Count == 0)
             {
-                Autodesk.Revit.UI.TaskDialog.Show("Family mapping", "This model has no loaded Revit links to map from.");
+                Autodesk.Revit.UI.TaskDialog.Show("Family mapping", "This model has no loaded Revit links to map from, and no saved mappings.");
                 return;
             }
             foreach (var g in links.GroupBy(l => l.Name).Where(g => g.Count() > 1)) { int i = 1; foreach (var l in g) l.Name += $"  #{i++}"; }
-            // Default: the link open in the federator panel, else the first.
-            string preferred = FederatorWindow.Instance?.Record?.LinkInstanceUid;
-            var w = new FamilyMappingWindow(doc, app.Application.Username, links.OrderBy(l => l.Name).ToList(), preferred);
+            // Default: the link open in the federator panel, else the first loaded one. Loaded links first in the list.
+            string preferred = FederatorWindow.Instance?.Record?.LinkInstanceUid ?? links.Where(l => l.Loaded).OrderBy(l => l.Name).FirstOrDefault()?.Uid;
+            var w = new FamilyMappingWindow(doc, app.Application.Username, links.OrderBy(l => l.Loaded ? 0 : 1).ThenBy(l => l.Name).ToList(), preferred);
             new System.Windows.Interop.WindowInteropHelper(w).Owner = app.MainWindowHandle;
             w.Show();
         }
@@ -173,7 +200,7 @@ namespace ProjectPerseus.ui
             _suggestedOnly = new CheckBox { Content = "Suggested and mapped only", IsChecked = true, VerticalAlignment = VerticalAlignment.Center,
                                             ToolTip = "Only types triage suggests (reviewed or open changes) and types already mapped." };
             var left = new StackPanel { Orientation = Orientation.Horizontal };
-            _linkBox = new ComboBox { Width = 240, Margin = new Thickness(0, 0, 14, 0), VerticalContentAlignment = VerticalAlignment.Center };
+            _linkBox = new ComboBox { Width = 300, Margin = new Thickness(0, 0, 14, 0), VerticalContentAlignment = VerticalAlignment.Center };
             foreach (var l in links) _linkBox.Items.Add(l);
             left.Children.Add(new TextBlock { Text = "Link ", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold });
             left.Children.Add(_linkBox);
@@ -379,7 +406,8 @@ namespace ProjectPerseus.ui
             if (_saveTimer.IsEnabled) { _saveTimer.Stop(); SaveNow(); }
             RemoveTest();
             _linkUid = l.Uid; _modelKey = l.ModelKey; _linkName = l.Name;
-            Title = "Perseus — Family mapping · " + l.Name;
+            _linkLoaded = l.Loaded;
+            Title = "Perseus — Family mapping · " + l.Name + (l.Loaded ? "" : " (review only: link not loaded)");
             _current = null; _editing = null;
             _editor.IsEnabled = false;
             var fed = FederatorWindow.Instance;
@@ -387,12 +415,14 @@ namespace ProjectPerseus.ui
             _triageLabel = fed?.TriageSourceLabel(l.Uid);
             Api(app =>
             {
-                _replacementMap = ReplacementLinks.Map(ReplacementLinks.Fold(ReviewStore.Load(_doc), l.Uid));
+                _replacementMap = l.Uid == null ? new Dictionary<string, string>() : ReplacementLinks.Map(ReplacementLinks.Fold(ReviewStore.Load(_doc), l.Uid));
                 Reload();
             });
         }
 
         private string _triageLabel;
+        // The picked link isn't loaded (or isn't linked here): its saved mapping is listed read-only.
+        private bool _linkLoaded = true;
 
         // ═══════════════ Loading ═══════════════
 
@@ -403,11 +433,15 @@ namespace ProjectPerseus.ui
             {
                 var inst = LinkedElementRef.FindInstance(_doc, _linkUid);
                 var linkDoc = inst?.GetLinkDocument();
-                if (linkDoc == null) { Status("The link isn't loaded: load it in Manage Links first.", true); return; }
-                _sources = FamilyPlacer.SourceTypes(linkDoc);
+                _linkLoaded = linkDoc != null;
                 _targets = FamilyPlacer.TargetTypes(_doc);
                 _mapping = FamilyMapStore.Load(_doc, _modelKey);
-                _mappedByRule = MappedFamilyStore.All(_doc, _linkUid).GroupBy(r => r.RuleId ?? "").ToDictionary(g => g.Key, g => g.Count());
+                // Not loaded: the consultant types are the mapped ones (from the saved rules), nothing to count in the link.
+                _sources = linkDoc != null ? FamilyPlacer.SourceTypes(linkDoc)
+                    : _mapping.Rules.Select(r => new FamilyPlacer.SourceType { Key = r.SourceKey, Category = r.SourceCategory, Family = r.SourceFamily, Type = r.SourceType })
+                                    .GroupBy(x => x.Key).Select(g => g.First()).ToList();
+                _mappedByRule = _linkUid == null ? new Dictionary<string, int>()
+                    : MappedFamilyStore.All(_doc, _linkUid).GroupBy(r => r.RuleId ?? "").ToDictionary(g => g.Key, g => g.Count());
                 _loadingEditor = true;
                 _workset.Items.Clear();
                 _workset.Items.Add(ActiveWorkset);
@@ -422,6 +456,15 @@ namespace ProjectPerseus.ui
                 foreach (var c in _sources.Select(x => x.Category).Distinct()) _categories.SetTicked(c, !hidden.Contains(c));
                 BuildRows();
                 Fill();
+                if (!_linkLoaded)
+                {
+                    int placed = _mappedByRule.Values.Sum();
+                    Status((_linkUid == null ? "This consultant model isn't linked in this model" : "This link isn't loaded") +
+                           $": its {_mapping.Rules.Count} saved mapping(s) are shown read-only" + (placed > 0 ? $" ({placed} local families placed from them)" : "") +
+                           ". " + (_linkUid == null ? "Link the model to edit or test them." : "Load it in Manage Links (then reopen this panel) to edit or test them."), true);
+                    if (_pendingSourceUid != null) _pendingSourceUid = null;
+                    return;
+                }
                 Status($"{_sources.Count} consultant family type(s), {_targets.Count} local family types, {_mapping.Rules.Count} mapped. " +
                        (_triageLabel != null ? $"Suggestions from the triage of {_triageLabel}."
                                              : "No triage for this link: open one of its comparisons in Link Changes to get suggestions (all types are listed meanwhile)."));
@@ -620,9 +663,16 @@ namespace ProjectPerseus.ui
             _tolXy.Text = Num(_editing.ToleranceXyMm);
             _tolZ.Text = Num(_editing.ToleranceZMm);
             _loadingEditor = false;
-            _editor.IsEnabled = true;
+            _editor.IsEnabled = _linkLoaded;
             UpdateNote();
             LoadParams();
+            if (!_linkLoaded)
+            {
+                Status($"Read only (link not loaded) · mapped to {(_editing.TargetName ?? "nothing")}" +
+                       (_mappedByRule.TryGetValue(_editing.Id, out int m) ? $" · {m} local families placed" : "") +
+                       (string.IsNullOrEmpty(_editing.Author) ? "" : $" · last saved by {_editing.Author}" + (_editing.SavedUtc > DateTime.MinValue ? $" {_editing.SavedUtc.ToLocalTime():d MMM yyyy}" : "")) + ".");
+                return;
+            }
             Status($"{s.Uids.Count} in the link · triage: {row.Stats.Describe()}" +
                    (_mappedByRule.TryGetValue(_editing.Id, out int n) ? $" · {n} local families mapped" : ""));
         }

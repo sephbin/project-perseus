@@ -16,6 +16,10 @@ namespace ProjectPerseus.mapping
         internal static FamilyMapping Load(Document doc, string modelKey) =>
             FederatorSettingsStore.Load<FamilyMapping>(doc, Key(modelKey)) ?? new FamilyMapping();
 
+        /// <summary>Consultant model keys that have a saved mapping in this model (loaded links or not).</summary>
+        internal static System.Collections.Generic.List<string> ModelKeys(Document doc) =>
+            System.Linq.Enumerable.ToList(System.Linq.Enumerable.Select(FederatorSettingsStore.Keys(doc, "familymap:"), k => k.Substring("familymap:".Length)));
+
         internal static void Save(Document doc, string modelKey, FamilyMapping mapping, string user) =>
             FederatorSettingsStore.Save(doc, Key(modelKey), mapping, user);
     }

@@ -37,6 +37,15 @@ namespace ProjectPerseus.federator
             catch (Exception ex) { Log.Info($"[Federator] settings '{key}' unreadable: {ex.Message}"); return null; }
         }
 
+        /// <summary>Every key saved (any author) that starts with <paramref name="prefix"/>.</summary>
+        internal static List<string> Keys(Document doc, string prefix)
+        {
+            var schema = Schema(false);
+            if (schema == null) return new List<string>();
+            return PluginDataStorage.All(doc, schema).Select(kv => kv.Value.Get<string>(FKey) ?? "")
+                                    .Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).Distinct().ToList();
+        }
+
         internal static void Save(Document doc, string key, object value, string author)
         {
             var schema = Schema(true);

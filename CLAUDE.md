@@ -362,6 +362,8 @@ ProjectPerseus/
 │   │                             (PickObject a placed family -> its type; placed at a consultant element of the type (1.5 m, else the user picks the consultant element) = its offset / rotation learnt and it becomes the test (never deleted / re-placed)).
 │   │                             Moving / rotating the test family by hand = offset / rotation captured (MappingMath.Corrected + Solve).
 │   │                             Follows Revit selection: a link -> that link; a linked element -> its consultant type row.
+│   │                             Link picker also lists unloaded links with saved mappings + mapped consultant models not linked here
+│   │                             (FamilyMapStore.ModelKeys): read-only review, rows from the saved rules.
 │   ├── TransformDialog.cs        NEW (2026-11-15). Mapper's Transform… editor: constant, default, lookup table (+ fill from consultant values,
 │   │                             strict), expression, prefix / suffix, live preview.
 │   ├── AddParameterDialog.cs     NEW (2026-11-15). Add local parameter (name, data type, instance / type, company file) for the mapper.
