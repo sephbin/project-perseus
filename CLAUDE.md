@@ -385,6 +385,7 @@ ProjectPerseus/
 │   │                             (hand edits: MappedFamilyData.HandEditReopened -> Moved until moved again); Approve still possible.
 │   │                             Possible matches: teal Kind.Match + chain-link badge; only matches selected = Match / Not a match buttons;
 │   │                             Not a match = pair kept in LinkSyncRejections.Matches -> linked element becomes New, ours Unlinked.
+│   │                             MatchRetype = unlinked local family of another type (same category) at the spot: approve connects + ChangeTypeId.
 │   ├── ViewImageStore.cs         NEW (2026-11-12). Per-user cache of review view images: %LOCALAPPDATA%\ProjectPerseus\federator\viewimages\
 │   │                             <model>\<view uid>\<stamp>\ frame.json + 512 px PNG tiles (tiled on a background thread); CropAsync
 │   │                             composes a region from cached tiles (LRU 64) into a frozen bitmap.

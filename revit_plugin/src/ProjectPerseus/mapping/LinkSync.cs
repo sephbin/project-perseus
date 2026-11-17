@@ -135,10 +135,10 @@ namespace ProjectPerseus.mapping
                         var ours = it.OursId != 0 ? doc.GetElement(RevitExtensions.CreateId(it.OursId)) : null;
                         switch (it.Kind)
                         {
-                            case SyncKind.New: case SyncKind.Match: case SyncKind.OursDeleted:
+                            case SyncKind.New: case SyncKind.Match: case SyncKind.MatchRetype: case SyncKind.OursDeleted:
                                 if (!srcByLink.TryGetValue(it.LinkUid ?? "", out var set)) srcByLink[it.LinkUid ?? ""] = set = new HashSet<string>(StringComparer.Ordinal);
                                 set.Add(it.SourceUid);
-                                if (it.Kind == SyncKind.Match && ours != null) unkeep.Add(ours.UniqueId);
+                                if (LinkSyncPlanner.IsMatch(it.Kind) && ours != null) unkeep.Add(ours.UniqueId);
                                 break;
                             case SyncKind.Unlinked:
                                 if (ours != null) unkeep.Add(ours.UniqueId);
@@ -346,12 +346,23 @@ namespace ProjectPerseus.mapping
                 input.Ours.Add(o);
             }
             var targetUids = new HashSet<string>(input.Rules.Where(r => !string.IsNullOrEmpty(r.TargetSymbolUid)).Select(r => r.TargetSymbolUid), StringComparer.Ordinal);
-            var targetIds = new HashSet<ElementId>(targetUids.Select(u => doc.GetElement(u)?.Id).Where(id => id != null));
+            var targetIds = new HashSet<ElementId>();
+            var targetCats = new HashSet<ElementId>();
+            foreach (var u in targetUids)
+            {
+                var sym = doc.GetElement(u) as FamilySymbol;
+                if (sym == null) continue;
+                targetIds.Add(sym.Id);
+                if (sym.Category != null) { targetCats.Add(sym.Category.Id); input.TargetCategories[u] = sym.Category.Name; }
+            }
             if (targetIds.Count > 0)
             {
+                // Same-type ones are Match candidates; other types in those categories may be drawn wrong (MatchRetype).
                 var recorded = new HashSet<ElementId>(allRecords.Select(r => r.Element));
                 foreach (FamilyInstance fi in new FilteredElementCollector(doc).OfClass(typeof(FamilyInstance)).WhereElementIsNotElementType())
-                    if (fi.Symbol != null && targetIds.Contains(fi.Symbol.Id) && !recorded.Contains(fi.Id)) input.Unrecorded.Add(Ours(fi, null));
+                    if (fi.Symbol != null && !recorded.Contains(fi.Id) && fi.SuperComponent == null &&
+                        (targetIds.Contains(fi.Symbol.Id) || (fi.Category != null && targetCats.Contains(fi.Category.Id))))
+                        input.Unrecorded.Add(Ours(fi, null));
             }
             var items = LinkSyncPlanner.Plan(input);
             var editors = new Dictionary<long, string>();
@@ -506,7 +517,7 @@ namespace ProjectPerseus.mapping
 
         private static SyncOurs Ours(FamilyInstance fi, MappedFamilyData record) => new SyncOurs
         {
-            Id = fi.Id.GetIdValue(), Uid = fi.UniqueId, TypeUid = fi.Symbol?.UniqueId, TypeName = fi.Symbol == null ? "?" : $"{fi.Symbol.FamilyName} : {fi.Symbol.Name}",
+            Id = fi.Id.GetIdValue(), Uid = fi.UniqueId, TypeUid = fi.Symbol?.UniqueId, Category = fi.Category?.Name, TypeName = fi.Symbol == null ? "?" : $"{fi.Symbol.FamilyName} : {fi.Symbol.Name}",
             Frame = FamilyPlacer.FrameOf(fi), Record = record,
         };
 
@@ -518,7 +529,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.ConsultantType: return 1;
                 case SyncKind.MappingType: return 2;
                 case SyncKind.Moved: case SyncKind.KeptByHand: case SyncKind.KeptRejected: return 3;
-                case SyncKind.Match: return 4;
+                case SyncKind.Match: case SyncKind.MatchRetype: return 4;
                 case SyncKind.New: case SyncKind.OursDeleted: return 5;
                 case SyncKind.Orphaned: case SyncKind.Unlinked: return 6;
                 case SyncKind.ParameterChanged: return 7;   // after moves (re-placed families keep their id map) and placements
@@ -550,12 +561,12 @@ namespace ProjectPerseus.mapping
             foreach (var d in decisions.Where(x => x.Approve && x.Item.Rejected))
             {
                 var it = d.Item;
-                if (it.Kind == SyncKind.New || it.Kind == SyncKind.Match || it.Kind == SyncKind.OursDeleted)
+                if (it.Kind == SyncKind.New || LinkSyncPlanner.IsMatch(it.Kind) || it.Kind == SyncKind.OursDeleted)
                 {
                     if (!unrejectNew.TryGetValue(it.LinkUid ?? "", out var set)) unrejectNew[it.LinkUid ?? ""] = set = new HashSet<string>(StringComparer.Ordinal);
                     set.Add(it.SourceUid);
                 }
-                if ((it.Kind == SyncKind.Unlinked || it.Kind == SyncKind.Match) && it.OursUid != null) unkeep.Add(it.OursUid);
+                if ((it.Kind == SyncKind.Unlinked || LinkSyncPlanner.IsMatch(it.Kind)) && it.OursUid != null) unkeep.Add(it.OursUid);
             }
             var events = new List<LinkSyncEvent>();
             var levels = FamilyPlacer.Levels(doc);
@@ -658,6 +669,7 @@ namespace ProjectPerseus.mapping
                         keptUnlinked.Add(ours.UniqueId);
                         return null;
                     case SyncKind.Match:
+                    case SyncKind.MatchRetype:
                     {
                         // Not a match: remember the pair; the linked element is then proposed as an addition, ours as unlinked.
                         if (ours == null) return "the local family is gone";
@@ -747,9 +759,19 @@ namespace ProjectPerseus.mapping
                     return null;
                 }
                 case SyncKind.Match:
+                case SyncKind.MatchRetype:
                 {
                     if (source == null) return "the consultant element is gone";
                     if (rule == null) return "no mapping rule for it";
+                    if (it.Kind == SyncKind.MatchRetype)
+                    {
+                        // Same element, the mapped type: tags, dimensions and hosted references survive.
+                        var sym = doc.GetElement(rule.TargetSymbolUid) as FamilySymbol;
+                        if (sym == null) return "the mapped local type isn't in the model any more";
+                        if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                        if (ours.Symbol.Id != sym.Id) ours.ChangeTypeId(sym.Id);
+                        doc.Regenerate();
+                    }
                     var data = MappedFamilyStore.Write(ours, link.Uid, source.UniqueId, source.Id.GetIdValue(), rule.Id, user, MappedFamilyStore.Linked,
                                                        FamilyPlacer.TypeKey(source), FamilyPlacer.SourceFrame(source, toHost), FamilyPlacer.FrameOf(ours));
                     res.Connects.Add(LinkSyncNotes.ConnectEvent(link.Uid, source.UniqueId, ours.UniqueId, user));
@@ -860,7 +882,7 @@ namespace ProjectPerseus.mapping
         internal static Tuple<int, int> WriteStatus(Document doc, List<SyncItem> items, Dictionary<string, LinkInfo> links,
                                                     Dictionary<string, List<LinkSyncEvent>> index = null)
         {
-            var byOurs = items.Where(i => i.OursId != 0 && i.Kind != SyncKind.Match).GroupBy(i => i.OursId).ToList();
+            var byOurs = items.Where(i => i.OursId != 0 && !LinkSyncPlanner.IsMatch(i.Kind)).GroupBy(i => i.OursId).ToList();
             var cats = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var g in byOurs) { var c = doc.GetElement(RevitExtensions.CreateId(g.Key))?.Category?.Name; if (c != null) cats.Add(c); }
             SharedParameterManager.EnsureLinkSyncParameters(doc, cats);

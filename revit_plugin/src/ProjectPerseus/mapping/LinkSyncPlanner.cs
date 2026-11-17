@@ -13,6 +13,7 @@ namespace ProjectPerseus.mapping
         MappingType,      // the rule now says another of our types
         Moved,            // consultant moved / rule offset changed: ours isn't where the mapping puts it
         Match,            // one of ours, unrecorded, sits at the expected spot: link it
+        MatchRetype,      // one of ours of ANOTHER type, unrecorded, sits at the expected spot: link it and change its type (tags / dimensions kept)
         New,              // mapped consultant element with none of ours: place
         Orphaned,         // consultant element gone, no replacement: delete ours (local orphan)
         Unlinked,         // one of ours of a mapped type, never linked, no consultant element near it: delete ours (local orphan)
@@ -52,6 +53,7 @@ namespace ProjectPerseus.mapping
         public string Uid;
         public string TypeUid;
         public string TypeName;
+        public string Category;
         public Frame Frame;
         public MappedFamilyData Record;   // null = not mapped (Match candidates)
         public List<ParamState> Params = new List<ParamState>();
@@ -100,9 +102,11 @@ namespace ProjectPerseus.mapping
         public List<SyncSource> Sources = new List<SyncSource>();
         /// <summary>Our families recorded against this link.</summary>
         public List<SyncOurs> Ours = new List<SyncOurs>();
-        /// <summary>Our unrecorded families of mapped target types (Match candidates).</summary>
+        /// <summary>Our unrecorded families in the mapped target types' categories (Match candidates; MatchRetype when of another type).</summary>
         public List<SyncOurs> Unrecorded = new List<SyncOurs>();
         public List<FamilyMapRule> Rules = new List<FamilyMapRule>();
+        /// <summary>Our target type uid -> its category name (MatchRetype only pairs ours of the same category).</summary>
+        public Dictionary<string, string> TargetCategories = new Dictionary<string, string>(StringComparer.Ordinal);
         public HashSet<string> HiddenCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         /// <summary>old consultant uid -> current uid (federator/ReplacementLinks.Map).</summary>
         public IDictionary<string, string> ReplacementMap = new Dictionary<string, string>();
@@ -129,11 +133,14 @@ namespace ProjectPerseus.mapping
     {
         public static bool NeedsDecision(SyncKind k) =>
             k == SyncKind.Replaced || k == SyncKind.ConsultantType || k == SyncKind.MappingType || k == SyncKind.Moved ||
-            k == SyncKind.Match || k == SyncKind.New || k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted ||
+            k == SyncKind.Match || k == SyncKind.MatchRetype || k == SyncKind.New || k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted ||
             k == SyncKind.ParameterChanged;
 
         /// <summary>Orphans: ours without a consultant element (local) or a consultant element whose linked family of ours was deleted (linked).</summary>
         public static bool IsOrphan(SyncKind k) => k == SyncKind.Orphaned || k == SyncKind.Unlinked || k == SyncKind.OursDeleted;
+
+        /// <summary>A possible match: an existing family of ours not linked yet, at a consultant element (same type, or another to change).</summary>
+        public static bool IsMatch(SyncKind k) => k == SyncKind.Match || k == SyncKind.MatchRetype;
 
         /// <summary>Approving deletes our family.</summary>
         public static bool ApproveDeletes(SyncKind k) => k == SyncKind.Orphaned || k == SyncKind.Unlinked;
@@ -153,6 +160,7 @@ namespace ProjectPerseus.mapping
                 case SyncKind.MappingType: return "Mapping type changed";
                 case SyncKind.Moved: return "Moved";
                 case SyncKind.Match: return "Possible match (connect existing)";
+                case SyncKind.MatchRetype: return "Possible match (different type)";
                 case SyncKind.New: return "New (place)";
                 case SyncKind.Orphaned: return "Orphaned (consultant deleted)";
                 case SyncKind.Unlinked: return "Orphaned (no consultant element)";
@@ -380,6 +388,38 @@ namespace ProjectPerseus.mapping
                              (MappingMath.Within(MappingMath.Delta(u.Frame, expectedOf[p.Item2]), rule.ToleranceXyMm, rule.ToleranceZMm) ? "." : " (then listed as moved: it's beyond the tolerance)."),
                 });
             }
+            // Ours of ANOTHER type at the spot (drawn with the wrong type, maybe already tagged / dimensioned): connect it and change its type.
+            var retype = new List<Tuple<double, int, int>>();
+            for (int i = 0; i < todo.Count; i++)
+            {
+                if (usedS.Contains(i) || input.Connected.Contains(todo[i].Uid)) continue;
+                var rule = rules[todo[i].TypeKey];
+                input.TargetCategories.TryGetValue(rule.TargetSymbolUid ?? "", out var targetCat);
+                for (int j = 0; j < input.Unrecorded.Count; j++)
+                {
+                    if (usedU.Contains(j)) continue;
+                    var u = input.Unrecorded[j];
+                    if (u.TypeUid == rule.TargetSymbolUid || u.Frame == null) continue;
+                    if (targetCat != null && u.Category != null && !string.Equals(targetCat, u.Category, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (u.Uid != null && input.RejectedMatches.Contains(SyncInput.MatchKey(todo[i].Uid, u.Uid))) continue;
+                    var d = MappingMath.Delta(u.Frame, expectedOf[i]);
+                    if (d.XyMm <= Math.Max(rule.ToleranceXyMm, MatchRadiusMm) && d.ZMm <= Math.Max(rule.ToleranceZMm, MatchRadiusMm)) retype.Add(Tuple.Create(d.TotalMm, i, j));
+                }
+            }
+            foreach (var p in retype.OrderBy(x => input.RejectedNew.Contains(todo[x.Item2].Uid) ? 1 : 0).ThenBy(x => x.Item1))
+            {
+                if (usedS.Contains(p.Item2) || usedU.Contains(p.Item3)) continue;
+                usedS.Add(p.Item2); usedU.Add(p.Item3);
+                var s = todo[p.Item2]; var u = input.Unrecorded[p.Item3]; var rule = rules[s.TypeKey];
+                items.Add(new SyncItem
+                {
+                    Kind = SyncKind.MatchRetype, Rejected = input.RejectedNew.Contains(s.Uid), LinkUid = input.LinkUid, SourceUid = s.Uid, SourceId = s.Id, SourceTypeKey = s.TypeKey, Category = s.Category,
+                    OursId = u.Id, OursType = u.TypeName, RuleId = rule.Id, TargetUid = rule.TargetSymbolUid, TargetName = rule.TargetName,
+                    Expected = expectedOf[p.Item2],
+                    Detail = $"A local {u.TypeName} (not linked yet) is {p.Item1:N0} mm from where the mapping puts {rule.TargetName} for {Pretty(s.TypeKey)}. " +
+                             $"Approve = connect it and change its type to {rule.TargetName} (same element: tags and dimensions stay); reject = not a match (then listed as an addition).",
+                });
+            }
             for (int i = 0; i < todo.Count; i++)
             {
                 if (usedS.Contains(i)) continue;
@@ -419,7 +459,7 @@ namespace ProjectPerseus.mapping
         /// </summary>
         public static List<SyncItem> Reconcile(List<SyncItem> items)
         {
-            var matched = new HashSet<long>(items.Where(i => i.Kind == SyncKind.Match).Select(i => i.OursId));
+            var matched = new HashSet<long>(items.Where(i => IsMatch(i.Kind)).Select(i => i.OursId));
             var seen = new HashSet<long>();
             return items.Where(i => i.Kind != SyncKind.Unlinked || (!matched.Contains(i.OursId) && seen.Add(i.OursId))).ToList();
         }

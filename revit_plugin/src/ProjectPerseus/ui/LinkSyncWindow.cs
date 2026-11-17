@@ -64,7 +64,7 @@ namespace ProjectPerseus.ui
         private bool _linksLoaded;
 
         private static readonly SyncKind[] DecisionKinds =
-            { SyncKind.New, SyncKind.Match, SyncKind.Moved, SyncKind.ConsultantType, SyncKind.MappingType, SyncKind.Replaced, SyncKind.Orphaned,
+            { SyncKind.New, SyncKind.Match, SyncKind.MatchRetype, SyncKind.Moved, SyncKind.ConsultantType, SyncKind.MappingType, SyncKind.Replaced, SyncKind.Orphaned,
               SyncKind.Unlinked, SyncKind.OursDeleted, SyncKind.ParameterChanged };
 
         private class Row
@@ -683,7 +683,7 @@ namespace ProjectPerseus.ui
                         Kind = i.Kind == SyncKind.New ? ChangeHighlightServer.Kind.Added
                              : LinkSyncPlanner.IsOrphan(i.Kind) ? ChangeHighlightServer.Kind.Orphan
                              : i.Kind == SyncKind.Replaced ? ChangeHighlightServer.Kind.Replaced
-                             : i.Kind == SyncKind.Match ? ChangeHighlightServer.Kind.Match
+                             : LinkSyncPlanner.IsMatch(i.Kind) ? ChangeHighlightServer.Kind.Match
                              : ChangeHighlightServer.Kind.Modified,
                     };
                     if (LinkSyncPlanner.IsOrphan(i.Kind))
@@ -811,7 +811,7 @@ namespace ProjectPerseus.ui
             Item("Select local", "Select the local family in Revit", () => Find(false, true, false), one != null && one.OursId != 0);
             Item("Select consultant", "Select the consultant element in Revit", () => Find(false, true, true), one != null && one.SourceId != 0);
             cm.Items.Add(new Separator());
-            bool connected = one != null && one.OursId != 0 && one.Kind != SyncKind.Unlinked && one.Kind != SyncKind.Match;
+            bool connected = one != null && one.OursId != 0 && one.Kind != SyncKind.Unlinked && !LinkSyncPlanner.IsMatch(one.Kind);
             Item("Disconnect from the consultant element", "The local family stays where it is, as a family of this model only; neither is proposed again", () => Disconnect(one), connected);
             Item(connected ? "Connect the local family to another consultant element…" : "Connect the local family to a consultant element…",
                  "Pick the consultant element in the view (linked element)", () => PickConsultant(one), one != null && one.OursId != 0);
@@ -1054,7 +1054,8 @@ namespace ProjectPerseus.ui
         }
 
         private Button _approveSel, _rejectSel, _approveAll, _approveOne, _rejectOne;
-        private bool? _matchLabels, _matchAllLabel;
+        private string _matchLabels;
+        private bool? _matchAllLabel;
 
         /// <summary>
         /// Only possible matches selected (or, for "all shown", listed for a decision): the buttons say what they do to a match
@@ -1064,16 +1065,19 @@ namespace ProjectPerseus.ui
         {
             if (_approveSel == null) return;
             var sel = SelectedRows().Select(r => r.Item).ToList();
-            bool matches = sel.Count > 0 && sel.All(i => i.Kind == SyncKind.Match);
-            if (_matchLabels != matches)
+            bool matches = sel.Count > 0 && sel.All(i => LinkSyncPlanner.IsMatch(i.Kind));
+            bool retype = matches && sel.All(i => i.Kind == SyncKind.MatchRetype);
+            string labelKey = !matches ? "no" : retype ? "retype" : "match";
+            if (_matchLabels != labelKey)
             {
-                _matchLabels = matches;
+                _matchLabels = labelKey;
                 string n = sel.Count > 1 ? " selected" : "";
                 if (matches)
                 {
-                    SetBtn2(_approveSel, "Match selected", "Connect to linked element");
+                    string sub = retype ? "Connect + change to mapped type" : "Connect to linked element";
+                    SetBtn2(_approveSel, "Match selected", sub);
                     SetBtn2(_rejectSel, "Not a match", "Add linked element instead");
-                    SetBtn2(_approveOne, "Match", "Connect to linked element");
+                    SetBtn2(_approveOne, "Match", sub);
                     SetBtn2(_rejectOne, "Not a match", "Add linked element instead");
                 }
                 else
@@ -1083,13 +1087,15 @@ namespace ProjectPerseus.ui
                     SetBtn2(_approveOne, "Approve", "Accept linked model state");
                     SetBtn2(_rejectOne, "Reject", "Retain current model state");
                 }
-                string tipA = matches ? "Connect the local family to the linked element: it is then kept in step with it (no new family placed)" : null;
+                string tipA = !matches ? null : retype
+                    ? "Connect the local family to the linked element and change it to the mapped type (same element: its tags and dimensions stay)"
+                    : "Connect the local family to the linked element: it is then kept in step with it (no new family placed)";
                 string tipR = matches ? "Not the same element: the local family stays unlinked and the linked element is listed as an addition (to place a new local family) instead" : null;
                 foreach (var b in new[] { _approveSel, _approveOne }) b.ToolTip = tipA ?? "Take the consultant's state: move the local family to the linked model position, place new ones, change the type, follow the replacement, delete orphans";
                 foreach (var b in new[] { _rejectSel, _rejectOne }) b.ToolTip = tipR ?? "Keep the local family as it is in this model: the change is set aside (second list) until the linked model changes once more";
             }
             var shown = AllRows().Select(r => r.Item).Where(i => i.NeedsDecision).ToList();
-            bool allMatch = shown.Count > 0 && shown.All(i => i.Kind == SyncKind.Match);
+            bool allMatch = shown.Count > 0 && shown.All(i => LinkSyncPlanner.IsMatch(i.Kind));
             if (_matchAllLabel != allMatch)
             {
                 _matchAllLabel = allMatch;

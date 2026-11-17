@@ -153,6 +153,37 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void OursOfAnotherTypeAtTheSpotIsARetypeMatch()
+        {
+            var i = Input(Rule(TypeA, "ours"));
+            i.TargetCategories["ours"] = "Generic Models";
+            i.Sources.Add(Src("s1", TypeA, At(0, 0, 3000)));
+            i.Unrecorded.Add(new SyncOurs { Id = 8, Uid = "u8", TypeUid = "wrong", TypeName = "wrong", Category = "Generic Models", Frame = At(20, 0, 3000) });
+            var m = LinkSyncPlanner.Plan(i).Single();
+            Assert.AreEqual(SyncKind.MatchRetype, m.Kind);
+            Assert.AreEqual(8, m.OursId);
+            Assert.AreEqual("ours", m.TargetUid);
+            // Another category is never a match; "not a match" -> an addition (the unmapped type isn't an orphan).
+            i.Unrecorded[0].Category = "Doors";
+            Assert.AreEqual(SyncKind.New, LinkSyncPlanner.Plan(i).Single().Kind);
+            i.Unrecorded[0].Category = "Generic Models";
+            i.RejectedMatches.Add(SyncInput.MatchKey("s1", "u8"));
+            Assert.AreEqual(SyncKind.New, LinkSyncPlanner.Plan(i).Single().Kind);
+        }
+
+        [TestMethod]
+        public void SameTypeMatchWinsOverRetype()
+        {
+            var i = Input(Rule(TypeA, "ours"));
+            i.Sources.Add(Src("s1", TypeA, At(0, 0, 3000)));
+            i.Unrecorded.Add(new SyncOurs { Id = 8, Uid = "u8", TypeUid = "wrong", TypeName = "wrong", Frame = At(5, 0, 3000) });
+            i.Unrecorded.Add(new SyncOurs { Id = 7, Uid = "u7", TypeUid = "ours", TypeName = "ours", Frame = At(40, 0, 3000) });
+            var items = LinkSyncPlanner.Plan(i);
+            Assert.AreEqual(7, items.Single(x => x.Kind == SyncKind.Match).OursId);
+            Assert.IsFalse(items.Any(x => x.Kind == SyncKind.MatchRetype));
+        }
+
+        [TestMethod]
         public void RejectedMatchBecomesAnAddition()
         {
             var i = Input(Rule(TypeA, "ours"));
