@@ -286,17 +286,24 @@ namespace ProjectPerseus.federator
                     break;
                 case 'm':
                 {
-                    // Chain link: two interlocking rounded loops, tilted 45°.
-                    double rx = size * 0.62, ry = size * 0.34, off = size * 0.4, cs = Math.Cos(Math.PI / 4), sn = Math.Sin(Math.PI / 4);
+                    // Chain link: two stadium-shaped links overlapping by a third, tilted 45°, spanning most of the badge, with open
+                    // holes (thinner stroke) so it reads as a chain at badge size.
+                    double ry = size * 0.46, rx = size * 0.82, off = size * 0.64, h = half * 0.78;
+                    double cs = Math.Cos(Math.PI / 4), sn = Math.Sin(Math.PI / 4), straight = rx - ry;
                     foreach (int side in new[] { -1, 1 })
                     {
                         var loop = new List<Pt>();
-                        for (int i = 0; i < 24; i++)
+                        const int arc = 12;
+                        for (int end = 0; end < 2; end++)
                         {
-                            double a = 2 * Math.PI * i / 24, x = side * off + rx * Math.Cos(a), y = ry * Math.Sin(a);
-                            loop.Add(new Pt(c.U + x * cs - y * sn, c.V + x * sn + y * cs));
+                            double cx = (end == 0 ? straight : -straight), a0 = end == 0 ? -Math.PI / 2 : Math.PI / 2;
+                            for (int i = 0; i <= arc; i++)
+                            {
+                                double a = a0 + Math.PI * i / arc, x = side * off + cx + ry * Math.Cos(a), y = ry * Math.Sin(a);
+                                loop.Add(new Pt(c.U + x * cs - y * sn, c.V + x * sn + y * cs));
+                            }
                         }
-                        Stroke(tris, loop, true, half);
+                        Stroke(tris, loop, true, h);
                     }
                     break;
                 }
