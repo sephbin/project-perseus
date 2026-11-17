@@ -683,7 +683,8 @@ namespace ProjectPerseus.ui
                         Kind = i.Kind == SyncKind.New ? ChangeHighlightServer.Kind.Added
                              : LinkSyncPlanner.IsOrphan(i.Kind) ? ChangeHighlightServer.Kind.Orphan
                              : i.Kind == SyncKind.Replaced ? ChangeHighlightServer.Kind.Replaced
-                             : LinkSyncPlanner.IsMatch(i.Kind) ? ChangeHighlightServer.Kind.Match
+                             : i.Kind == SyncKind.MatchRetype ? ChangeHighlightServer.Kind.MatchRetype
+                             : i.Kind == SyncKind.Match ? ChangeHighlightServer.Kind.Match
                              : ChangeHighlightServer.Kind.Modified,
                     };
                     if (LinkSyncPlanner.IsOrphan(i.Kind))
