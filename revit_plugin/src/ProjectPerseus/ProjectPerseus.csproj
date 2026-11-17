@@ -530,6 +530,7 @@
     <Compile Include="util\JsonUtils.cs" />
     <Compile Include="util\UrlUtils.cs" />
     <Compile Include="web\ProjectPerseusWeb.cs" />
+    <Compile Include="web\PluginInfo.cs" />
     <Compile Include="web\WebHelper.cs" />
   </ItemGroup>
   <ItemGroup>

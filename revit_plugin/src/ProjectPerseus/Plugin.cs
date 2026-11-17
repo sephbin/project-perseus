@@ -37,6 +37,7 @@ namespace ProjectPerseus
             string revitVersion = application.ControlledApplication.VersionNumber;
             string pluginVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             Log.InitSession(revitVersion, pluginVersion);
+            web.PluginInfo.Init(revitVersion, pluginVersion);
             Step("crash trace", CrashTrace.Install);
             Step("code pages", util.CodePages.Register);
             Step("sync", () => _orchestrator.Subscribe(application));

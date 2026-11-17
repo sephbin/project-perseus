@@ -20,7 +20,8 @@ namespace ProjectPerseus.auth
         private static string _cachedAccessToken;
         private static DateTime _cachedAccessExpiry = DateTime.MinValue;
 
-        private static readonly HttpClient _http = new HttpClient();
+        private static readonly HttpClient _http = NewClient();
+        private static HttpClient NewClient() { var c = new HttpClient(); web.PluginInfo.Apply(c); return c; }
 
         public static void Initialize(JObject authConfig, string baseUrl)
         {

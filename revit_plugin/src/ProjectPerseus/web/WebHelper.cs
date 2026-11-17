@@ -46,6 +46,7 @@ namespace ProjectPerseus.web
                 httpWebRequest.Method = method;
                 httpWebRequest.Timeout = timeoutMs;
                 httpWebRequest.ReadWriteTimeout = timeoutMs;
+                PluginInfo.Apply(httpWebRequest);   // X-Perseus-Version etc.: the web app reports who runs which version
 
                 if (!string.IsNullOrEmpty(apiToken))
                 {

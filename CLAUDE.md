@@ -717,6 +717,9 @@ ProjectPerseus/
 │   │                             parameters/geometry lazily during serialisation, so this IS the collection step), with
 │   │                             per-element progress. Envelope() assembles dump/chunk JSON from the fragments (byte-identical
 │   │                             to serialising the whole object); Chunks() splits by real size. Failed elements are skipped.
+│   ├── PluginInfo.cs             NEW (2026-11-18). Perseus / Revit version + Windows user / machine as X-Perseus-* headers and a
+│   │                             ProjectPerseus/x.y.z User-Agent on every request (WebHelper, ProjectPerseusWeb, JwtAuth); the web app's
+│   │                             Plugin users page (django-perseus PluginClient) reads them. Init() from Plugin.OnStartup.
 │   └── WebHelper.cs              NEW (P5). Single static WebHelper. Optional scheme param
 │                                 (defaults "Bearer") so legacy "Token" call still works. Optional timeoutMs: default
 │                                 5 min is for background uploads; UI-thread / pre-sync calls pass SyncTimeoutMs (5 s).

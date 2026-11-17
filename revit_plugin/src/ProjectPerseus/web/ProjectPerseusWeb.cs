@@ -87,6 +87,7 @@ namespace ProjectPerseus.web
             using (var client = new System.Net.Http.HttpClient())
             {
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(scheme, token);
+                PluginInfo.Apply(client);
                 for (int i = 0; i < totalChunks; i++)
                 {
                     bool isLastChunk = i == totalChunks - 1;
@@ -99,6 +100,8 @@ namespace ProjectPerseus.web
                         revitAccountId = revitAccountId,
                         windowsUser = windowsUsername,
                         machine = machineName,
+                        perseusVersion = PluginInfo.Version,
+                        revitVersion = PluginInfo.RevitVersion,
                         batchId = batchId,
                         chunkIndex = i,
                         totalChunks = totalChunks,

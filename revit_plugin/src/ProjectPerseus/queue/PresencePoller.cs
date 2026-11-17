@@ -84,7 +84,7 @@ namespace ProjectPerseus.queue
             if (string.IsNullOrEmpty(baseUrl)) return;
 
             var syncboatRoot = new Uri(baseUrl).GetLeftPart(UriPartial.Authority);
-            var payload = JsonConvert.SerializeObject(new { username = _username });
+            var payload = JsonConvert.SerializeObject(new { username = _username, perseus_version = PluginInfo.Version, revit_version = PluginInfo.RevitVersion, machine = Environment.MachineName });
 
             foreach (var guid in guids)
             {
