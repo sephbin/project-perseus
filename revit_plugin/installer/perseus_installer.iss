@@ -2,32 +2,35 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 ; --- Revit versions ---
-; One component per Revit version whose build AND manifest (manifests\ProjectPerseus_<year>.addin) exist when the
-; installer is compiled; any other version is left out of the installer entirely. The "Select Revit versions" page pre-ticks the versions
-; installed on this PC (or already carrying Perseus); unticking one removes Perseus from that Revit version.
-; Silent / IT installs: /COMPONENTS="revit2024,revit2026" picks versions explicitly, otherwise the detected ones.
+; Two builds ("parents") serve every Revit version:
+;   "2021+" package = Debug 2023 build  ->  Revit 2021, 2022, 2023, 2024      ({app}1+)
+;   "2025+" package = Debug 2026 build  ->  Revit 2025, 2026, 2027            ({app}5+)
+; The "Select Revit versions" page has one tick per Revit version (component revit<year>). A parent's DLLs are
+; installed when any of its Revit versions is ticked; each ticked Revit version gets its own manifest
+; (Addins\<year>\ProjectPerseus_<year>.addin, written at install time, pointing at {app}\<parent>). Unticking a version
+; removes its manifest, and the parent folder goes when none of its versions is ticked. A parent whose DLL isn't built
+; when the installer is compiled is left out, with its Revit versions. Pre-ticked: Revit versions on this PC, or
+; already carrying Perseus. Silent / IT installs: /COMPONENTS="revit2024,revit2026", otherwise the detected versions.
+; To move a Revit version to another parent: change Parent() below AND the matching Components lists.
 #define Bin "E:\mydev\project-perseus\revit_plugin\src\ProjectPerseus\bin\x64\Debug "
-#define Manifests "E:\mydev\project-perseus\revit_plugin\manifests\"
-#define Has(str Y) FileExists(Bin + Y + "\ProjectPerseus.dll") && FileExists(Manifests + "ProjectPerseus_" + Y + ".addin")
-#define Years ""
-#if Has("2023")
-  #define Years Years + "2023,"
+#define Built(str P) FileExists(Bin + P + "\ProjectPerseus.dll")
+#define Has23 Built("2023")
+#define Has26 Built("2026")
+#define Map ""
+#if Has23
+  #define Map Map + "2021:2021+,2022:2021+,2023:2021+,2024:2021+,"
 #endif
-#if Has("2024")
-  #define Years Years + "2024,"
+#if Has26
+  #define Map Map + "2025:2025+,2026:2025+,2027:2025+,"
 #endif
-#if Has("2025")
-  #define Years Years + "2025,"
-#endif
-#if Has("2026")
-  #define Years Years + "2026,"
-#endif
+#define On23 "revit2021 or revit2022 or revit2023 or revit2024"
+#define On26 "revit2025 or revit2026 or revit2027"
 
 [Setup]
 ArchitecturesInstallIn64BitMode=x64
 ; --- 1. App Information ---
 AppName=Project Perseus
-AppVersion=1.3.156
+AppVersion=1.3.157
 AppId={{10908502-7BB8-473D-B858-B31591187295}}
 DefaultGroupName=Andrew Butler
 
@@ -50,89 +53,52 @@ RestartApplications=no
 ; The Revit version ticks are worked out each run (installed Revit + existing Perseus), not replayed from last time.
 UsePreviousSetupType=no
 ; Optional: Adds your plugin icon to the Windows Add/Remove Programs list
-; UninstallDisplayIcon={app}\2026\reset.png
+; UninstallDisplayIcon={app}\2025+\reset.png
 
 [Types]
 Name: "custom"; Description: "Choose Revit versions"; Flags: iscustom
 
 [Components]
-#if Has("2023")
+#if Has23
+Name: "revit2021"; Description: "Revit 2021"; Types: custom
+Name: "revit2022"; Description: "Revit 2022"; Types: custom
 Name: "revit2023"; Description: "Revit 2023"; Types: custom
-#endif
-#if Has("2024")
 Name: "revit2024"; Description: "Revit 2024"; Types: custom
 #endif
-#if Has("2025")
+#if Has26
 Name: "revit2025"; Description: "Revit 2025"; Types: custom
-#endif
-#if Has("2026")
 Name: "revit2026"; Description: "Revit 2026"; Types: custom
+Name: "revit2027"; Description: "Revit 2027"; Types: custom
 #endif
 
 [Files]
-#if Has("2023")
-; --- REVIT 2023 ---
-Source: "{#Bin}2023\ProjectPerseus.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion
-Source: "{#Bin}2023\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2023\runtimes\win-x64\native"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\Microsoft.Identity.Client.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\Microsoft.Bcl.AsyncInterfaces.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\System.Text.Json.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\System.Text.Encodings.Web.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\Sentry.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2023\EPPlus.dll"; DestDir: "{app}\2023"; Components: revit2023; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Manifests}ProjectPerseus_2023.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2023"; Components: revit2023; Flags: ignoreversion
+#if Has23
+; --- 2021+ PACKAGE: Debug 2023 build (Revit 2021-2024) ---
+Source: "{#Bin}2023\ProjectPerseus.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion
+Source: "{#Bin}2023\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2021+\runtimes\win-x64\native"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Microsoft.Identity.Client.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Microsoft.Bcl.AsyncInterfaces.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\System.Text.Json.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\System.Text.Encodings.Web.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Sentry.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\EPPlus.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
 #endif
 
-#if Has("2024")
-; --- REVIT 2024 ---
-Source: "{#Bin}2024\ProjectPerseus.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion
-Source: "{#Bin}2024\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2024\runtimes\win-x64\native"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\Microsoft.Identity.Client.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\Microsoft.Bcl.AsyncInterfaces.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\System.Text.Json.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\System.Text.Encodings.Web.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\Sentry.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2024\EPPlus.dll"; DestDir: "{app}\2024"; Components: revit2024; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Manifests}ProjectPerseus_2024.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2024"; Components: revit2024; Flags: ignoreversion
-#endif
-
-#if Has("2025")
-; --- REVIT 2025 ---
-Source: "{#Bin}2025\ProjectPerseus.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion
-Source: "{#Bin}2025\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2025\runtimes\win-x64\native"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\Microsoft.Identity.Client.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\Microsoft.Bcl.AsyncInterfaces.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\System.Text.Json.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\System.Text.Encodings.Web.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\Sentry.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2025\EPPlus.dll"; DestDir: "{app}\2025"; Components: revit2025; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Manifests}ProjectPerseus_2025.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2025"; Components: revit2025; Flags: ignoreversion
-#endif
-
-#if Has("2026")
-; --- REVIT 2026 ---
-Source: "{#Bin}2026\ProjectPerseus.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion
-Source: "{#Bin}2026\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2026\runtimes\win-x64\native"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2026\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2026\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2026\Microsoft.Identity.Client.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2026\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2026\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2026\Sentry.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Bin}2026\EPPlus.dll"; DestDir: "{app}\2026"; Components: revit2026; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Manifests}ProjectPerseus_2026.addin"; DestDir: "{commonappdata}\Autodesk\Revit\Addins\2026"; Components: revit2026; Flags: ignoreversion
+#if Has26
+; --- 2025+ PACKAGE: Debug 2026 build (Revit 2025-2027) ---
+Source: "{#Bin}2026\ProjectPerseus.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion
+Source: "{#Bin}2026\runtimes\win-x64\native\WebView2Loader.dll"; DestDir: "{app}\2025+\runtimes\win-x64\native"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\Microsoft.Identity.Client.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\Sentry.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\EPPlus.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
 #endif
 
 [InstallDelete]
@@ -147,32 +113,60 @@ Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2025\ProjectPerseus.addi
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2025\ProjectPerseus_2025.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2026\ProjectPerseus.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2026\ProjectPerseus_2026.addin"
-; Revit versions unticked on this run: take Perseus out of them (manifest + that version's DLL folder).
-#if Has("2023")
+; Old installers' per-version DLL folders (now the 2021+ / 2025+ packages).
+Type: filesandordirs; Name: "{app}\2023"
+Type: filesandordirs; Name: "{app}\2024"
+Type: filesandordirs; Name: "{app}\2025"
+Type: filesandordirs; Name: "{app}\2026"
+; Revit versions unticked on this run: take Perseus out of them; a build folder goes when none of its versions is ticked.
+#if Has23
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2021\ProjectPerseus_2021.addin"; Components: not revit2021
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2022\ProjectPerseus_2022.addin"; Components: not revit2022
 Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2023\ProjectPerseus_2023.addin"; Components: not revit2023
-Type: filesandordirs; Name: "{app}\2023"; Components: not revit2023
-#endif
-#if Has("2024")
 Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2024\ProjectPerseus_2024.addin"; Components: not revit2024
-Type: filesandordirs; Name: "{app}\2024"; Components: not revit2024
+Type: filesandordirs; Name: "{app}\2021+"; Components: not ({#On23})
 #endif
-#if Has("2025")
+#if Has26
 Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2025\ProjectPerseus_2025.addin"; Components: not revit2025
-Type: filesandordirs; Name: "{app}\2025"; Components: not revit2025
-#endif
-#if Has("2026")
 Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2026\ProjectPerseus_2026.addin"; Components: not revit2026
-Type: filesandordirs; Name: "{app}\2026"; Components: not revit2026
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2027\ProjectPerseus_2027.addin"; Components: not revit2027
+Type: filesandordirs; Name: "{app}\2025+"; Components: not ({#On26})
 #endif
+
+[UninstallDelete]
+; The manifests are written by [Code], so the uninstaller doesn't know them otherwise.
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2021\ProjectPerseus_2021.addin"
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2022\ProjectPerseus_2022.addin"
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2023\ProjectPerseus_2023.addin"
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2024\ProjectPerseus_2024.addin"
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2025\ProjectPerseus_2025.addin"
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2026\ProjectPerseus_2026.addin"
+Type: files; Name: "{commonappdata}\Autodesk\Revit\Addins\2027\ProjectPerseus_2027.addin"
 
 [Code]
 const
-  // Revit versions built into this installer, e.g. '2023,2026,' (see #define Years at the top).
-  BuiltYears = '{#Years}';
+  // "<Revit year>:<parent build>," for every Revit version in this installer, in component order (see #define Map).
+  RevitMap = '{#Map}';
 
 var
   ServerUrlPage: TInputQueryWizardPage;
   FinalServerUrl: String;
+
+// Splits the next "year:package," entry off Rest. False when Rest is empty.
+function NextEntry(var Rest: String; var Year: String; var Parent: String): Boolean;
+var
+  P: Integer;
+begin
+  Result := Rest <> '';
+  if not Result then
+    Exit;
+  P := Pos(',', Rest);
+  Parent := Copy(Rest, 1, P - 1);
+  Delete(Rest, 1, P);
+  P := Pos(':', Parent);
+  Year := Copy(Parent, 1, P - 1);
+  Delete(Parent, 1, P);
+end;
 
 // Revit <year> is on this PC: its program folder, or Autodesk's registry key for it.
 function RevitInstalled(Year: String): Boolean;
@@ -182,32 +176,32 @@ begin
          or RegKeyExists(HKLM64, 'SOFTWARE\Autodesk\Revit\Autodesk Revit ' + Year);
 end;
 
+function ManifestPath(Year: String): String;
+begin
+  Result := ExpandConstant('{commonappdata}') + '\Autodesk\Revit\Addins\' + Year + '\ProjectPerseus_' + Year + '.addin';
+end;
+
 // Perseus is already installed for Revit <year> (an upgrade keeps it).
 function PerseusInstalled(Year: String): Boolean;
 begin
-  Result := FileExists(ExpandConstant('{commonappdata}') + '\Autodesk\Revit\Addins\' + Year + '\ProjectPerseus_' + Year + '.addin');
+  Result := FileExists(ManifestPath(Year));
 end;
 
-// Ticks the Revit versions found on this PC (or already carrying Perseus) and labels each line
+// Ticks the Revit versions found on this PC (or already carrying Perseus) and labels each line with
 // "(installed)" / "(not found on this PC)". Nothing found at all = tick everything. An explicit
 // /COMPONENTS= on the command line wins.
 procedure PreselectRevitVersions;
 var
-  Rest, Year, Selection: String;
-  P, Index, Found: Integer;
-  Present: Boolean;
+  Rest, Year, Parent, Selection: String;
+  Index, Found: Integer;
 begin
-  Rest := BuiltYears;
+  Rest := RevitMap;
   Selection := '';
   Found := 0;
   Index := 0;
-  while Rest <> '' do
+  while NextEntry(Rest, Year, Parent) do
   begin
-    P := Pos(',', Rest);
-    Year := Copy(Rest, 1, P - 1);
-    Delete(Rest, 1, P);
-    Present := RevitInstalled(Year) or PerseusInstalled(Year);
-    if Present then
+    if RevitInstalled(Year) or PerseusInstalled(Year) then
     begin
       Selection := Selection + 'revit' + Year + ',';
       Found := Found + 1;
@@ -224,6 +218,34 @@ begin
   if Found = 0 then
     StringChangeEx(Selection, '!', '', True);
   WizardSelectComponents(Selection);
+end;
+
+// One manifest per ticked Revit version, pointing at its parent build in the chosen install folder.
+procedure WriteManifests;
+var
+  Rest, Year, Parent, Path, Xml: String;
+begin
+  Rest := RevitMap;
+  while NextEntry(Rest, Year, Parent) do
+  begin
+    if not WizardIsComponentSelected('revit' + Year) then
+      Continue;
+    Path := ManifestPath(Year);
+    ForceDirectories(ExtractFileDir(Path));
+    Xml := '<?xml version="1.0" encoding="utf-8"?>' + #13#10 +
+           '<RevitAddIns>' + #13#10 +
+           '  <AddIn Type="Application">' + #13#10 +
+           '    <Name>Project Perseus</Name>' + #13#10 +
+           '    <Assembly>' + ExpandConstant('{app}') + '\' + Parent + '\ProjectPerseus.dll</Assembly>' + #13#10 +
+           '    <AddInId>257f1a77-bc53-4b92-84db-4aa79a7f3050</AddInId>' + #13#10 +
+           '    <FullClassName>ProjectPerseus.Plugin</FullClassName>' + #13#10 +
+           '    <VendorId>Andrew Butler</VendorId>' + #13#10 +
+           '    <VendorDescription>Andrew Butler</VendorDescription>' + #13#10 +
+           '  </AddIn>' + #13#10 +
+           '</RevitAddIns>' + #13#10;
+    if not SaveStringToFile(Path, Xml, False) then
+      Log('Could not write ' + Path);
+  end;
 end;
 
 // 1. THIS RUNS WHEN THE INSTALLER STARTS
@@ -274,6 +296,8 @@ begin
   // We only want to write the config file at the very end of the installation
   if CurStep = ssPostInstall then
   begin
+    WriteManifests;
+
     // Grab whatever value was in the text box (whether typed manually or injected via CLI)
     FinalServerUrl := ServerUrlPage.Values[0];
 
