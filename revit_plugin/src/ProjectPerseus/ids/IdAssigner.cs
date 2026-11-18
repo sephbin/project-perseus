@@ -192,12 +192,13 @@ namespace ProjectPerseus.ids
             var active = new List<ActiveRule>();
             foreach (var r in rules.Rules.Where(r => r.Enabled))
             {
-                var pattern = IdPattern.ForRule(r.Pattern, r.IsValue);
+                var pattern = IdPattern.ForRule(r.Pattern, r.IsValue, r.UniqueWith);
                 string name = r.ParameterName?.Trim();
                 if (pattern == null || string.IsNullOrEmpty(name) || !guids.TryGetValue(name, out var g)) continue;
                 active.Add(new ActiveRule { Dto = r, Pattern = pattern, ParamGuid = g });
             }
-            return active;
+            // Value rules first, so an ID rule can number with a value copied in the same run ({Element.Param}).
+            return active.Where(a => a.IsValue).Concat(active.Where(a => !a.IsValue)).ToList();
         }
 
         /// <summary>True when a current index (matching these rules) is in memory, so no full scan is needed.</summary>
@@ -224,10 +225,16 @@ namespace ProjectPerseus.ids
                 }
                 string name = rule.Dto.ParameterName.Trim();
                 string value = el.get_Parameter(rule.ParamGuid)?.AsString();
-                index.Set(name, id, value);
+                if (resolve == null) resolve = resolver.For(el);
+                if (rule.Pattern.HasUniqueWith)
+                {
+                    // A change to what it is unique with (the door's room) re-checks the ID.
+                    if (deps == null) deps = new HashSet<long>();
+                    resolver.AddDependencies(el, rule.Pattern.UniqueWithTokens, deps);
+                }
+                index.Set(name, id, rule.Pattern.UniqueKey(value, resolve));
                 if (string.IsNullOrEmpty(value)) continue;
                 any = true;
-                if (resolve == null) resolve = resolver.For(el);
                 string scope = rule.Pattern.ScopeKey(resolve);
                 if (scope != null && rule.Pattern.TryExtractNumber(value, resolve, out long n))
                     index.NoteNumber(name, scope, n);
@@ -256,7 +263,8 @@ namespace ProjectPerseus.ids
             rules != null && rules.Rules.Any(r => r.Enabled && r.IsValue && UsesProject(r));
 
         private static bool UsesProject(IdRuleDto r) =>
-            IdPattern.ForRule(r.Pattern, true)?.Tokens.Any(t => t.StartsWith("Project.", StringComparison.Ordinal)) == true;
+            IdPattern.ForRule(r.Pattern, true)?.Tokens.SelectMany(IdPattern.Alternatives)
+                .Any(t => t.StartsWith("Project.", StringComparison.Ordinal)) == true;
 
         /// <summary>Every element a {Project.*} value rule applies to (after Project Information changed). Read-only collector.</summary>
         internal static List<long> ProjectDependents(Document doc, IdRulesDto rules)
@@ -420,6 +428,8 @@ namespace ProjectPerseus.ids
                 // deletion is still caught by the commit guard, which cancels the write.
                 bool inGroup = el.GroupId != ElementId.InvalidElementId;
                 bool countedGroupSkip = false;
+                // Values this run is about to write on this element (parameter name -> value), read by {Element.*}.
+                Dictionary<string, string> pending = null;
 
                 if (hasPerseusId && rules.PerseusId.AppliesTo(el.Category.Name))
                 {
@@ -444,7 +454,7 @@ namespace ProjectPerseus.ids
 
                     // Every token must resolve (category prefix, level, host...). The resolved values also
                     // define which counter the element belongs to, e.g. "walls on Level 02".
-                    var resolve = resolver.For(el);
+                    var resolve = resolver.For(el, pending);
 
                     if (rule.IsValue)
                     {
@@ -462,6 +472,8 @@ namespace ProjectPerseus.ids
                         if (outcome == AutoValue.Outcome.Unresolved) NoteUnresolved(result, rule.Pattern, resolve, el);
                         if (now == target) continue;
                         changes.Add(new Change { Element = el, Param = p, NewValue = target, IsValue = true, IsReassign = now.Length > 0 });
+                        if (pending == null) pending = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        pending[rule.Dto.ParameterName.Trim()] = target;
                         continue;
                     }
 
@@ -481,7 +493,9 @@ namespace ProjectPerseus.ids
 
                     string name = rule.Dto.ParameterName.Trim();
                     string current = p.AsString();
-                    index.Set(name, id, current); // sync index with what is actually in the model right now
+                    // What has to be unique: the value, or the value + what it is unique with ("D01 [101]").
+                    string currentKey = rule.Pattern.UniqueKey(current, resolve);
+                    index.Set(name, id, currentKey); // sync index with what is actually in the model right now
                     if (!string.IsNullOrEmpty(current)) index.Uids[id] = el.UniqueId;
 
                     // A value the server's registry says another element holds (see IdClaims) must be replaced even
@@ -491,7 +505,7 @@ namespace ProjectPerseus.ids
                     if (valid)
                     {
                         index.NoteNumber(name, scope, n);
-                        if (!forced && index.LowestHolder(name, current) == id) continue; // keep
+                        if (!forced && index.LowestHolder(name, currentKey) == id) continue; // keep
                     }
 
                     if (dryRun)
@@ -505,14 +519,14 @@ namespace ProjectPerseus.ids
                     do
                     {
                         value = rule.Pattern.Render(resolve, index.Allocate(name, scope));
-                    } while (fix != null && fix.Taken.Contains(IdClashFix.TakenKey(name, value)));
-                    index.Set(name, id, value);
+                    } while (fix != null && fix.Taken.Contains(IdClashFix.TakenKey(name, rule.Pattern.UniqueKey(value, resolve))));
+                    index.Set(name, id, rule.Pattern.UniqueKey(value, resolve));
                     index.Uids[id] = el.UniqueId;
                     changes.Add(new Change
                     {
                         Element = el, Param = p, NewValue = value,
                         IsReassign = !string.IsNullOrEmpty(current),
-                        RuleName = name, OldValue = current,
+                        RuleName = name, OldValue = currentKey,
                     });
                 }
             }
@@ -551,21 +565,22 @@ namespace ProjectPerseus.ids
             var items = new List<IdClaimItem>();
             if (doc == null || rules == null) return items;
 
-            var enabled = rules.Rules.Where(r => r.Enabled && !r.IsValue && !string.IsNullOrWhiteSpace(r.ParameterName)).ToList();
+            var enabled = ResolveActive(doc, rules, out _).Where(r => !r.IsValue).ToList();
             if (enabled.Count == 0) return items;
-            var guids = SharedParameterManager.ResolveGuids(doc, enabled.Select(r => r.ParameterName.Trim()).ToList());
 
+            var resolver = new RelatedValueResolver(doc, rules);
             var elements = Collect(doc).ToList();
             foreach (var rule in enabled)
             {
-                string name = rule.ParameterName.Trim();
-                if (!guids.TryGetValue(name, out var guid)) continue;
+                string name = rule.Dto.ParameterName.Trim();
                 foreach (var el in elements)
                 {
-                    if (!Applies(rule, el)) continue;
-                    string value = el.get_Parameter(guid)?.AsString();
+                    if (!Applies(rule.Dto, el)) continue;
+                    string value = el.get_Parameter(rule.ParamGuid)?.AsString();
                     if (string.IsNullOrEmpty(value)) continue;
-                    items.Add(new IdClaimItem { Parameter = name, Uid = el.UniqueId, ElementId = el.Id.GetIdValue(), Value = value });
+                    // Claimed as the unique key: "D01 [101]" when the rule is unique with the room.
+                    items.Add(new IdClaimItem { Parameter = name, Uid = el.UniqueId, ElementId = el.Id.GetIdValue(),
+                                                Value = rule.Pattern.UniqueKey(value, resolver.For(el)) });
                 }
             }
             return items;
@@ -675,7 +690,7 @@ namespace ProjectPerseus.ids
         // Records which token stopped an element getting an ID, so the audit summary can say what to configure.
         private static void NoteUnresolved(IdAssignResult result, IdPattern pattern, Func<string, string> resolve, Element el)
         {
-            foreach (var t in pattern.Tokens)
+            foreach (var t in pattern.AllTokens)
             {
                 if (!string.IsNullOrEmpty(resolve(t))) continue;
                 if (t == "CategoryPrefix") result.NoPrefixCategories.Add(el.Category.Name);

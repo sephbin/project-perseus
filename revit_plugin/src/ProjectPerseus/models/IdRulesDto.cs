@@ -20,7 +20,7 @@ namespace ProjectPerseus.models
         // Changes whenever anything that affects ID generation changes (ignores updated_at).
         [JsonIgnore]
         public string Signature =>
-            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.Kind}:{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}/{r.Fill}/{r.Transform}")) + "#" +
+            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.Kind}:{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}/{r.Fill}/{r.Transform}/{r.UniqueWith}")) + "#" +
             string.Join("|", CategoryPrefixes.Select(p => $"{p.Category}={p.Prefix}"));
 
         /// <summary>At least one enabled unique-ID rule (value rules need no clash check).</summary>
@@ -70,6 +70,11 @@ namespace ProjectPerseus.models
 
         [JsonIgnore]
         public bool FillOnlyEmpty => string.Equals(Fill, "empty", System.StringComparison.OrdinalIgnoreCase);
+
+        // ID rules: tokens the value only has to be unique with, not printed in it, e.g. "{Element.Door Tag Room Number}"
+        // numbers doors D01, D02... separately per room. Blank = unique across the model. See util/IdPattern.UniqueKey.
+        [JsonProperty("unique_with")]
+        public string UniqueWith { get; set; } = "";
 
         [JsonProperty("parameter_name")]
         public string ParameterName { get; set; }

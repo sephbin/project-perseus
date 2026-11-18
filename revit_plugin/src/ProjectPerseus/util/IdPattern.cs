@@ -14,8 +14,10 @@ namespace ProjectPerseus.util
     ///                              value rules have none (see ForRule)
     ///   {CategoryPrefix}           prefix configured for the element's category
     ///   {Workset}                  name of the element's workset
-    ///   {Level|Host|Room|Space|Type|Group|Project.ParamName}   parameter of a related element ("Name" = its name;
-    ///                              Project = the model's Project Information)
+    ///   {Level|Host|Room|Space|ToRoom|FromRoom|Type|Group|Project|Element.ParamName}   parameter of a related
+    ///                              element ("Name" = its name; Project = the model's Project Information; ToRoom /
+    ///                              FromRoom = a door's or window's rooms; Element = the element's own parameter)
+    ///   {A|B|...}                  fallbacks: the first of the tokens that has a value, e.g. {ToRoom.Number|FromRoom.Number}
     /// Anything else is literal. Token values are supplied by a resolver so this class stays testable.
     /// A resolver returns null/empty when a value is unavailable; callers must then skip the element.
     /// </summary>
@@ -30,13 +32,22 @@ namespace ProjectPerseus.util
         }
 
         private static readonly Regex RelatedToken = new Regex(
-            @"^(Level|Host|Room|Space|Type|Group|Project)\.[A-Za-z0-9 _\-]{1,64}$", RegexOptions.CultureInvariant);
+            @"^(Level|Host|Room|Space|ToRoom|FromRoom|Type|Group|Project|Element)\.[A-Za-z0-9 _\-]{1,64}$", RegexOptions.CultureInvariant);
 
         private readonly List<Segment> _segments;
         private readonly Dictionary<string, Regex> _regexByScope = new Dictionary<string, Regex>();
 
         /// <summary>Distinct non-counter tokens in order of first appearance, e.g. "Level.Name", "CategoryPrefix".</summary>
         public IReadOnlyList<string> Tokens { get; }
+        /// <summary>
+        /// ID rules: extra tokens the value only has to be unique with ("Unique with"), not printed in it. Doors
+        /// numbered D01, D02... per room: pattern "D{Increment|2}", unique with "{Element.Door Tag Room Number}".
+        /// Part of the counter scope, and of <see cref="UniqueKey"/>.
+        /// </summary>
+        public IReadOnlyList<string> UniqueWithTokens { get; private set; } = new List<string>();
+        public bool HasUniqueWith => UniqueWithTokens.Count > 0;
+        /// <summary>Every token the element's values depend on: printed ones, then unique-with ones.</summary>
+        public IEnumerable<string> AllTokens => Tokens.Concat(UniqueWithTokens);
         public bool UsesCategoryPrefix { get; }
         public int Width { get; }
         /// <summary>True when the pattern has its {Increment|N} counter (ID rules); false for value patterns.</summary>
@@ -54,11 +65,39 @@ namespace ProjectPerseus.util
         /// Parses a rule's pattern for its kind: ID rules need exactly one {Increment|N}, value rules none.
         /// Null when invalid or the wrong shape for the kind.
         /// </summary>
-        public static IdPattern ForRule(string pattern, bool isValue)
+        public static IdPattern ForRule(string pattern, bool isValue, string uniqueWith = null)
         {
             var p = Parse(pattern);
-            return p == null || p.HasCounter == isValue ? null : p;
+            if (p == null || p.HasCounter == isValue) return null;
+            if (isValue || string.IsNullOrWhiteSpace(uniqueWith)) return p;
+            var u = ParseUniqueWith(uniqueWith);
+            if (u == null) return null;
+            p.UniqueWithTokens = u.Where(t => !p.Tokens.Contains(t)).ToList();
+            return p;
         }
+
+        /// <summary>
+        /// Tokens of a "Unique with" field such as "{Element.Door Tag Room Number}" or "{ToRoom.Number|FromRoom.Number}"
+        /// (literal text between tokens is ignored). Empty list for a blank field; null when invalid.
+        /// </summary>
+        public static List<string> ParseUniqueWith(string uniqueWith)
+        {
+            if (string.IsNullOrWhiteSpace(uniqueWith)) return new List<string>();
+            var p = Parse(uniqueWith);
+            return p == null || p.HasCounter || p.Tokens.Count == 0 ? null : p.Tokens.ToList();
+        }
+
+        private static bool IsToken(string token)
+        {
+            if (token == "CategoryPrefix" || token == "Workset" || RelatedToken.IsMatch(token)) return true;
+            // Fallbacks {A|B}: every alternative must be a token itself.
+            if (token.IndexOf('|') < 0 || token.StartsWith("Increment|", StringComparison.Ordinal)) return false;
+            var parts = token.Split('|');
+            return parts.All(a => a == "CategoryPrefix" || a == "Workset" || RelatedToken.IsMatch(a));
+        }
+
+        /// <summary>The alternatives of a token: "ToRoom.Number|FromRoom.Number" -> both, "Level.Name" -> itself.</summary>
+        public static string[] Alternatives(string token) => token.Split('|');
 
         /// <summary>Returns null when the pattern is invalid (unknown token, unmatched brace, or more than one Increment).</summary>
         public static IdPattern Parse(string pattern)
@@ -87,7 +126,7 @@ namespace ProjectPerseus.util
                     literal.Clear();
                 }
 
-                if (token == "CategoryPrefix" || token == "Workset" || RelatedToken.IsMatch(token))
+                if (IsToken(token))
                 {
                     segments.Add(new Segment { Kind = Kind.Token, Text = token });
                 }
@@ -119,14 +158,24 @@ namespace ProjectPerseus.util
         /// </summary>
         public string ScopeKey(Func<string, string> resolve)
         {
-            var parts = new List<string>(Tokens.Count);
-            foreach (var t in Tokens)
+            var parts = new List<string>(Tokens.Count + UniqueWithTokens.Count);
+            foreach (var t in AllTokens)
             {
                 string v = resolve(t);
                 if (string.IsNullOrEmpty(v)) return null;
                 parts.Add(v);
             }
             return string.Join("\u001f", parts);
+        }
+
+        /// <summary>
+        /// What must be unique for an ID rule: the value itself, or with "Unique with" tokens the value plus their
+        /// values, e.g. "D01 [101]" (so D01 can repeat in other rooms). Used by the index and the server claims.
+        /// </summary>
+        public string UniqueKey(string value, Func<string, string> resolve)
+        {
+            if (string.IsNullOrEmpty(value) || !HasUniqueWith) return value;
+            return value + " [" + string.Join(" / ", UniqueWithTokens.Select(t => resolve(t) ?? "")) + "]";
         }
 
         public string Render(Func<string, string> resolve, long number)

@@ -1,16 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Mechanical;
 using ProjectPerseus.models;
+using ProjectPerseus.util;
 using Element = Autodesk.Revit.DB.Element;
 
 namespace ProjectPerseus.ids
 {
     /// <summary>
     /// Supplies the values for Auto Parameters pattern tokens: {CategoryPrefix}, {Workset} and
-    /// {Level|Host|Room|Space|Type|Group|Project.ParamName} (Project = the model's Project Information).
+    /// {Level|Host|Room|Space|ToRoom|FromRoom|Type|Group|Project|Element.ParamName} (Project = the model's Project
+    /// Information; ToRoom / FromRoom = a door's or window's rooms; Element = the element itself) and fallbacks {A|B}.
     /// Returns null when a value is unavailable (no related element, parameter missing or empty): ID rules then skip
     /// the element, value rules clear their value.
     /// </summary>
@@ -25,7 +28,13 @@ namespace ProjectPerseus.ids
             _rules = rules;
         }
 
-        internal Func<string, string> For(Element el) => token => Resolve(el, token);
+        internal Func<string, string> For(Element el) => token => Resolve(el, token, null);
+
+        /// <summary>
+        /// Like <see cref="For(Element)"/>, but {Element.Param} reads <paramref name="pending"/> first: values another
+        /// rule is about to write in the same run (a door's room number copied before its ID is numbered with it).
+        /// </summary>
+        internal Func<string, string> For(Element el, IDictionary<string, string> pending) => token => Resolve(el, token, pending);
 
         /// <summary>
         /// The related elements an element's value is read from (its level, room, host, type, group), so a change to
@@ -34,12 +43,12 @@ namespace ProjectPerseus.ids
         /// </summary>
         internal void AddDependencies(Element el, IEnumerable<string> tokens, ISet<long> into)
         {
-            foreach (var token in tokens)
+            foreach (var token in tokens.SelectMany(IdPattern.Alternatives))
             {
                 int dot = token.IndexOf('.');
                 if (dot < 0) continue;
                 string kind = token.Substring(0, dot);
-                if (kind == "Project") continue;
+                if (kind == "Project" || kind == "Element") continue;
                 try
                 {
                     var related = Related(el, kind);
@@ -49,8 +58,17 @@ namespace ProjectPerseus.ids
             }
         }
 
-        private string Resolve(Element el, string token)
+        private string Resolve(Element el, string token, IDictionary<string, string> pending)
         {
+            if (token.IndexOf('|') >= 0)
+            {
+                foreach (var alt in IdPattern.Alternatives(token))
+                {
+                    string v = Resolve(el, alt, pending);
+                    if (v != null) return v;
+                }
+                return null;
+            }
             try
             {
                 if (token == "CategoryPrefix") return _rules.PrefixFor(el.Category?.Name);
@@ -63,6 +81,9 @@ namespace ProjectPerseus.ids
 
                 int dot = token.IndexOf('.');
                 if (dot < 0) return null;
+                if (pending != null && token.StartsWith("Element.", StringComparison.Ordinal) &&
+                    pending.TryGetValue(token.Substring(dot + 1), out var next))
+                    return Clean(next);
                 Element related = Related(el, token.Substring(0, dot));
                 return related == null ? null : ParamText(related, token.Substring(dot + 1));
             }
@@ -82,6 +103,10 @@ namespace ProjectPerseus.ids
                 case "Group": return Get(el.GroupId);
                 case "Room": return (el as FamilyInstance)?.Room ?? RoomAt(el);
                 case "Space": return (el as FamilyInstance)?.Space ?? SpaceAt(el);
+                // Doors / windows: the rooms on either side (final phase). Null for other elements.
+                case "ToRoom": return (el as FamilyInstance)?.ToRoom;
+                case "FromRoom": return (el as FamilyInstance)?.FromRoom;
+                case "Element": return el;
                 case "Project": return _doc.ProjectInformation;
                 default: return null;
             }

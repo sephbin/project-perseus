@@ -163,8 +163,10 @@ ProjectPerseus/
 │   ├── IdPattern.cs              NEW. Pure parser/renderer for Auto Parameters patterns such as
 │   │                             "{Level.Name}-{CategoryPrefix}-{Increment|4}" (Render, TryExtractNumber, ScopeKey).
 │   │                             Tokens resolve through a callback: {CategoryPrefix}, {Workset}, and
-│   │                             {Level|Host|Room|Space|Type|Group|Project.Param}. ForRule(pattern, isValue): ID rules need
-│   │                             exactly one {Increment|N} (HasCounter), value rules none. Unit-tested in
+│   │                             {Level|Host|Room|Space|ToRoom|FromRoom|Type|Group|Project|Element.Param}, fallbacks {A|B}
+│   │                             (first with a value). ForRule(pattern, isValue, uniqueWith): ID rules need exactly one
+│   │                             {Increment|N} (HasCounter), value rules none. "Unique with" tokens (UniqueWithTokens) join the
+│   │                             counter scope but aren't printed; UniqueKey = "D01 [101]" is what must be unique. Unit-tested in
 │   │                             ProjectPerseusTests/IdPatternTest.cs.
 │   ├── AutoValue.cs              NEW (2026-11-18). Pure: a value rule's target = pattern filled in, then the optional transform
 │   │                             (FilterEvaluator.TryCompute; value = filled-in pattern, row["Level.Name"] = its tokens).
@@ -186,6 +188,8 @@ ProjectPerseus/
 │   │                             binds Perseus_ID + rule parameters as instance params. Swaps then restores
 │   │                             the user's shared parameter file path. Run lazily, never on document open.
 │   ├── IdAssigner.cs             Value rules: write AutoValue target when it differs (Fill=empty: only empty values). The index
+│   │                             Value rules run first per element; their pending values feed {Element.*} for the ID rules (door
+│   │                             room number copied, then D01.. numbered per room). Index / claims hold UniqueKey, not the bare value.
 │   │                             also keeps value-rule dependencies (DepsOf / DependentsOf: element -> its level / room / host /
 │   │                             type / group) so Dependents(changed) finds elements copying from an edited element;
 │   │                             ProjectDependents = everything a {Project.*} rule covers (Project Information changed).
@@ -216,8 +220,9 @@ ProjectPerseus/
 │   ├── ElementPosition.cs        NEW. Element position in mm (location point, wall/line midpoint, else bbox
 │   │                             centre) as a util.PositionSample, used for numbering by position.
 │   ├── RelatedValueResolver.cs   NEW. Resolves template tokens for an element: category prefix, workset,
-│   │                             and a parameter of its Level / Host / Room / Space / Type / Group / Project (Project
-│   │                             Information; Project.Name / Number = project name / number). AddDependencies for the index.
+│   │                             and a parameter of its Level / Host / Room / Space / ToRoom / FromRoom (doors) / Type / Group /
+│   │                             Project (Project Information; Project.Name / Number = project name / number) / Element (itself;
+│   │                             For(el, pending) reads values planned in the same run). Fallbacks {A|B}. AddDependencies for the index.
 │   └── IdAutoAssignController.cs Value rules: DocumentChanged also looks up elements copying from the modified ones (index) and
 │                                 Project Information edits; ProcessPending -> RefreshDependents writes those this user owns now,
 │                                 parks the rest for the pre-sync fill. QueueFromSync parks dependents of other users' changes too.

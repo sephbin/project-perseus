@@ -76,6 +76,40 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void UniqueWith_ScopesCounterWithoutPrintingIt()
+        {
+            // Doors D01, D02... per room: the room number is part of the counter scope and the unique key only.
+            var p = IdPattern.ForRule("D{Increment|2}", false, "{Element.Door Tag Room Number}");
+            Assert.IsTrue(p.HasUniqueWith);
+            CollectionAssert.AreEqual(new[] { "Element.Door Tag Room Number" }, new System.Collections.Generic.List<string>(p.UniqueWithTokens));
+            var r101 = Tokens("Element.Door Tag Room Number", "101");
+            var r102 = Tokens("Element.Door Tag Room Number", "102");
+            Assert.AreEqual("D01", p.Render(r101, 1));
+            Assert.AreNotEqual(p.ScopeKey(r101), p.ScopeKey(r102));
+            Assert.IsNull(p.ScopeKey(Tokens()));                         // no room number yet: skipped
+            Assert.AreEqual("D01 [101]", p.UniqueKey("D01", r101));
+            Assert.AreNotEqual(p.UniqueKey("D01", r101), p.UniqueKey("D01", r102));
+            Assert.IsTrue(p.TryExtractNumber("D07", r102, out long n) && n == 7);
+
+            var plain = IdPattern.ForRule("D{Increment|2}", false, "");
+            Assert.AreEqual("D01", plain.UniqueKey("D01", r101));        // no unique-with: the value itself
+            Assert.IsNull(IdPattern.ForRule("D{Increment|2}", false, "{Bogus}"));
+            Assert.IsNull(IdPattern.ForRule("D{Increment|2}", false, "{Increment|2}"));
+            Assert.IsFalse(IdPattern.ForRule("{Level.Name}", true, "{Room.Number}").HasUniqueWith); // value rules ignore it
+        }
+
+        [TestMethod]
+        public void DoorRoomTokensAndFallbacks()
+        {
+            var p = IdPattern.ForRule("{ToRoom.Number|FromRoom.Number}", true);
+            Assert.IsNotNull(p);
+            CollectionAssert.AreEqual(new[] { "ToRoom.Number|FromRoom.Number" }, new System.Collections.Generic.List<string>(p.Tokens));
+            CollectionAssert.AreEqual(new[] { "ToRoom.Number", "FromRoom.Number" }, IdPattern.Alternatives(p.Tokens[0]));
+            Assert.IsNotNull(IdPattern.Parse("{Element.Door Tag Room Number}-{Increment|2}"));
+            Assert.IsNull(IdPattern.Parse("{ToRoom.Number|Bogus}"));
+        }
+
+        [TestMethod]
         public void Render_PadsAndPrefixes()
         {
             var p = IdPattern.Parse("{CategoryPrefix}{Increment|4}");
