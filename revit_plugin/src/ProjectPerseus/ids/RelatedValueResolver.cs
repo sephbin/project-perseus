@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Mechanical;
@@ -8,9 +9,10 @@ using Element = Autodesk.Revit.DB.Element;
 namespace ProjectPerseus.ids
 {
     /// <summary>
-    /// Supplies the values for ID pattern tokens: {CategoryPrefix}, {Workset} and
-    /// {Level|Host|Room|Space|Type|Group.ParamName}. Returns null when a value is unavailable
-    /// (no related element, parameter missing or empty), which makes the caller skip the element.
+    /// Supplies the values for Auto Parameters pattern tokens: {CategoryPrefix}, {Workset} and
+    /// {Level|Host|Room|Space|Type|Group|Project.ParamName} (Project = the model's Project Information).
+    /// Returns null when a value is unavailable (no related element, parameter missing or empty): ID rules then skip
+    /// the element, value rules clear their value.
     /// </summary>
     internal sealed class RelatedValueResolver
     {
@@ -24,6 +26,28 @@ namespace ProjectPerseus.ids
         }
 
         internal Func<string, string> For(Element el) => token => Resolve(el, token);
+
+        /// <summary>
+        /// The related elements an element's value is read from (its level, room, host, type, group), so a change to
+        /// one of them can refresh the elements that copy it. Project Information is not listed: every element using
+        /// {Project.*} depends on it, so that case is handled per rule (IdAssigner.ProjectDependents).
+        /// </summary>
+        internal void AddDependencies(Element el, IEnumerable<string> tokens, ISet<long> into)
+        {
+            foreach (var token in tokens)
+            {
+                int dot = token.IndexOf('.');
+                if (dot < 0) continue;
+                string kind = token.Substring(0, dot);
+                if (kind == "Project") continue;
+                try
+                {
+                    var related = Related(el, kind);
+                    if (related != null) into.Add(ProjectPerseus.revit.RevitExtensions.GetIdValue(related.Id));
+                }
+                catch { /* unresolvable now; nothing to depend on */ }
+            }
+        }
 
         private string Resolve(Element el, string token)
         {
@@ -58,6 +82,7 @@ namespace ProjectPerseus.ids
                 case "Group": return Get(el.GroupId);
                 case "Room": return (el as FamilyInstance)?.Room ?? RoomAt(el);
                 case "Space": return (el as FamilyInstance)?.Space ?? SpaceAt(el);
+                case "Project": return _doc.ProjectInformation;
                 default: return null;
             }
         }
@@ -110,6 +135,12 @@ namespace ProjectPerseus.ids
 
         private static string ParamText(Element related, string param)
         {
+            if (related is ProjectInfo info)
+            {
+                // ProjectInfo.Name is "Project Information"; {Project.Name} / {Project.Number} mean the project's.
+                if (string.Equals(param, "Name", StringComparison.OrdinalIgnoreCase)) return Clean(info.Name);
+                if (string.Equals(param, "Number", StringComparison.OrdinalIgnoreCase)) return Clean(info.Number);
+            }
             if (string.Equals(param, "Name", StringComparison.OrdinalIgnoreCase)) return Clean(related.Name);
 
             var p = related.LookupParameter(param);

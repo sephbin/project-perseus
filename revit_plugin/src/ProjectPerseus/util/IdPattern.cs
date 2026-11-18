@@ -8,12 +8,14 @@ using System.Text.RegularExpressions;
 namespace ProjectPerseus.util
 {
     /// <summary>
-    /// Parsed ID pattern such as "{Level.Name}-{CategoryPrefix}-{Increment|4}". Pure logic, no Revit dependencies.
+    /// Parsed Auto Parameters pattern such as "{Level.Name}-{CategoryPrefix}-{Increment|4}". Pure logic, no Revit dependencies.
     /// Tokens:
-    ///   {Increment|N}              exactly one, N = 1..9 minimum digits
+    ///   {Increment|N}              at most one, N = 1..9 minimum digits. ID rules need exactly one (HasCounter);
+    ///                              value rules have none (see ForRule)
     ///   {CategoryPrefix}           prefix configured for the element's category
     ///   {Workset}                  name of the element's workset
-    ///   {Level|Host|Room|Space|Type|Group.ParamName}   parameter of a related element ("Name" = its name)
+    ///   {Level|Host|Room|Space|Type|Group|Project.ParamName}   parameter of a related element ("Name" = its name;
+    ///                              Project = the model's Project Information)
     /// Anything else is literal. Token values are supplied by a resolver so this class stays testable.
     /// A resolver returns null/empty when a value is unavailable; callers must then skip the element.
     /// </summary>
@@ -28,7 +30,7 @@ namespace ProjectPerseus.util
         }
 
         private static readonly Regex RelatedToken = new Regex(
-            @"^(Level|Host|Room|Space|Type|Group)\.[A-Za-z0-9 _\-]{1,64}$", RegexOptions.CultureInvariant);
+            @"^(Level|Host|Room|Space|Type|Group|Project)\.[A-Za-z0-9 _\-]{1,64}$", RegexOptions.CultureInvariant);
 
         private readonly List<Segment> _segments;
         private readonly Dictionary<string, Regex> _regexByScope = new Dictionary<string, Regex>();
@@ -37,6 +39,8 @@ namespace ProjectPerseus.util
         public IReadOnlyList<string> Tokens { get; }
         public bool UsesCategoryPrefix { get; }
         public int Width { get; }
+        /// <summary>True when the pattern has its {Increment|N} counter (ID rules); false for value patterns.</summary>
+        public bool HasCounter => Width > 0;
 
         private IdPattern(List<Segment> segments, int width)
         {
@@ -46,7 +50,17 @@ namespace ProjectPerseus.util
             UsesCategoryPrefix = Tokens.Contains("CategoryPrefix");
         }
 
-        /// <summary>Returns null when the pattern is invalid (unknown token, unmatched brace, or not exactly one Increment).</summary>
+        /// <summary>
+        /// Parses a rule's pattern for its kind: ID rules need exactly one {Increment|N}, value rules none.
+        /// Null when invalid or the wrong shape for the kind.
+        /// </summary>
+        public static IdPattern ForRule(string pattern, bool isValue)
+        {
+            var p = Parse(pattern);
+            return p == null || p.HasCounter == isValue ? null : p;
+        }
+
+        /// <summary>Returns null when the pattern is invalid (unknown token, unmatched brace, or more than one Increment).</summary>
         public static IdPattern Parse(string pattern)
         {
             if (string.IsNullOrEmpty(pattern)) return null;
@@ -95,7 +109,7 @@ namespace ProjectPerseus.util
             if (literal.Length > 0)
                 segments.Add(new Segment { Kind = Kind.Literal, Text = literal.ToString() });
 
-            return increments == 1 ? new IdPattern(segments, width) : null;
+            return increments <= 1 ? new IdPattern(segments, width) : null;
         }
 
         /// <summary>
@@ -143,7 +157,7 @@ namespace ProjectPerseus.util
         public bool TryExtractNumber(string value, Func<string, string> resolve, out long number)
         {
             number = 0;
-            if (string.IsNullOrEmpty(value)) return false;
+            if (string.IsNullOrEmpty(value) || !HasCounter) return false;
 
             var values = Tokens.ToDictionary(t => t, t => resolve(t) ?? "");
             string scope = string.Join("\u001f", Tokens.Select(t => values[t]));

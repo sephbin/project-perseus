@@ -112,7 +112,7 @@ ProjectPerseus/
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Calls ViolationHighlightController.Initialize() and
 │                                 ownership.OwnershipTracker.Subscribe() at startup.
-│                                 Ribbon panels (by function): Sync, Element IDs, Key Schedules, Violations (incl. Freefall), Markers, Federator (Link Changes, Family Mapping, Link Sync, Review Views), Setup.
+│                                 Ribbon panels (by function): Sync, Auto Parameters, Key Schedules, Violations (incl. Freefall), Markers, Federator (Link Changes, Family Mapping, Link Sync, Review Views), Setup.
 │                                 Calls federator.FederatorController.Subscribe() + ChangeHighlightController.Initialize() at startup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
@@ -160,17 +160,24 @@ ProjectPerseus/
 │   │                             Supports row["Col"] access, re.search/match/findall, math.*,
 │   │                             string methods, comparisons, and/or/not, len/float/int/str.
 │   │                             No external dependencies — pure C# recursive-descent evaluator.
-│   ├── IdPattern.cs              NEW. Pure parser/renderer for ID patterns such as
+│   ├── IdPattern.cs              NEW. Pure parser/renderer for Auto Parameters patterns such as
 │   │                             "{Level.Name}-{CategoryPrefix}-{Increment|4}" (Render, TryExtractNumber, ScopeKey).
 │   │                             Tokens resolve through a callback: {CategoryPrefix}, {Workset}, and
-│   │                             {Level|Host|Room|Space|Type|Group.Param}. Unit-tested in
+│   │                             {Level|Host|Room|Space|Type|Group|Project.Param}. ForRule(pattern, isValue): ID rules need
+│   │                             exactly one {Increment|N} (HasCounter), value rules none. Unit-tested in
 │   │                             ProjectPerseusTests/IdPatternTest.cs.
+│   ├── AutoValue.cs              NEW (2026-11-18). Pure: a value rule's target = pattern filled in, then the optional transform
+│   │                             (FilterEvaluator.TryCompute; value = filled-in pattern, row["Level.Name"] = its tokens).
+│   │                             Unresolved token => "" (value cleared). Tested in IdPatternTest.cs.
 │   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or
 │   │                             "-Y~500, X" (keys X/Y/Z/Id, '-' descending, '~N' mm buckets; ElementId breaks ties).
 │   │                             Unit-tested in ProjectPerseusTests/PositionOrderTest.cs.
 │   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
 │   └── UrlUtils.cs               IsValidUrl.
-├── ids/                          NEW. Element ID rules (Perseus_ID + Django-configured architectural IDs).
+├── ids/                          "Auto Parameters" (renamed from Element IDs, 2026-11-18; code names kept): Perseus_ID +
+│   │                             Django-configured rules of two kinds (IdRuleDto.Kind): "id" = unique numbered IDs (claims,
+│   │                             renumber) and "value" = copied / computed values, not unique ({Project.*}, {Level.*}, ... +
+│   │                             transform; Fill always / only when empty). Value rules never take part in claims or renumbering.
 │   ├── IdRulesCache.cs           Per-source cache of GET /api/source/<guid>/id-rules/ (LoadAsync/LoadNow/Get).
 │   ├── SharedParameterManager.cs (+ EnsureLinkSyncParameters: Perseus_LinkSource / Status / Decision / Comment / Assignee on mapped
 │   │                             categories, group Other; Perseus parameters default to Other.)
@@ -178,7 +185,11 @@ ProjectPerseus/
 │   │                             Perseus_SharedParams.txt, deterministic GUIDs from the name); creates and
 │   │                             binds Perseus_ID + rule parameters as instance params. Swaps then restores
 │   │                             the user's shared parameter file path. Run lazily, never on document open.
-│   ├── IdAssigner.cs             Core logic. Sets Perseus_ID = UniqueId on the categories chosen in Django
+│   ├── IdAssigner.cs             Value rules: write AutoValue target when it differs (Fill=empty: only empty values). The index
+│   │                             also keeps value-rule dependencies (DepsOf / DependentsOf: element -> its level / room / host /
+│   │                             type / group) so Dependents(changed) finds elements copying from an edited element;
+│   │                             ProjectDependents = everything a {Project.*} rule covers (Project Information changed).
+│   │                             Core logic. Sets Perseus_ID = UniqueId on the categories chosen in Django
 │   │                             (IdRulesDto.PerseusId; default all); per rule keeps a value if it matches
 │   │                             the pattern and is held by the lowest ElementId, else allocates next number
 │   │                             (max in local model + 1) within the counter scope (resolved template values,
@@ -205,8 +216,12 @@ ProjectPerseus/
 │   ├── ElementPosition.cs        NEW. Element position in mm (location point, wall/line midpoint, else bbox
 │   │                             centre) as a util.PositionSample, used for numbering by position.
 │   ├── RelatedValueResolver.cs   NEW. Resolves template tokens for an element: category prefix, workset,
-│   │                             and a parameter of its Level / Host / Room / Space / Type / Group.
-│   └── IdAutoAssignController.cs DocumentChanged hook -> queues added/modified ids -> raises
+│   │                             and a parameter of its Level / Host / Room / Space / Type / Group / Project (Project
+│   │                             Information; Project.Name / Number = project name / number). AddDependencies for the index.
+│   └── IdAutoAssignController.cs Value rules: DocumentChanged also looks up elements copying from the modified ones (index) and
+│                                 Project Information edits; ProcessPending -> RefreshDependents writes those this user owns now,
+│                                 parks the rest for the pre-sync fill. QueueFromSync parks dependents of other users' changes too.
+│                                 DocumentChanged hook -> queues added/modified ids -> raises
 │                                 queue/AssignIdsEvent. IsAssigning flag stops re-entry. QueueFromSync() is called by
 │                                 IncrementalSyncRunner with the change set (other users' elements) and only PARKS them:
 │                                 writing them after a sync would check them out until the user's next sync.
@@ -219,7 +234,7 @@ ProjectPerseus/
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── PackageLogsCommand.cs     NEW (2026-11-13). Ribbon: Button_PackageLogs (Setup stack). logging/LogPackager -> zip in
 │   │                             Downloads, selects it in Explorer.
-│   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds. Fetches fresh ID rules, ensures parameters,
+│   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds ("Audit", Auto Parameters panel). Fetches fresh rules, ensures parameters,
 │   │                             runs IdAssigner over the whole model, shows a summary TaskDialog.
 │   ├── RenumberIdsCommand.cs     NEW. Ribbon: Button_RenumberIds. After a Yes/No confirmation, renumbers every ID rule
 │   │                             from 1 within each counter group in the rule's numbering order (IdAssigner.Run renumber:true).

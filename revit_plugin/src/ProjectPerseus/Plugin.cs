@@ -113,7 +113,7 @@ namespace ProjectPerseus
             string asm = Assembly.GetExecutingAssembly().Location;
             string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
 
-            // Panels are grouped by function: Sync / Element IDs / Key Schedules / Violations / Markers / Federator / Setup.
+            // Panels are grouped by function: Sync / Auto Parameters / Key Schedules / Violations / Markers / Federator / Setup.
             // Icon base names map to resources/<name>.png (+ <name>_dark.png); see revit_plugin/tools/generate_icons.py.
 
             // ---- Sync: moving data between the model and the Perseus server
@@ -125,10 +125,10 @@ namespace ProjectPerseus
             AddButton(syncPanel, asm, "Button_Ownership", "Ownership", "ShowOwnershipCommand", "ownership",
                 "See which elements and worksets each user owns in this model, and relinquish your own. The cyan number in the status bar is how many elements you own; click it to open this panel.");
 
-            // ---- Element IDs
-            RibbonPanel idsPanel = application.CreateRibbonPanel(tabName, "Element IDs");
-            AddButton(idsPanel, asm, "Button_AuditIds", "Audit\nIDs", "AuditIdsCommand", "audit_ids",
-                "Check every element against this project's ID rules and fix missing, duplicate or invalid IDs (e.g. after copying elements outside Perseus). Also fills Perseus_ID.");
+            // ---- Auto Parameters (unique IDs + values copied from project info, levels, rooms...)
+            RibbonPanel idsPanel = application.CreateRibbonPanel(tabName, "Auto Parameters");
+            AddButton(idsPanel, asm, "Button_AuditIds", "Audit", "AuditIdsCommand", "audit_ids",
+                "Check every element against this project's Auto Parameters rules: fix missing, duplicate or invalid IDs (e.g. after copying elements outside Perseus) and bring copied values (project information, level, room...) up to date. Also fills Perseus_ID.");
             AddButton(idsPanel, asm, "Button_RenumberIds", "Renumber\nIDs", "RenumberIdsCommand", "renumber_ids",
                 "Renumber every ID from 1 within each counter group (e.g. each level), in the numbering order set for the rule on the server, such as left to right then top to bottom. Replaces existing numbers; use at a deliberate milestone.");
 

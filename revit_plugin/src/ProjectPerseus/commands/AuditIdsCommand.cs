@@ -27,15 +27,15 @@ namespace ProjectPerseus.commands
                 }
                 if (doc.IsFamilyDocument || doc.IsReadOnly)
                 {
-                    TaskDialog.Show("Perseus — Audit IDs", "Open an editable project model to audit its IDs.");
+                    TaskDialog.Show("Perseus — Audit Auto Parameters", "Open an editable project model to audit its automatic parameters.");
                     return Result.Cancelled;
                 }
 
                 string baseUrl = Config.Instance.BaseUrl;
                 if (string.IsNullOrEmpty(baseUrl))
                 {
-                    TaskDialog.Show("Perseus — Audit IDs",
-                        "Please configure the server URL in Settings before auditing IDs.");
+                    TaskDialog.Show("Perseus — Audit Auto Parameters",
+                        "Please configure the server URL in Settings before auditing automatic parameters.");
                     return Result.Failed;
                 }
 
@@ -54,7 +54,7 @@ namespace ProjectPerseus.commands
                 IdAssignResult result = IdAssigner.Run(doc, docGuid, rules, null);
 
                 Log.Info($"[AuditIdsCommand] audit complete for {docGuid}: {result.Summary().Replace("\n", " | ")}");
-                TaskDialog.Show("Perseus — Audit IDs",
+                TaskDialog.Show("Perseus — Audit Auto Parameters",
                     (created > 0 ? $"Parameters created or extended: {created}\n" : "") +
                     result.Summary() + serverNote);
                 return Result.Succeeded;

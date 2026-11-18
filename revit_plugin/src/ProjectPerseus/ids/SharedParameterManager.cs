@@ -124,7 +124,7 @@ namespace ProjectPerseus.ids
                 },
             };
             foreach (var r in rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName) &&
-                                                      IdPattern.Parse(r.Pattern) != null))
+                                                      IdPattern.ForRule(r.Pattern, r.IsValue) != null))
             {
                 requirements.Add(new Requirement
                 {

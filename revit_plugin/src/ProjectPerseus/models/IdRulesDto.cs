@@ -4,7 +4,7 @@ using Newtonsoft.Json;
 
 namespace ProjectPerseus.models
 {
-    // Response of GET /api/source/<guid>/id-rules/
+    // Response of GET /api/source/<guid>/id-rules/ ("Auto Parameters": ID rules + value rules)
     public class IdRulesDto
     {
         [JsonProperty("rules")]
@@ -20,8 +20,12 @@ namespace ProjectPerseus.models
         // Changes whenever anything that affects ID generation changes (ignores updated_at).
         [JsonIgnore]
         public string Signature =>
-            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}")) + "#" +
+            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.Kind}:{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}/{r.Fill}/{r.Transform}")) + "#" +
             string.Join("|", CategoryPrefixes.Select(p => $"{p.Category}={p.Prefix}"));
+
+        /// <summary>At least one enabled unique-ID rule (value rules need no clash check).</summary>
+        [JsonIgnore]
+        public bool HasIdRules => Rules.Any(r => r.Enabled && !r.IsValue);
 
         // Prefix for a Revit category name, or null when the category has no prefix configured.
         public string PrefixFor(string categoryName)
@@ -46,6 +50,27 @@ namespace ProjectPerseus.models
 
     public class IdRuleDto
     {
+        public const string KindId = "id";
+        public const string KindValue = "value";
+
+        // "id" = unique numbered value (one {Increment|N}); "value" = copied / computed, not unique (no {Increment}).
+        [JsonProperty("kind")]
+        public string Kind { get; set; } = KindId;
+
+        [JsonIgnore]
+        public bool IsValue => string.Equals(Kind, KindValue, System.StringComparison.OrdinalIgnoreCase);
+
+        // Value rules: optional util/FilterEvaluator expression over `value` (rendered pattern) and row["<token>"].
+        [JsonProperty("transform")]
+        public string Transform { get; set; } = "";
+
+        // Value rules: "always" keeps the value current (overwrites hand edits); "empty" only fills empty values.
+        [JsonProperty("fill")]
+        public string Fill { get; set; } = "always";
+
+        [JsonIgnore]
+        public bool FillOnlyEmpty => string.Equals(Fill, "empty", System.StringComparison.OrdinalIgnoreCase);
+
         [JsonProperty("parameter_name")]
         public string ParameterName { get; set; }
 

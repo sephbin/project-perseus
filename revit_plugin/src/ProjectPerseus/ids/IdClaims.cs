@@ -206,7 +206,7 @@ namespace ProjectPerseus.ids
             string docGuid = revit.ModelGuidStorage.GetOrCreate(doc);
             var rules = IdRulesCache.Get(docGuid);
             string baseUrl = config.Config.Instance.BaseUrl;
-            if (rules == null || string.IsNullOrEmpty(baseUrl) || !rules.Rules.Any(r => r.Enabled)) return new FixResult();
+            if (rules == null || string.IsNullOrEmpty(baseUrl) || !rules.HasIdRules) return new FixResult();
             return Resolve(doc, docGuid, baseUrl, rules);
         }
 

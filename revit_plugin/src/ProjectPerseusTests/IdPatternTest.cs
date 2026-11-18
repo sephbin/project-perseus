@@ -10,11 +10,69 @@ namespace ProjectPerseusTests
         public void Parse_RejectsInvalidPatterns()
         {
             Assert.IsNull(IdPattern.Parse(""));
-            Assert.IsNull(IdPattern.Parse("{CategoryPrefix}"));              // no Increment
+            Assert.IsNull(IdPattern.ForRule("{CategoryPrefix}", isValue: false)); // ID rule without Increment
             Assert.IsNull(IdPattern.Parse("{Increment|4}{Increment|4}"));    // two Increments
             Assert.IsNull(IdPattern.Parse("{Increment|0}"));                 // width out of range
             Assert.IsNull(IdPattern.Parse("{Bogus}{Increment|4}"));          // unknown token
             Assert.IsNull(IdPattern.Parse("{Increment|4"));                  // unmatched brace
+        }
+
+        [TestMethod]
+        public void ForRule_ValuePatternsHaveNoCounter()
+        {
+            var v = IdPattern.ForRule("{Project.Project Number}-{Level.Name}", isValue: true);
+            Assert.IsNotNull(v);
+            Assert.IsFalse(v.HasCounter);
+            CollectionAssert.AreEqual(new[] { "Project.Project Number", "Level.Name" }, new System.Collections.Generic.List<string>(v.Tokens));
+            Assert.IsNull(IdPattern.ForRule("{CategoryPrefix}{Increment|4}", isValue: true));   // a counter makes it an ID rule
+            Assert.IsTrue(IdPattern.ForRule("{CategoryPrefix}{Increment|4}", isValue: false).HasCounter);
+            Assert.IsFalse(v.TryExtractNumber("P1-Level 01", t => "x", out _));
+        }
+
+        private static System.Func<string, string> Tokens(params string[] kv)
+        {
+            var d = new System.Collections.Generic.Dictionary<string, string>();
+            for (int i = 0; i + 1 < kv.Length; i += 2) d[kv[i]] = kv[i + 1];
+            return t => d.TryGetValue(t, out var v) ? v : null;
+        }
+
+        [TestMethod]
+        public void AutoValue_RendersAndTransforms()
+        {
+            var p = IdPattern.ForRule("{Project.Project Number}-{Level.Name}", true);
+            var resolve = Tokens("Project.Project Number", "P123", "Level.Name", "Level 02");
+
+            Assert.AreEqual(AutoValue.Outcome.Ok, AutoValue.Compute(p, "", resolve, out string v, out _));
+            Assert.AreEqual("P123-Level 02", v);
+
+            Assert.AreEqual(AutoValue.Outcome.Ok, AutoValue.Compute(p, "value.upper()", resolve, out v, out _));
+            Assert.AreEqual("P123-LEVEL 02", v);
+
+            var level = IdPattern.ForRule("{Level.Name}", true);
+            Assert.AreEqual(AutoValue.Outcome.Ok, AutoValue.Compute(level, "re.sub(r\"\\D\", \"\", value)", resolve, out v, out _));
+            Assert.AreEqual("02", v);
+
+            // row["token"] reads any token of the pattern; numbers come out without a trailing .0
+            Assert.AreEqual(AutoValue.Outcome.Ok, AutoValue.Compute(p, "row[\"Project.Project Number\"]", resolve, out v, out _));
+            Assert.AreEqual("P123", v);
+            Assert.AreEqual(AutoValue.Outcome.Ok, AutoValue.Compute(level, "len(value) * 2", resolve, out v, out _));
+            Assert.AreEqual("16", v);
+        }
+
+        [TestMethod]
+        public void AutoValue_UnresolvedClearsAndBadTransformFails()
+        {
+            var p = IdPattern.ForRule("{Room.Number}", true);
+            Assert.AreEqual(AutoValue.Outcome.Unresolved, AutoValue.Compute(p, "", Tokens(), out string v, out string err));
+            Assert.AreEqual("", v);
+            Assert.AreEqual("Room.Number", err);
+
+            var lit = IdPattern.ForRule("Fixed text", true);   // literal-only value rule
+            Assert.AreEqual(AutoValue.Outcome.Ok, AutoValue.Compute(lit, "", Tokens(), out v, out _));
+            Assert.AreEqual("Fixed text", v);
+
+            Assert.AreEqual(AutoValue.Outcome.TransformError, AutoValue.Compute(lit, "value.(", Tokens(), out _, out err));
+            Assert.IsFalse(string.IsNullOrEmpty(err));
         }
 
         [TestMethod]

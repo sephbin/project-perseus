@@ -15,6 +15,8 @@ namespace ProjectPerseus.ids
     {
         public int PerseusIdSet;
         public int Assigned;      // architectural IDs written to elements that had none / an invalid one
+        public int ValuesWritten; // value-rule parameters written (copied project info, level, room...)
+        public readonly SortedSet<string> TransformErrors = new SortedSet<string>(); // "rule: error", value not written
         public int Reassigned;    // subset of Assigned that replaced a duplicate or mismatched value
         public int SkippedNotOwned;
         public int SkippedInGroups;     // members of model/detail groups; writing them re-resolves the group and can delete dimensions
@@ -30,7 +32,7 @@ namespace ProjectPerseus.ids
         public bool RolledBack;         // Revit tried to delete/remove other elements, so the write was cancelled
         public readonly SortedSet<string> BlockedBy = new SortedSet<string>(); // families Revit reported errors in
 
-        public int TotalChanges => PerseusIdSet + Assigned;
+        public int TotalChanges => PerseusIdSet + Assigned + ValuesWritten;
 
         public string Summary() =>
             (RolledBack
@@ -39,13 +41,17 @@ namespace ProjectPerseus.ids
                 : "") +
             $"Perseus_ID written: {PerseusIdSet}\n" +
             $"Architectural IDs assigned: {Assigned} (of which {Reassigned} replaced duplicates or invalid values)\n" +
+            $"Values updated: {ValuesWritten}\n" +
             $"Skipped (checked out by another user): {SkippedNotOwned}\n" +
             (SkippedInGroups > 0 ? $"Skipped (members of groups): {SkippedInGroups}\n" : "") +
             $"Errors: {Errors}\n" +
             $"Checked {ElementsChecked} elements against {ActiveRules} active rule(s); {ParametersFound} parameter(s) found in the model." +
             (MissingOnElement > 0 ? $"\n{MissingOnElement} element/parameter pairs had no such parameter." : "") +
             (UnresolvedTokens.Count > 0
-                ? "\nSome elements were skipped because these template values were empty: " + string.Join(", ", UnresolvedTokens)
+                ? "\nThese template values were empty for some elements (IDs skipped, values cleared): " + string.Join(", ", UnresolvedTokens)
+                : "") +
+            (TransformErrors.Count > 0
+                ? "\nTransform errors (values not written): " + string.Join("; ", TransformErrors.Take(5))
                 : "") +
             (NoPrefixCategories.Count > 0
                 ? "\nNo category prefix configured for: " + string.Join(", ", NoPrefixCategories.Take(12)) +
@@ -54,7 +60,8 @@ namespace ProjectPerseus.ids
     }
 
     /// <summary>
-    /// Applies the ID rules to elements: fills Perseus_ID with the UniqueId, and keeps each rule parameter
+    /// Applies the Auto Parameters rules to elements: fills Perseus_ID with the UniqueId, keeps each value rule's
+    /// parameter equal to its pattern (+ transform; util/AutoValue), and keeps each ID rule parameter
     /// valid and unique. A value is kept if it matches the rule's pattern for the element's category and no
     /// lower-ElementId element holds the same value; otherwise the next number for that prefix is allocated.
     /// Counters come from the local model state (maximum existing number + 1).
@@ -66,6 +73,7 @@ namespace ProjectPerseus.ids
             public IdRuleDto Dto;
             public IdPattern Pattern;
             public Guid ParamGuid;
+            public bool IsValue => Dto.IsValue;
         }
 
         private class Change
@@ -74,6 +82,7 @@ namespace ProjectPerseus.ids
             public Parameter Param;
             public string NewValue;
             public bool IsPerseusId;
+            public bool IsValue;
             public bool IsReassign;
             // For rule writes planned in the index: lets a skipped write be taken back out of the index.
             public string RuleName;
@@ -97,6 +106,28 @@ namespace ProjectPerseus.ids
                 new Dictionary<string, Dictionary<long, string>>(StringComparer.OrdinalIgnoreCase);
             // "rule|prefix" -> highest number seen
             public readonly Dictionary<string, long> Max = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            // Value rules: element id -> related elements its values are read from (level, room, host, type, group),
+            // and the reverse, so changing a level / room / type refreshes the elements that copy it.
+            public readonly Dictionary<long, HashSet<long>> DepsOf = new Dictionary<long, HashSet<long>>();
+            public readonly Dictionary<long, HashSet<long>> DependentsOf = new Dictionary<long, HashSet<long>>();
+
+            public void SetDeps(long id, HashSet<long> deps)
+            {
+                if (DepsOf.TryGetValue(id, out var old))
+                {
+                    if (deps != null && old.SetEquals(deps)) return;
+                    foreach (var d in old)
+                        if (DependentsOf.TryGetValue(d, out var set)) { set.Remove(id); if (set.Count == 0) DependentsOf.Remove(d); }
+                    DepsOf.Remove(id);
+                }
+                if (deps == null || deps.Count == 0) return;
+                DepsOf[id] = deps;
+                foreach (var d in deps)
+                {
+                    if (!DependentsOf.TryGetValue(d, out var set)) DependentsOf[d] = set = new HashSet<long>();
+                    set.Add(id);
+                }
+            }
 
             public void Set(string rule, long id, string value)
             {
@@ -121,6 +152,7 @@ namespace ProjectPerseus.ids
             {
                 foreach (var rule in ValueById.Keys.ToList()) Set(rule, id, null);
                 Uids.Remove(id);
+                SetDeps(id, null);
             }
 
             public long LowestHolder(string rule, string value) =>
@@ -160,7 +192,7 @@ namespace ProjectPerseus.ids
             var active = new List<ActiveRule>();
             foreach (var r in rules.Rules.Where(r => r.Enabled))
             {
-                var pattern = IdPattern.Parse(r.Pattern);
+                var pattern = IdPattern.ForRule(r.Pattern, r.IsValue);
                 string name = r.ParameterName?.Trim();
                 if (pattern == null || string.IsNullOrEmpty(name) || !guids.TryGetValue(name, out var g)) continue;
                 active.Add(new ActiveRule { Dto = r, Pattern = pattern, ParamGuid = g });
@@ -179,9 +211,17 @@ namespace ProjectPerseus.ids
             long id = el.Id.GetIdValue();
             Func<string, string> resolve = null;
             bool any = false;
+            HashSet<long> deps = null;
             foreach (var rule in active)
             {
                 if (!Applies(rule.Dto, el)) continue;
+                if (rule.IsValue)
+                {
+                    // Value rules aren't unique (no claims, no counters); only what they read from is indexed.
+                    if (deps == null) deps = new HashSet<long>();
+                    resolver.AddDependencies(el, rule.Pattern.Tokens, deps);
+                    continue;
+                }
                 string name = rule.Dto.ParameterName.Trim();
                 string value = el.get_Parameter(rule.ParamGuid)?.AsString();
                 index.Set(name, id, value);
@@ -194,6 +234,36 @@ namespace ProjectPerseus.ids
             }
             if (any) index.Uids[id] = el.UniqueId;
             else index.Uids.Remove(id);
+            index.SetDeps(id, deps);
+        }
+
+        /// <summary>
+        /// Elements whose value-rule parameters read from any of <paramref name="changed"/> (a renamed level, an edited
+        /// room or type...), from the in-memory index. Empty when the index isn't ready. Main thread; no model access.
+        /// </summary>
+        internal static HashSet<long> Dependents(string docGuid, IdRulesDto rules, IEnumerable<long> changed)
+        {
+            var result = new HashSet<long>();
+            if (!IsIndexReady(docGuid, rules)) return result;
+            var index = _indexes[docGuid];
+            foreach (var id in changed)
+                if (index.DependentsOf.TryGetValue(id, out var set)) result.UnionWith(set);
+            return result;
+        }
+
+        /// <summary>True when an enabled value rule reads Project Information ({Project.*}).</summary>
+        internal static bool UsesProject(IdRulesDto rules) =>
+            rules != null && rules.Rules.Any(r => r.Enabled && r.IsValue && UsesProject(r));
+
+        private static bool UsesProject(IdRuleDto r) =>
+            IdPattern.ForRule(r.Pattern, true)?.Tokens.Any(t => t.StartsWith("Project.", StringComparison.Ordinal)) == true;
+
+        /// <summary>Every element a {Project.*} value rule applies to (after Project Information changed). Read-only collector.</summary>
+        internal static List<long> ProjectDependents(Document doc, IdRulesDto rules)
+        {
+            var active = ResolveActive(doc, rules, out _).Where(r => r.IsValue && UsesProject(r.Dto)).ToList();
+            if (active.Count == 0) return new List<long>();
+            return CandidateIds(doc, active).Select(i => i.GetIdValue()).ToList();
         }
 
         /// <summary>
@@ -375,6 +445,26 @@ namespace ProjectPerseus.ids
                     // Every token must resolve (category prefix, level, host...). The resolved values also
                     // define which counter the element belongs to, e.g. "walls on Level 02".
                     var resolve = resolver.For(el);
+
+                    if (rule.IsValue)
+                    {
+                        if (renumber) continue;
+                        string now = p.AsString() ?? "";
+                        if (rule.Dto.FillOnlyEmpty && now.Length > 0) continue;
+                        var outcome = AutoValue.Compute(rule.Pattern, rule.Dto.Transform, resolve, out string target, out string err);
+                        if (outcome == AutoValue.Outcome.TransformError)
+                        {
+                            result.TransformErrors.Add($"{rule.Dto.ParameterName.Trim()}: {err}");
+                            continue;
+                        }
+                        // A token with no value (element not in a room, parameter missing) clears the value rather than
+                        // leaving a stale one behind.
+                        if (outcome == AutoValue.Outcome.Unresolved) NoteUnresolved(result, rule.Pattern, resolve, el);
+                        if (now == target) continue;
+                        changes.Add(new Change { Element = el, Param = p, NewValue = target, IsValue = true, IsReassign = now.Length > 0 });
+                        continue;
+                    }
+
                     string scope = rule.Pattern.ScopeKey(resolve);
                     if (scope == null) { NoteUnresolved(result, rule.Pattern, resolve, el); continue; }
 
@@ -461,7 +551,7 @@ namespace ProjectPerseus.ids
             var items = new List<IdClaimItem>();
             if (doc == null || rules == null) return items;
 
-            var enabled = rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName)).ToList();
+            var enabled = rules.Rules.Where(r => r.Enabled && !r.IsValue && !string.IsNullOrWhiteSpace(r.ParameterName)).ToList();
             if (enabled.Count == 0) return items;
             var guids = SharedParameterManager.ResolveGuids(doc, enabled.Select(r => r.ParameterName.Trim()).ToList());
 
@@ -672,13 +762,14 @@ namespace ProjectPerseus.ids
                                 // throwing the whole index away (a full rebuild on large models) for one skipped write.
                                 if (c.RuleName != null && _indexes.TryGetValue(docGuid, out var idx))
                                     idx.Set(c.RuleName, c.Element.Id.GetIdValue(), c.OldValue);
-                                else if (!c.IsPerseusId)
+                                else if (!c.IsPerseusId && !c.IsValue)
                                     skippedAny = true;
                                 continue;
                             }
-                            if (!c.Param.Set(c.NewValue)) { result.Errors++; skippedAny = true; continue; }
+                            if (!c.Param.Set(c.NewValue)) { result.Errors++; skippedAny |= !c.IsValue; continue; }
 
                             if (c.IsPerseusId) result.PerseusIdSet++;
+                            else if (c.IsValue) result.ValuesWritten++;
                             else { result.Assigned++; if (c.IsReassign) result.Reassigned++; }
                         }
                         catch (Exception ex)
@@ -698,6 +789,7 @@ namespace ProjectPerseus.ids
                         result.BlockedBy.UnionWith(guard.Culprits);
                         result.PerseusIdSet = 0;
                         result.Assigned = 0;
+                        result.ValuesWritten = 0;
                         result.Reassigned = 0;
                         skippedAny = true;
                     }

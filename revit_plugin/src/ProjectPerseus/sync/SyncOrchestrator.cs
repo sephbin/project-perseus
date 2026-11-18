@@ -524,8 +524,10 @@ namespace ProjectPerseus.sync
                         {
                             // The snapshot comes from the ID index kept in memory at idle (IdIndexMaintainer); no model
                             // scan here. If the index isn't ready the clash check is skipped for this sync.
-                            var claims = ids.IdIndexMaintainer.TryGetClaims(e.Document, docGuid, idRules, out string notReady);
-                            if (claims == null) Log.Info($"[IdClaims] pre-sync clash check skipped ({notReady}); it runs before a later sync.");
+                            // Value rules (Auto Parameters that copy project info, levels...) are never unique: no clash check.
+                            string notReady = "no unique-ID rules";
+                            var claims = idRules.HasIdRules ? ids.IdIndexMaintainer.TryGetClaims(e.Document, docGuid, idRules, out notReady) : null;
+                            if (claims == null && idRules.HasIdRules) Log.Info($"[IdClaims] pre-sync clash check skipped ({notReady}); it runs before a later sync.");
                             var claimsTask = claims == null ? null
                                 : System.Threading.Tasks.Task.Run(() => ids.IdClaims.Check(docGuid, baseUrl, claims, WebHelper.SyncTimeoutMs));
 
@@ -546,8 +548,8 @@ namespace ProjectPerseus.sync
                                 // Writing IDs modifies the model, which can't happen inside this event (it races with
                                 // Revit's central communication), so the sync is cancelled, IdPreSyncFixEvent writes
                                 // them, then re-runs the sync with the user's options. The toast stays up to say so.
-                                string what = fill > 0 && clashes > 0 ? $"write {fill} element ID(s) and renumber {clashes} that clash with other users"
-                                            : fill > 0 ? $"write {fill} element ID(s)"
+                                string what = fill > 0 && clashes > 0 ? $"fill automatic parameters on {fill} element(s) and renumber {clashes} ID(s) that clash with other users"
+                                            : fill > 0 ? $"fill automatic parameters on {fill} element(s)"
                                             : $"renumber {clashes} ID(s) that clash with other users";
                                 Log.Info($"Pre-sync: cancelling sync to {what}, then re-syncing.");
                                 e.Cancel();

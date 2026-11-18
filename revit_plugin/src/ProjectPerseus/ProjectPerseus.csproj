@@ -301,6 +301,7 @@
     <Compile Include="models\IdRulesDto.cs" />
     <Compile Include="queue\AssignIdsEvent.cs" />
     <Compile Include="util\IdPattern.cs" />
+    <Compile Include="util\AutoValue.cs" />
     <Compile Include="util\PositionOrder.cs" />
     <Compile Include="ids\ElementPosition.cs" />
     <Compile Include="commands\RenumberIdsCommand.cs" />
