@@ -99,6 +99,23 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void IncrementModes_PickNextOrLowestFree()
+        {
+            // The only door in the room: both minimising modes give 1, whatever number it arrived with.
+            Assert.AreEqual(1, IdNumbering.Pick(IdNumbering.Next, new long[0]));
+            Assert.AreEqual(1, IdNumbering.Pick(IdNumbering.Fill, new long[0]));
+            // D01 and D03 held (D02 deleted): next continues after the highest, fill takes the gap.
+            Assert.AreEqual(4, IdNumbering.Pick(IdNumbering.Next, new long[] { 1, 3 }));
+            Assert.AreEqual(2, IdNumbering.Pick(IdNumbering.Fill, new long[] { 1, 3 }));
+            // Numbers another user holds (server claims) are skipped.
+            Assert.AreEqual(3, IdNumbering.Pick(IdNumbering.Fill, new long[] { 1 }, n => n == 2));
+            Assert.AreEqual(5, IdNumbering.Pick(IdNumbering.Next, new long[] { 1, 3 }, n => n == 4));
+            Assert.AreEqual(IdNumbering.Keep, IdNumbering.Normalise(null));
+            Assert.AreEqual(IdNumbering.Fill, IdNumbering.Normalise(" Fill "));
+            Assert.IsFalse(IdNumbering.Minimises(IdNumbering.Keep));
+        }
+
+        [TestMethod]
         public void DoorRoomTokensAndFallbacks()
         {
             var p = IdPattern.ForRule("{ToRoom.Number|FromRoom.Number}", true);

@@ -27,6 +27,8 @@ namespace ProjectPerseus.ids
         private static string _baseUrl;
         private static readonly object _lock = new object();
         private static readonly Dictionary<Document, HashSet<long>> _pending = new Dictionary<Document, HashSet<long>>();
+        // Of those, the elements this user created / pasted: "next" / "fill" ID rules minimise the value they came with.
+        private static readonly Dictionary<Document, HashSet<long>> _fresh = new Dictionary<Document, HashSet<long>>();
         private static readonly HashSet<string> _ensured = new HashSet<string>();
         // Elements other users changed (from the last sync's change set), waiting for the next pre-sync ID fill.
         private static readonly Dictionary<Document, HashSet<long>> _parked = new Dictionary<Document, HashSet<long>>();
@@ -199,7 +201,7 @@ namespace ProjectPerseus.ids
             if (doc == null) return;
             lock (_lock)
             {
-                _parked.Remove(doc); _parkedUnplanned.Remove(doc); _pending.Remove(doc); _waitingForIndex.Remove(doc);
+                _parked.Remove(doc); _parkedUnplanned.Remove(doc); _pending.Remove(doc); _fresh.Remove(doc); _waitingForIndex.Remove(doc);
                 _dependents.Remove(doc); _projectChanged.Remove(doc); _projectChangedParked.Remove(doc);
             }
         }
@@ -239,6 +241,8 @@ namespace ProjectPerseus.ids
             {
                 if (!_pending.TryGetValue(doc, out var set)) _pending[doc] = set = new HashSet<long>();
                 foreach (var id in ids) set.Add(id);
+                if (!_fresh.TryGetValue(doc, out var fset)) _fresh[doc] = fset = new HashSet<long>();
+                foreach (var id in e.GetAddedElementIds()) fset.Add(id.GetIdValue());
                 if (deps != null && deps.Count > 0)
                 {
                     if (!_dependents.TryGetValue(doc, out var dset)) _dependents[doc] = dset = new HashSet<long>();
@@ -257,10 +261,13 @@ namespace ProjectPerseus.ids
         internal static void ProcessPending(UIApplication app)
         {
             Dictionary<Document, HashSet<long>> batch;
+            Dictionary<Document, HashSet<long>> fresh;
             lock (_lock)
             {
                 batch = new Dictionary<Document, HashSet<long>>(_pending);
                 _pending.Clear();
+                fresh = new Dictionary<Document, HashSet<long>>(_fresh);
+                _fresh.Clear();
             }
 
             foreach (var kv in batch)
@@ -289,6 +296,11 @@ namespace ProjectPerseus.ids
                         {
                             if (!_pending.TryGetValue(doc, out var set)) _pending[doc] = set = new HashSet<long>();
                             set.UnionWith(kv.Value);
+                            if (fresh.TryGetValue(doc, out var f))
+                            {
+                                if (!_fresh.TryGetValue(doc, out var fset)) _fresh[doc] = fset = new HashSet<long>();
+                                fset.UnionWith(f);
+                            }
                             _waitingForIndex.Add(doc);
                         }
                         Log.Info($"[IdAutoAssign] {kv.Value.Count} element(s) wait for the ID index to finish building.");
@@ -297,7 +309,8 @@ namespace ProjectPerseus.ids
                     Log.Info($"[IdAutoAssign] processing {kv.Value.Count} element(s).");
 
                     EnsureParametersOnce(doc, docGuid, rules);
-                    if (kv.Value.Count > 0) IdAssigner.Run(doc, docGuid, rules, kv.Value);
+                    fresh.TryGetValue(doc, out var added);
+                    if (kv.Value.Count > 0) IdAssigner.Run(doc, docGuid, rules, kv.Value, fresh: added);
                     RefreshDependents(doc, docGuid, rules, kv.Value);
                 }
                 catch (Exception ex)

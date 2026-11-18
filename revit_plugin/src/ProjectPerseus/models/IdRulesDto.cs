@@ -20,7 +20,7 @@ namespace ProjectPerseus.models
         // Changes whenever anything that affects ID generation changes (ignores updated_at).
         [JsonIgnore]
         public string Signature =>
-            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.Kind}:{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}/{r.Fill}/{r.Transform}/{r.UniqueWith}")) + "#" +
+            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.Kind}:{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}/{r.Fill}/{r.Transform}/{r.UniqueWith}/{r.IncrementMode}")) + "#" +
             string.Join("|", CategoryPrefixes.Select(p => $"{p.Category}={p.Prefix}"));
 
         /// <summary>At least one enabled unique-ID rule (value rules need no clash check).</summary>
@@ -75,6 +75,11 @@ namespace ProjectPerseus.models
         // numbers doors D01, D02... separately per room. Blank = unique across the model. See util/IdPattern.UniqueKey.
         [JsonProperty("unique_with")]
         public string UniqueWith { get; set; } = "";
+
+        // ID rules: "keep" (default), "next" (after the highest held, no gap filling) or "fill" (lowest free number).
+        // next / fill also minimise the number a new or copied element arrives with. See util/IdNumbering.cs.
+        [JsonProperty("increment_mode")]
+        public string IncrementMode { get; set; } = "keep";
 
         [JsonProperty("parameter_name")]
         public string ParameterName { get; set; }

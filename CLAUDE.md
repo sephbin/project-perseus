@@ -171,6 +171,9 @@ ProjectPerseus/
 │   ├── AutoValue.cs              NEW (2026-11-18). Pure: a value rule's target = pattern filled in, then the optional transform
 │   │                             (FilterEvaluator.TryCompute; value = filled-in pattern, row["Level.Name"] = its tokens).
 │   │                             Unresolved token => "" (value cleared). Tested in IdPatternTest.cs.
+│   ├── IdNumbering.cs            NEW (2026-11-19). Pure: ID rule increment modes keep / next (after highest held) / fill (lowest
+│   │                             free). next / fill minimise the number a new / pasted element (or one moved to another unique-with
+│   │                             group) arrives with: IdAssigner.Run(fresh:) from IdAutoAssignController's added ids. Tested.
 │   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or
 │   │                             "-Y~500, X" (keys X/Y/Z/Id, '-' descending, '~N' mm buckets; ElementId breaks ties).
 │   │                             Unit-tested in ProjectPerseusTests/PositionOrderTest.cs.

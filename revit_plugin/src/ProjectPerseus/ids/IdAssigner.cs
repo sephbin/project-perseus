@@ -150,7 +150,7 @@ namespace ProjectPerseus.ids
             // Forgets a (deleted) element everywhere. Counters are left alone: a gap in the numbering is harmless.
             public void Remove(long id)
             {
-                foreach (var rule in ValueById.Keys.ToList()) Set(rule, id, null);
+                foreach (var rule in ValueById.Keys.ToList()) { Set(rule, id, null); ForgetNumber(rule, id); }
                 Uids.Remove(id);
                 SetDeps(id, null);
             }
@@ -164,6 +164,35 @@ namespace ProjectPerseus.ids
                 string key = rule + "|" + prefix;
                 if (!Max.TryGetValue(key, out var cur) || n > cur) Max[key] = n;
             }
+
+            // "rule|scope" -> element id -> the number it holds now (for next / fill numbering), and
+            // "rule|element id" -> the "rule|scope" it is listed under.
+            private readonly Dictionary<string, Dictionary<long, long>> _held = new Dictionary<string, Dictionary<long, long>>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, string> _heldIn = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            public void NoteNumber(string rule, string scope, long id, long n)
+            {
+                NoteNumber(rule, scope, n);
+                ForgetNumber(rule, id);
+                string key = rule + "|" + scope;
+                if (!_held.TryGetValue(key, out var map)) _held[key] = map = new Dictionary<long, long>();
+                map[id] = n;
+                _heldIn[rule + "|" + id] = key;
+            }
+
+            public void ForgetNumber(string rule, long id)
+            {
+                string k = rule + "|" + id;
+                if (!_heldIn.TryGetValue(k, out var key)) return;
+                _heldIn.Remove(k);
+                if (_held.TryGetValue(key, out var map)) { map.Remove(id); if (map.Count == 0) _held.Remove(key); }
+            }
+
+            /// <summary>Numbers held by other elements in the counter group.</summary>
+            public IEnumerable<long> HeldByOthers(string rule, string scope, long id) =>
+                _held.TryGetValue(rule + "|" + scope, out var map)
+                    ? map.Where(kv => kv.Key != id).Select(kv => kv.Value)
+                    : Enumerable.Empty<long>();
 
             public long Allocate(string rule, string prefix)
             {
@@ -233,11 +262,13 @@ namespace ProjectPerseus.ids
                     resolver.AddDependencies(el, rule.Pattern.UniqueWithTokens, deps);
                 }
                 index.Set(name, id, rule.Pattern.UniqueKey(value, resolve));
-                if (string.IsNullOrEmpty(value)) continue;
+                if (string.IsNullOrEmpty(value)) { index.ForgetNumber(name, id); continue; }
                 any = true;
                 string scope = rule.Pattern.ScopeKey(resolve);
                 if (scope != null && rule.Pattern.TryExtractNumber(value, resolve, out long n))
-                    index.NoteNumber(name, scope, n);
+                    index.NoteNumber(name, scope, id, n);
+                else
+                    index.ForgetNumber(name, id);
             }
             if (any) index.Uids[id] = el.UniqueId;
             else index.Uids.Remove(id);
@@ -388,9 +419,12 @@ namespace ProjectPerseus.ids
         /// With <paramref name="dryRun"/> nothing is written (safe inside document events such as the pre-sync
         /// hook): <see cref="IdAssignResult.Planned"/> counts the writes that would land on elements this user can
         /// edit, and no ID numbers are allocated.
+        /// <paramref name="fresh"/> = elements this user just created (or pasted): for "next" / "fill" rules the value
+        /// they arrived with (Revit's next Mark, a copied value) is minimised rather than kept.
         /// </summary>
         internal static IdAssignResult Run(Document doc, string docGuid, IdRulesDto rules, ICollection<long> onlyIds,
-                                           bool renumber = false, IdClashFix fix = null, bool dryRun = false)
+                                           bool renumber = false, IdClashFix fix = null, bool dryRun = false,
+                                           ICollection<long> fresh = null)
         {
             var result = new IdAssignResult();
             if (doc == null) return result;
@@ -495,18 +529,33 @@ namespace ProjectPerseus.ids
                     string current = p.AsString();
                     // What has to be unique: the value, or the value + what it is unique with ("D01 [101]").
                     string currentKey = rule.Pattern.UniqueKey(current, resolve);
+                    // Same value, but now unique with something else (the door's room number just changed).
+                    string before = index.ValueById.TryGetValue(name, out var byId) && byId.TryGetValue(id, out var b) ? b : null;
+                    bool regrouped = rule.Pattern.HasUniqueWith && !string.IsNullOrEmpty(current) && before != null &&
+                                     before != currentKey && before.StartsWith(current + " [", StringComparison.Ordinal);
                     index.Set(name, id, currentKey); // sync index with what is actually in the model right now
                     if (!string.IsNullOrEmpty(current)) index.Uids[id] = el.UniqueId;
 
                     // A value the server's registry says another element holds (see IdClaims) must be replaced even
                     // though it is unique within this local model.
                     bool forced = fix != null && fix.Force.Contains(IdClashFix.ForceKey(name, id));
+                    string mode = IdNumbering.Normalise(rule.Dto.IncrementMode);
+                    Func<long, bool> taken = k => fix != null &&
+                        fix.Taken.Contains(IdClashFix.TakenKey(name, rule.Pattern.UniqueKey(rule.Pattern.Render(resolve, k), resolve)));
                     bool valid = rule.Pattern.TryExtractNumber(current, resolve, out long n);
                     if (valid)
                     {
-                        index.NoteNumber(name, scope, n);
-                        if (!forced && index.LowestHolder(name, currentKey) == id) continue; // keep
+                        // next / fill: a number the element arrived with (new / pasted, or moved to another group) is
+                        // only kept when it is already the number the mode would pick.
+                        bool untrusted = IdNumbering.Minimises(mode) && ((fresh != null && fresh.Contains(id)) || regrouped);
+                        bool keep = !untrusted || IdNumbering.Pick(mode, index.HeldByOthers(name, scope, id), taken) == n;
+                        if (keep)
+                        {
+                            index.NoteNumber(name, scope, id, n);
+                            if (!forced && index.LowestHolder(name, currentKey) == id) continue; // keep
+                        }
                     }
+                    index.ForgetNumber(name, id);
 
                     if (dryRun)
                     {
@@ -515,11 +564,13 @@ namespace ProjectPerseus.ids
                         continue;
                     }
 
-                    string value;
-                    do
-                    {
-                        value = rule.Pattern.Render(resolve, index.Allocate(name, scope));
-                    } while (fix != null && fix.Taken.Contains(IdClashFix.TakenKey(name, rule.Pattern.UniqueKey(value, resolve))));
+                    long number;
+                    if (IdNumbering.Minimises(mode))
+                        number = IdNumbering.Pick(mode, index.HeldByOthers(name, scope, id), taken);
+                    else
+                        do { number = index.Allocate(name, scope); } while (taken(number));
+                    index.NoteNumber(name, scope, id, number);
+                    string value = rule.Pattern.Render(resolve, number);
                     index.Set(name, id, rule.Pattern.UniqueKey(value, resolve));
                     index.Uids[id] = el.UniqueId;
                     changes.Add(new Change
