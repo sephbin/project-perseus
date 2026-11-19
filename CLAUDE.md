@@ -88,6 +88,11 @@ that was compiled. GitCommit lives in the tests project (which is the last to bu
 because it has a ProjectReference to ProjectPerseus) so commit + push only fire once
 the entire solution — main DLL, installer, and test DLL — has built successfully.
 
+Release channel (2026-11-19) = the version's 4th (revision) number: x.y.z.1 = dev build (every normal build),
+x.y.z.0 = stable release (bump-version.ps1 -Stable; MSBuild /p:Stable=true; build-all.ps1 -Stable). Dev installers
+are named ..._x.y.z-dev.exe; commit messages end "dev" / "STABLE". The web app's Plugin users page counts only
+stable versions as latest / behind (django-perseus plugin_clients.channel_of; admins can reclassify a version).
+
 GitCommit calls build-commit.ps1 which reads .claude_changes.md from the repo root, uses its
 contents as the commit body, commits all staged changes, pushes, then clears the file.
 

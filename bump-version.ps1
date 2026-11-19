@@ -5,10 +5,16 @@
 #   .\bump-version.ps1           # 1.1.7 -> 1.1.8  (default)
 #   .\bump-version.ps1 -BumpMinor  # 1.1.7 -> 1.2.0
 #   .\bump-version.ps1 -BumpMajor  # 1.1.7 -> 2.0.0
+#
+# Release channel = the 4th (revision) number:  x.y.z.0 = STABLE release,  x.y.z.1 = DEV (daily) build.
+# Every build is a dev build unless -Stable is passed (MSBuild: /p:Stable=true, or build-all.ps1 -Stable).
+# The web app's Plugin users page counts only stable versions as "latest" / "behind" (django-perseus
+# plugin_clients.channel_of). Dev installers are named ..._x.y.z-dev.exe.
 
 param(
     [switch]$BumpMinor,
-    [switch]$BumpMajor
+    [switch]$BumpMajor,
+    [switch]$Stable
 )
 
 $AssemblyInfoPath = "$PSScriptRoot\revit_plugin\src\ProjectPerseus\Properties\AssemblyInfo.cs"
@@ -37,10 +43,12 @@ if ($BumpMajor) {
     $verPat++
 }
 
+$verRev = if ($Stable) { 0 } else { 1 }
+$channel = if ($Stable) { "stable" } else { "dev" }
 $newAssemblyVer = "$verMaj.$verMin.$verPat.$verRev"
 $newAppVer      = "$verMaj.$verMin.$verPat"
 
-Write-Host "Bumping $oldVer -> $newAppVer"
+Write-Host "Bumping $oldVer -> $newAssemblyVer ($channel)"
 
 # --- Update AssemblyInfo.cs ---
 $content = $content -replace `
@@ -60,5 +68,7 @@ Write-Host "  Updated: AssemblyInfo.cs -> $newAssemblyVer"
 # --- Update perseus_installer.iss ---
 $iss = [System.IO.File]::ReadAllText($IssPath)
 $iss = $iss -replace 'AppVersion=[\d.]+', "AppVersion=$newAppVer"
+$suffix = if ($Stable) { '' } else { '-dev' }
+$iss = $iss -replace '(?m)^OutputBaseFilename=.*$', ('OutputBaseFilename=Install_ProjectPerseus_{#SetupSetting("AppVersion")}' + $suffix)
 [System.IO.File]::WriteAllText($IssPath, $iss, [System.Text.Encoding]::UTF8)
 Write-Host "  Updated: perseus_installer.iss -> $newAppVer"

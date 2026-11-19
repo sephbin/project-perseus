@@ -7,9 +7,11 @@
 #
 # Both builds install the .addin dev manifest (DevInstall) and kill Revit beforehand (KillRevit).
 # Pass -DryRun to compile without committing (useful for testing the script).
+# Pass -Stable for a stable release (version x.y.z.0); otherwise it's a dev build (x.y.z.1). See bump-version.ps1.
 
 param(
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Stable
 )
 
 Set-Location $PSScriptRoot
@@ -32,7 +34,8 @@ $sln = Join-Path $PSScriptRoot "revit_plugin\src\ProjectPerseus.sln"
 Write-Host ""
 Write-Host "=== Building Debug 2026 | x64 ===" -ForegroundColor Cyan
 $skipCommit = if ($DryRun) { 'true' } else { 'true' }   # always skip here; 2023 build commits
-& $msBuild $sln /p:Configuration="Debug 2026" /p:Platform=x64 /p:SkipGitCommit=true /m /nologo
+$stableFlag = if ($Stable) { 'true' } else { 'false' }
+& $msBuild $sln /p:Configuration="Debug 2026" /p:Platform=x64 /p:SkipGitCommit=true /p:Stable=$stableFlag /m /nologo
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Debug 2026 build failed (exit $LASTEXITCODE). Aborting."
     exit $LASTEXITCODE

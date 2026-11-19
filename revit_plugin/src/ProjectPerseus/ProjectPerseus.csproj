@@ -628,7 +628,9 @@
        It hooks BeforeBuild, not Build: BeforeTargets="Build" runs AFTER Build's DependsOnTargets (CoreBuild,
        i.e. the compile), so the outer year's DLL still carried the previous version (2026-11-05). -->
   <Target Name="BumpVersion" BeforeTargets="BeforeBuild" Condition="'$(SkipBumpVersion)' != 'true'">
-    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot;" />
+    <!-- /p:Stable=true = a stable release (x.y.z.0); otherwise a dev build (x.y.z.1). See bump-version.ps1. -->
+    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot;" Condition="'$(Stable)' != 'true'" />
+    <Exec Command="powershell -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\..\bump-version.ps1&quot; -Stable" Condition="'$(Stable)' == 'true'" />
   </Target>
 
   <Target Name="BuildInstaller" AfterTargets="Build"

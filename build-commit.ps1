@@ -34,11 +34,13 @@ if (Test-Path $assemblyInfo) {
         $version = $Matches[1]
     }
 }
+# Channel = revision number: x.y.z.0 = stable release, anything else = dev build (bump-version.ps1)
+$channel = if ($version -match '\.0$') { "STABLE" } else { "dev" }
 
 # Build the commit message
 $bodyText = if ($changesBody) { $changesBody } else { "Manual build - no Claude session notes recorded." }
 
-$commitMessage = "Build $version [$Configuration]
+$commitMessage = "Build $version [$Configuration] $channel
 
 $bodyText
 

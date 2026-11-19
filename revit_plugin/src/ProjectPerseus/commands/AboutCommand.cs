@@ -15,7 +15,8 @@ namespace ProjectPerseus.commands
 
             TaskDialog dialog = new TaskDialog("About Project Perseus");
             dialog.MainInstruction = "Project Perseus";
-            dialog.MainContent = $"Plugin version:  {pluginVersion}\nRevit version:   {revitVersion}";
+            string channel = pluginVersion.EndsWith(".0") ? "stable release" : "dev build"; // x.y.z.0 = stable (bump-version.ps1)
+            dialog.MainContent = $"Plugin version:  {pluginVersion} ({channel})\nRevit version:   {revitVersion}";
             dialog.Show();
 
             return Result.Succeeded;
