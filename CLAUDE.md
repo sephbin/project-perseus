@@ -175,6 +175,12 @@ ProjectPerseus/
 │   ├── IdNumbering.cs            NEW (2026-11-19). Pure: ID rule increment modes keep / next (after highest held) / fill (lowest
 │   │                             free). next / fill minimise the number a new / pasted element (or one moved to another unique-with
 │   │                             group) arrives with: IdAssigner.Run(fresh:) from IdAutoAssignController's added ids. Tested.
+│   ├── JinjaTemplate.cs          NEW (2026-11-19). Jinja2-style value templates via Scriban (Liquid mode + ToLiquid shim: elif, set,
+│   │                             {# #}, | f(args)); objects Element/Type/Level/Host/Room/Space/ToRoom/FromRoom/Group/Project, parameters
+│   │                             by SafeName (spaces -> "_"), lower case or ["exact name"]; Jinja filter aliases. Value rule patterns /
+│   │                             template sources with {{ }} / {% %} use it (IdAssigner.Compile). Scriban.dll ships in both packages.
+│   ├── AssemblyRedirects.cs      NEW (2026-11-19). AssemblyResolve: older support-assembly versions (Scriban wants
+│   │                             System.Threading.Tasks.Extensions 4.2.0.0) get the loaded / shipped copy (Revit ignores add-in configs).
 │   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or
 │   │                             "-Y~500, X" (keys X/Y/Z/Id, '-' descending, '~N' mm buckets; ElementId breaks ties).
 │   │                             Unit-tested in ProjectPerseusTests/PositionOrderTest.cs.
