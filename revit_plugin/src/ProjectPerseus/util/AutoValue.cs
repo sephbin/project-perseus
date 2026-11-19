@@ -34,12 +34,19 @@ namespace ProjectPerseus.util
             }
 
             string rendered = pattern.Render(t => row.TryGetValue(t, out var v) ? v : "", 0);
-            if (string.IsNullOrWhiteSpace(transform)) { value = rendered; return Outcome.Ok; }
+            return TryTransform(rendered, transform, row, out value, out error) ? Outcome.Ok : Outcome.TransformError;
+        }
 
-            var names = new Dictionary<string, object> { { "value", rendered } };
-            if (!FilterEvaluator.TryCompute(transform, row, names, out object r, out error)) return Outcome.TransformError;
+        /// <summary>The optional transform applied to an already rendered value (also used for Jinja templates).</summary>
+        public static bool TryTransform(string rendered, string transform, Dictionary<string, string> row, out string value, out string error)
+        {
+            value = rendered ?? "";
+            error = null;
+            if (string.IsNullOrWhiteSpace(transform)) return true;
+            var names = new Dictionary<string, object> { { "value", value } };
+            if (!FilterEvaluator.TryCompute(transform, row ?? new Dictionary<string, string>(), names, out object r, out error)) return false;
             value = r is double d ? Number(d) : FilterEvaluator.PyStr(r);
-            return Outcome.Ok;
+            return true;
         }
 
         private static string Number(double d) =>

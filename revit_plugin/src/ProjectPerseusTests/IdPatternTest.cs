@@ -136,6 +136,56 @@ namespace ProjectPerseusTests
             Assert.IsNull(IdPattern.ParseSource(""));
         }
 
+        // Renders a Jinja template for a door: Element / Type / ToRoom parameters by their real (spaced) names.
+        private static string RenderDoor(string template, bool hasToRoom = true)
+        {
+            var t = JinjaTemplate.Parse(template, out string err);
+            Assert.IsNotNull(t, err);
+            var objects = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IDictionary<string, object>>
+            {
+                ["Element"] = new System.Collections.Generic.Dictionary<string, object> { ["Door Tag Room Number"] = "101", ["Mark"] = "D01", ["Width"] = 920.0 },
+                ["Type"] = new System.Collections.Generic.Dictionary<string, object> { ["Fire Rating (mins)"] = "60", ["Type Mark"] = "DT1" },
+                ["FromRoom"] = new System.Collections.Generic.Dictionary<string, object> { ["Number"] = "102", ["Name"] = "Store" },
+            };
+            if (hasToRoom) objects["ToRoom"] = new System.Collections.Generic.Dictionary<string, object> { ["Number"] = "101", ["Name"] = "Office" };
+            Assert.IsTrue(t.TryRender(o => objects.TryGetValue(o, out var v) ? v : null,
+                new System.Collections.Generic.Dictionary<string, object> { ["CategoryPrefix"] = "D" }, out string result, out err), err);
+            return result;
+        }
+
+        [TestMethod]
+        public void JinjaTemplates_RenderWithSafeNames()
+        {
+            Assert.AreEqual("Door_Tag_Room_Number", JinjaTemplate.SafeName("Door Tag Room Number"));
+            Assert.AreEqual("Fire_Rating_mins", JinjaTemplate.SafeName("Fire Rating (mins)"));
+            Assert.AreEqual("_2nd_Level", JinjaTemplate.SafeName("2nd Level"));
+            Assert.IsTrue(JinjaTemplate.IsJinja("{% if x %}y{% endif %}"));
+            Assert.IsFalse(JinjaTemplate.IsJinja("{Level.Name}-{Room.Number}"));
+
+            // Spaces -> underscores, lower case, and the exact name in brackets all work.
+            Assert.AreEqual("101.D01", RenderDoor("{{ Element.Door_Tag_Room_Number }}.{{ Element.Mark }}"));
+            Assert.AreEqual("101", RenderDoor("{{ element.door_tag_room_number }}"));
+            Assert.AreEqual("101", RenderDoor("{{ Element[\"Door Tag Room Number\"] }}"));
+            Assert.AreEqual("FRL 60", RenderDoor("FRL {{ Type.Fire_Rating_mins }}"));
+
+            // Jinja control flow and filters.
+            Assert.AreEqual("WIDE", RenderDoor("{% if Element.Width > 900 %}wide{% elif Element.Width > 800 %}mid{% else %}narrow{% endif %}") .ToUpperInvariant());
+            Assert.AreEqual("OFFICE", RenderDoor("{{ ToRoom.Name | upper }}"));
+            Assert.AreEqual("Office 101", RenderDoor("{{ ToRoom.Name | title }} {{ ToRoom.Number }}"));
+            Assert.AreEqual("D-101", RenderDoor("{% set n = ToRoom.Number %}{{ CategoryPrefix }}-{{ n }}{# note #}"));
+            Assert.AreEqual("O/ffice", RenderDoor("{{ ToRoom.Name | replace('O', 'O/') }}"));
+
+            // No To Room: fall back to the From Room.
+            Assert.AreEqual("102", RenderDoor("{{ ToRoom.Number | default(FromRoom.Number) }}", hasToRoom: false));
+            Assert.AreEqual("102", RenderDoor("{% if ToRoom %}{{ ToRoom.Number }}{% else %}{{ FromRoom.Number }}{% endif %}", hasToRoom: false));
+            Assert.AreEqual("", RenderDoor("{{ Host.Mark }}"));
+
+            Assert.IsNull(JinjaTemplate.Parse("{% if x %}no end", out string error));
+            Assert.IsFalse(string.IsNullOrEmpty(error));
+            CollectionAssert.AreEquivalent(new[] { "Type", "ToRoom" },
+                new System.Collections.Generic.List<string>(JinjaTemplate.Parse("{{ type.Tag_Template }} {{ ToRoom.Number }}", out _).Objects));
+        }
+
         [TestMethod]
         public void DoorRoomTokensAndFallbacks()
         {

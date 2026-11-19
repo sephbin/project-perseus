@@ -71,52 +71,134 @@ namespace ProjectPerseus.ids
         private class ActiveRule
         {
             public IdRuleDto Dto;
-            public IdPattern Pattern;          // value rules with a template source: the default template (may be null)
+            public IdPattern Pattern;          // ID rules; value rules: their own pattern / default template (Perseus syntax)
+            public JinjaTemplate Jinja;        // value rules whose own pattern is a Jinja template
             public string TemplateSource;      // value rules: token whose text is the template, e.g. "Type.Tag Template"
             public Guid ParamGuid;
             public bool IsValue => Dto.IsValue;
         }
 
+        /// <summary>A value template: Perseus pattern ({Level.Name}) or Jinja ({{ Level.Name }}, {% if %}); Error = invalid.</summary>
+        private sealed class Compiled
+        {
+            public IdPattern Pattern;
+            public JinjaTemplate Jinja;
+            public string Error;
+            public bool IsEmpty => Pattern == null && Jinja == null;
+        }
+
+        private static readonly Compiled Nothing = new Compiled();
+        private static readonly ConcurrentDictionary<string, Compiled> _compiled = new ConcurrentDictionary<string, Compiled>();
+
+        // Parsed once per distinct text (types holding the same template share it).
+        private static Compiled Compile(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return Nothing;
+            if (_compiled.Count > 5000) _compiled.Clear();
+            return _compiled.GetOrAdd(text, t =>
+            {
+                if (JinjaTemplate.IsJinja(t))
+                {
+                    var j = JinjaTemplate.Parse(t, out string err);
+                    return j != null ? new Compiled { Jinja = j } : new Compiled { Error = err };
+                }
+                var p = IdPattern.ForRule(t, true);
+                return p != null ? new Compiled { Pattern = p } : new Compiled { Error = "unknown token or unmatched brace" };
+            });
+        }
+
         /// <summary>
-        /// True when a rule can run: a valid pattern for its kind, or (value rules) a valid template source with an
-        /// optional default pattern.
+        /// True when a rule can run: a valid pattern for its kind; value rules may instead (or also) name a template source,
+        /// and their pattern may be a Jinja template.
         /// </summary>
         internal static bool IsUsable(IdRuleDto r)
         {
-            if (r.IsValue && !string.IsNullOrWhiteSpace(r.TemplateSource))
-                return IdPattern.ParseSource(r.TemplateSource) != null &&
-                       (string.IsNullOrWhiteSpace(r.Pattern) || IdPattern.ForRule(r.Pattern, true) != null);
-            return IdPattern.ForRule(r.Pattern, r.IsValue, r.UniqueWith) != null;
+            if (!r.IsValue) return IdPattern.ForRule(r.Pattern, false, r.UniqueWith) != null;
+            bool hasSource = !string.IsNullOrWhiteSpace(r.TemplateSource);
+            if (hasSource && IdPattern.ParseSource(r.TemplateSource) == null) return false;
+            if (string.IsNullOrWhiteSpace(r.Pattern)) return hasSource;
+            return Compile(r.Pattern).Error == null;
         }
-
-        // Parsed templates read from parameters (shared across types holding the same text). Null = invalid text.
-        private static readonly ConcurrentDictionary<string, IdPattern> _templates = new ConcurrentDictionary<string, IdPattern>();
 
         /// <summary>
-        /// The pattern a value rule renders for an element: the template held in its source parameter (the type's
-        /// "Tag Template"), else the rule's own pattern (the default; null = nothing, the value is cleared).
-        /// <paramref name="badTemplate"/> = the source text when it isn't a valid value template (then null is returned).
+        /// The template a value rule renders for an element: the text held in its source parameter (the type's "Tag
+        /// Template"), else the rule's own pattern (the default; empty = nothing, the value is cleared).
+        /// <paramref name="badText"/> = the source text when it isn't a valid template (Error says why).
         /// </summary>
-        private static IdPattern PatternFor(ActiveRule rule, Func<string, string> resolve, out string badTemplate)
+        private static Compiled TemplateFor(ActiveRule rule, Func<string, string> resolve, out string badText)
         {
-            badTemplate = null;
-            if (rule.TemplateSource == null) return rule.Pattern;
-            string text = resolve(rule.TemplateSource);
-            if (string.IsNullOrEmpty(text)) return rule.Pattern;
-            if (_templates.Count > 5000) _templates.Clear();
-            var p = _templates.GetOrAdd(text, t => IdPattern.ForRule(t, true));
-            if (p == null) badTemplate = text;
-            return p;
+            badText = null;
+            if (rule.TemplateSource != null)
+            {
+                string text = resolve(rule.TemplateSource);
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var c = Compile(text);
+                    if (c.Error != null) badText = text;
+                    return c;
+                }
+            }
+            return rule.Jinja != null ? new Compiled { Jinja = rule.Jinja } : rule.Pattern != null ? new Compiled { Pattern = rule.Pattern } : Nothing;
         }
 
-        /// <summary>Tokens a value rule reads for this element (its template source and the template's tokens included).</summary>
+        /// <summary>Tokens a value rule reads for this element (its template source and the template's tokens / objects).</summary>
         private static IEnumerable<string> ValueTokens(ActiveRule rule, Func<string, string> resolve)
         {
-            if (rule.TemplateSource == null) return rule.Pattern.Tokens;
-            var tokens = new List<string> { rule.TemplateSource };
-            var p = PatternFor(rule, resolve, out _);
-            if (p != null) tokens.AddRange(p.Tokens);
+            var tokens = new List<string>();
+            if (rule.TemplateSource != null) tokens.Add(rule.TemplateSource);
+            var c = TemplateFor(rule, resolve, out _);
+            if (c.Pattern != null) tokens.AddRange(c.Pattern.Tokens);
+            if (c.Jinja != null) tokens.AddRange(c.Jinja.Objects.Select(o => o + ".Name")); // the related element itself
             return tokens;
+        }
+
+        /// <summary>
+        /// The value a value rule wants on this element; false = not written (template / transform error, recorded).
+        /// </summary>
+        private static bool TryValue(ActiveRule rule, Element el, RelatedValueResolver resolver, IDictionary<string, string> pending,
+                                     Func<string, string> resolve, IdAssignResult result, out string target)
+        {
+            target = "";
+            string name = rule.Dto.ParameterName.Trim();
+            var c = TemplateFor(rule, resolve, out string badText);
+            if (c.Error != null)
+            {
+                string shown = badText ?? rule.Dto.Pattern ?? "";
+                if (shown.Length > 60) shown = shown.Substring(0, 57) + "...";
+                result.TransformErrors.Add($"{name}: template '{shown}'{(badText != null ? " from " + rule.TemplateSource : "")} isn't valid: {c.Error}");
+                return false;
+            }
+            string err;
+            if (c.Jinja != null)
+            {
+                var values = new Dictionary<string, object>
+                {
+                    { "CategoryPrefix", resolve("CategoryPrefix") },
+                    { "Workset", resolve("Workset") },
+                };
+                if (!c.Jinja.TryRender(kind => resolver.ParametersOf(el, kind, pending), values, out string rendered, out err))
+                {
+                    result.TransformErrors.Add($"{name}: {err}");
+                    return false;
+                }
+                if (!AutoValue.TryTransform(rendered, rule.Dto.Transform, null, out target, out err))
+                {
+                    result.TransformErrors.Add($"{name}: {err}");
+                    return false;
+                }
+                return true;
+            }
+            if (c.IsEmpty) return true; // no template and no default: nothing to show
+            var outcome = AutoValue.Compute(c.Pattern, rule.Dto.Transform, resolve, out target, out err);
+            if (outcome == AutoValue.Outcome.TransformError)
+            {
+                result.TransformErrors.Add($"{name}: {err}");
+                return false;
+            }
+            // A token with no value (element not in a room, parameter missing) clears the value rather than leaving a
+            // stale one behind.
+            if (outcome == AutoValue.Outcome.Unresolved) NoteUnresolved(result, c.Pattern, resolve, el);
+            return true;
         }
 
         private class Change
@@ -266,11 +348,17 @@ namespace ProjectPerseus.ids
             {
                 string name = r.ParameterName?.Trim();
                 if (!IsUsable(r) || string.IsNullOrEmpty(name) || !guids.TryGetValue(name, out var g)) continue;
-                string source = r.IsValue ? IdPattern.ParseSource(r.TemplateSource) : null;
-                var pattern = source != null && string.IsNullOrWhiteSpace(r.Pattern)
-                    ? null
-                    : IdPattern.ForRule(r.Pattern, r.IsValue, r.UniqueWith);
-                active.Add(new ActiveRule { Dto = r, Pattern = pattern, TemplateSource = source, ParamGuid = g });
+                if (!r.IsValue)
+                {
+                    active.Add(new ActiveRule { Dto = r, Pattern = IdPattern.ForRule(r.Pattern, false, r.UniqueWith), ParamGuid = g });
+                    continue;
+                }
+                var own = Compile(r.Pattern);
+                active.Add(new ActiveRule
+                {
+                    Dto = r, Pattern = own.Pattern, Jinja = own.Jinja, ParamGuid = g,
+                    TemplateSource = IdPattern.ParseSource(r.TemplateSource),
+                });
             }
             // Value rules first, so an ID rule can number with a value copied in the same run ({Element.Param}).
             return active.Where(a => a.IsValue).Concat(active.Where(a => !a.IsValue)).ToList();
@@ -340,10 +428,14 @@ namespace ProjectPerseus.ids
             rules != null && rules.Rules.Any(r => r.Enabled && r.IsValue && UsesProject(r));
 
         // A template rule may use {Project.*} in any type's template, so it counts as reading Project Information.
-        private static bool UsesProject(IdRuleDto r) =>
-            !string.IsNullOrWhiteSpace(r.TemplateSource) ||
-            IdPattern.ForRule(r.Pattern, true)?.Tokens.SelectMany(IdPattern.Alternatives)
+        private static bool UsesProject(IdRuleDto r)
+        {
+            if (!string.IsNullOrWhiteSpace(r.TemplateSource)) return true;
+            var c = Compile(r.Pattern);
+            if (c.Jinja != null) return c.Jinja.Objects.Contains("Project");
+            return c.Pattern?.Tokens.SelectMany(IdPattern.Alternatives)
                 .Any(t => t.StartsWith("Project.", StringComparison.Ordinal)) == true;
+        }
 
         /// <summary>Every element a {Project.*} value rule applies to (after Project Information changed). Read-only collector.</summary>
         internal static List<long> ProjectDependents(Document doc, IdRulesDto rules)
@@ -543,25 +635,8 @@ namespace ProjectPerseus.ids
                         if (renumber) continue;
                         string now = p.AsString() ?? "";
                         if (rule.Dto.FillOnlyEmpty && now.Length > 0) continue;
-                        // Template rules: the pattern comes from the element's source parameter (its type's template).
-                        var pattern = PatternFor(rule, resolve, out string badTemplate);
-                        if (badTemplate != null)
-                        {
-                            result.TransformErrors.Add($"{rule.Dto.ParameterName.Trim()}: template '{badTemplate}' from {rule.TemplateSource} isn't valid");
-                            continue;
-                        }
-                        string target = "", err = null;
-                        var outcome = pattern == null
-                            ? AutoValue.Outcome.Ok // no template and no default: nothing to show
-                            : AutoValue.Compute(pattern, rule.Dto.Transform, resolve, out target, out err);
-                        if (outcome == AutoValue.Outcome.TransformError)
-                        {
-                            result.TransformErrors.Add($"{rule.Dto.ParameterName.Trim()}: {err}");
-                            continue;
-                        }
-                        // A token with no value (element not in a room, parameter missing) clears the value rather than
-                        // leaving a stale one behind.
-                        if (outcome == AutoValue.Outcome.Unresolved) NoteUnresolved(result, pattern, resolve, el);
+                        // Perseus pattern or Jinja template, the rule's own or read from the element (its type's template).
+                        if (!TryValue(rule, el, resolver, pending, resolve, result, out string target)) continue;
                         if (now == target) continue;
                         changes.Add(new Change { Element = el, Param = p, NewValue = target, IsValue = true, IsReassign = now.Length > 0 });
                         if (pending == null) pending = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

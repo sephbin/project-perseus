@@ -38,7 +38,7 @@ namespace ProjectPerseus
             string pluginVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             Log.InitSession(revitVersion, pluginVersion);
             web.PluginInfo.Init(revitVersion, pluginVersion);
-            Step("crash trace", CrashTrace.Install);
+            Step("crash trace", CrashTrace.Install); Step("assembly redirects", ProjectPerseus.util.AssemblyRedirects.Install);
             Step("code pages", util.CodePages.Register);
             Step("sync", () => _orchestrator.Subscribe(application));
             Step("violation highlight", violations.ViolationHighlightController.Initialize);

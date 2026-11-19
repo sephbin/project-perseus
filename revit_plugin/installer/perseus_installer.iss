@@ -30,7 +30,7 @@
 ArchitecturesInstallIn64BitMode=x64
 ; --- 1. App Information ---
 AppName=Project Perseus
-AppVersion=1.3.180
+AppVersion=1.3.184
 AppId={{10908502-7BB8-473D-B858-B31591187295}}
 DefaultGroupName=Andrew Butler
 
@@ -86,6 +86,7 @@ Source: "{#Bin}2023\System.Text.Json.dll"; DestDir: "{app}\2021+"; Components: {
 Source: "{#Bin}2023\System.Text.Encodings.Web.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Bin}2023\Sentry.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Bin}2023\EPPlus.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2023\Scriban.dll"; DestDir: "{app}\2021+"; Components: {#On23}; Flags: ignoreversion skipifsourcedoesntexist
 #endif
 
 #if Has26
@@ -99,6 +100,7 @@ Source: "{#Bin}2026\Microsoft.Identity.Client.Extensions.Msal.dll"; DestDir: "{a
 Source: "{#Bin}2026\Microsoft.IdentityModel.Abstractions.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Bin}2026\Sentry.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Bin}2026\EPPlus.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Bin}2026\Scriban.dll"; DestDir: "{app}\2025+"; Components: {#On26}; Flags: ignoreversion skipifsourcedoesntexist
 #endif
 
 [InstallDelete]

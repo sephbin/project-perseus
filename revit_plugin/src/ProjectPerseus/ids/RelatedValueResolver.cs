@@ -58,6 +58,55 @@ namespace ProjectPerseus.ids
             }
         }
 
+        /// <summary>
+        /// Every parameter of a related object ("Type", "ToRoom"...) by name, for Jinja templates (util/JinjaTemplate):
+        /// text as shown in Revit, numbers (lengths, areas, integers) as numbers when their display parses as one. "Name" =
+        /// the element's name (Project: the project's name / number). Element also sees values planned in this run.
+        /// Null when there is no such object (no room...).
+        /// </summary>
+        internal IDictionary<string, object> ParametersOf(Element el, string kind, IDictionary<string, string> pending)
+        {
+            Element related;
+            try { related = Related(el, kind); }
+            catch { return null; }
+            if (related == null) return null;
+
+            var values = new Dictionary<string, object>(StringComparer.Ordinal);
+            if (kind == "Element" && pending != null)
+                foreach (var kv in pending) values[kv.Key] = kv.Value;
+            if (related is ProjectInfo info)
+            {
+                values["Name"] = info.Name;
+                values["Number"] = info.Number;
+            }
+            else if (!values.ContainsKey("Name")) values["Name"] = related.Name;
+
+            foreach (Parameter p in related.Parameters)
+            {
+                string name = p.Definition?.Name;
+                if (string.IsNullOrEmpty(name) || values.ContainsKey(name)) continue;
+                try { values[name] = TemplateValue(p); }
+                catch { /* unreadable parameter: left out */ }
+            }
+            return values;
+        }
+
+        private static object TemplateValue(Parameter p)
+        {
+            if (!p.HasValue) return null;
+            switch (p.StorageType)
+            {
+                case StorageType.String: return p.AsString();
+                case StorageType.Double:
+                case StorageType.Integer:
+                    string shown = p.AsValueString();
+                    if (double.TryParse(shown, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double d))
+                        return d;
+                    return shown ?? (p.StorageType == StorageType.Integer ? (object)(double)p.AsInteger() : p.AsDouble());
+                default: return p.AsValueString();
+            }
+        }
+
         private string Resolve(Element el, string token, IDictionary<string, string> pending)
         {
             if (token.IndexOf('|') >= 0)
