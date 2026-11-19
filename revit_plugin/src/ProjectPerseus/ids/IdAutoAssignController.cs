@@ -381,6 +381,9 @@ namespace ProjectPerseus.ids
             string key = docGuid + "|" + rules.Signature;
             lock (_lock) { if (_ensured.Contains(key)) return; }
             SharedParameterManager.Ensure(doc, rules);
+            // Switching a parameter's lock replaces it, so that only happens when asked (Audit), never here.
+            foreach (var m in SharedParameterManager.LockMismatches(doc, rules))
+                Log.Warn($"[IdAutoAssign] '{m.Name}' should be {(m.WantReadOnly ? "locked" : "editable")}; run Audit to switch it.");
             lock (_lock) _ensured.Add(key);
         }
     }

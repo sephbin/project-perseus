@@ -164,7 +164,8 @@ ProjectPerseus/
 │   │                             "{Level.Name}-{CategoryPrefix}-{Increment|4}" (Render, TryExtractNumber, ScopeKey).
 │   │                             Tokens resolve through a callback: {CategoryPrefix}, {Workset}, and
 │   │                             {Level|Host|Room|Space|ToRoom|FromRoom|Type|Group|Project|Element.Param}, fallbacks {A|B}
-│   │                             (first with a value). ForRule(pattern, isValue, uniqueWith): ID rules need exactly one
+│   │                             (first with a value); Handlebars {{Token}} accepted (Normalise); ParseSource = a value rule's
+│   │                             "template from" token. ForRule(pattern, isValue, uniqueWith): ID rules need exactly one
 │   │                             {Increment|N} (HasCounter), value rules none. "Unique with" tokens (UniqueWithTokens) join the
 │   │                             counter scope but aren't printed; UniqueKey = "D01 [101]" is what must be unique. Unit-tested in
 │   │                             ProjectPerseusTests/IdPatternTest.cs.
@@ -184,13 +185,17 @@ ProjectPerseus/
 │   │                             renumber) and "value" = copied / computed values, not unique ({Project.*}, {Level.*}, ... +
 │   │                             transform; Fill always / only when empty). Value rules never take part in claims or renumbering.
 │   ├── IdRulesCache.cs           Per-source cache of GET /api/source/<guid>/id-rules/ (LoadAsync/LoadNow/Get).
-│   ├── SharedParameterManager.cs (+ EnsureLinkSyncParameters: Perseus_LinkSource / Status / Decision / Comment / Assignee on mapped
+│   ├── SharedParameterManager.cs Locked rules (IdRuleDto.ReadOnly) = UserModifiable false, own GUID (GuidFor(name, true)) + file group
+│   │                             "Perseus locked"; LockMismatches / SwitchLock (replace parameter, copy values; offered by Audit).
+│   │                             (+ EnsureLinkSyncParameters: Perseus_LinkSource / Status / Decision / Comment / Assignee on mapped
 │   │                             categories, group Other; Perseus parameters default to Other.)
 │   │                             Perseus-managed shared parameter file (%AppData%\ProjectPerseus\
 │   │                             Perseus_SharedParams.txt, deterministic GUIDs from the name); creates and
 │   │                             binds Perseus_ID + rule parameters as instance params. Swaps then restores
 │   │                             the user's shared parameter file path. Run lazily, never on document open.
-│   ├── IdAssigner.cs             Value rules: write AutoValue target when it differs (Fill=empty: only empty values). The index
+│   ├── IdAssigner.cs             Template rules (IdRuleDto.TemplateSource, e.g. Type.Tag Template): PatternFor reads the element's
+│   │                             template text (rule pattern = default), deps include the source + template tokens. IsUsable(rule).
+│   │                             Value rules: write AutoValue target when it differs (Fill=empty: only empty values). The index
 │   │                             Value rules run first per element; their pending values feed {Element.*} for the ID rules (door
 │   │                             room number copied, then D01.. numbered per room). Index / claims hold UniqueKey, not the bare value.
 │   │                             also keeps value-rule dependencies (DepsOf / DependentsOf: element -> its level / room / host /

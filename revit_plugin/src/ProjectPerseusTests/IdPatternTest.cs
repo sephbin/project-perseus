@@ -116,6 +116,27 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void HandlebarsTemplatesAndSources()
+        {
+            // {{ }} and padded braces read as Perseus tokens.
+            Assert.AreEqual("{Level.Name}-{Element.Mark}", IdPattern.Normalise("{{ Level.Name }}-{{Element.Mark}}"));
+            var p = IdPattern.ForRule("{{ToRoom.Number|FromRoom.Number}}.{ Element.Mark }", true);
+            Assert.IsNotNull(p);
+            CollectionAssert.AreEqual(new[] { "ToRoom.Number|FromRoom.Number", "Element.Mark" }, new System.Collections.Generic.List<string>(p.Tokens));
+            Assert.AreEqual("101.D01", p.Render(t => t == "Element.Mark" ? "D01" : "101", 0));
+            Assert.IsNull(IdPattern.ForRule("{{Bogus}}", true));
+            Assert.IsNull(IdPattern.ForRule("{{Level.Name}}-{Increment|2}", true)); // a value template can't number
+
+            // Template sources: any spelling of one parameter token.
+            Assert.AreEqual("Type.Tag Template", IdPattern.ParseSource("Type.Tag Template"));
+            Assert.AreEqual("Type.Tag Template", IdPattern.ParseSource("{Type.Tag Template}"));
+            Assert.AreEqual("Type.Tag Template", IdPattern.ParseSource(" {{ Type.Tag Template }} "));
+            Assert.IsNull(IdPattern.ParseSource("CategoryPrefix"));
+            Assert.IsNull(IdPattern.ParseSource("{Type.A}-{Type.B}"));
+            Assert.IsNull(IdPattern.ParseSource(""));
+        }
+
+        [TestMethod]
         public void DoorRoomTokensAndFallbacks()
         {
             var p = IdPattern.ForRule("{ToRoom.Number|FromRoom.Number}", true);

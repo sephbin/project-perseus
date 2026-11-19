@@ -159,6 +159,9 @@ namespace ProjectPerseus.sync
                         var param = element.LookupParameter(edit.ParamName);
                         if (param == null) { Skip(edit, what, "parameter not found"); continue; }
                         if (param.IsReadOnly) { Skip(edit, what, "parameter is read-only"); continue; }
+                        // Locked (UserModifiable = false, e.g. a Perseus read-only rule): users can't edit it in Revit,
+                        // so a web edit can't either.
+                        if (!param.UserModifiable) { Skip(edit, what, "parameter is locked (filled in automatically)"); continue; }
 
                         string val = edit.NewValue ?? "";
                         bool   set = false;

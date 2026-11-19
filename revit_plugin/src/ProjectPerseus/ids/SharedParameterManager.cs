@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -19,17 +19,22 @@ namespace ProjectPerseus.ids
     /// GUIDs are derived from the parameter name, so every user and every model gets the same GUID
     /// and parameters stay consistent across worksets, transfers and schedules.
     /// The user's shared parameter file path is swapped only for the duration of the call and restored.
+    /// Locked rule parameters (IdRuleDto.ReadOnly) are created with UserModifiable = false (greyed out in Properties and
+    /// schedules, still written by Perseus) under their own GUID and file group; Revit can't change that flag on an
+    /// existing parameter, so SwitchLock replaces the parameter and copies its values.
     /// </summary>
     internal static class SharedParameterManager
     {
         internal const string PerseusIdName = "Perseus_ID";
         private const string GroupName = "Perseus";
+        private const string LockedGroupName = "Perseus locked";
 
         private class Requirement
         {
             public string Name;
             public HashSet<string> Categories; // null = every model category that accepts parameters
             public string Group = "other"; // key from Django's ID_PARAMETER_GROUPS; Perseus parameters default to "Other"
+            public bool ReadOnly;          // UserModifiable = false (locked against hand edits)
         }
 
 #if REVIT2024_OR_GREATER
@@ -78,14 +83,193 @@ namespace ProjectPerseus.ids
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                          "ProjectPerseus", "Perseus_SharedParams.txt");
 
-        internal static Guid GuidFor(string name)
+        internal static Guid GuidFor(string name) => GuidFor(name, false);
+
+        /// <summary>Deterministic GUID; a locked parameter of the same name is a different parameter (different GUID).</summary>
+        internal static Guid GuidFor(string name, bool readOnly)
         {
             using (var md5 = MD5.Create())
             {
                 var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(
-                    "ProjectPerseus.SharedParameter:" + name.Trim().ToLowerInvariant()));
+                    (readOnly ? "ProjectPerseus.SharedParameter.Locked:" : "ProjectPerseus.SharedParameter:") +
+                    name.Trim().ToLowerInvariant()));
                 return new Guid(hash);
             }
+        }
+
+        // The Perseus file definition for a parameter (created when missing). Locked ones live in their own group so
+        // both spellings of a name can sit in the file.
+        private static Definition DefinitionFor(DefinitionFile file, string name, bool readOnly)
+        {
+            string groupName = readOnly ? LockedGroupName : GroupName;
+            DefinitionGroup group = file.Groups.get_Item(groupName) ?? file.Groups.Create(groupName);
+            Guid guid = GuidFor(name, readOnly);
+            var existing = group.Definitions.get_Item(name);
+            if (existing is ExternalDefinition found && (found.GUID == guid || !readOnly)) return existing; // unlocked: as before
+            if (existing != null)
+                throw new InvalidOperationException($"The Perseus shared parameter file holds another '{name}' in group '{groupName}'.");
+            return group.Definitions.Create(new ExternalDefinitionCreationOptions(name, SpecTypeId.String.Text)
+            {
+                GUID = guid,
+                Visible = true,
+                UserModifiable = !readOnly,
+            });
+        }
+
+        // Runs body with the Perseus shared parameter file open, restoring the user's file path afterwards.
+        private static T WithPerseusFile<T>(Document doc, Func<DefinitionFile, T> body)
+        {
+            var app = doc.Application;
+            string previousFile = app.SharedParametersFilename;
+            try
+            {
+                EnsureFileExists();
+                app.SharedParametersFilename = FilePath;
+                DefinitionFile file = app.OpenSharedParameterFile();
+                if (file == null) throw new InvalidOperationException("Could not open the Perseus shared parameter file.");
+                return body(file);
+            }
+            finally
+            {
+                try { app.SharedParametersFilename = previousFile ?? ""; }
+                catch (Exception ex) { Log.Warn($"[SharedParameterManager] Could not restore shared parameter file path: {ex.Message}"); }
+            }
+        }
+
+        /// <summary>A rule parameter whose lock state differs from the rule's (only Perseus's own parameters).</summary>
+        internal class LockMismatch
+        {
+            public string Name;
+            public bool WantReadOnly;
+        }
+
+        /// <summary>
+        /// Enabled rules whose bound parameter is Perseus's own but locked the other way (the rule's Read-only option was
+        /// changed after the parameter was created). Parameters from another shared parameter file are never touched.
+        /// </summary>
+        internal static List<LockMismatch> LockMismatches(Document doc, IdRulesDto rules)
+        {
+            var bound = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (SharedParameterElement spe in new FilteredElementCollector(doc).OfClass(typeof(SharedParameterElement)))
+                bound[spe.Name] = spe.GuidValue;
+            var result = new List<LockMismatch>();
+            foreach (var r in rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName)))
+            {
+                string name = r.ParameterName.Trim();
+                if (bound.TryGetValue(name, out var g) && g == GuidFor(name, !r.ReadOnly))
+                    result.Add(new LockMismatch { Name = name, WantReadOnly = r.ReadOnly });
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Replaces Perseus parameter <paramref name="name"/> with its locked (or unlocked) twin: same name, categories,
+        /// group and vary-by-group setting, new GUID, every value copied across; one undo step. Refused (message
+        /// returned, nothing changed) while any element holding a value is checked out by someone else or out of date
+        /// with central. Schedules, filters and tags that used the old parameter lose it. Outside a transaction.
+        /// </summary>
+        internal static string SwitchLock(Document doc, string name, bool readOnly, out int copied, out int failed)
+        {
+            copied = 0;
+            failed = 0;
+            Guid oldGuid = GuidFor(name, !readOnly), newGuid = GuidFor(name, readOnly);
+            var spe = new FilteredElementCollector(doc).OfClass(typeof(SharedParameterElement)).Cast<SharedParameterElement>()
+                .FirstOrDefault(s => s.GuidValue == oldGuid);
+            if (spe == null) return $"'{name}' isn't a Perseus parameter in this model.";
+            InternalDefinition oldDef = spe.GetDefinition();
+            if (!(doc.ParameterBindings.get_Item(oldDef) is InstanceBinding binding)) return $"'{name}' isn't bound as an instance parameter.";
+            var cats = binding.Categories.Cast<Category>().ToList();
+            bool varies = oldDef.VariesAcrossGroups;
+#if REVIT2024_OR_GREATER
+            var group = oldDef.GetGroupTypeId();
+#else
+            var group = oldDef.ParameterGroup;
+#endif
+
+            var values = new Dictionary<ElementId, string>();
+            if (cats.Count > 0)
+            {
+                foreach (Autodesk.Revit.DB.Element el in new FilteredElementCollector(doc).WhereElementIsNotElementType()
+                             .WherePasses(new ElementMulticategoryFilter(cats.Select(c => c.Id).ToList())))
+                {
+                    string v = el.get_Parameter(oldGuid)?.AsString();
+                    if (!string.IsNullOrEmpty(v)) values[el.Id] = v;
+                }
+            }
+
+            if (doc.IsWorkshared)
+            {
+                var owners = new SortedSet<string>();
+                int busy = 0, stale = 0;
+                foreach (var id in values.Keys)
+                {
+                    if (WorksharingUtils.GetCheckoutStatus(doc, id, out string owner) == CheckoutStatus.OwnedByOtherUser)
+                    {
+                        busy++;
+                        if (!string.IsNullOrEmpty(owner)) owners.Add(owner);
+                        continue;
+                    }
+                    var st = WorksharingUtils.GetModelUpdatesStatus(doc, id);
+                    if (st == ModelUpdatesStatus.UpdatedInCentral || st == ModelUpdatesStatus.DeletedInCentral) stale++;
+                }
+                if (busy > 0)
+                    return $"{busy} element(s) with a '{name}' value are checked out by {string.Join(", ", owners.DefaultIfEmpty("another user"))}. " +
+                           "Ask them to sync and relinquish, then try again.";
+                if (stale > 0)
+                    return $"{stale} element(s) with a '{name}' value changed in central since you last synced. Reload Latest, then try again.";
+            }
+
+            int ok = 0, bad = 0;
+            string error = WithPerseusFile(doc, file =>
+            {
+                using (var tg = new TransactionGroup(doc, (readOnly ? "Perseus: Lock " : "Perseus: Unlock ") + name))
+                {
+                    tg.Start();
+                    using (var tx = new Transaction(doc, "Perseus: Remove old parameter"))
+                    {
+                        tx.Start();
+                        doc.ParameterBindings.Remove(oldDef);
+                        doc.Delete(spe.Id);
+                        if (tx.Commit() != TransactionStatus.Committed) { tg.RollBack(); return "Revit refused to remove the old parameter."; }
+                    }
+                    using (var tx = new Transaction(doc, "Perseus: Add parameter"))
+                    {
+                        tx.Start();
+                        CategorySet set = doc.Application.Create.NewCategorySet();
+                        foreach (var c in cats) set.Insert(c);
+                        Definition def = DefinitionFor(file, name, readOnly);
+                        if (!doc.ParameterBindings.Insert(def, doc.Application.Create.NewInstanceBinding(set), group))
+                        { tx.RollBack(); tg.RollBack(); return "Revit refused to add the new parameter."; }
+                        if (varies)
+                        {
+                            var added = SharedParameterElement.Lookup(doc, newGuid)?.GetDefinition();
+                            added?.SetAllowVaryBetweenGroups(doc, true);
+                        }
+                        if (tx.Commit() != TransactionStatus.Committed) { tg.RollBack(); return "Revit refused to add the new parameter."; }
+                    }
+                    using (var tx = new Transaction(doc, "Perseus: Copy values"))
+                    {
+                        tx.Start();
+                        foreach (var kv in values)
+                        {
+                            try
+                            {
+                                var p = doc.GetElement(kv.Key)?.get_Parameter(newGuid);
+                                if (p != null && p.Set(kv.Value)) ok++; else bad++;
+                            }
+                            catch { bad++; }
+                        }
+                        if (tx.Commit() != TransactionStatus.Committed) { tg.RollBack(); return "Revit refused to copy the values across."; }
+                    }
+                    tg.Assimilate();
+                    return null;
+                }
+            });
+            copied = ok;
+            failed = bad;
+            if (error == null)
+                Log.Info($"[SharedParameterManager] '{name}' {(readOnly ? "locked" : "unlocked")}: {ok} value(s) copied, {bad} failed.");
+            return error;
         }
 
         /// <summary>
@@ -124,12 +308,13 @@ namespace ProjectPerseus.ids
                 },
             };
             foreach (var r in rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName) &&
-                                                      IdPattern.ForRule(r.Pattern, r.IsValue) != null))
+                                                      IdAssigner.IsUsable(r)))
             {
                 requirements.Add(new Requirement
                 {
                     Name = r.ParameterName.Trim(),
                     Group = r.ParameterGroup,
+                    ReadOnly = r.ReadOnly,
                     Categories = r.ApplyToAll
                         ? null
                         : new HashSet<string>(r.Categories, StringComparer.OrdinalIgnoreCase),
@@ -146,8 +331,8 @@ namespace ProjectPerseus.ids
         internal const string LinkAssigneeName = "Perseus_LinkAssignee";
 
         /// <summary>
-        /// Link Sync's parameters on our mapped families: Perseus_LinkSource (link · consultant element id),
-        /// Perseus_LinkStatus, Perseus_LinkDecision (accepted / rejected · who · when), Perseus_LinkComment (latest),
+        /// Link Sync's parameters on our mapped families: Perseus_LinkSource (link Â· consultant element id),
+        /// Perseus_LinkStatus, Perseus_LinkDecision (accepted / rejected Â· who Â· when), Perseus_LinkComment (latest),
         /// Perseus_LinkAssignee; instance project parameters (shared, Perseus file) bound to these categories (added to
         /// existing bindings). Outside a transaction. Returns how many were created / extended.
         /// </summary>
@@ -223,7 +408,7 @@ namespace ProjectPerseus.ids
                 var target = bindable.Where(c => req.Categories == null || req.Categories.Contains(c.Name)).ToList();
                 if (target.Count == 0)
                 {
-                    Log.Warn($"[SharedParameterManager] No bindable categories for '{req.Name}' — skipped.");
+                    Log.Warn($"[SharedParameterManager] No bindable categories for '{req.Name}' â€” skipped.");
                     continue;
                 }
 
@@ -231,7 +416,7 @@ namespace ProjectPerseus.ids
                 {
                     if (!(found.Binding is InstanceBinding))
                     {
-                        Log.Warn($"[SharedParameterManager] '{req.Name}' already exists as a type/other parameter — left unchanged.");
+                        Log.Warn($"[SharedParameterManager] '{req.Name}' already exists as a type/other parameter â€” left unchanged.");
                         continue;
                     }
                     var bound = new HashSet<ElementId>(found.Binding.Categories.Cast<Category>().Select(c => c.Id));
@@ -248,15 +433,8 @@ namespace ProjectPerseus.ids
             if (work.Count == 0) return EnsureVaryByGroup(doc, requirements.Select(r => r.Name));
 
             var app = doc.Application;
-            string previousFile = app.SharedParametersFilename;
-            try
+            WithPerseusFile(doc, file =>
             {
-                EnsureFileExists();
-                app.SharedParametersFilename = FilePath;
-                DefinitionFile file = app.OpenSharedParameterFile();
-                if (file == null) throw new InvalidOperationException("Could not open the Perseus shared parameter file.");
-                DefinitionGroup group = file.Groups.get_Item(GroupName) ?? file.Groups.Create(GroupName);
-
                 using (var tx = new Transaction(doc, "Perseus: Add Parameters"))
                 {
                     tx.Start();
@@ -273,13 +451,7 @@ namespace ProjectPerseus.ids
                             continue;
                         }
 
-                        Definition def = group.Definitions.get_Item(item.Req.Name) ??
-                            group.Definitions.Create(new ExternalDefinitionCreationOptions(item.Req.Name, SpecTypeId.String.Text)
-                            {
-                                GUID = GuidFor(item.Req.Name),
-                                Visible = true,
-                                UserModifiable = true,
-                            });
+                        Definition def = DefinitionFor(file, item.Req.Name, item.Req.ReadOnly);
 
                         // Group applies on creation only; Perseus_ID is automatic so it sits in "Other".
                         doc.ParameterBindings.Insert(def, binding, GroupFor(item.Req.Group));
@@ -287,12 +459,8 @@ namespace ProjectPerseus.ids
                     }
                     tx.Commit();
                 }
-            }
-            finally
-            {
-                try { app.SharedParametersFilename = previousFile ?? ""; }
-                catch (Exception ex) { Log.Warn($"[SharedParameterManager] Could not restore shared parameter file path: {ex.Message}"); }
-            }
+                return 0;
+            });
 
             return work.Count + EnsureVaryByGroup(doc, requirements.Select(r => r.Name));
         }

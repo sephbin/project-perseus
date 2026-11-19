@@ -18,6 +18,7 @@ namespace ProjectPerseus.util
     ///                              element ("Name" = its name; Project = the model's Project Information; ToRoom /
     ///                              FromRoom = a door's or window's rooms; Element = the element's own parameter)
     ///   {A|B|...}                  fallbacks: the first of the tokens that has a value, e.g. {ToRoom.Number|FromRoom.Number}
+    /// Handlebars-style {{Level.Name}} (and padded { Level.Name }) is accepted and read as {Level.Name} (Normalise).
     /// Anything else is literal. Token values are supplied by a resolver so this class stays testable.
     /// A resolver returns null/empty when a value is unavailable; callers must then skip the element.
     /// </summary>
@@ -99,10 +100,39 @@ namespace ProjectPerseus.util
         /// <summary>The alternatives of a token: "ToRoom.Number|FromRoom.Number" -> both, "Level.Name" -> itself.</summary>
         public static string[] Alternatives(string token) => token.Split('|');
 
+        private static readonly Regex DoubleBraces = new Regex(@"\{\{\s*([^{}]*?)\s*\}\}", RegexOptions.CultureInvariant);
+        private static readonly Regex PaddedBraces = new Regex(@"\{\s*([^{}]*?)\s*\}", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Handlebars-style spelling to Perseus tokens: "{{ Level.Name }}" -> "{Level.Name}", "{ Room.Number }" ->
+        /// "{Room.Number}". Templates typed into a type parameter are often written that way.
+        /// </summary>
+        public static string Normalise(string pattern)
+        {
+            if (string.IsNullOrEmpty(pattern) || pattern.IndexOf('{') < 0) return pattern;
+            return PaddedBraces.Replace(DoubleBraces.Replace(pattern, "{$1}"), "{$1}");
+        }
+
+        /// <summary>
+        /// The token of a value rule's "template from" field: "Type.Tag Template", "{Type.Tag Template}" or
+        /// "{{Type.Tag Template}}" -> "Type.Tag Template". Null when it isn't a parameter token.
+        /// </summary>
+        public static string ParseSource(string source)
+        {
+            string s = (source ?? "").Trim();
+            if (s.Length == 0) return null;
+            s = Normalise(s);
+            if (s.StartsWith("{", StringComparison.Ordinal) && s.EndsWith("}", StringComparison.Ordinal))
+                s = s.Substring(1, s.Length - 2).Trim();
+            if (s.IndexOf('{') >= 0 || s.IndexOf('}') >= 0) return null;
+            return IdPattern.Alternatives(s).All(a => RelatedToken.IsMatch(a)) ? s : null;
+        }
+
         /// <summary>Returns null when the pattern is invalid (unknown token, unmatched brace, or more than one Increment).</summary>
         public static IdPattern Parse(string pattern)
         {
             if (string.IsNullOrEmpty(pattern)) return null;
+            pattern = Normalise(pattern);
 
             var segments = new List<Segment>();
             var literal = new StringBuilder();

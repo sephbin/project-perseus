@@ -20,7 +20,7 @@ namespace ProjectPerseus.models
         // Changes whenever anything that affects ID generation changes (ignores updated_at).
         [JsonIgnore]
         public string Signature =>
-            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.Kind}:{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}/{r.Fill}/{r.Transform}/{r.UniqueWith}/{r.IncrementMode}")) + "#" +
+            $"pid={PerseusId.ApplyToAll}/{string.Join(",", PerseusId.Categories)}#" + string.Join("|", Rules.Select(r => $"{r.Kind}:{r.ParameterName}={r.Pattern}/{r.ParameterGroup}/{r.ApplyToAll}/{r.Enabled}/{string.Join(",", r.Categories)}/{r.NumberingOrder}/{r.Fill}/{r.Transform}/{r.UniqueWith}/{r.IncrementMode}/{r.ReadOnly}/{r.TemplateSource}")) + "#" +
             string.Join("|", CategoryPrefixes.Select(p => $"{p.Category}={p.Prefix}"));
 
         /// <summary>At least one enabled unique-ID rule (value rules need no clash check).</summary>
@@ -80,6 +80,18 @@ namespace ProjectPerseus.models
         // next / fill also minimise the number a new or copied element arrives with. See util/IdNumbering.cs.
         [JsonProperty("increment_mode")]
         public string IncrementMode { get; set; } = "keep";
+
+        // Lock the parameter: created with UserModifiable = false, so it is greyed out in Properties, Type Properties
+        // and schedules while Perseus still writes it. Revit fixes this when a parameter is created; switching an
+        // existing Perseus parameter needs Audit's conversion (SharedParameterManager.SwitchLock).
+        [JsonProperty("read_only")]
+        public bool ReadOnly { get; set; }
+
+        // Value rules: render the template held in this parameter instead of a fixed pattern, e.g. "Type.Tag Template"
+        // (the type's text "{Level.Name}-{{Element.Mark}}" rendered for each instance). Pattern = default template for
+        // elements whose source is empty (blank = cleared). See IdAssigner.PatternFor.
+        [JsonProperty("template_source")]
+        public string TemplateSource { get; set; } = "";
 
         [JsonProperty("parameter_name")]
         public string ParameterName { get; set; }

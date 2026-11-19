@@ -51,7 +51,7 @@ namespace ProjectPerseus.ids
                 ? "\nThese template values were empty for some elements (IDs skipped, values cleared): " + string.Join(", ", UnresolvedTokens)
                 : "") +
             (TransformErrors.Count > 0
-                ? "\nTransform errors (values not written): " + string.Join("; ", TransformErrors.Take(5))
+                ? "\nTransform / template errors (values not written): " + string.Join("; ", TransformErrors.Take(5))
                 : "") +
             (NoPrefixCategories.Count > 0
                 ? "\nNo category prefix configured for: " + string.Join(", ", NoPrefixCategories.Take(12)) +
@@ -71,9 +71,52 @@ namespace ProjectPerseus.ids
         private class ActiveRule
         {
             public IdRuleDto Dto;
-            public IdPattern Pattern;
+            public IdPattern Pattern;          // value rules with a template source: the default template (may be null)
+            public string TemplateSource;      // value rules: token whose text is the template, e.g. "Type.Tag Template"
             public Guid ParamGuid;
             public bool IsValue => Dto.IsValue;
+        }
+
+        /// <summary>
+        /// True when a rule can run: a valid pattern for its kind, or (value rules) a valid template source with an
+        /// optional default pattern.
+        /// </summary>
+        internal static bool IsUsable(IdRuleDto r)
+        {
+            if (r.IsValue && !string.IsNullOrWhiteSpace(r.TemplateSource))
+                return IdPattern.ParseSource(r.TemplateSource) != null &&
+                       (string.IsNullOrWhiteSpace(r.Pattern) || IdPattern.ForRule(r.Pattern, true) != null);
+            return IdPattern.ForRule(r.Pattern, r.IsValue, r.UniqueWith) != null;
+        }
+
+        // Parsed templates read from parameters (shared across types holding the same text). Null = invalid text.
+        private static readonly ConcurrentDictionary<string, IdPattern> _templates = new ConcurrentDictionary<string, IdPattern>();
+
+        /// <summary>
+        /// The pattern a value rule renders for an element: the template held in its source parameter (the type's
+        /// "Tag Template"), else the rule's own pattern (the default; null = nothing, the value is cleared).
+        /// <paramref name="badTemplate"/> = the source text when it isn't a valid value template (then null is returned).
+        /// </summary>
+        private static IdPattern PatternFor(ActiveRule rule, Func<string, string> resolve, out string badTemplate)
+        {
+            badTemplate = null;
+            if (rule.TemplateSource == null) return rule.Pattern;
+            string text = resolve(rule.TemplateSource);
+            if (string.IsNullOrEmpty(text)) return rule.Pattern;
+            if (_templates.Count > 5000) _templates.Clear();
+            var p = _templates.GetOrAdd(text, t => IdPattern.ForRule(t, true));
+            if (p == null) badTemplate = text;
+            return p;
+        }
+
+        /// <summary>Tokens a value rule reads for this element (its template source and the template's tokens included).</summary>
+        private static IEnumerable<string> ValueTokens(ActiveRule rule, Func<string, string> resolve)
+        {
+            if (rule.TemplateSource == null) return rule.Pattern.Tokens;
+            var tokens = new List<string> { rule.TemplateSource };
+            var p = PatternFor(rule, resolve, out _);
+            if (p != null) tokens.AddRange(p.Tokens);
+            return tokens;
         }
 
         private class Change
@@ -221,10 +264,13 @@ namespace ProjectPerseus.ids
             var active = new List<ActiveRule>();
             foreach (var r in rules.Rules.Where(r => r.Enabled))
             {
-                var pattern = IdPattern.ForRule(r.Pattern, r.IsValue, r.UniqueWith);
                 string name = r.ParameterName?.Trim();
-                if (pattern == null || string.IsNullOrEmpty(name) || !guids.TryGetValue(name, out var g)) continue;
-                active.Add(new ActiveRule { Dto = r, Pattern = pattern, ParamGuid = g });
+                if (!IsUsable(r) || string.IsNullOrEmpty(name) || !guids.TryGetValue(name, out var g)) continue;
+                string source = r.IsValue ? IdPattern.ParseSource(r.TemplateSource) : null;
+                var pattern = source != null && string.IsNullOrWhiteSpace(r.Pattern)
+                    ? null
+                    : IdPattern.ForRule(r.Pattern, r.IsValue, r.UniqueWith);
+                active.Add(new ActiveRule { Dto = r, Pattern = pattern, TemplateSource = source, ParamGuid = g });
             }
             // Value rules first, so an ID rule can number with a value copied in the same run ({Element.Param}).
             return active.Where(a => a.IsValue).Concat(active.Where(a => !a.IsValue)).ToList();
@@ -249,7 +295,7 @@ namespace ProjectPerseus.ids
                 {
                     // Value rules aren't unique (no claims, no counters); only what they read from is indexed.
                     if (deps == null) deps = new HashSet<long>();
-                    resolver.AddDependencies(el, rule.Pattern.Tokens, deps);
+                    resolver.AddDependencies(el, ValueTokens(rule, resolve ?? (resolve = resolver.For(el))), deps);
                     continue;
                 }
                 string name = rule.Dto.ParameterName.Trim();
@@ -293,7 +339,9 @@ namespace ProjectPerseus.ids
         internal static bool UsesProject(IdRulesDto rules) =>
             rules != null && rules.Rules.Any(r => r.Enabled && r.IsValue && UsesProject(r));
 
+        // A template rule may use {Project.*} in any type's template, so it counts as reading Project Information.
         private static bool UsesProject(IdRuleDto r) =>
+            !string.IsNullOrWhiteSpace(r.TemplateSource) ||
             IdPattern.ForRule(r.Pattern, true)?.Tokens.SelectMany(IdPattern.Alternatives)
                 .Any(t => t.StartsWith("Project.", StringComparison.Ordinal)) == true;
 
@@ -495,7 +543,17 @@ namespace ProjectPerseus.ids
                         if (renumber) continue;
                         string now = p.AsString() ?? "";
                         if (rule.Dto.FillOnlyEmpty && now.Length > 0) continue;
-                        var outcome = AutoValue.Compute(rule.Pattern, rule.Dto.Transform, resolve, out string target, out string err);
+                        // Template rules: the pattern comes from the element's source parameter (its type's template).
+                        var pattern = PatternFor(rule, resolve, out string badTemplate);
+                        if (badTemplate != null)
+                        {
+                            result.TransformErrors.Add($"{rule.Dto.ParameterName.Trim()}: template '{badTemplate}' from {rule.TemplateSource} isn't valid");
+                            continue;
+                        }
+                        string target = "", err = null;
+                        var outcome = pattern == null
+                            ? AutoValue.Outcome.Ok // no template and no default: nothing to show
+                            : AutoValue.Compute(pattern, rule.Dto.Transform, resolve, out target, out err);
                         if (outcome == AutoValue.Outcome.TransformError)
                         {
                             result.TransformErrors.Add($"{rule.Dto.ParameterName.Trim()}: {err}");
@@ -503,7 +561,7 @@ namespace ProjectPerseus.ids
                         }
                         // A token with no value (element not in a room, parameter missing) clears the value rather than
                         // leaving a stale one behind.
-                        if (outcome == AutoValue.Outcome.Unresolved) NoteUnresolved(result, rule.Pattern, resolve, el);
+                        if (outcome == AutoValue.Outcome.Unresolved) NoteUnresolved(result, pattern, resolve, el);
                         if (now == target) continue;
                         changes.Add(new Change { Element = el, Param = p, NewValue = target, IsValue = true, IsReassign = now.Length > 0 });
                         if (pending == null) pending = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
