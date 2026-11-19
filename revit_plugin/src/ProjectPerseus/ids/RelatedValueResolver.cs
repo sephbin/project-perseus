@@ -122,6 +122,18 @@ namespace ProjectPerseus.ids
         /// numbers (lengths, areas, integers) as numbers when their display parses as one. "Name" = the element's name
         /// (Project Information: the project's name / number). <paramref name="pending"/> = values planned in this run.
         /// </summary>
+        // "Name" of an element: rooms / spaces / areas = their Name parameter (Element.Name is "Name Number",
+        // e.g. "Office 101"); anything else = Element.Name.
+        private static string NameOf(Element el)
+        {
+            if (el is SpatialElement)
+            {
+                var p = el.get_Parameter(BuiltInParameter.ROOM_NAME);
+                if (p != null && p.HasValue) return p.AsString();
+            }
+            return el.Name;
+        }
+
         internal IDictionary<string, object> ParametersOf(Element related, IDictionary<string, string> pending)
         {
             if (related == null) return null;
@@ -133,7 +145,7 @@ namespace ProjectPerseus.ids
                 values["Name"] = info.Name;
                 values["Number"] = info.Number;
             }
-            else if (!values.ContainsKey("Name")) values["Name"] = related.Name;
+            else if (!values.ContainsKey("Name")) values["Name"] = NameOf(related);
 
             foreach (Parameter p in related.Parameters)
             {
@@ -269,7 +281,7 @@ namespace ProjectPerseus.ids
                 if (string.Equals(param, "Name", StringComparison.OrdinalIgnoreCase)) return Clean(info.Name);
                 if (string.Equals(param, "Number", StringComparison.OrdinalIgnoreCase)) return Clean(info.Number);
             }
-            if (string.Equals(param, "Name", StringComparison.OrdinalIgnoreCase)) return Clean(related.Name);
+            if (string.Equals(param, "Name", StringComparison.OrdinalIgnoreCase)) return Clean(NameOf(related));
 
             var p = related.LookupParameter(param);
             if (p == null) return null;
