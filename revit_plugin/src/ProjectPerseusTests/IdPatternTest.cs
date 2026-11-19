@@ -136,21 +136,81 @@ namespace ProjectPerseusTests
             Assert.IsNull(IdPattern.ParseSource(""));
         }
 
-        // Renders a Jinja template for a door: Element / Type / ToRoom parameters by their real (spaced) names.
-        private static string RenderDoor(string template, bool hasToRoom = true)
+        // A small model for template tests: objects are strings, relations and parameters by name.
+        private sealed class FakeModel : JinjaTemplate.IObjectSource
+        {
+            public readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>> Links =
+                new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>>();
+            public readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.IDictionary<string, object>> Params =
+                new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IDictionary<string, object>>();
+
+            public object Related(object from, string kind)
+            {
+                if (kind == "Element") return from;
+                return Links.TryGetValue((string)from, out var l) && l.TryGetValue(kind, out var to) ? to : null;
+            }
+
+            public System.Collections.Generic.IDictionary<string, object> Parameters(object obj) =>
+                Params.TryGetValue((string)obj, out var p) ? p : null;
+
+            public void Link(string from, string kind, string to)
+            {
+                if (!Links.TryGetValue(from, out var l)) Links[from] = l = new System.Collections.Generic.Dictionary<string, string>();
+                l[kind] = to;
+            }
+        }
+
+        // door (in Office 101 / Store 102, on Level 01), its type, and a sign hosted on the door placed on Level 02.
+        private static FakeModel DoorModel(bool hasToRoom = true)
+        {
+            var m = new FakeModel();
+            m.Params["door"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "Single Flush", ["Door Tag Room Number"] = "101", ["Mark"] = "D01", ["Width"] = 920.0, ["Level"] = "Level 01" };
+            m.Params["doortype"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "900 x 2100", ["Fire Rating (mins)"] = "60", ["Type Mark"] = "DT1" };
+            m.Params["office"] = new System.Collections.Generic.Dictionary<string, object> { ["Number"] = "101", ["Name"] = "Office" };
+            m.Params["store"] = new System.Collections.Generic.Dictionary<string, object> { ["Number"] = "102", ["Name"] = "Store" };
+            m.Params["L1"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "Level 01", ["Elevation"] = 0.0 };
+            m.Params["L2"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "Level 02", ["Elevation"] = 3600.0 };
+            m.Params["sign"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "Room Sign" };
+            m.Link("door", "Type", "doortype");
+            if (hasToRoom) m.Link("door", "ToRoom", "office");
+            m.Link("door", "FromRoom", "store");
+            m.Link("door", "Level", "L1");
+            m.Link("office", "Level", "L1");
+            m.Link("sign", "Host", "door");
+            m.Link("sign", "Level", "L2");
+            return m;
+        }
+
+        private static string Render(string template, string element, bool hasToRoom = true)
         {
             var t = JinjaTemplate.Parse(template, out string err);
             Assert.IsNotNull(t, err);
-            var objects = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IDictionary<string, object>>
-            {
-                ["Element"] = new System.Collections.Generic.Dictionary<string, object> { ["Door Tag Room Number"] = "101", ["Mark"] = "D01", ["Width"] = 920.0 },
-                ["Type"] = new System.Collections.Generic.Dictionary<string, object> { ["Fire Rating (mins)"] = "60", ["Type Mark"] = "DT1" },
-                ["FromRoom"] = new System.Collections.Generic.Dictionary<string, object> { ["Number"] = "102", ["Name"] = "Store" },
-            };
-            if (hasToRoom) objects["ToRoom"] = new System.Collections.Generic.Dictionary<string, object> { ["Number"] = "101", ["Name"] = "Office" };
-            Assert.IsTrue(t.TryRender(o => objects.TryGetValue(o, out var v) ? v : null,
+            Assert.IsTrue(t.TryRender(DoorModel(hasToRoom), element,
                 new System.Collections.Generic.Dictionary<string, object> { ["CategoryPrefix"] = "D" }, out string result, out err), err);
             return result;
+        }
+
+        private static string RenderDoor(string template, bool hasToRoom = true) => Render(template, "door", hasToRoom);
+
+        [TestMethod]
+        public void JinjaTemplates_FollowChains()
+        {
+            // A sign hosted on a door: the host's rooms and level, and the sign's own level.
+            Assert.AreEqual("Office", Render("{{ Host.ToRoom.Name }}", "sign"));
+            Assert.AreEqual("101 Office", Render("{{ Host.ToRoom.Number }} {{ Host.ToRoom.Name }}", "sign"));
+            Assert.AreEqual("Level 01 / Level 02", Render("{{ Host.Level.Name }} / {{ Level.Name }}", "sign"));
+            Assert.AreEqual("Level 01", Render("{{ Host.ToRoom.Level.Name }}", "sign"));          // three steps
+            Assert.AreEqual("Level 01", Render("{{ Host.Level }}", "sign"));                      // an object prints its name
+            Assert.AreEqual("Single Flush", Render("{{ Host }}", "sign"));
+            Assert.AreEqual("Store", Render("{{ Host.ToRoom.Name | default(Host.FromRoom.Name) }}", "sign", hasToRoom: false));
+            Assert.AreEqual("none", Render("{% if Host.Room %}{{ Host.Room.Name }}{% else %}none{% endif %}", "sign"));
+            Assert.AreEqual("", Render("{{ Host.Host.Name }}", "sign"));
+            Assert.AreEqual("Level 01", Render("{{ Element.Level.Name }}", "door"));               // relation beats the "Level" parameter
+
+            var t = JinjaTemplate.Parse("{{ Host.ToRoom.Name }} {{ Level.Name }} {{ Host.Mark }}", out _);
+            CollectionAssert.AreEquivalent(new[] { "Host", "Level" }, new System.Collections.Generic.List<string>(t.Objects));
+            Assert.IsTrue(System.Linq.Enumerable.Any(t.Paths, p => string.Join(".", p) == "Host.ToRoom"));
+            Assert.IsTrue(System.Linq.Enumerable.Any(t.Paths, p => string.Join(".", p) == "Level"));
         }
 
         [TestMethod]

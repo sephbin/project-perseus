@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using Scriban;
+using Scriban.Parsing;
 using Scriban.Runtime;
 
 namespace ProjectPerseus.util
@@ -17,6 +18,9 @@ namespace ProjectPerseus.util
     ///   {{ Type.Tag_Template }}                   name become "_" (SafeName). Also lower case ({{ type.tag_template }}) and
     ///   {{ Element["Door Tag Room Number"] }}     the exact name in brackets.
     ///   Objects: Element, Type, Level, Host, Room, Space, ToRoom, FromRoom, Group, Project; values CategoryPrefix, Workset.
+    ///   Chains up to 3 steps: {{ Host.Room.Name }}, {{ Host.ToRoom.Number }}, {{ Host.Level.Name }}. An object on its own
+    ///   prints its name ({{ Host.Level }} = the host's level name). A relation name wins over a parameter of the same name
+    ///   (Element.Level = the level object), falling back to the parameter when there is no such object.
     ///   {% if Element.Width > 900 %}W{% elif ... %}..{% else %}..{% endif %}, {% for %}..{% endfor %}, {% set x = .. %},
     ///   {# comment #}, filters {{ x | upper }}, {{ x | default('-') }}, {{ x | replace('a', 'b') }}, lower, title, trim,
     ///   length, int, float, round(n), plus Liquid's own (upcase, append, slice...).
@@ -28,19 +32,39 @@ namespace ProjectPerseus.util
         public static readonly string[] ObjectNames =
             { "Element", "Type", "Level", "Host", "Room", "Space", "ToRoom", "FromRoom", "Group", "Project" };
 
-        private static readonly Regex ObjectRef = new Regex(
-            @"\b(" + string.Join("|", ObjectNames) + @")\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        /// <summary>How many steps a chain may take (Host.Room.Level).</summary>
+        public const int MaxDepth = 3;
+
+        /// <summary>Where a template's objects come from: the Revit side (RelatedValueResolver) or a test fake.</summary>
+        public interface IObjectSource
+        {
+            /// <summary>The object related to <paramref name="from"/> by kind ("Host", "Room"...); null when none.</summary>
+            object Related(object from, string kind);
+            /// <summary>An object's parameters by their real names ("Name" included).</summary>
+            IDictionary<string, object> Parameters(object obj);
+        }
+
+        private static readonly string Kinds = string.Join("|", ObjectNames);
+        private static readonly Regex ObjectPath = new Regex(
+            @"\b(" + Kinds + @")((?:\.(?:" + Kinds + @")\b)*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private readonly Template _template;
 
-        /// <summary>Objects the template mentions (canonical spelling), e.g. "Type", "ToRoom".</summary>
+        /// <summary>Objects the template starts from (canonical spelling), e.g. "Type", "Host".</summary>
         public IReadOnlyList<string> Objects { get; }
 
-        private JinjaTemplate(Template template, List<string> objects)
+        /// <summary>Object chains the template mentions, e.g. ["Host", "Room"] for {{ Host.Room.Name }}.</summary>
+        public IReadOnlyList<string[]> Paths { get; }
+
+        private JinjaTemplate(Template template, List<string[]> paths)
         {
             _template = template;
-            Objects = objects;
+            Paths = paths;
+            Objects = paths.Select(x => x[0]).Distinct().ToList();
         }
+
+        private static string Canonical(string kind) =>
+            ObjectNames.FirstOrDefault(n => string.Equals(n, kind, StringComparison.OrdinalIgnoreCase));
 
         /// <summary>True when text is a Jinja template ({{ }}, {% %} or {# #}); single-brace text is a Perseus pattern.</summary>
         public static bool IsJinja(string text) =>
@@ -98,10 +122,13 @@ namespace ProjectPerseus.util
                     error = string.Join("; ", t.Messages.Select(m => m.Message)).Trim();
                     return null;
                 }
-                var objects = ObjectRef.Matches(text).Cast<Match>()
-                    .Select(m => ObjectNames.First(n => string.Equals(n, m.Value, StringComparison.OrdinalIgnoreCase)))
-                    .Distinct().ToList();
-                return new JinjaTemplate(t, objects);
+                var paths = new List<string[]>();
+                foreach (Match m in ObjectPath.Matches(text))
+                {
+                    var path = m.Value.Split('.').Select(Canonical).Take(MaxDepth).ToArray();
+                    if (!paths.Any(x => x.SequenceEqual(path))) paths.Add(path);
+                }
+                return new JinjaTemplate(t, paths);
             }
             catch (Exception ex)
             {
@@ -111,11 +138,11 @@ namespace ProjectPerseus.util
         }
 
         /// <summary>
-        /// Renders for one element. <paramref name="objectValues"/> gives an object's parameters by their real names (null =
-        /// no such object, e.g. no room); asked only for the objects the template mentions. <paramref name="values"/> =
-        /// top-level values (CategoryPrefix, Workset). Result trimmed.
+        /// Renders for one element. <paramref name="source"/> supplies the objects (asked only for those the template
+        /// reaches, chains followed on demand); <paramref name="element"/> = the element being filled in.
+        /// <paramref name="values"/> = top-level values (CategoryPrefix, Workset). Result trimmed.
         /// </summary>
-        public bool TryRender(Func<string, IDictionary<string, object>> objectValues, IDictionary<string, object> values,
+        public bool TryRender(IObjectSource source, object element, IDictionary<string, object> values,
                               out string result, out string error)
         {
             result = "";
@@ -128,13 +155,10 @@ namespace ProjectPerseus.util
                     foreach (var kv in values) Put(globals, kv.Key, kv.Value);
                 foreach (var name in Objects)
                 {
-                    var parameters = objectValues(name);
-                    if (parameters == null) continue;
-                    var obj = new ScriptObject();
-                    foreach (var kv in parameters) Put(obj, kv.Key, kv.Value);
-                    Put(globals, name, obj);
+                    var handle = source.Related(element, name);
+                    if (handle != null) Put(globals, name, new LazyObject(source, handle, 1));
                 }
-                var context = new LiquidTemplateContext { StrictVariables = false, LoopLimit = 1000, RecursiveLimit = 50 };
+                var context = new Context { StrictVariables = false, LoopLimit = 1000, RecursiveLimit = 50 };
                 context.PushGlobal(globals);
                 result = (_template.Render(context) ?? "").Trim();
                 return true;
@@ -144,6 +168,51 @@ namespace ProjectPerseus.util
                 error = ex.Message;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// An object's parameters, with its relations (Room, Level...) looked up only when a template asks for them.
+        /// </summary>
+        private sealed class LazyObject : ScriptObject
+        {
+            private readonly IObjectSource _source;
+            private readonly object _handle;
+            private readonly int _depth;
+            private readonly Dictionary<string, LazyObject> _related = new Dictionary<string, LazyObject>();
+            public readonly string Display;
+
+            public LazyObject(IObjectSource source, object handle, int depth)
+            {
+                _source = source;
+                _handle = handle;
+                _depth = depth;
+                var parameters = source.Parameters(handle);
+                if (parameters == null) return;
+                foreach (var kv in parameters) Put(this, kv.Key, kv.Value);
+                Display = parameters.TryGetValue("Name", out var n) ? Str(n) : "";
+            }
+
+            public override bool TryGetValue(TemplateContext context, SourceSpan span, string member, out object value)
+            {
+                string kind = Canonical(member);
+                if (kind != null && _depth < MaxDepth)
+                {
+                    if (!_related.TryGetValue(kind, out var rel))
+                    {
+                        var h = _source.Related(_handle, kind);
+                        _related[kind] = rel = h == null ? null : new LazyObject(_source, h, _depth + 1);
+                    }
+                    if (rel != null) { value = rel; return true; }
+                }
+                return base.TryGetValue(context, span, member, out value); // a parameter of that name, if any
+            }
+        }
+
+        // An object on its own prints its name.
+        private sealed class Context : LiquidTemplateContext
+        {
+            public override string ObjectToString(object value, bool nested = false) =>
+                value is LazyObject o ? o.Display ?? "" : base.ObjectToString(value, nested);
         }
 
         // Name as given, its SafeName and the SafeName in lower case; the first parameter to claim a name keeps it.

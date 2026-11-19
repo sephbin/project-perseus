@@ -58,21 +58,75 @@ namespace ProjectPerseus.ids
             }
         }
 
-        /// <summary>
-        /// Every parameter of a related object ("Type", "ToRoom"...) by name, for Jinja templates (util/JinjaTemplate):
-        /// text as shown in Revit, numbers (lengths, areas, integers) as numbers when their display parses as one. "Name" =
-        /// the element's name (Project: the project's name / number). Element also sees values planned in this run.
-        /// Null when there is no such object (no room...).
-        /// </summary>
-        internal IDictionary<string, object> ParametersOf(Element el, string kind, IDictionary<string, string> pending)
+        /// <summary>The element related to <paramref name="el"/> by kind ("Host", "Room"...), or null.</summary>
+        internal Element RelatedOf(Element el, string kind)
         {
-            Element related;
-            try { related = Related(el, kind); }
+            try { return el == null ? null : Related(el, kind); }
             catch { return null; }
-            if (related == null) return null;
+        }
 
+        /// <summary>
+        /// Jinja template objects for one element (util/JinjaTemplate.IObjectSource): chains such as Host.Room are
+        /// followed through <see cref="RelatedOf"/>; the element itself also sees values planned in this run.
+        /// </summary>
+        internal JinjaTemplate.IObjectSource TemplateSource(Element el, IDictionary<string, string> pending) =>
+            new ObjectSource(this, el, pending);
+
+        private sealed class ObjectSource : JinjaTemplate.IObjectSource
+        {
+            private readonly RelatedValueResolver _r;
+            private readonly Element _root;
+            private readonly IDictionary<string, string> _pending;
+            private readonly Dictionary<long, IDictionary<string, object>> _cache = new Dictionary<long, IDictionary<string, object>>();
+
+            public ObjectSource(RelatedValueResolver r, Element root, IDictionary<string, string> pending)
+            {
+                _r = r;
+                _root = root;
+                _pending = pending;
+            }
+
+            public object Related(object from, string kind) => _r.RelatedOf(from as Element, kind);
+
+            public IDictionary<string, object> Parameters(object obj)
+            {
+                if (!(obj is Element e)) return null;
+                long id = ProjectPerseus.revit.RevitExtensions.GetIdValue(e.Id);
+                if (!_cache.TryGetValue(id, out var values))
+                    _cache[id] = values = _r.ParametersOf(e, e.Id == _root.Id ? _pending : null);
+                return values;
+            }
+        }
+
+        /// <summary>
+        /// The elements along each template chain (Host, then the host's room for Host.Room...), so a change to any of them
+        /// refreshes the element. The element itself and Project Information are not listed.
+        /// </summary>
+        internal void AddPathDependencies(Element el, IEnumerable<string[]> paths, ISet<long> into)
+        {
+            foreach (var path in paths)
+            {
+                Element cur = el;
+                foreach (var kind in path)
+                {
+                    if (kind == "Project") break;
+                    cur = RelatedOf(cur, kind);
+                    if (cur == null) break;
+                    if (cur.Id != el.Id) into.Add(ProjectPerseus.revit.RevitExtensions.GetIdValue(cur.Id));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Every parameter of an element by name, for Jinja templates (util/JinjaTemplate): text as shown in Revit,
+        /// numbers (lengths, areas, integers) as numbers when their display parses as one. "Name" = the element's name
+        /// (Project Information: the project's name / number). <paramref name="pending"/> = values planned in this run.
+        /// </summary>
+        internal IDictionary<string, object> ParametersOf(Element related, IDictionary<string, string> pending)
+        {
+            if (related == null) return null;
             var values = new Dictionary<string, object>(StringComparer.Ordinal);
-            if (kind == "Element" && pending != null)
+            if (pending != null)
                 foreach (var kv in pending) values[kv.Key] = kv.Value;
             if (related is ProjectInfo info)
             {

@@ -148,8 +148,15 @@ namespace ProjectPerseus.ids
             if (rule.TemplateSource != null) tokens.Add(rule.TemplateSource);
             var c = TemplateFor(rule, resolve, out _);
             if (c.Pattern != null) tokens.AddRange(c.Pattern.Tokens);
-            if (c.Jinja != null) tokens.AddRange(c.Jinja.Objects.Select(o => o + ".Name")); // the related element itself
             return tokens;
+        }
+
+        /// <summary>Everything a value rule reads for this element: tokens, the template source, and Jinja chains (Host.Room).</summary>
+        private static void AddValueDependencies(ActiveRule rule, Element el, RelatedValueResolver resolver, Func<string, string> resolve, ISet<long> deps)
+        {
+            resolver.AddDependencies(el, ValueTokens(rule, resolve), deps);
+            var c = TemplateFor(rule, resolve, out _);
+            if (c.Jinja != null) resolver.AddPathDependencies(el, c.Jinja.Paths, deps);
         }
 
         /// <summary>
@@ -176,7 +183,7 @@ namespace ProjectPerseus.ids
                     { "CategoryPrefix", resolve("CategoryPrefix") },
                     { "Workset", resolve("Workset") },
                 };
-                if (!c.Jinja.TryRender(kind => resolver.ParametersOf(el, kind, pending), values, out string rendered, out err))
+                if (!c.Jinja.TryRender(resolver.TemplateSource(el, pending), el, values, out string rendered, out err))
                 {
                     result.TransformErrors.Add($"{name}: {err}");
                     return false;
@@ -383,7 +390,7 @@ namespace ProjectPerseus.ids
                 {
                     // Value rules aren't unique (no claims, no counters); only what they read from is indexed.
                     if (deps == null) deps = new HashSet<long>();
-                    resolver.AddDependencies(el, ValueTokens(rule, resolve ?? (resolve = resolver.For(el))), deps);
+                    AddValueDependencies(rule, el, resolver, resolve ?? (resolve = resolver.For(el)), deps);
                     continue;
                 }
                 string name = rule.Dto.ParameterName.Trim();
@@ -432,7 +439,7 @@ namespace ProjectPerseus.ids
         {
             if (!string.IsNullOrWhiteSpace(r.TemplateSource)) return true;
             var c = Compile(r.Pattern);
-            if (c.Jinja != null) return c.Jinja.Objects.Contains("Project");
+            if (c.Jinja != null) return c.Jinja.Paths.Any(p => p.Contains("Project"));
             return c.Pattern?.Tokens.SelectMany(IdPattern.Alternatives)
                 .Any(t => t.StartsWith("Project.", StringComparison.Ordinal)) == true;
         }
