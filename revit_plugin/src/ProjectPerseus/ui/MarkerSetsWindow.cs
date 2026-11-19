@@ -52,6 +52,7 @@ namespace ProjectPerseus.ui
         private static readonly MarkerSet.DisplayKind[] DisplayKinds =
         {
             MarkerSet.DisplayKind.Ring, MarkerSet.DisplayKind.Square, MarkerSet.DisplayKind.Outline, MarkerSet.DisplayKind.IconOnly,
+            MarkerSet.DisplayKind.Label,
         };
 
         private static string DisplayName(MarkerSet.DisplayKind kind) =>
@@ -63,6 +64,10 @@ namespace ProjectPerseus.ui
         private static readonly Brush Line = Frozen(Color.FromRgb(0xE2, 0xE6, 0xEE));
 
         private readonly List<KeyValuePair<string, string>> _categories; // (BuiltInCategory name, display name)
+        private List<MarkerEngine.ViewItem> _views;                       // the model's views (view picker)
+        private readonly TextBox _viewSearch, _viewRegex;
+        private readonly ListBox _viewList;
+        private readonly TextBlock _viewsSummary;
 
         private readonly CheckBox _showMarkers, _showLegend;
         private readonly ListBox _setList;
@@ -104,15 +109,16 @@ namespace ProjectPerseus.ui
                 return;
             }
             var cats = MarkerEngine.ModelCategories(app.ActiveUIDocument?.Document);
-            var w = new MarkerSetsWindow(cats);
+            var w = new MarkerSetsWindow(cats, MarkerEngine.ModelViews(app.ActiveUIDocument?.Document));
             new WindowInteropHelper(w).Owner = app.MainWindowHandle;
             w.Show();
         }
 
-        private MarkerSetsWindow(List<KeyValuePair<string, string>> categories)
+        private MarkerSetsWindow(List<KeyValuePair<string, string>> categories, List<MarkerEngine.ViewItem> views)
         {
             Instance = this;
             _categories = categories;
+            _views = views ?? new List<MarkerEngine.ViewItem>();
 
             Title = "Perseus — Parameter Markers";
             Width = 1140;
@@ -232,6 +238,59 @@ namespace ProjectPerseus.ui
             queryGrid.Children.Add(filterPanel);
             _editor.Children.Add(queryGrid);
 
+            // Views: picked views and / or a view name pattern (e.g. the wayfinding team's working views)
+            _editor.Children.Add(Section("Which views"));
+            _editor.Children.Add(Hint("Show this set only in the views ticked here, or in views whose name matches the pattern " +
+                                      "(either is enough). Leave both empty to show it in every view."));
+            var viewGrid = new Grid();
+            viewGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            viewGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            viewGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
+
+            var viewPanel = new DockPanel();
+            _viewSearch = new TextBox { Margin = new Thickness(0, 0, 0, 4), ToolTip = "Search views" };
+            _viewSearch.TextChanged += (s, e) => FillViewList();
+            DockPanel.SetDock(_viewSearch, Dock.Top);
+            viewPanel.Children.Add(_viewSearch);
+            var viewButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+            var addActive = MakeButton("Add active view", (s, e) => AddActiveView());
+            addActive.ToolTip = "Tick the view open in Revit now.";
+            viewButtons.Children.Add(addActive);
+            var refreshViews = MakeButton("Refresh", (s, e) => RefreshViews());
+            refreshViews.ToolTip = "Re-read the model's views (after adding or renaming views).";
+            viewButtons.Children.Add(refreshViews);
+            viewButtons.Children.Add(MakeButton("Untick all", (s, e) =>
+            {
+                if (_set == null) return;
+                _set.Views.Clear();
+                FillViewList();
+                ScheduleApply();
+            }));
+            DockPanel.SetDock(viewButtons, Dock.Bottom);
+            viewPanel.Children.Add(viewButtons);
+            _viewList = new ListBox { Height = 120, BorderBrush = Line };
+            viewPanel.Children.Add(_viewList);
+            Grid.SetColumn(viewPanel, 0);
+            viewGrid.Children.Add(viewPanel);
+
+            var regexPanel = new StackPanel();
+            regexPanel.Children.Add(Hint("View name pattern (optional, regular expression, not case-sensitive)"));
+            _viewRegex = new TextBox { FontFamily = new FontFamily("Consolas"), Padding = new Thickness(3) };
+            _viewRegex.TextChanged += (s, e) => { if (Editing()) { _set.ViewRegex = _viewRegex.Text; UpdateViewsSummary(); ScheduleApply(); } };
+            regexPanel.Children.Add(_viewRegex);
+            regexPanel.Children.Add(new TextBlock
+            {
+                Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+                Text = "e.g.  ^WF   (names starting \"WF\")\n" +
+                       "      Wayfinding|Signage   (names containing either)\n" +
+                       "      ^L\\d+ - Working$",
+            });
+            _viewsSummary = new TextBlock { FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+            regexPanel.Children.Add(_viewsSummary);
+            Grid.SetColumn(regexPanel, 2);
+            viewGrid.Children.Add(regexPanel);
+            _editor.Children.Add(viewGrid);
+
             // Parameters
             _editor.Children.Add(Section("Parameters"));
             _editor.Children.Add(Hint("Legend entries pick one of these. Auto-fill adds an entry for each value of each parameter. " +
@@ -262,7 +321,8 @@ namespace ProjectPerseus.ui
             _editor.Children.Add(legendHeader);
             _editor.Children.Add(Hint("Per parameter, the first entry an element's value matches marks it; entries on different " +
                                       "parameters mark independently (e.g. mag lock and drop bolt on one door). " +
-                                      "Display: ring, square, the element's outline traced thick, or icon only. Count = elements in the current view."));
+                                      "Display: ring, square, the element's outline traced thick, icon only, or a label showing the value as a text tag " +
+                                      "(use match \"Any value\" to label every element). Count = elements in the current view."));
             _selectionStatus = new TextBlock { FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
             _editor.Children.Add(_selectionStatus);
             _entryRows = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
@@ -460,6 +520,9 @@ namespace ProjectPerseus.ui
                 _name.Text = set.Name;
                 _filter.Text = set.Filter;
                 _includeLinks.IsChecked = set.IncludeLinks;
+                _viewRegex.Text = set.ViewRegex ?? "";
+                _viewSearch.Text = "";
+                FillViewList();
                 BuildParameterRows();
                 _categorySearch.Text = "";
                 FillCategoryList();
@@ -503,6 +566,108 @@ namespace ProjectPerseus.ui
                 check.Click += (s, e) => { if (check.IsChecked != true) { _set.Categories.Remove(key); ScheduleApply(); } };
                 _categoryList.Items.Insert(0, check);
             }
+        }
+
+        // ── Views ──
+
+        private void FillViewList()
+        {
+            if (_set == null) return;
+            string q = _viewSearch.Text.Trim();
+            _viewList.Items.Clear();
+            var chosen = new HashSet<string>(_set.Views.Select(v => v.UniqueId));
+            var ordered = _views
+                .Where(v => q.Length == 0 || v.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || chosen.Contains(v.UniqueId))
+                .OrderByDescending(v => chosen.Contains(v.UniqueId))
+                .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase);
+            foreach (var v in ordered)
+            {
+                var view = v;
+                var check = new CheckBox
+                {
+                    IsChecked = chosen.Contains(view.UniqueId),
+                    Content = new TextBlock
+                    {
+                        Inlines =
+                        {
+                            new System.Windows.Documents.Run(view.Name),
+                            new System.Windows.Documents.Run("  " + view.Kind) { Foreground = Muted, FontSize = 10.5 },
+                        },
+                    },
+                };
+                check.Click += (s, e) =>
+                {
+                    if (_set == null) return;
+                    _set.Views.RemoveAll(x => x.UniqueId == view.UniqueId);
+                    if (check.IsChecked == true) _set.Views.Add(new MarkerSet.ViewRef { UniqueId = view.UniqueId, Name = view.Name });
+                    UpdateViewsSummary();
+                    ScheduleApply();
+                };
+                _viewList.Items.Add(check);
+            }
+            // Picked views not in this model (another model, or deleted): keep them visible so they can be unticked.
+            foreach (var missing in _set.Views.Where(x => _views.All(v => v.UniqueId != x.UniqueId)).ToList())
+            {
+                var gone = missing;
+                var check = new CheckBox { Content = gone.Name + " (not in this model)", IsChecked = true, Foreground = Muted };
+                check.Click += (s, e) => { if (check.IsChecked != true) { _set.Views.Remove(gone); FillViewList(); ScheduleApply(); } };
+                _viewList.Items.Insert(0, check);
+            }
+            UpdateViewsSummary();
+        }
+
+        private void UpdateViewsSummary()
+        {
+            if (_set == null) return;
+            _viewsSummary.Foreground = Muted;
+            if (_set.AllViews) { _viewsSummary.Text = "Shown in every view."; return; }
+            int picked = _set.Views.Count;
+            int matching = 0;
+            string error = null;
+            foreach (var v in _views)
+            {
+                bool byName = !string.IsNullOrWhiteSpace(_set.ViewRegex) && _set.Views.All(x => x.UniqueId != v.UniqueId) &&
+                              _set.ShowsIn(null, v.Name, out error);
+                if (error != null) break;
+                if (byName) matching++;
+            }
+            if (error != null) { _viewsSummary.Text = error; _viewsSummary.Foreground = ErrorBrush; return; }
+            var parts = new List<string>();
+            if (picked > 0) parts.Add($"{picked} picked view(s)");
+            if (!string.IsNullOrWhiteSpace(_set.ViewRegex)) parts.Add($"{matching} more matching the pattern");
+            _viewsSummary.Text = "Shown in " + string.Join(" + ", parts) + ".";
+        }
+
+        private void AddActiveView()
+        {
+            var set = _set;
+            if (set == null) return;
+            OwnershipUiEvent.Run(app =>
+            {
+                var v = app.ActiveUIDocument?.ActiveView;
+                if (v == null || Instance != this || _set != set) return;
+                if (!ViolationScreenPositionEvent.IsProjectableView(v.ViewType))
+                {
+                    _viewsSummary.Text = "Markers don't show in this kind of view (3D, sheets and schedules aren't supported).";
+                    _viewsSummary.Foreground = ErrorBrush;
+                    return;
+                }
+                if (_views.All(x => x.UniqueId != v.UniqueId)) _views = MarkerEngine.ModelViews(app.ActiveUIDocument.Document);
+                if (set.Views.All(x => x.UniqueId != v.UniqueId))
+                    set.Views.Add(new MarkerSet.ViewRef { UniqueId = v.UniqueId, Name = v.Name });
+                FillViewList();
+                ScheduleApply();
+            });
+        }
+
+        private void RefreshViews()
+        {
+            OwnershipUiEvent.Run(app =>
+            {
+                if (Instance != this) return;
+                _views = MarkerEngine.ModelViews(app.ActiveUIDocument?.Document);
+                FillViewList();
+            });
         }
 
         // ── Parameters ──
@@ -708,7 +873,8 @@ namespace ProjectPerseus.ui
                 Margin = new Thickness(4, 0, 0, 0),
                 ToolTip = "Ring or Square: drawn around the element, with the icon on it.\n" +
                           "Outline: the element's own lines in this view, traced thick in the colour.\n" +
-                          "Icon only: just the icon (a dot if no icon) on the element's centre.",
+                          "Icon only: just the icon (a dot if no icon) on the element's centre.\n" +
+                          "Label: the parameter's value as a text tag beside the element (several lines wrap).",
             };
             foreach (var kind in DisplayKinds)
             {
@@ -1090,6 +1256,7 @@ namespace ProjectPerseus.ui
             var r = MarkerEngine.GetResult(_set.Id);
             if (r == null) { _viewStatus.Text = ""; return; }
             if (r.Error != null) { _viewStatus.Text = r.Error; _viewStatus.Foreground = ErrorBrush; return; }
+            if (r.NotInView) { _viewStatus.Text = "Not shown in this view (see Which views)."; return; }
 
             string text = $"In this view: {r.Considered:N0} element(s)";
             if (!string.IsNullOrWhiteSpace(_set.Filter)) text += $", {r.Matched:N0} pass the filter";

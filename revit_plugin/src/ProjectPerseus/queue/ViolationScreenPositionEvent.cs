@@ -164,7 +164,7 @@ namespace ProjectPerseus.queue
                     iconCount.TryGetValue(h.Key, out int c);
                     if (h.Slot + 1 > c) iconCount[h.Key] = h.Slot + 1;
                 }
-                else if (h.Display != MarkerSet.DisplayKind.Outline)
+                else if (h.Display != MarkerSet.DisplayKind.Outline && h.Display != MarkerSet.DisplayKind.Label)
                 {
                     ringsUsed.TryGetValue(h.Key, out int n);
                     if (h.Ring + 1 > n) ringsUsed[h.Key] = h.Ring + 1;
@@ -181,6 +181,7 @@ namespace ProjectPerseus.queue
                 m.Icon = h.Icon;
                 m.Display = h.Display;
                 m.Slot = h.Slot;
+                m.Text = h.Text;
                 if (h.Display == MarkerSet.DisplayKind.IconOnly) m.SlotCount = iconCount[h.Key];
                 if (h.Display == MarkerSet.DisplayKind.Outline && h.Outline != null)
                 {

@@ -44,7 +44,8 @@ namespace ProjectPerseus.markers
             internal string Icon;
             internal MarkerSet.DisplayKind Display;
             internal int Ring;      // ring / square marks: 0 = innermost on this element (they stack outwards)
-            internal int Slot;      // icon-only / outline marks: 0 = first icon on this element
+            internal int Slot;      // icon-only / outline marks: 0 = first icon on this element; labels: 0 = top label
+            internal string Text;   // Label marks: the parameter's value (may be several lines)
             internal List<XYZ[]> Outline; // Outline marks: the element's view curves, host coordinates
         }
 
@@ -67,6 +68,7 @@ namespace ProjectPerseus.markers
             internal int ParamMissing; // matched elements with no such parameter / pseudo field
             internal int[] EntryCounts = new int[0];
             internal string Error;
+            internal bool NotInView;   // the set's view list / view name pattern leaves this view out
         }
 
         private static readonly object _lock = new object();
@@ -169,6 +171,15 @@ namespace ProjectPerseus.markers
                 var links = sets.Any(s => s.IncludeLinks) ? VisibleLinks(doc, view) : new List<LinkSource>();
                 foreach (var set in sets)
                 {
+                    // Sets limited to some views (picked, or by view name) are skipped elsewhere.
+                    if (!set.ShowsIn(view.UniqueId, view.Name, out string viewError))
+                    {
+                        results[set.Id] = new SetResult
+                        {
+                            SetId = set.Id, EntryCounts = new int[set.Entries.Count], Error = viewError, NotInView = viewError == null,
+                        };
+                        continue;
+                    }
                     var r = EvaluateSet(doc, view, set, links, rings, slots, hits);
                     results[set.Id] = r;
                     if (r.Error != null) Log.Info($"[MarkerEngine] set '{set.Name}': {r.Error}");
@@ -208,6 +219,7 @@ namespace ProjectPerseus.markers
             var colors = set.Entries.Select(x => ParseColor(x.Color)).ToArray();
             bool hasFilter = !string.IsNullOrWhiteSpace(set.Filter);
             var matched = new List<int>();
+            var matchedValues = new string[set.Entries.Count]; // the value each matched entry read (Label text)
 
             var catFilter = new ElementMulticategoryFilter(cats);
 
@@ -238,7 +250,7 @@ namespace ProjectPerseus.markers
                         missing = true;
                     var number = numericGroup[gi] ? ReadNumber(src, el, g.Key, value) : default(NumberValue);
                     foreach (int i in g.Value)
-                        if (matchers[i](value, number)) { matched.Add(i); break; }
+                        if (matchers[i](value, number)) { matched.Add(i); matchedValues[i] = value; break; }
                 }
                 if (missing) r.ParamMissing++;
                 if (matched.Count == 0) return true;
@@ -258,6 +270,18 @@ namespace ProjectPerseus.markers
                     var e = set.Entries[entry];
                     var c = colors[entry];
                     var hit = new Hit { Key = key, BBox = bb, R = c.R, G = c.G, B = c.B, Icon = e.Icon, Display = e.Display };
+                    if (hit.Display == MarkerSet.DisplayKind.Label)
+                    {
+                        // The value as a text tag; nothing to show for an empty value.
+                        string text = (matchedValues[entry] ?? "").Replace("\r\n", "\n").Trim();
+                        if (text.Length == 0) continue;
+                        hit.Text = text.Length > 500 ? text.Substring(0, 497) + "..." : text;
+                        slots.TryGetValue("t:" + key, out int t);
+                        slots["t:" + key] = t + 1;
+                        hit.Slot = t;
+                        hits.Add(hit);
+                        continue;
+                    }
                     if (hit.Display == MarkerSet.DisplayKind.Outline)
                     {
                         if (outline == null) outline = ReadOutline(el, view, toHost);
@@ -529,7 +553,7 @@ namespace ProjectPerseus.markers
             var rows = new List<OverlayLegendRow>();
             foreach (var set in MarkerSetStore.Sets.Where(s => s.Enabled))
             {
-                if (!results.TryGetValue(set.Id, out var r) || r.Error != null) continue;
+                if (!results.TryGetValue(set.Id, out var r) || r.Error != null || r.NotInView) continue;
                 rows.Add(new OverlayLegendRow { IsHeader = true, Label = set.Name });
                 for (int i = 0; i < set.Entries.Count; i++)
                 {
@@ -897,6 +921,44 @@ namespace ProjectPerseus.markers
                 info.ValuesByParameter[kv.Key] = kv.Value.OrderByDescending(x => x.Value).ThenBy(x => x.Key).ToList();
             info.Values = info.ValuesOf(set.Parameter);
             return info;
+        }
+
+        /// <summary>A view markers can be shown in, for the panel's view list.</summary>
+        internal class ViewItem
+        {
+            internal string UniqueId;
+            internal string Name;
+            internal string Kind; // "Floor Plan", "Section"...
+        }
+
+        /// <summary>Views of the document markers can show in (plans, sections, elevations, details; no templates), by name.</summary>
+        internal static List<ViewItem> ModelViews(Document doc)
+        {
+            var list = new List<ViewItem>();
+            if (doc == null || doc.IsFamilyDocument) return list;
+            foreach (View v in new FilteredElementCollector(doc).OfClass(typeof(View)))
+            {
+                try
+                {
+                    if (v.IsTemplate || !ViolationScreenPositionEvent.IsProjectableView(v.ViewType)) continue;
+                    list.Add(new ViewItem { UniqueId = v.UniqueId, Name = v.Name, Kind = KindName(v.ViewType) });
+                }
+                catch { /* odd views: skip */ }
+            }
+            return list.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static string KindName(ViewType t)
+        {
+            switch (t)
+            {
+                case ViewType.FloorPlan: return "Floor Plan";
+                case ViewType.CeilingPlan: return "Ceiling Plan";
+                case ViewType.AreaPlan: return "Area Plan";
+                case ViewType.EngineeringPlan: return "Structural Plan";
+                case ViewType.DraftingView: return "Drafting";
+                default: return t.ToString();
+            }
         }
 
         /// <summary>Model categories in the document, by name, for the panel's category list.</summary>

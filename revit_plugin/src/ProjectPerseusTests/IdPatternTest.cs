@@ -193,6 +193,23 @@ namespace ProjectPerseusTests
         private static string RenderDoor(string template, bool hasToRoom = true) => Render(template, "door", hasToRoom);
 
         [TestMethod]
+        public void MarkerSet_ShowsInPickedOrMatchingViews()
+        {
+            var set = new ProjectPerseus.models.MarkerSet();
+            Assert.IsTrue(set.ShowsIn("any", "Level 1", out _)); // nothing picked: every view
+            set.Views.Add(new ProjectPerseus.models.MarkerSet.ViewRef { UniqueId = "v1", Name = "WF L1 Working" });
+            Assert.IsTrue(set.ShowsIn("v1", "renamed", out _));
+            Assert.IsFalse(set.ShowsIn("v2", "Level 1", out _));
+            set.ViewRegex = "^wf |signage";
+            Assert.IsTrue(set.ShowsIn("v3", "WF L2 Working", out _));   // by name, not case-sensitive
+            Assert.IsTrue(set.ShowsIn("v4", "L3 Signage", out _));
+            Assert.IsFalse(set.ShowsIn("v5", "Level 3", out _));
+            set.ViewRegex = "([";
+            Assert.IsFalse(set.ShowsIn("v5", "Level 3", out string err));
+            Assert.IsNotNull(err);
+        }
+
+        [TestMethod]
         public void JinjaTemplates_FollowChains()
         {
             // A sign hosted on a door: the host's rooms and level, and the sign's own level.

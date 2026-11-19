@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 
@@ -25,6 +26,45 @@ namespace ProjectPerseus.models
 
         /// <summary>Optional util/FilterEvaluator expression, e.g. <c>"Double" in row["Family"]</c>. Empty = all.</summary>
         public string Filter { get; set; } = "";
+
+        /// <summary>A view the set is shown in (UniqueId within its model; Name kept for display and other models).</summary>
+        public class ViewRef
+        {
+            public string UniqueId { get; set; } = "";
+            public string Name { get; set; } = "";
+        }
+
+        /// <summary>
+        /// Views the set is shown in, picked in the panel. With ViewRegex: shown in a view that is picked OR whose name
+        /// matches. Neither = every view.
+        /// </summary>
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public List<ViewRef> Views { get; set; } = new List<ViewRef>();
+
+        /// <summary>Regular expression on the view name (case-insensitive), e.g. "^WF " or "Wayfinding". Blank = none.</summary>
+        public string ViewRegex { get; set; } = "";
+
+        [JsonIgnore]
+        public bool AllViews => (Views == null || Views.Count == 0) && string.IsNullOrWhiteSpace(ViewRegex);
+
+        /// <summary>Whether the set is shown in a view. <paramref name="error"/> = the regex is invalid (then false).</summary>
+        public bool ShowsIn(string viewUniqueId, string viewName, out string error)
+        {
+            error = null;
+            if (AllViews) return true;
+            if (Views != null && Views.Any(v => v.UniqueId == viewUniqueId)) return true;
+            if (string.IsNullOrWhiteSpace(ViewRegex)) return false;
+            try
+            {
+                return Regex.IsMatch(viewName ?? "", ViewRegex.Trim(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                                     TimeSpan.FromMilliseconds(100));
+            }
+            catch (Exception ex)
+            {
+                error = "View name pattern: " + ex.Message;
+                return false;
+            }
+        }
 
         /// <summary>
         /// The set's parameters (instance parameter, else type parameter, else a pseudo field such as Family, Type,
@@ -73,8 +113,9 @@ namespace ProjectPerseus.models
         /// <summary>
         /// Ring / Square: around the element's projected box (icon on it). Outline: the element's own view
         /// geometry traced thick over it (icon at its top-right). IconOnly: icon (or a dot) on the centre.
+        /// Label: a text tag beside the element showing the value of the entry's parameter (multiline values wrap).
         /// </summary>
-        public enum DisplayKind { Ring, Square, Outline, IconOnly }
+        public enum DisplayKind { Ring, Square, Outline, IconOnly, Label }
 
         public class Entry
         {

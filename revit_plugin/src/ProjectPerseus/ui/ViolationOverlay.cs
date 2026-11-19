@@ -43,6 +43,8 @@ namespace ProjectPerseus.ui
         private const double BadgeSize       = 17;   // px — icon disc on a marker ring
         private const double IconOnlySize    = 20;   // px — icon disc of an icon-only marker (no ring)
         private const double IconOnlyGap     = 3;    // px between icon-only markers on the same element
+        private const double LabelMaxWidth   = 220;  // px — label tags wrap at this width
+        private const double LabelGap        = 4;    // px between the element and its labels, and between stacked labels
 
         // Soft shadow so icon-only markers read on light and dark backgrounds alike.
         private static readonly System.Windows.Media.Effects.DropShadowEffect IconShadow = MakeIconShadow();
@@ -95,6 +97,7 @@ namespace ProjectPerseus.ui
             internal FrameworkElement Ring;    // ring or square (Grid of halo + coloured shape)
             internal FrameworkElement Badge;
             internal Path OutlineHalo, OutlineLine; // Outline marks
+            internal Border Label;                  // Label marks (measured once when built)
         }
         private readonly List<MarkerVisual> _visuals = new List<MarkerVisual>();
         private readonly DispatcherTimer _positionTimer;
@@ -367,6 +370,7 @@ namespace ProjectPerseus.ui
                 if (x.Ring != y.Ring || !string.Equals(x.Icon, y.Icon, StringComparison.Ordinal)) return false;
                 if (x.Display != y.Display || x.Slot != y.Slot || x.SlotCount != y.SlotCount) return false;
                 if (!ReferenceEquals(x.Outline, y.Outline)) return false; // reused while unchanged (see controller)
+                if (!string.Equals(x.Text, y.Text, StringComparison.Ordinal)) return false;
             }
             return true;
         }
@@ -386,9 +390,17 @@ namespace ProjectPerseus.ui
             var badges = new List<FrameworkElement>();
             var outlines = new List<Path>();
             var outlineLines = new List<Path>();
+            var labels = new List<Border>();
             foreach (var m in ordered)
             {
                 var color = Color.FromRgb(m.R, m.G, m.B);
+                if (m.Display == MarkerSet.DisplayKind.Label)
+                {
+                    var label = MakeLabel(m.Text, color);
+                    labels.Add(label);
+                    _visuals.Add(new MarkerVisual { Marker = m, Label = label });
+                    continue;
+                }
                 if (m.Display == MarkerSet.DisplayKind.IconOnly)
                 {
                     // No shape: the icon (or, without one, a plain dot) is the whole marker.
@@ -462,7 +474,43 @@ namespace ProjectPerseus.ui
             foreach (var o in outlines) _markerCanvas.Children.Add(o);
             foreach (var o in outlineLines) _markerCanvas.Children.Add(o);
             foreach (var b in badges) _markerCanvas.Children.Add(b);
+            foreach (var l in labels) _markerCanvas.Children.Add(l); // text tags on top so they stay readable
             PositionMarkers();
+        }
+
+        private static readonly Brush LabelInk = MakeFrozen(Color.FromRgb(0x1F, 0x29, 0x37));
+        private static readonly Brush LabelFill = MakeFrozen(Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF));
+
+        private static Brush MakeFrozen(Color c)
+        {
+            var b = new SolidColorBrush(c);
+            b.Freeze();
+            return b;
+        }
+
+        // A text tag: white card, thick left edge in the entry's colour, wrapped text. Measured here so stacking needs
+        // no layout pass.
+        private static Border MakeLabel(string text, Color color)
+        {
+            var edge = new SolidColorBrush(color);
+            edge.Freeze();
+            var label = new Border
+            {
+                Child = new TextBlock
+                {
+                    Text = text ?? "", FontSize = 11, Foreground = LabelInk, TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = LabelMaxWidth, FontFamily = new FontFamily("Segoe UI"),
+                },
+                Background = LabelFill,
+                BorderBrush = edge,
+                BorderThickness = new Thickness(3, 1, 1, 1),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(4, 1, 5, 2),
+                IsHitTestVisible = false,
+                Effect = IconShadow,
+            };
+            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return label;
         }
 
         private void PositionMarkers()
@@ -470,9 +518,38 @@ namespace ProjectPerseus.ui
             if (!_hasMarkers) return;
             if (_vpWidth <= 0 || _vpHeight <= 0) return;
 
+            // Labels: beside the element's right edge (left edge when that runs off the view), stacked downwards
+            // from its top in slot order.
+            var labelGroups = new Dictionary<long, List<MarkerVisual>>();
+            foreach (var v in _visuals)
+            {
+                if (v.Label == null) continue;
+                long k = ((long)Math.Round(v.Marker.NormX * 1e6) << 32) ^ (long)Math.Round(v.Marker.NormY * 1e6);
+                if (!labelGroups.TryGetValue(k, out var g)) labelGroups[k] = g = new List<MarkerVisual>();
+                g.Add(v);
+            }
+            foreach (var g in labelGroups.Values)
+            {
+                g.Sort((a, b) => a.Marker.Slot.CompareTo(b.Marker.Slot));
+                var m0 = g[0].Marker;
+                double cx = _vpLeft + m0.NormX * _vpWidth, cy = _vpTop + m0.NormY * _vpHeight;
+                double wPx = m0.NormW * _vpWidth, hPx = m0.NormH * _vpHeight;
+                double y = cy - Math.Min(hPx, 2000) / 2;
+                foreach (var v in g)
+                {
+                    var size = v.Label.DesiredSize;
+                    double x = cx + Math.Min(wPx, 2000) / 2 + LabelGap;
+                    if (x + size.Width > _vpLeft + _vpWidth) x = cx - Math.Min(wPx, 2000) / 2 - LabelGap - size.Width;
+                    Canvas.SetLeft(v.Label, x);
+                    Canvas.SetTop(v.Label, y);
+                    y += size.Height + LabelGap / 2;
+                }
+            }
+
             foreach (var v in _visuals)
             {
                 var m = v.Marker;
+                if (v.Label != null) continue;
                 double cx = _vpLeft + m.NormX * _vpWidth;
                 double cy = _vpTop  + m.NormY * _vpHeight;
                 double wPx = m.NormW * _vpWidth;
@@ -566,6 +643,17 @@ namespace ProjectPerseus.ui
         {
             bool hasIcon = !string.IsNullOrEmpty(icon) && MarkerIcons.Get(icon) != null;
             if (display == MarkerSet.DisplayKind.IconOnly) return MarkerIcons.Badge(icon, color, 15);
+            if (display == MarkerSet.DisplayKind.Label)
+            {
+                var edge = new SolidColorBrush(color);
+                edge.Freeze();
+                return new Border
+                {
+                    Width = 22, Height = 15, IsHitTestVisible = false, Background = LabelFill, BorderBrush = edge,
+                    BorderThickness = new Thickness(3, 1, 1, 1), CornerRadius = new CornerRadius(2),
+                    Child = new TextBlock { Text = "Aa", FontSize = 9, Foreground = LabelInk, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                };
+            }
 
             var brush = new SolidColorBrush(color);
             brush.Freeze();

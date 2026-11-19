@@ -490,6 +490,9 @@ ProjectPerseus/
 │                                 FilteredElementCollector(host, viewId, linkInstanceId); 2023: whole category + view-depth
 │                                 check (ViewDepth). Nested links not included. Hit.Key = "h:<id>" / "l<instance>:<id>".
 │                                 Pseudo field "Model" = the element's model title (for filtering by link).
+│                                 Display Label (2026-11-19): the matched value as a text tag beside the element (Hit.Text, stacked by
+│                                 Slot; drawn by ui/ViolationOverlay.MakeLabel). Sets can be limited to views: MarkerSet.Views (picked,
+│                                 by UniqueId) + ViewRegex on the view name (ShowsIn); other views skip the set (SetResult.NotInView).
 ├── federator/                    NEW (2026-11-08, branch develop/federator). Consultant link comparison; plan in
 │   │                             /FEDERATOR_PLAN.md. Old version = archived .rvt the user picks; results + comments are
 │   │                             stored in the host model as plugin data (Extensible Storage). No UI yet (F4 next).
