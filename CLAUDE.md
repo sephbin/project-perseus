@@ -152,7 +152,9 @@ ProjectPerseus/
 │   ├── SentryContext.cs          IDisposable scope: SentrySdk.Init/Close around a
 │   │                             `using (...)` block. Used in SyncOrchestrator.doOnSync.
 │   ├── LogPackager.cs            NEW (2026-11-13). Zips logs\*.log (shared read) + perseus-info.txt into the user's Downloads
-│   │                             (known folder) as perseus-logs-<user>-<yyyyMMdd-HHmmss>.zip.
+│   │                             (known folder) as perseus-logs-<user>-<yyyyMMdd-HHmmss>.zip. Also (2026-11-19) Revit journals of
+│   │                             the last 3 days (journals/, nested RevitJournals) and a Windows Event Log crash snapshot via wevtutil
+│   │                             (events/ crashes.evtx + crashes.txt + low-memory.txt, nested WindowsEventSnapshot).
 │   └── CrashTrace.cs             NEW (2026-11-05). Installed first in Plugin.OnStartup: logs
 │                                 AppDomain.UnhandledException (with "Perseus on stack: yes/no") and our own unobserved
 │                                 Task exceptions. Can't stop a background-thread exception killing Revit; leaves a trace.

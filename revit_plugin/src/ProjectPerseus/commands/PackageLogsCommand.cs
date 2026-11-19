@@ -23,7 +23,8 @@ namespace ProjectPerseus.commands
                 catch (Exception e) { Log.Info($"[LogPackager] could not open Explorer: {e.Message}"); }
 
                 TaskDialog.Show("Perseus logs",
-                    $"Packaged {r.Files} log file(s) into:\n\n{r.ZipPath}\n\nSend this file to the Perseus team.");
+                    $"Packaged {r.Files} Perseus log(s), {r.Journals} Revit journal file(s) and Windows crash events into:\n\n" +
+                    $"{r.ZipPath}\n\nSend this file to the Perseus team.");
                 return Result.Succeeded;
             }
             catch (Exception e)
