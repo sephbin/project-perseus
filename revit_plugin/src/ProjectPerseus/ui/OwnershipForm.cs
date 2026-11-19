@@ -28,6 +28,11 @@ namespace ProjectPerseus.ui
         private static readonly System.Drawing.Color Cyan = System.Drawing.Color.FromArgb(0x00, 0xA0, 0xE0);
         private static readonly System.Drawing.Color Muted = System.Drawing.Color.FromArgb(0x6B, 0x75, 0x85);
         private const int AutoExpandLimit = 40; // expand every group when the tree holds this few elements
+        // A group lists at most this many elements (the rest: "… N more"; right-click the group still selects all).
+        private const int MaxLeavesPerGroup = 500;
+        // Revit dies when the process reaches 10,000 GDI objects; the panel stops redrawing well before that.
+        private const int GdiPauseThreshold = 7000;
+        private const string PlaceholderName = "__placeholder";
 
         // Size and position survive closing and reopening within the session.
         private static System.Drawing.Rectangle? _lastBounds;
@@ -42,7 +47,8 @@ namespace ProjectPerseus.ui
         private TreeView _tree;
         private Label _footnote;
         private TableLayoutPanel _layout;
-        private Font _leafFont;
+        private Font _rowBoldFont;
+        private bool _gdiPausedLogged;
 
         public OwnershipForm(OwnershipSnapshot snapshot)
         {
@@ -175,11 +181,13 @@ namespace ProjectPerseus.ui
                 ShowLines = false,
                 ItemHeight = 20,
                 BorderStyle = BorderStyle.FixedSingle,
-                // Bold tree font: WinForms clips node text drawn wider than the tree font, so group nodes use the
-                // tree's bold font and leaves get the narrower regular LeafFont.
-                Font = new Font(Font, FontStyle.Bold),
+                // No per-node fonts (TreeNode.NodeFont): WinForms creates a GDI font handle for every node it draws
+                // or measures with one and only frees it on GC. On a 940k-element model with ~23k owned elements that
+                // took Revit from 1.5k to the 10k GDI limit in 5 s and crashed it (2026-11-19). Groups are told
+                // apart by colour (ForeColor costs no handle) and their element lists are filled on expand.
             };
-            _leafFont = new Font(Font, FontStyle.Regular);
+            _rowBoldFont = new Font(Font, FontStyle.Bold);
+            _tree.BeforeExpand += (s, e) => FillGroup(e.Node);
             _tree.NodeMouseDoubleClick += (s, e) => { if (e.Node.Tag is OwnershipSnapshot.ElementRow) SelectInRevit(e.Node); };
             _tree.NodeMouseClick += (s, e) => { if (e.Button == MouseButtons.Right) _tree.SelectedNode = e.Node; };
             _tree.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter && _tree.SelectedNode != null) SelectInRevit(_tree.SelectedNode); };
@@ -292,7 +300,7 @@ namespace ProjectPerseus.ui
             row.Tag = owner;
             if (isMe)
             {
-                row.DefaultCellStyle.Font = new Font(_owners.Font, FontStyle.Bold);
+                row.DefaultCellStyle.Font = _rowBoldFont;
                 row.Cells["Owner"].Style.ForeColor = Cyan;
                 row.Cells["Owner"].ToolTipText = "You";
             }
@@ -319,6 +327,17 @@ namespace ProjectPerseus.ui
                 : $"{(OwnershipScanner.SameUser(owner, _snap.CurrentUser) ? "Yours" : owner)}: " +
                   $"{Plural(elements.Count, "element")}, {Plural(worksets.Count, "workset")}";
 
+            // Revit crashes at 10,000 GDI objects; don't redraw the tree when it is already close.
+            int gdi = GdiObjects();
+            if (gdi > GdiPauseThreshold)
+            {
+                if (!_gdiPausedLogged) Log.Warn($"[OwnershipForm] tree not redrawn: Revit is using {gdi} GDI objects");
+                _gdiPausedLogged = true;
+                _listHeading.Text += " (list paused: Revit is low on drawing resources)";
+                return;
+            }
+            _gdiPausedLogged = false;
+
             // Remember what was open, selected and scrolled to.
             var expanded = new HashSet<string>(AllNodes(_tree.Nodes).Where(n => n.IsExpanded).Select(n => n.Name));
             string selectedKey = _tree.SelectedNode?.Name;
@@ -331,7 +350,7 @@ namespace ProjectPerseus.ui
                 _tree.Nodes.Clear();
                 if (elements.Count == 0 && worksets.Count == 0)
                 {
-                    _tree.Nodes.Add(new TreeNode("Nothing owned") { ForeColor = Muted, NodeFont = _leafFont });
+                    _tree.Nodes.Add(new TreeNode("Nothing owned") { ForeColor = Muted });
                 }
                 else if (all)
                 {
@@ -358,7 +377,8 @@ namespace ProjectPerseus.ui
                 }
 
                 bool expandAll = firstFill && elements.Count <= AutoExpandLimit;
-                foreach (var n in AllNodes(_tree.Nodes))
+                // ToList: expanding a group fills its element nodes (FillGroup), changing the collections.
+                foreach (var n in AllNodes(_tree.Nodes).ToList())
                 {
                     if (n.Nodes.Count == 0) continue;
                     bool isUser = n.Name.StartsWith("u:", StringComparison.Ordinal) && n.Parent == null;
@@ -381,38 +401,75 @@ namespace ProjectPerseus.ui
             if (worksets.Count > 0)
             {
                 var group = new TreeNode($"Worksets   {worksets.Count}") { Name = prefix + "|ws" };
+                group.ForeColor = GroupColor;
                 foreach (var w in worksets.OrderBy(w => w.Name))
                     group.Nodes.Add(new TreeNode(w.Name)
                     {
                         Name = prefix + "|ws|" + w.Name,
-                        NodeFont = _leafFont,
                         ToolTipText = $"{w.Kind} workset, owned by {w.Owner}.\nEvery element on it is editable only by {w.Owner}.",
                     });
                 into.Add(group);
             }
 
+            // Element nodes are only created when a group is expanded (FillGroup): one placeholder child each until
+            // then, so a model with tens of thousands of owned elements builds a tree of a few dozen nodes.
             foreach (var cat in elements.GroupBy(e => e.Category).OrderBy(g => g.Key))
             {
-                var group = new TreeNode($"{cat.Key}   {cat.Count()}")
+                var group = new TreeNode($"{cat.Key}   {cat.Count():N0}")
                 {
                     Name = prefix + "|c|" + cat.Key,
                     Tag = cat.ToList(),
+                    ForeColor = GroupColor,
                     ToolTipText = "Right-click to select all of these in Revit.",
                 };
-                foreach (var e in cat.OrderBy(x => ShortName(x)).ThenBy(x => x.Id))
+                group.Nodes.Add(new TreeNode("…") { Name = PlaceholderName, ForeColor = Muted });
+                into.Add(group);
+            }
+        }
+
+        private static readonly System.Drawing.Color GroupColor = System.Drawing.Color.FromArgb(0x1F, 0x29, 0x37);
+
+        // Fills a category group's element nodes the first time it is expanded (at most MaxLeavesPerGroup).
+        private void FillGroup(TreeNode group)
+        {
+            if (!(group.Tag is List<OwnershipSnapshot.ElementRow> rows)) return;
+            if (group.Nodes.Count != 1 || group.Nodes[0].Name != PlaceholderName) return;
+
+            _tree.BeginUpdate();
+            try
+            {
+                group.Nodes.Clear();
+                foreach (var e in rows.OrderBy(x => ShortName(x)).ThenBy(x => x.Id).Take(MaxLeavesPerGroup))
                 {
                     string name = string.IsNullOrEmpty(e.Name) ? e.Category : e.Name;
                     group.Nodes.Add(new TreeNode($"{ShortName(e)}  ·  {e.Id}")
                     {
                         Name = "e:" + e.Id,
                         Tag = e,
-                        NodeFont = _leafFont,
                         ToolTipText = $"{name}\nElement Id {e.Id}\nWorkset: {(string.IsNullOrEmpty(e.Workset) ? "—" : e.Workset)}\n" +
                                       $"Owner: {e.Owner}\nDouble-click to select and zoom.",
                     });
                 }
-                into.Add(group);
+                if (rows.Count > MaxLeavesPerGroup)
+                    group.Nodes.Add(new TreeNode($"… {rows.Count - MaxLeavesPerGroup:N0} more")
+                    {
+                        Name = group.Name + "|more",
+                        ForeColor = Muted,
+                        ToolTipText = "Right-click the group to select all of them in Revit.",
+                    });
             }
+            finally
+            {
+                _tree.EndUpdate();
+            }
+        }
+
+        [DllImport("user32.dll")] private static extern uint GetGuiResources(IntPtr hProcess, uint uiFlags);
+
+        private static int GdiObjects()
+        {
+            try { return (int)GetGuiResources(System.Diagnostics.Process.GetCurrentProcess().Handle, 0 /* GR_GDIOBJECTS */); }
+            catch { return 0; }
         }
 
         // "Basic Wall: Interior - 110 Partition" -> "Interior - 110 Partition"; the full name is in the tooltip.
@@ -456,10 +513,13 @@ namespace ProjectPerseus.ui
         // Selects (and zooms to) the element under the node, or every element in the group under it.
         private static void SelectInRevit(TreeNode node)
         {
+            // Category groups carry all their rows in Tag (their element nodes may not exist yet, or be capped).
             var rows = new List<OwnershipSnapshot.ElementRow>();
-            if (node.Tag is OwnershipSnapshot.ElementRow one) rows.Add(one);
-            foreach (var n in AllNodes(node.Nodes))
+            foreach (var n in new[] { node }.Concat(AllNodes(node.Nodes)))
+            {
                 if (n.Tag is OwnershipSnapshot.ElementRow r) rows.Add(r);
+                else if (n.Tag is List<OwnershipSnapshot.ElementRow> list) rows.AddRange(list);
+            }
             var ids = rows.Select(r => r.UniqueId).Distinct().ToList();
             if (ids.Count == 0) return;
 

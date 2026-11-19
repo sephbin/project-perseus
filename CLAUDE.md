@@ -460,7 +460,9 @@ ProjectPerseus/
 │   │                             right-click a group to select + zoom. Opens down the right of the Revit window; size/position
 │   │                             remembered per session. Live: OwnershipTracker pushes each recount (Push); redraws only when
 │   │                             ownership changed (signature), keeping selection, expanded groups and scroll. API work via
-│   │                             queue/OwnershipUiEvent.
+│   │                             queue/OwnershipUiEvent. Element nodes are created on group expand (max 500 per group), no
+│   │                             per-node fonts (TreeNode.NodeFont leaked GDI fonts and crashed Revit at 10k handles), tree
+│   │                             redraw paused above 7000 GDI objects.
 │   ├── StatusBadge.cs            (Renamed from OwnershipBadge.cs, 2026-11-06.) Borderless, non-activating WPF pill owned
 │   │                             by the Revit main window: colour + text + tooltip, Clicked event. Explicitly sized from its
 │   │                             measured content (not SizeToContent, which reported stale widths and made the pill jump).
