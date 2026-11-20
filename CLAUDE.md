@@ -138,7 +138,10 @@ ProjectPerseus/
 │   ├── JwtAuth.cs                Self-hosted JWT: in-memory access token + refresh via
 │   │                             TokenCache. Calls JwtLoginForm when no refresh path works.
 │   ├── PersonalAccessToken.cs    DPAPI-encrypted PAT at %AppData%\ProjectPerseus\pat.bin.
-│   └── TokenCache.cs             DPAPI-encrypted JWT refresh token at jwt_refresh.bin.
+│   ├── TokenCache.cs             DPAPI-encrypted JWT refresh token at jwt_refresh.bin.
+│   └── PairingSession.cs         NEW (2026-11-20). Browser-pairing "PerseusSession" token for edits from Revit to server
+│                                 settings (Project Rules, Auto Parameters): authorise once per server per Revit session
+│                                 (8 h server-side); Put() re-authorises once on a 401; Describe() = Django {"errors"} text.
 ├── batch/
 │   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
 ├── config/                       NEW (P4).
@@ -264,6 +267,8 @@ ProjectPerseus/
 │   ├── OpenWebHubCommand.cs      NEW (2026-11-20). Ribbon: Button_WebHub ("Perseus Web", Setup panel). Opens {BaseUrl}/source/<model
 │   │                             guid>/ in the browser = django-perseus source_hub_view (every web feature for the model + its project,
 │   │                             from the home page's feature registry); no model open -> the web app home.
+│   ├── EditAutoParametersCommand.cs NEW (2026-11-20). Ribbon: Button_EditAutoParameters ("Rules", Auto Parameters panel).
+│   │                             Opens ui/AutoParametersWindow with the model's categories; after a save offers Audit.
 │   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds ("Audit", Auto Parameters panel). Fetches fresh rules, ensures parameters,
 │   │                             runs IdAssigner over the whole model, shows a summary TaskDialog.
 │   ├── RenumberIdsCommand.cs     NEW. Ribbon: Button_RenumberIds. After a Yes/No confirmation, renumbers every ID rule
@@ -334,6 +339,12 @@ ProjectPerseus/
 │   ├── SettingsForm.Designer.cs  Partial; namespace matches SettingsForm.cs.
 │   ├── SettingsForm.resx         Embedded resource; DependentUpon resolves manifest name via
 │                                 typeof(SettingsForm).FullName, so path change is safe.
+│   ├── AutoParametersWindow.cs   NEW (2026-11-20). Modal code-only WPF editor of the Auto Parameters rules on the server
+│   │                             (same data as the web id_rules page): rule list (own + inherited project rules, Override in
+│   │                             this model) + detail form (kind, pattern + token menu, value / ID options, group, locked,
+│   │                             categories), Category prefixes grid, Perseus_ID categories. One layer at a time: This model /
+│   │                             Project defaults (GET / PUT /api/source/<guid>/id-rules/?layer=...; JSON round-tripped).
+│   │                             Saves via auth/PairingSession; local checks mirror the server's. No Revit API calls.
 │   ├── AlertsReviewForm.cs       NEW. Scrollable WinForms dialog showing compiled Revit alerts
 │   │                             (one per source group). RichTextBox list with user/verb/element/time/status.
 │   ├── EditFiltersForm.cs        NEW. WinForms dialog for editing per-schedule cascading import
@@ -770,7 +781,8 @@ ProjectPerseus/
 │   ├── PluginInfo.cs             NEW (2026-11-18). Perseus / Revit version + Windows user / machine as X-Perseus-* headers and a
 │   │                             ProjectPerseus/x.y.z User-Agent on every request (WebHelper, ProjectPerseusWeb, JwtAuth); the web app's
 │   │                             Plugin users page (django-perseus PluginClient) reads them. Init() from Plugin.OnStartup.
-│   └── WebHelper.cs              NEW (P5). Single static WebHelper. Optional scheme param
+│   └── WebHelper.cs              NEW (P5). Single static WebHelper. Optional scheme param. Error bodies kept in
+│                                 WebException.Data[ResponseBodyKey] (the stream is consumed for the log).
 │                                 (defaults "Bearer") so legacy "Token" call still works. Optional timeoutMs: default
 │                                 5 min is for background uploads; UI-thread / pre-sync calls pass SyncTimeoutMs (5 s).
 ├── Properties/                   AssemblyInfo + designer files (do not touch).
@@ -815,7 +827,8 @@ ProjectPerseus/
 │   ├── MsalAuth.cs               Entra ID interactive + silent flows.
 │   ├── JwtAuth.cs                JWT login form + refresh.
 │   ├── PersonalAccessToken.cs    PAT storage / clear.
-│   └── TokenCache.cs             Refresh-token persistence to disk.
+│   ├── TokenCache.cs             Refresh-token persistence to disk.
+│   └── PairingSession.cs         [DONE 2026-11-20] Shared browser-pairing session for settings edits.
 ├── batch/
 │   ├── BatchProcessor.cs         (namespace fixed to ProjectPerseus.batch)
 │   └── BatchFailureHandler.cs    Moved from revit/.

@@ -127,6 +127,8 @@ namespace ProjectPerseus
 
             // ---- Auto Parameters (unique IDs + values copied from project info, levels, rooms...)
             RibbonPanel idsPanel = application.CreateRibbonPanel(tabName, "Auto Parameters");
+            AddButton(idsPanel, asm, "Button_EditAutoParameters", "Rules", "EditAutoParametersCommand", "edit_rules",
+                "Edit this model's Auto Parameters rules (unique IDs and copied values), category prefixes and Perseus_ID categories, or the project's defaults, without leaving Revit. Saving asks you to authorise once in the browser per Revit session.");
             AddButton(idsPanel, asm, "Button_AuditIds", "Audit", "AuditIdsCommand", "audit_ids",
                 "Check every element against this project's Auto Parameters rules: fix missing, duplicate or invalid IDs (e.g. after copying elements outside Perseus) and bring copied values (project information, level, room...) up to date. Also fills Perseus_ID.");
             AddButton(idsPanel, asm, "Button_RenumberIds", "Renumber\nIDs", "RenumberIdsCommand", "renumber_ids",

@@ -18,11 +18,6 @@ namespace ProjectPerseus.ui
     {
         private readonly string _sourceGuid;
         private readonly string _baseUrl;
-        // Browser-pairing session per server, shared by every form instance for the Revit session: the token isn't
-        // tied to a model and lasts 8 h server-side, so reopening the form (or another model) mustn't ask again.
-        private static readonly Dictionary<string, (string Token, DateTime Expiry)> _sessions
-            = new Dictionary<string, (string, DateTime)>(StringComparer.OrdinalIgnoreCase);
-        private static readonly object _sessionsLock = new object();
         private JArray _cachedFilters = new JArray();
 
         // Source Info tab
@@ -428,40 +423,15 @@ namespace ProjectPerseus.ui
         {
             try
             {
-                string sessionToken = CachedSessionToken();
-                bool fresh = false;
-                if (sessionToken == null)
-                {
-                    sessionToken = AcquireAndCacheSessionToken();
-                    if (sessionToken == null)
-                    {
-                        InvokeIfAlive(() => { _btnSave.Enabled = true; _btnRefresh.Enabled = true; });
-                        return;
-                    }
-                    fresh = true;
-                }
-
-                SetStatus("Saving...", Color.DimGray);
                 string endpoint = $"{_baseUrl}/api/source/{_sourceGuid}/violation-settings/";
-                string body = payload.ToString(Formatting.None);
-                string response;
-                try
+                SetStatus("Saving...", Color.DimGray);
+                // Shared browser-pairing session (auth/PairingSession): authorise once per Revit session, not per form.
+                string response = PairingSession.Put(_baseUrl, _sourceGuid, endpoint, payload.ToString(Formatting.None),
+                    (text, isError) => SetStatus(text, isError ? Color.DarkRed : Color.DimGray));
+                if (response == null)
                 {
-                    response = WebHelper.Put(endpoint, sessionToken, body, "PerseusSession");
-                }
-                catch (System.Net.WebException wex) when (!fresh &&
-                    (wex.Response as System.Net.HttpWebResponse)?.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                {
-                    // Cached session revoked / expired early on the server: authorise once more and retry.
-                    Log.Info("[ProjectRulesForm] cached pairing session rejected (401); re-authorising.");
-                    ForgetSessionToken();
-                    sessionToken = AcquireAndCacheSessionToken();
-                    if (sessionToken == null)
-                    {
-                        InvokeIfAlive(() => { _btnSave.Enabled = true; _btnRefresh.Enabled = true; });
-                        return;
-                    }
-                    response = WebHelper.Put(endpoint, sessionToken, body, "PerseusSession");
+                    InvokeIfAlive(() => { _btnSave.Enabled = true; _btnRefresh.Enabled = true; });
+                    return;
                 }
 
                 Log.Info($"[ProjectRulesForm] violation settings saved for {_sourceGuid}");
@@ -474,94 +444,11 @@ namespace ProjectPerseus.ui
             }
             catch (Exception ex)
             {
-                Log.Error($"[ProjectRulesForm] save failed: {ex.Message}");
-                SetStatus($"Save failed: {ex.Message}", Color.DarkRed);
+                string msg = PairingSession.Describe(ex);
+                Log.Error($"[ProjectRulesForm] save failed: {msg}");
+                SetStatus($"Save failed: {msg}", Color.DarkRed);
                 InvokeIfAlive(() => { _btnSave.Enabled = true; _btnRefresh.Enabled = true; });
             }
-        }
-
-        private string CachedSessionToken()
-        {
-            lock (_sessionsLock)
-                return _sessions.TryGetValue(_baseUrl, out var s) && DateTime.UtcNow < s.Expiry ? s.Token : null;
-        }
-
-        private void ForgetSessionToken()
-        {
-            lock (_sessionsLock) _sessions.Remove(_baseUrl);
-        }
-
-        private string AcquireAndCacheSessionToken()
-        {
-            string token = AcquireSessionTokenBackground();
-            if (token != null)
-                lock (_sessionsLock)
-                    _sessions[_baseUrl] = (token, DateTime.UtcNow.AddHours(7.5)); // server: 8 h; renew a bit early
-            return token;
-        }
-
-        private string AcquireSessionTokenBackground()
-        {
-            SetStatus("Initiating browser authorization...", Color.DimGray);
-
-            string code, pairUrl;
-            try
-            {
-                string body = JsonConvert.SerializeObject(new { source_guid = _sourceGuid });
-                string initJson = WebHelper.Post($"{_baseUrl}/api/auth/pair/initiate/", null, body);
-                var initData = JObject.Parse(initJson);
-                code    = initData["code"]?.ToString();
-                pairUrl = initData["pair_url"]?.ToString();
-            }
-            catch (Exception ex)
-            {
-                SetStatus($"Could not initiate authorization: {ex.Message}", Color.DarkRed);
-                return null;
-            }
-
-            if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(pairUrl))
-            {
-                SetStatus("Invalid pairing response from server.", Color.DarkRed);
-                return null;
-            }
-
-            Process.Start(new ProcessStartInfo(pairUrl) { UseShellExecute = true });
-            SetStatus("Opened browser — please authorize then return here.", Color.DimGray);
-
-            var deadline = DateTime.UtcNow.AddMinutes(3);
-            while (DateTime.UtcNow < deadline)
-            {
-                Thread.Sleep(2500);
-                try
-                {
-                    string statusJson = WebHelper.Get(
-                        $"{_baseUrl}/api/auth/pair/{code}/status/", null, null);
-                    var statusData = JObject.Parse(statusJson);
-                    string status  = statusData["status"]?.ToString();
-                    string token   = statusData["session_token"]?.ToString();
-
-                    if (status == "authenticated" && !string.IsNullOrEmpty(token))
-                    {
-                        SetStatus("Authorized.", Color.DarkGreen);
-                        return token;
-                    }
-                    if (status == "expired")
-                    {
-                        SetStatus("Authorization request expired. Please try again.", Color.DarkRed);
-                        return null;
-                    }
-                }
-                catch
-                {
-                    // transient — keep polling
-                }
-
-                int remaining = Math.Max(0, (int)(deadline - DateTime.UtcNow).TotalSeconds);
-                SetStatus($"Waiting for browser authorization... ({remaining}s)", Color.DimGray);
-            }
-
-            SetStatus("Authorization timed out. Please try again.", Color.DarkRed);
-            return null;
         }
 
         // ── Build PUT payload ───────────────────────────────────────────────

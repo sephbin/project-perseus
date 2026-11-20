@@ -20,6 +20,8 @@ namespace ProjectPerseus.web
         public const int DefaultTimeoutMs = 300000;
         // For calls made while Revit's UI thread waits (pre-sync checks): fail fast, the sync then proceeds.
         public const int SyncTimeoutMs = 5000;
+        // WebException.Data key holding the error response body (read here for the log, so the stream is gone).
+        public const string ResponseBodyKey = "PerseusResponseBody";
 
         public static string Post(string endpoint, string apiToken, string json, string scheme = "Bearer", int timeoutMs = DefaultTimeoutMs)
         {
@@ -76,6 +78,8 @@ namespace ProjectPerseus.web
                     {
                         var error = reader.ReadToEnd();
                         Log.Error($"[WebHelper] {method} {endpoint} failed: {error}");
+                        // The stream is now consumed: keep the body for callers that show it (validation errors).
+                        try { ex.Data[ResponseBodyKey] = error; } catch { }
                     }
                 }
 

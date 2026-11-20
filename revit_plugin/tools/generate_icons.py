@@ -213,6 +213,14 @@ def _log_end(cx, cy):
             f'<circle cx="{cx}" cy="{cy}" r=".9" fill="{{a}}" stroke="none"/>')
 ICONS["package_logs"] = _log_end(9, 22.5) + _log_end(23, 22.5) + _log_end(16, 10.5)
 
+# ---- Edit Auto Parameters rules: a short rule list (ID lines) with a pencil
+ICONS["edit_rules"] = (
+    '<path d="M5 8h4M5 14h4M5 20h4" fill="none" stroke="{i}"/>'
+    '<path d="M12 8h9M12 14h6M12 20h3" fill="none" stroke="{i}"/>'
+    '<path d="M18.5 27.5l.8-4.3 8.4-8.4a2.1 2.1 0 0 1 3 3l-8.4 8.4z" fill="{bg}" stroke="{a}" stroke-width="1.9"/>'
+    '<path d="M25.5 17l3 3" fill="none" stroke="{a}" stroke-width="1.6"/>'
+)
+
 # ---- Web hub: a browser window with an "open outside" arrow (this model's page on the Perseus web app)
 ICONS["web_hub"] = (
     '<path d="M17 5H6a2 2 0 0 0-2 2v17a2 2 0 0 0 2 2h17a2 2 0 0 0 2-2V15" fill="none" stroke="{i}"/>'
@@ -223,7 +231,7 @@ ICONS["web_hub"] = (
 
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
-    ("Element IDs",  ["audit_ids", "renumber_ids"]),
+    ("Element IDs",  ["edit_rules", "audit_ids", "renumber_ids"]),
     ("Key Schedules",["schedule_manage", "schedule_export", "schedule_import"]),
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
