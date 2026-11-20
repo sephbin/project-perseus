@@ -146,7 +146,13 @@ namespace ProjectPerseus.ui
             _save = Btn("Save", (s, e) => Save());
             _save.FontWeight = FontWeights.SemiBold;
             var close = Btn("Close", (s, e) => Close());
-            buttons.Children.Add(_reload); buttons.Children.Add(_save); buttons.Children.Add(close);
+            // The web app's guide to tokens, Jinja templates, transforms and recipes (django-perseus templating_help_view).
+            var guide = Btn("Templating guide", (s, e) =>
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo($"{_baseUrl}/help/templating/") { UseShellExecute = true }); }
+                catch (Exception ex) { SetStatus($"Could not open the browser: {ex.Message}", true); }
+            });
+            buttons.Children.Add(guide); buttons.Children.Add(_reload); buttons.Children.Add(_save); buttons.Children.Add(close);
             _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Foreground = Muted };
             bottom.Children.Add(_status);
 
@@ -223,7 +229,8 @@ namespace ProjectPerseus.ui
             patternBox.Children.Add(tokenBtn);
             _detail.Children.Add(Field("Pattern", patternBox,
                 "Tokens: {CategoryPrefix} {Workset} {Increment|N} and {Level|Host|Room|Space|ToRoom|FromRoom|Type|Group|Project|Element.Parameter}; " +
-                "{A|B} = first with a value. Value rules may be a Jinja template ({{ Element.Mark }}, {% if %}…{% endif %})."));
+                "{A|B} = first with a value. Value rules may be a Jinja template ({{ Element.Mark }}, {% if %}…{% endif %}). " +
+                "Examples and recipes: the Templating guide button below."));
 
             // value-only
             var valuePanel = new StackPanel();
