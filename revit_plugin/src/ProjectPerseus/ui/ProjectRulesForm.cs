@@ -18,8 +18,11 @@ namespace ProjectPerseus.ui
     {
         private readonly string _sourceGuid;
         private readonly string _baseUrl;
-        private string _sessionToken;
-        private DateTime _sessionExpiry = DateTime.MinValue;
+        // Browser-pairing session per server, shared by every form instance for the Revit session: the token isn't
+        // tied to a model and lasts 8 h server-side, so reopening the form (or another model) mustn't ask again.
+        private static readonly Dictionary<string, (string Token, DateTime Expiry)> _sessions
+            = new Dictionary<string, (string, DateTime)>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _sessionsLock = new object();
         private JArray _cachedFilters = new JArray();
 
         // Source Info tab
@@ -425,23 +428,47 @@ namespace ProjectPerseus.ui
         {
             try
             {
-                if (string.IsNullOrEmpty(_sessionToken) || DateTime.UtcNow >= _sessionExpiry)
+                string sessionToken = CachedSessionToken();
+                bool fresh = false;
+                if (sessionToken == null)
                 {
-                    string token = AcquireSessionTokenBackground();
-                    if (token == null)
+                    sessionToken = AcquireAndCacheSessionToken();
+                    if (sessionToken == null)
                     {
                         InvokeIfAlive(() => { _btnSave.Enabled = true; _btnRefresh.Enabled = true; });
                         return;
                     }
-                    _sessionToken  = token;
-                    _sessionExpiry = DateTime.UtcNow.AddHours(8);
+                    fresh = true;
                 }
 
                 SetStatus("Saving...", Color.DimGray);
                 string endpoint = $"{_baseUrl}/api/source/{_sourceGuid}/violation-settings/";
-                WebHelper.Put(endpoint, _sessionToken, payload.ToString(Formatting.None), "PerseusSession");
+                string body = payload.ToString(Formatting.None);
+                string response;
+                try
+                {
+                    response = WebHelper.Put(endpoint, sessionToken, body, "PerseusSession");
+                }
+                catch (System.Net.WebException wex) when (!fresh &&
+                    (wex.Response as System.Net.HttpWebResponse)?.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    // Cached session revoked / expired early on the server: authorise once more and retry.
+                    Log.Info("[ProjectRulesForm] cached pairing session rejected (401); re-authorising.");
+                    ForgetSessionToken();
+                    sessionToken = AcquireAndCacheSessionToken();
+                    if (sessionToken == null)
+                    {
+                        InvokeIfAlive(() => { _btnSave.Enabled = true; _btnRefresh.Enabled = true; });
+                        return;
+                    }
+                    response = WebHelper.Put(endpoint, sessionToken, body, "PerseusSession");
+                }
 
                 Log.Info($"[ProjectRulesForm] violation settings saved for {_sourceGuid}");
+                // The detector reads ViolationSettingsCache; without this the new rules only applied after the
+                // next document open or a 5-minute stale refresh, so a link unload / door delete right after
+                // saving went unenforced.
+                violations.ViolationSettingsCache.Store(_sourceGuid, response);
                 SetStatus("Saved. Refreshing...", Color.DarkGreen);
                 LoadDataBackground();
             }
@@ -451,6 +478,26 @@ namespace ProjectPerseus.ui
                 SetStatus($"Save failed: {ex.Message}", Color.DarkRed);
                 InvokeIfAlive(() => { _btnSave.Enabled = true; _btnRefresh.Enabled = true; });
             }
+        }
+
+        private string CachedSessionToken()
+        {
+            lock (_sessionsLock)
+                return _sessions.TryGetValue(_baseUrl, out var s) && DateTime.UtcNow < s.Expiry ? s.Token : null;
+        }
+
+        private void ForgetSessionToken()
+        {
+            lock (_sessionsLock) _sessions.Remove(_baseUrl);
+        }
+
+        private string AcquireAndCacheSessionToken()
+        {
+            string token = AcquireSessionTokenBackground();
+            if (token != null)
+                lock (_sessionsLock)
+                    _sessions[_baseUrl] = (token, DateTime.UtcNow.AddHours(7.5)); // server: 8 h; renew a bit early
+            return token;
         }
 
         private string AcquireSessionTokenBackground()

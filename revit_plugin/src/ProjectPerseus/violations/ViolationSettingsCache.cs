@@ -53,6 +53,29 @@ namespace ProjectPerseus.violations
             }
         }
 
+        // Replaces the cached settings with a server response already in hand (the PUT from ProjectRulesForm
+        // returns the saved settings), so new rules apply immediately instead of after a reload.
+        internal static void Store(string docGuid, string json)
+        {
+            if (string.IsNullOrEmpty(docGuid) || string.IsNullOrEmpty(json)) return;
+            try
+            {
+                var settings = JsonConvert.DeserializeObject<ViolationSettings>(json);
+                if (settings == null) return;
+                _cache[docGuid] = (settings, DateTime.UtcNow);
+                Log.Info($"[ViolationSettingsCache] Updated after save for {docGuid}: " +
+                         $"{settings.ProtectedCategories.Count} categories, " +
+                         $"{settings.ProtectedElementIds.Count} element IDs, " +
+                         $"delete edit/sync = {settings.ResolveEditStyle(models.ActionType.ElementDeleted)}/" +
+                         $"{settings.ResolveSyncStyle(models.ActionType.ElementDeleted)}, " +
+                         $"link unload sync = {settings.ResolveSyncStyle(models.ActionType.LinkUnload)}");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[ViolationSettingsCache] Store failed for {docGuid}: {ex.Message}");
+            }
+        }
+
         internal static ViolationSettings Get(string docGuid) =>
             _cache.TryGetValue(docGuid, out var entry) ? entry.Settings : null;
     }
