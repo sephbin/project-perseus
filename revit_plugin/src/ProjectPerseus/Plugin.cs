@@ -178,6 +178,8 @@ namespace ProjectPerseus
             RibbonPanel setupPanel = application.CreateRibbonPanel(tabName, "Setup");
             AddButton(setupPanel, asm, "Button_ProjectRules", "Project\nRules", "ProjectRulesCommand", "project_rules",
                 "View and edit this model's violation enforcement rules and source settings. Refresh to pull the latest configuration from the server.");
+            AddButton(setupPanel, asm, "Button_WebHub", "Perseus\nWeb", "OpenWebHubCommand", "web_hub",
+                "Opens this model's page on the Perseus web app in your browser: every web feature for the model and its project (parameter editor, history, violations, rules, auto parameters, alerts...) in one place.");
             AddButton(setupPanel, asm, "Button_Settings", "Settings", "OpenSettingsCommand", "settings",
                 "Change Perseus Settings like: API Token and Upload URL");
 

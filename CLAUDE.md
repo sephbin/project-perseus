@@ -261,6 +261,9 @@ ProjectPerseus/
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── PackageLogsCommand.cs     NEW (2026-11-13). Ribbon: Button_PackageLogs (Setup stack). logging/LogPackager -> zip in
 │   │                             Downloads, selects it in Explorer.
+│   ├── OpenWebHubCommand.cs      NEW (2026-11-20). Ribbon: Button_WebHub ("Perseus Web", Setup panel). Opens {BaseUrl}/source/<model
+│   │                             guid>/ in the browser = django-perseus source_hub_view (every web feature for the model + its project,
+│   │                             from the home page's feature registry); no model open -> the web app home.
 │   ├── AuditIdsCommand.cs        NEW. Ribbon: Button_AuditIds ("Audit", Auto Parameters panel). Fetches fresh rules, ensures parameters,
 │   │                             runs IdAssigner over the whole model, shows a summary TaskDialog.
 │   ├── RenumberIdsCommand.cs     NEW. Ribbon: Button_RenumberIds. After a Yes/No confirmation, renumbers every ID rule

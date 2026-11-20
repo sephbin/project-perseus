@@ -279,6 +279,7 @@
     <Compile Include="commands\FreefallCommand.cs" />
     <Compile Include="commands\DiagnoseElementCommand.cs" />
     <Compile Include="commands\PackageLogsCommand.cs" />
+    <Compile Include="commands\OpenWebHubCommand.cs" />
     <Compile Include="logging\LogPackager.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
     <Compile Include="commands\ExportKeyScheduleCommand.cs" />
@@ -604,6 +605,8 @@
     <Resource Include="resources\diagnose_dark.png" />
     <Resource Include="resources\package_logs.png" />
     <Resource Include="resources\package_logs_dark.png" />
+    <Resource Include="resources\web_hub.png" />
+    <Resource Include="resources\web_hub_dark.png" />
     <Resource Include="resources\about.png" />
     <Resource Include="resources\about_dark.png" />
   </ItemGroup>

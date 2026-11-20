@@ -213,6 +213,14 @@ def _log_end(cx, cy):
             f'<circle cx="{cx}" cy="{cy}" r=".9" fill="{{a}}" stroke="none"/>')
 ICONS["package_logs"] = _log_end(9, 22.5) + _log_end(23, 22.5) + _log_end(16, 10.5)
 
+# ---- Web hub: a browser window with an "open outside" arrow (this model's page on the Perseus web app)
+ICONS["web_hub"] = (
+    '<path d="M17 5H6a2 2 0 0 0-2 2v17a2 2 0 0 0 2 2h17a2 2 0 0 0 2-2V15" fill="none" stroke="{i}"/>'
+    '<path d="M4 10.5h9" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<path d="M8 15h8M8 19h5" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<path d="M21 4h7v7M28 4L17.5 14.5" fill="none" stroke="{a}" stroke-width="2.2"/>'
+)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["audit_ids", "renumber_ids"]),
@@ -220,7 +228,7 @@ GROUPS = [
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
     ("Federator",    ["federator", "family_mapping", "link_sync", "review_views"]),
-    ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "package_logs", "about"]),
+    ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "package_logs", "web_hub", "about"]),
 ]
 
 THEMES = {
