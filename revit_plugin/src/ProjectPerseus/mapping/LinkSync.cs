@@ -99,9 +99,8 @@ namespace ProjectPerseus.mapping
 
         private static void ClearLinkParameters(Element el)
         {
-            foreach (var name in new[] { SharedParameterManager.LinkSourceName, SharedParameterManager.LinkStatusName, SharedParameterManager.LinkDecisionName,
-                                         SharedParameterManager.LinkCommentName, SharedParameterManager.LinkAssigneeName })
-                Set(el, name, "");
+            foreach (var key in naming.ParameterNames.LinkSyncKeys)
+                Set(el, naming.ParameterNames.For(el.Document, key), "");
         }
 
         private static void RememberMany(Document doc, string key, ICollection<string> uids, bool add, string user)
@@ -819,9 +818,9 @@ namespace ProjectPerseus.mapping
         /// <summary>Perseus_LinkSource = "link · consultant id", Perseus_LinkStatus (null = In sync). Only writes changed values.</summary>
         private static void SetParameters(string decision, Element ours, string linkName, string sourceId, string status)
         {
-            Set(ours, SharedParameterManager.LinkSourceName, $"{linkName} · {sourceId}");
-            Set(ours, SharedParameterManager.LinkStatusName, status ?? LinkSyncPlanner.Status(SyncKind.InSync));
-            if (decision != null) Set(ours, SharedParameterManager.LinkDecisionName, decision);
+            Set(ours, naming.ParameterNames.For(ours.Document, naming.ParameterNames.LinkSource), $"{linkName} · {sourceId}");
+            Set(ours, naming.ParameterNames.For(ours.Document, naming.ParameterNames.LinkStatus), status ?? LinkSyncPlanner.Status(SyncKind.InSync));
+            if (decision != null) Set(ours, naming.ParameterNames.For(ours.Document, naming.ParameterNames.LinkDecision), decision);
         }
 
         /// <summary>Perseus_LinkDecision: "Rejected (moved) · A.Butler · 2026-11-13 14:02".</summary>
@@ -849,12 +848,12 @@ namespace ProjectPerseus.mapping
                     var notes = LinkSyncNotes.For(i, index);
                     var c = notes.LastComment;
                     string comment = c == null ? "" : $"{c.Author}: {c.Text}";
-                    bool changes = el.LookupParameter(SharedParameterManager.LinkCommentName)?.AsString() != comment ||
-                                   el.LookupParameter(SharedParameterManager.LinkAssigneeName)?.AsString() != notes.Assignee;
+                    bool changes = el.LookupParameter(naming.ParameterNames.For(doc, naming.ParameterNames.LinkComment))?.AsString() != comment ||
+                                   el.LookupParameter(naming.ParameterNames.For(doc, naming.ParameterNames.LinkAssignee))?.AsString() != notes.Assignee;
                     if (!changes) continue;
                     if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.Id, out _) == CheckoutStatus.OwnedByOtherUser) { skipped++; continue; }
-                    Set(el, SharedParameterManager.LinkCommentName, comment);
-                    Set(el, SharedParameterManager.LinkAssigneeName, notes.Assignee ?? "");
+                    Set(el, naming.ParameterNames.For(doc, naming.ParameterNames.LinkComment), comment);
+                    Set(el, naming.ParameterNames.For(doc, naming.ParameterNames.LinkAssignee), notes.Assignee ?? "");
                     written++;
                 }
                 tx.Commit();
@@ -900,19 +899,19 @@ namespace ProjectPerseus.mapping
                     var first = g.First();
                     links.TryGetValue(first.LinkUid ?? "", out var link);
                     string source = $"{link?.Name ?? "?"} · {(first.Kind == SyncKind.Replaced ? first.SourceId : first.SourceId)}";
-                    var p1 = el.LookupParameter(SharedParameterManager.LinkSourceName);
-                    var p2 = el.LookupParameter(SharedParameterManager.LinkStatusName);
+                    var p1 = el.LookupParameter(naming.ParameterNames.For(doc, naming.ParameterNames.LinkSource));
+                    var p2 = el.LookupParameter(naming.ParameterNames.For(doc, naming.ParameterNames.LinkStatus));
                     var last = index == null ? null : LinkSyncNotes.For(first, index).LastDecision;
                     string decision = last == null ? null
                         : DecisionText(Enum.TryParse<SyncKind>(last.Kind ?? "", out var lk) ? lk : SyncKind.InSync, last.Approved, last.Author, last.Utc.ToLocalTime());
-                    var p3 = el.LookupParameter(SharedParameterManager.LinkDecisionName);
+                    var p3 = el.LookupParameter(naming.ParameterNames.For(doc, naming.ParameterNames.LinkDecision));
                     bool changes = (p1 != null && p1.AsString() != source) || (p2 != null && p2.AsString() != status) ||
                                    (decision != null && p3 != null && p3.AsString() != decision);
                     if (!changes) continue;
                     if (doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, el.Id, out _) == CheckoutStatus.OwnedByOtherUser) { skipped++; continue; }
-                    Set(el, SharedParameterManager.LinkSourceName, source);
-                    Set(el, SharedParameterManager.LinkStatusName, status);
-                    if (decision != null) Set(el, SharedParameterManager.LinkDecisionName, decision);
+                    Set(el, naming.ParameterNames.For(doc, naming.ParameterNames.LinkSource), source);
+                    Set(el, naming.ParameterNames.For(doc, naming.ParameterNames.LinkStatus), status);
+                    if (decision != null) Set(el, naming.ParameterNames.For(doc, naming.ParameterNames.LinkDecision), decision);
                     written++;
                 }
                 tx.Commit();

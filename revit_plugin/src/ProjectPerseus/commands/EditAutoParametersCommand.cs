@@ -46,7 +46,8 @@ namespace ProjectPerseus.commands
                     return Result.Cancelled;
                 }
 
-                var dlg = new AutoParametersWindow(baseUrl, docGuid, doc.Title, ModelCategories(doc));
+                var reserved = naming.ParameterNames.Keys.SelectMany(k => new[] { naming.ParameterNames.For(doc, k.Key), naming.ParameterNames.Wanted(doc, k.Key) });
+                var dlg = new AutoParametersWindow(baseUrl, docGuid, doc.Title, ModelCategories(doc), reserved);
                 new System.Windows.Interop.WindowInteropHelper(dlg).Owner = uiapp.MainWindowHandle;
                 dlg.ShowDialog();
                 Log.Info($"[EditAutoParametersCommand] editor closed for {docGuid}; saved: {dlg.Saved}");

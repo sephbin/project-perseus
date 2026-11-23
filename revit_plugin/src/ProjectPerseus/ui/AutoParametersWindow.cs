@@ -45,6 +45,7 @@ namespace ProjectPerseus.ui
 
         private readonly string _baseUrl, _sourceGuid;
         private readonly List<string> _modelCategories;
+        private readonly HashSet<string> _reserved;   // Perseus's own parameter names in this model (naming/ParameterNames)
         private string _layer = "source";
         private JObject _payload;                 // last editor payload from the server
         private bool _dirty, _busy, _loadingForm;
@@ -100,8 +101,10 @@ namespace ProjectPerseus.ui
             private void Changed(string n) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
         }
 
-        internal AutoParametersWindow(string baseUrl, string sourceGuid, string modelTitle, IEnumerable<string> modelCategories)
+        internal AutoParametersWindow(string baseUrl, string sourceGuid, string modelTitle, IEnumerable<string> modelCategories,
+                                      IEnumerable<string> reservedNames = null)
         {
+            _reserved = new HashSet<string>(reservedNames ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
             _baseUrl = baseUrl.TrimEnd('/');
             _sourceGuid = sourceGuid;
             _modelCategories = (modelCategories ?? Enumerable.Empty<string>())
@@ -777,7 +780,8 @@ namespace ProjectPerseus.ui
             bool isValue = string.Equals((string)r["kind"], "value", StringComparison.OrdinalIgnoreCase);
             if (!Regex.IsMatch(name, @"^[A-Za-z][A-Za-z0-9 _\-]{0,63}$"))
                 return "Parameter name must start with a letter and use letters, digits, spaces, _ or - (max 64).";
-            if (string.Equals(name, "Perseus_ID", StringComparison.OrdinalIgnoreCase)) return "Perseus_ID is reserved by Perseus.";
+            if (string.Equals(name, "Perseus_ID", StringComparison.OrdinalIgnoreCase) || _reserved.Contains(name))
+                return $"'{name}' is one of Perseus's own parameters (see Parameter Naming).";
             if (_items.Count(x => !x.Inherited && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)) > 1)
                 return "Another rule already uses this parameter name.";
             bool jinja = isValue && (pattern.Contains("{{") || pattern.Contains("{%") || pattern.Contains("{#"));

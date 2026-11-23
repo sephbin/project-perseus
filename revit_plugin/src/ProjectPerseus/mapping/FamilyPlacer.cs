@@ -833,7 +833,7 @@ namespace ProjectPerseus.mapping
                 {
                     if (p.IsReadOnly || !p.HasValue || p.Definition == null) continue;
                     var name = p.Definition.Name;
-                    if (string.Equals(name, ids.SharedParameterManager.PerseusIdName, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(name, naming.ParameterNames.For(from.Document, naming.ParameterNames.PerseusId), StringComparison.OrdinalIgnoreCase)) continue;
                     var bip = p.Definition is InternalDefinition idf ? idf.BuiltInParameter : BuiltInParameter.INVALID;
                     bool builtIn = bip != BuiltInParameter.INVALID;
                     if (builtIn && bip != BuiltInParameter.ALL_MODEL_MARK && bip != BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS) continue;

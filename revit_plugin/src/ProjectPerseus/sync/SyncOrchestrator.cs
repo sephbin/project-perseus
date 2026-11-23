@@ -135,6 +135,7 @@ namespace ProjectPerseus.sync
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
                 ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
+                naming.ParameterNames.LoadAsync(docGuid, _config.BaseUrl);
 
                 // Warm up auth when a document opens so any expired-token login prompt
                 // (JwtLoginForm / MSAL) appears immediately, on a dedicated STA thread,
@@ -157,6 +158,7 @@ namespace ProjectPerseus.sync
             if (e.Document == null) return;
             string closingGuid = null;
             try { closingGuid = revit.ModelGuidStorage.GetOrCreate(e.Document); } catch { }
+            naming.ParameterNames.Invalidate(e.Document);
             revit.ModelGuidStorage.ClearCache(e.Document);
             if (closingGuid != null)
             {
@@ -166,6 +168,7 @@ namespace ProjectPerseus.sync
                 ids.IdAutoAssignController.Reset(closingGuid);
                 ids.IdAutoAssignController.Forget(e.Document);
                 ids.IdRulesCache.Remove(closingGuid);
+                naming.ParameterNames.Remove(closingGuid);
             }
         }
 
@@ -178,6 +181,7 @@ namespace ProjectPerseus.sync
         private void OnDocumentSynchronizedWithCentral(object sender, DocumentSynchronizedWithCentralEventArgs e)
         {
             violations.ViolationDetector.IsSyncInProgress = false;
+            naming.ParameterNames.Invalidate(e.Document); // other users' parameter name records may have arrived
             if (e.Status == RevitAPIEventStatus.Succeeded)
             {
                 // Reload Latest brought in other users' IDs: IdIndexMaintainer folds those changes into the ID index at

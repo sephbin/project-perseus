@@ -345,7 +345,7 @@ namespace ProjectPerseus.ids
 
         private static List<ActiveRule> ResolveActive(Document doc, IdRulesDto rules, out Dictionary<string, Guid> guids)
         {
-            var names = new List<string> { SharedParameterManager.PerseusIdName };
+            var names = new List<string> { naming.ParameterNames.For(doc, naming.ParameterNames.PerseusId) };
             names.AddRange(rules.Rules.Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.ParameterName))
                                       .Select(r => r.ParameterName.Trim()));
             guids = SharedParameterManager.ResolveGuids(doc, names);
@@ -578,7 +578,7 @@ namespace ProjectPerseus.ids
             if (!dryRun && (doc.IsReadOnly || doc.IsModifiable)) return result;
 
             var active = ResolveActive(doc, rules, out var guids);
-            bool hasPerseusId = guids.TryGetValue(SharedParameterManager.PerseusIdName, out var perseusIdGuid);
+            bool hasPerseusId = guids.TryGetValue(naming.ParameterNames.For(doc, naming.ParameterNames.PerseusId), out var perseusIdGuid);
             result.ActiveRules = active.Count;
             result.ParametersFound = guids.Count;
             if (!hasPerseusId && active.Count == 0) return result;

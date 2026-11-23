@@ -134,7 +134,8 @@ namespace ProjectPerseus.mapping
                     });
                 }
             }
-            res.Params = res.Params.Where(p => !p.Name.StartsWith("Perseus_Link", StringComparison.Ordinal))
+            var linkSyncNames = naming.ParameterNames.LinkSyncNames(doc);
+            res.Params = res.Params.Where(p => !p.Name.StartsWith("Perseus_Link", StringComparison.Ordinal) && !linkSyncNames.Contains(p.Name))
                                    .OrderBy(p => p.ReadOnly).ThenBy(p => p.IsType).ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             return res;
         }

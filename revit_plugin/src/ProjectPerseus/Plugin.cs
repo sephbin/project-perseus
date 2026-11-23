@@ -182,6 +182,8 @@ namespace ProjectPerseus
                 "View and edit this model's violation enforcement rules and source settings. Refresh to pull the latest configuration from the server.");
             AddButton(setupPanel, asm, "Button_WebHub", "Perseus\nWeb", "OpenWebHubCommand", "web_hub",
                 "Opens this model's page on the Perseus web app in your browser: every web feature for the model and its project (parameter editor, history, violations, rules, auto parameters, alerts...) in one place.");
+            AddButton(setupPanel, asm, "Button_ParameterNaming", "Parameter\nNaming", "EditParameterNamingCommand", "parameter_naming",
+                "Names of the parameters Perseus creates (Perseus_ID, Link Sync...): a prefix such as COX_ and a name per parameter, for this model, the project or the whole office. Rename parameters renames the ones this model already has.");
             AddButton(setupPanel, asm, "Button_Settings", "Settings", "OpenSettingsCommand", "settings",
                 "Change Perseus Settings like: API Token and Upload URL");
 

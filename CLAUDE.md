@@ -197,12 +197,21 @@ ProjectPerseus/
 │   │                             Unit-tested in ProjectPerseusTests/PositionOrderTest.cs.
 │   ├── JsonUtils.cs              SerializeToJson, PrettyWriteJson, JsonDump.
 │   └── UrlUtils.cs               IsValidUrl.
+├── naming/                       NEW (2026-11-23). Parameter naming conventions (REFERENCE_COLLECTIONS_PLAN.md part A).
+│   ├── ParameterNames.cs         Perseus parameters by key (PerseusId, Link*): For(doc, key) = name IN USE (model record ->
+│   │                             built-in name if that Perseus parameter is bound -> Wanted); Wanted = server convention (django-perseus
+│   │                             parameter_naming.py: default < project (forked from server-wide) < model), loaded on DocumentOpened.
+│   │                             Never hard-code a Perseus parameter name: add a key here AND to the server's PARAMETER_KEYS.
+│   └── ParameterNameRecords.cs   Plugin data (append-only, newest per key) of the name each key has in this model; written when
+│                                 SharedParameterManager creates a keyed parameter or Rename replaces one.
 ├── ids/                          "Auto Parameters" (renamed from Element IDs, 2026-11-18; code names kept): Perseus_ID +
 │   │                             Django-configured rules of two kinds (IdRuleDto.Kind): "id" = unique numbered IDs (claims,
 │   │                             renumber) and "value" = copied / computed values, not unique ({Project.*}, {Level.*}, ... +
 │   │                             transform; Fill always / only when empty). Value rules never take part in claims or renumbering.
 │   ├── IdRulesCache.cs           Per-source cache of GET /api/source/<guid>/id-rules/ (LoadAsync/LoadNow/Get).
-│   ├── SharedParameterManager.cs Locked rules (IdRuleDto.ReadOnly) = UserModifiable false, own GUID (GuidFor(name, true)) + file group
+│   ├── SharedParameterManager.cs Perseus_ID / Link Sync names + group via naming/ParameterNames; Rename(key) = naming migration
+│   │                             (Replace: new parameter, values copied, name recorded, one undo step; SwitchLock uses Replace too).
+│   │                             Locked rules (IdRuleDto.ReadOnly) = UserModifiable false, own GUID (GuidFor(name, true)) + file group
 │   │                             "Perseus locked"; LockMismatches / SwitchLock (replace parameter, copy values; offered by Audit).
 │   │                             (+ EnsureLinkSyncParameters: Perseus_LinkSource / Status / Decision / Comment / Assignee on mapped
 │   │                             categories, group Other; Perseus parameters default to Other.)
@@ -264,6 +273,8 @@ ProjectPerseus/
 │   ├── AboutCommand.cs           Ribbon: Button_About. TaskDialog showing plugin + Revit version.
 │   ├── PackageLogsCommand.cs     NEW (2026-11-13). Ribbon: Button_PackageLogs (Setup stack). logging/LogPackager -> zip in
 │   │                             Downloads, selects it in Explorer.
+│   ├── EditParameterNamingCommand.cs NEW (2026-11-23). Ribbon: Button_ParameterNaming (Setup panel). ui/ParameterNamingWindow, then
+│   │                             (asked, or offered after a save) SharedParameterManager.Rename for keys whose name differs from the convention.
 │   ├── OpenWebHubCommand.cs      NEW (2026-11-20). Ribbon: Button_WebHub ("Perseus Web", Setup panel). Opens {BaseUrl}/source/<model
 │   │                             guid>/ in the browser = django-perseus source_hub_view (every web feature for the model + its project,
 │   │                             from the home page's feature registry); no model open -> the web app home.
@@ -339,6 +350,9 @@ ProjectPerseus/
 │   ├── SettingsForm.Designer.cs  Partial; namespace matches SettingsForm.cs.
 │   ├── SettingsForm.resx         Embedded resource; DependentUpon resolves manifest name via
 │                                 typeof(SettingsForm).FullName, so path change is safe.
+│   ├── ParameterNamingWindow.cs  NEW (2026-11-23). Modal code-only WPF editor of the naming convention (This model / Project /
+│   │                             Server-wide; GET / PUT api/source/<guid>/parameter-naming/?layer=, adopt server-wide = POST &action=adopt)
+│   │                             via auth/PairingSession (Put / Post). "Rename parameters…" closes with RenameRequested. No Revit API.
 │   ├── AutoParametersWindow.cs   NEW (2026-11-20). Modal code-only WPF editor of the Auto Parameters rules on the server
 │   │                             (same data as the web id_rules page): rule list (own + inherited project rules, Override in
 │   │                             this model) + detail form (kind, pattern + token menu, value / ID options, group, locked,
@@ -676,6 +690,7 @@ ProjectPerseus/
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
+│   ├── ParameterNamingDto.cs     NEW (2026-11-23). Effective naming convention (prefix, group, names, resolved) for a model.
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft), save GUID.
 │   ├── LinkVersion.cs            NEW (2026-11-10). A cached version of a consultant model (cache key, save GUID + count, source,
@@ -850,6 +865,7 @@ ProjectPerseus/
 ├── aps/                          [DONE 2026-11-10] APS sign-in + cloud model versions (see §6.1).
 ├── federator/                    [IN PROGRESS 2026-11-08] Link comparison (see §6.1, FEDERATOR_PLAN.md).
 ├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
+├── naming/                       [DONE 2026-11-23] Parameter naming conventions (see §6.1).
 ├── mapping/                      [IN PROGRESS 2026-11-12] Family mapping (see §6.1, FAMILY_MAPPING_PLAN.md).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).

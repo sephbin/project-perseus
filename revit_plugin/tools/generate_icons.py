@@ -229,6 +229,14 @@ ICONS["web_hub"] = (
     '<path d="M21 4h7v7M28 4L17.5 14.5" fill="none" stroke="{a}" stroke-width="2.2"/>'
 )
 
+# ---- Parameter naming: a name tag whose leading part (the prefix) is the accent
+ICONS["parameter_naming"] = (
+    '<path d="M12 8h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H12l-8-8z" fill="none" stroke="{i}"/>'
+    '<circle cx="10.5" cy="16" r="1.4" fill="{i}" stroke="none"/>'
+    '<path d="M15.5 13h4" fill="none" stroke="{a}" stroke-width="2.4"/>'
+    '<path d="M15.5 19h8" fill="none" stroke="{i}" stroke-width="1.8"/>'
+)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["edit_rules", "audit_ids", "renumber_ids"]),
@@ -236,7 +244,7 @@ GROUPS = [
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
     ("Federator",    ["federator", "family_mapping", "link_sync", "review_views"]),
-    ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "package_logs", "web_hub", "about"]),
+    ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "package_logs", "web_hub", "parameter_naming", "about"]),
 ]
 
 THEMES = {

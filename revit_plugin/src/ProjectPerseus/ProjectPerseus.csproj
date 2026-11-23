@@ -282,6 +282,11 @@
     <Compile Include="commands\OpenWebHubCommand.cs" />
     <Compile Include="commands\EditAutoParametersCommand.cs" />
     <Compile Include="ui\AutoParametersWindow.cs" />
+    <Compile Include="commands\EditParameterNamingCommand.cs" />
+    <Compile Include="ui\ParameterNamingWindow.cs" />
+    <Compile Include="naming\ParameterNames.cs" />
+    <Compile Include="naming\ParameterNameRecords.cs" />
+    <Compile Include="models\ParameterNamingDto.cs" />
     <Compile Include="auth\PairingSession.cs" />
     <Compile Include="logging\LogPackager.cs" />
     <Compile Include="commands\EditSettingsCommand.cs" />
@@ -612,6 +617,8 @@
     <Resource Include="resources\web_hub_dark.png" />
     <Resource Include="resources\edit_rules.png" />
     <Resource Include="resources\edit_rules_dark.png" />
+    <Resource Include="resources\parameter_naming.png" />
+    <Resource Include="resources\parameter_naming_dark.png" />
     <Resource Include="resources\about.png" />
     <Resource Include="resources\about_dark.png" />
   </ItemGroup>

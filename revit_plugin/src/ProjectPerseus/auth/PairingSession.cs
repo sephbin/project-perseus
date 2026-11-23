@@ -94,7 +94,14 @@ namespace ProjectPerseus.auth
         /// early) authorises once more and retries. Returns the response body, or null when authorisation failed.
         /// Other HTTP errors (400 validation, 403 no edit rights) are thrown as WebException for the caller to show.
         /// </summary>
-        internal static string Put(string baseUrl, string sourceGuid, string endpoint, string body, Action<string, bool> status)
+        internal static string Put(string baseUrl, string sourceGuid, string endpoint, string body, Action<string, bool> status) =>
+            Send(baseUrl, sourceGuid, status, token => WebHelper.Put(endpoint, token, body, "PerseusSession"));
+
+        /// <summary>POST with the session; same authorisation / retry behaviour as Put.</summary>
+        internal static string Post(string baseUrl, string sourceGuid, string endpoint, string body, Action<string, bool> status) =>
+            Send(baseUrl, sourceGuid, status, token => WebHelper.Post(endpoint, token, body, "PerseusSession"));
+
+        private static string Send(string baseUrl, string sourceGuid, Action<string, bool> status, Func<string, string> request)
         {
             string token = Cached(baseUrl);
             bool fresh = false;
@@ -106,7 +113,7 @@ namespace ProjectPerseus.auth
             }
             try
             {
-                return WebHelper.Put(endpoint, token, body, "PerseusSession");
+                return request(token);
             }
             catch (WebException wex) when (!fresh && StatusOf(wex) == HttpStatusCode.Unauthorized)
             {
@@ -114,7 +121,7 @@ namespace ProjectPerseus.auth
                 Forget(baseUrl);
                 token = Acquire(baseUrl, sourceGuid, status);
                 if (token == null) return null;
-                return WebHelper.Put(endpoint, token, body, "PerseusSession");
+                return request(token);
             }
         }
 
