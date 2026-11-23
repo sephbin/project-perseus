@@ -350,7 +350,16 @@ namespace ProjectPerseus.ui
                 {
                     string json = WebHelper.Get(url, AuthService.GetAuthTokenSafely(), null, AuthService.GetAuthSchemeSafely());
                     var payload = JObject.Parse(json);
-                    Dispatcher.BeginInvoke(new Action(() => { Apply(payload); SetBusy(false, LoadedText(payload)); }));
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try { Apply(payload); SetBusy(false, LoadedText(payload)); }
+                        catch (Exception ex)
+                        {
+                            Log.Error($"[AutoParametersWindow] showing the loaded {layer} rules failed");
+                            Log.Exception(ex);
+                            SetBusy(false, $"Could not show the {layer} rules: {ex.Message}", true);
+                        }
+                    }));
                 }
                 catch (Exception ex)
                 {
@@ -364,9 +373,21 @@ namespace ProjectPerseus.ui
             });
         }
 
+        /// <summary>payload["a"]["b"]... that gives null when a step is missing or not an object (the server sends
+        /// "inherited": null for the project layer; indexing a JValue throws).</summary>
+        private static JToken At(JToken t, params string[] path)
+        {
+            foreach (var k in path)
+            {
+                t = (t as JObject)?[k];
+                if (t == null || t.Type == JTokenType.Null) return null;
+            }
+            return t;
+        }
+
         private static string LoadedText(JObject payload)
         {
-            string at = (string)payload["rules"]?["updated_at"];
+            string at = (string)At(payload, "rules", "updated_at");
             return string.IsNullOrEmpty(at) ? "Loaded. Nothing saved for this layer yet." : $"Loaded. Last saved {FormatTime(at)}.";
         }
 
@@ -453,8 +474,8 @@ namespace ProjectPerseus.ui
                 foreach (ComboBoxItem it in _scope.Items)
                     if ((string)it.Tag == _layer) _scope.SelectedItem = it;
 
-                var own = (payload["rules"]?["rules"] as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
-                var inherited = (payload["inherited"]?["rules"] as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
+                var own = (At(payload, "rules", "rules") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
+                var inherited = (At(payload, "inherited", "rules") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
                 var ownNames = new HashSet<string>(own.Select(r => (string)r["parameter_name"] ?? ""), StringComparer.OrdinalIgnoreCase);
                 var inhNames = new HashSet<string>(inherited.Select(r => (string)r["parameter_name"] ?? ""), StringComparer.OrdinalIgnoreCase);
 
@@ -465,21 +486,21 @@ namespace ProjectPerseus.ui
                     _items.Add(new RuleItem { Rule = r, Inherited = true, Overridden = ownNames.Contains((string)r["parameter_name"] ?? "") });
 
                 _prefixes.Clear();
-                foreach (var p in (payload["rules"]?["category_prefixes"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+                foreach (var p in (At(payload, "rules", "category_prefixes") as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
                     _prefixes.Add(new PrefixRow { Category = (string)p["category"], Prefix = (string)p["prefix"] });
 
                 // Categories offered in the pickers: the model's + any already named in rules / prefixes.
                 var all = new HashSet<string>(_modelCategories, StringComparer.OrdinalIgnoreCase);
                 foreach (var r in own.Concat(inherited))
                     foreach (var c in (r["categories"] as JArray)?.Select(t => (string)t) ?? Enumerable.Empty<string>()) if (!string.IsNullOrWhiteSpace(c)) all.Add(c);
-                var pidCats = (payload["rules"]?["perseus_id"]?["categories"] as JArray)?.Select(t => (string)t).ToList() ?? new List<string>();
+                var pidCats = (At(payload, "rules", "perseus_id", "categories") as JArray)?.Select(t => (string)t).ToList() ?? new List<string>();
                 foreach (var c in pidCats) if (!string.IsNullOrWhiteSpace(c)) all.Add(c);
                 var sorted = all.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList();
                 _ruleCategories.Clear(); _ruleCategories.AddRange(sorted);
                 _pidCategories.Clear(); _pidCategories.AddRange(sorted);
 
                 // Perseus_ID
-                var pidAll = payload["rules"]?["perseus_id"]?["apply_to_all"];
+                var pidAll = At(payload, "rules", "perseus_id", "apply_to_all");
                 bool isProject = _layer == "project";
                 _pidInherit.Content = isProject ? "Not set — same categories as the enabled ID rules" : "Not set here — use the project's choice (else the ID rules' categories)";
                 _pidPicker.SetItems(_pidCategories, pidCats);
@@ -487,10 +508,10 @@ namespace ProjectPerseus.ui
                 else if ((bool)pidAll) _pidAll.IsChecked = true;
                 else _pidSome.IsChecked = true;
                 _pidPicker.IsEnabled = _pidSome.IsChecked == true;
-                var inhPid = payload["inherited"]?["perseus_id"]?["apply_to_all"];
+                var inhPid = At(payload, "inherited", "perseus_id", "apply_to_all");
                 _pidNote.Text = isProject || inhPid == null || inhPid.Type == JTokenType.Null ? "" :
                     "The project sets: " + ((bool)inhPid ? "all categories." :
-                        string.Join(", ", (payload["inherited"]?["perseus_id"]?["categories"] as JArray)?.Select(t => (string)t) ?? Enumerable.Empty<string>()) + ".");
+                        string.Join(", ", (At(payload, "inherited", "perseus_id", "categories") as JArray)?.Select(t => (string)t) ?? Enumerable.Empty<string>()) + ".");
 
                 _dirty = false;
                 RefreshList(_items.FirstOrDefault());
