@@ -88,6 +88,8 @@ namespace ProjectPerseus.ids
 
             public object Related(object from, string kind) => _r.RelatedOf(from as Element, kind);
 
+            public IList<JinjaTemplate.Member> RelatedMany(object from, string name) => _r.MembersOf(from as Element, name);
+
             public IDictionary<string, object> Parameters(object obj)
             {
                 if (!(obj is Element e)) return null;
@@ -95,6 +97,146 @@ namespace ProjectPerseus.ids
                 if (!_cache.TryGetValue(id, out var values))
                     _cache[id] = values = _r.ParametersOf(e, e.Id == _root.Id ? _pending : null);
                 return values;
+            }
+        }
+
+        // ── reference collections (collections/, REFERENCE_COLLECTIONS_PLAN.md part B) ──
+
+        private bool _collectionsLoaded;
+        private List<CollectionDto> _collections;
+        private readonly Dictionary<string, collections.CollectionStore.TargetIndex> _targets =
+            new Dictionary<string, collections.CollectionStore.TargetIndex>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _membersNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _overrideNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, IList<JinjaTemplate.Member>> _members = new Dictionary<string, IList<JinjaTemplate.Member>>();
+
+        /// <summary>This model's collections (collections/CollectionsCache, loaded on DocumentOpened); empty when none.</summary>
+        internal IReadOnlyList<CollectionDto> Collections
+        {
+            get
+            {
+                if (!_collectionsLoaded)
+                {
+                    _collectionsLoaded = true;
+                    string guid = null;
+                    try { guid = ProjectPerseus.revit.ModelGuidStorage.TryGet(_doc); } catch { /* no model id */ }
+                    _collections = (guid == null ? null : collections.CollectionsCache.Get(guid))?.Collections ?? new List<CollectionDto>();
+                }
+                return _collections;
+            }
+        }
+
+        internal IEnumerable<string> CollectionNames => Collections.Select(c => c.Name);
+
+        private CollectionDto CollectionNamed(string name) =>
+            Collections.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        // The owner of collection c as seen from el (itself, or its type when c lives on types) and the instance whose
+        // overrides apply (el when it is an instance and c has overrides). False when el has no such collection.
+        private bool OwnerOf(Element el, CollectionDto c, out Element owner, out Element instance)
+        {
+            owner = null;
+            instance = null;
+            if (el == null) return false;
+            if (el is ElementType) owner = el;
+            else
+            {
+                owner = c.OnType ? Get(el.GetTypeId()) : el;
+                if (c.HasOverrides) instance = el;
+            }
+            return collections.CollectionStore.IsOwner(owner, c);
+        }
+
+        /// <summary>
+        /// The members of collection <paramref name="name"/> seen from <paramref name="from"/> (util/JinjaTemplate.
+        /// IObjectSource.RelatedMany): resolved references (stale ones kept, marked), empty / broken slots left out, with
+        /// the instance's overrides (only the overridable fields, when the collection lists them). Null = no such
+        /// collection here. Cached per resolver (one run).
+        /// </summary>
+        internal IList<JinjaTemplate.Member> MembersOf(Element from, string name)
+        {
+            var c = CollectionNamed(name);
+            if (c == null || from == null) return null;
+            string key = c.Name + "|" + ProjectPerseus.revit.RevitExtensions.GetIdValue(from.Id);
+            if (_members.TryGetValue(key, out var cached)) return cached;
+            IList<JinjaTemplate.Member> result = null;
+            try
+            {
+                if (OwnerOf(from, c, out var owner, out var instance))
+                {
+                    var refs = collections.CollectionStore.ReadMembers(owner, c, MembersNameOf(c), out _);
+                    collections.Overrides overrides = null;
+                    if (instance != null)
+                    {
+                        if (!_overrideNames.TryGetValue(c.Name, out var on))
+                            _overrideNames[c.Name] = on = collections.CollectionStore.OverrideName(_doc, c);
+                        overrides = collections.CollectionStore.ReadOverrides(instance, on, out _);
+                    }
+                    var allowed = c.OverridableFields != null && c.OverridableFields.Count > 0
+                        ? new HashSet<string>(c.OverridableFields, StringComparer.OrdinalIgnoreCase)
+                        : null;
+                    var index = TargetsOf(c);
+                    var list = new List<JinjaTemplate.Member>();
+                    for (int i = 0; i < refs.Count; i++)
+                    {
+                        if (refs[i].IsEmpty) continue;
+                        var res = index.Resolve(refs[i]);
+                        if (res.ElementId <= 0) continue;
+                        var el = _doc.GetElement(ProjectPerseus.revit.RevitExtensions.CreateId(res.ElementId));
+                        if (el == null) continue;
+                        Dictionary<string, string> o = null;
+                        if (overrides != null && !overrides.IsEmpty)
+                        {
+                            o = overrides.For(i + 1);
+                            if (allowed != null)
+                                foreach (var f in o.Keys.Where(k => !allowed.Contains(k)).ToList()) o.Remove(f);
+                            if (o.Count == 0) o = null;
+                        }
+                        list.Add(new JinjaTemplate.Member
+                        {
+                            Handle = el, Slot = i + 1, Id = res.ElementId, Stale = res.Status != collections.RefStatus.Ok, Overrides = o,
+                        });
+                    }
+                    result = list;
+                }
+            }
+            catch (Exception ex)
+            {
+                ProjectPerseus.logging.Log.Info($"[RelatedValueResolver] collection {c.Name} of {from.Id}: {ex.Message}");
+            }
+            _members[key] = result;
+            return result;
+        }
+
+        private string MembersNameOf(CollectionDto c)
+        {
+            if (!_membersNames.TryGetValue(c.Name, out var n))
+                _membersNames[c.Name] = n = collections.CollectionStore.MembersName(_doc, c);
+            return n;
+        }
+
+        private collections.CollectionStore.TargetIndex TargetsOf(CollectionDto c)
+        {
+            if (!_targets.TryGetValue(c.Name, out var t))
+                _targets[c.Name] = t = new collections.CollectionStore.TargetIndex(_doc, c);
+            return t;
+        }
+
+        /// <summary>
+        /// A template naming collections: el depends on each collection's owner (its type, when the collection lives on
+        /// types) and every member, so editing a member sign re-renders every pack holding it. Its own override parameter
+        /// is on el itself (a change to el is processed anyway).
+        /// </summary>
+        internal void AddCollectionDependencies(Element el, IEnumerable<string> names, ISet<long> into)
+        {
+            foreach (var name in names)
+            {
+                var c = CollectionNamed(name);
+                if (c == null || !OwnerOf(el, c, out var owner, out _)) continue;
+                if (owner.Id != el.Id) into.Add(ProjectPerseus.revit.RevitExtensions.GetIdValue(owner.Id));
+                var members = MembersOf(el, name);
+                if (members == null) continue;
+                foreach (var m in members) if (m.Id != ProjectPerseus.revit.RevitExtensions.GetIdValue(el.Id)) into.Add(m.Id);
             }
         }
 

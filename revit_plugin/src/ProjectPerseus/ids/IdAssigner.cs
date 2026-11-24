@@ -156,7 +156,14 @@ namespace ProjectPerseus.ids
         {
             resolver.AddDependencies(el, ValueTokens(rule, resolve), deps);
             var c = TemplateFor(rule, resolve, out _);
-            if (c.Jinja != null) resolver.AddPathDependencies(el, c.Jinja.Paths, deps);
+            if (c.Jinja == null) return;
+            resolver.AddPathDependencies(el, c.Jinja.Paths, deps);
+            // Reference collections the template loops over ({% for s in Signs %}): the owner and every member.
+            if (resolver.Collections.Count > 0)
+            {
+                var named = c.Jinja.Mentions(resolver.CollectionNames);
+                if (named.Count > 0) resolver.AddCollectionDependencies(el, named, deps);
+            }
         }
 
         /// <summary>

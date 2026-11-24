@@ -25,6 +25,13 @@ namespace ProjectPerseus.util
     ///   {# comment #}, filters {{ x | upper }}, {{ x | default('-') }}, {{ x | replace('a', 'b') }}, lower, title, trim,
     ///   length, int, float, round(n), plus Liquid's own (upcase, append, slice...).
     /// A missing object or parameter renders as nothing. Numbers (length, area, integers) are numbers, so comparisons work.
+    ///
+    /// Reference collections (collections/, REFERENCE_COLLECTIONS_PLAN.md part B) are lists named by their collection:
+    ///   {% for s in Signs %}{{ s.Message }}{% unless forloop.last %} / {% endunless %}{% endfor %}
+    ///   {{ Signs[0].Message }}   {{ Signs | size }}   {{ Signs }} (member names, comma separated)   {{ Type.Signs }}
+    /// Each member = the member element's parameters with the owner instance's overrides on top, plus slot (1-based),
+    /// id, stale, overridden and base (the values before overrides). A collection name wins over a parameter of the same
+    /// name, a relation (Room, Type...) wins over both.
     /// </summary>
     public sealed class JinjaTemplate
     {
@@ -42,6 +49,22 @@ namespace ProjectPerseus.util
             object Related(object from, string kind);
             /// <summary>An object's parameters by their real names ("Name" included).</summary>
             IDictionary<string, object> Parameters(object obj);
+            /// <summary>
+            /// The members of collection <paramref name="name"/> as seen from <paramref name="from"/> (an owner, or an
+            /// instance of an owner type: then with that instance's overrides); null when there is no such collection or
+            /// <paramref name="from"/> doesn't own it. Empty slots and unresolvable references are left out.
+            /// </summary>
+            IList<Member> RelatedMany(object from, string name);
+        }
+
+        /// <summary>One member of a reference collection, as the object source supplies it.</summary>
+        public sealed class Member
+        {
+            public object Handle;   // the member element (for Parameters / Related)
+            public int Slot;        // 1-based position in the owner's list
+            public long Id;
+            public bool Stale;      // renamed / found by name only (ReferenceResolver)
+            public IDictionary<string, string> Overrides; // field -> value from the owner instance; null = none
         }
 
         private static readonly string Kinds = string.Join("|", ObjectNames);
@@ -49,6 +72,7 @@ namespace ProjectPerseus.util
             @"\b(" + Kinds + @")((?:\.(?:" + Kinds + @")\b)*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private readonly Template _template;
+        private readonly string _text;
 
         /// <summary>Objects the template starts from (canonical spelling), e.g. "Type", "Host".</summary>
         public IReadOnlyList<string> Objects { get; }
@@ -56,12 +80,23 @@ namespace ProjectPerseus.util
         /// <summary>Object chains the template mentions, e.g. ["Host", "Room"] for {{ Host.Room.Name }}.</summary>
         public IReadOnlyList<string[]> Paths { get; }
 
-        private JinjaTemplate(Template template, List<string[]> paths)
+        private JinjaTemplate(Template template, List<string[]> paths, string text)
         {
             _template = template;
+            _text = text ?? "";
             Paths = paths;
             Objects = paths.Select(x => x[0]).Distinct().ToList();
         }
+
+        /// <summary>
+        /// The names (e.g. collection names) the template mentions as a whole word, ignoring case. Used for dependencies:
+        /// a template naming "Signs" depends on every member of the owner's Signs collection.
+        /// </summary>
+        public IReadOnlyList<string> Mentions(IEnumerable<string> names) =>
+            (names ?? Enumerable.Empty<string>())
+                .Where(n => !string.IsNullOrEmpty(n) &&
+                            Regex.IsMatch(_text, @"\b" + Regex.Escape(n) + @"\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                .ToList();
 
         private static string Canonical(string kind) =>
             ObjectNames.FirstOrDefault(n => string.Equals(n, kind, StringComparison.OrdinalIgnoreCase));
@@ -128,7 +163,7 @@ namespace ProjectPerseus.util
                     var path = m.Value.Split('.').Select(Canonical).Take(MaxDepth).ToArray();
                     if (!paths.Any(x => x.SequenceEqual(path))) paths.Add(path);
                 }
-                return new JinjaTemplate(t, paths);
+                return new JinjaTemplate(t, paths, text);
             }
             catch (Exception ex)
             {
@@ -149,7 +184,7 @@ namespace ProjectPerseus.util
             error = null;
             try
             {
-                var globals = new ScriptObject();
+                var globals = new Globals(source, element);
                 AddFilters(globals);
                 if (values != null)
                     foreach (var kv in values) Put(globals, kv.Key, kv.Value);
@@ -170,15 +205,40 @@ namespace ProjectPerseus.util
             }
         }
 
-        /// <summary>
-        /// An object's parameters, with its relations (Room, Level...) looked up only when a template asks for them.
-        /// </summary>
-        private sealed class LazyObject : ScriptObject
+        /// <summary>Top-level names: values and objects, then the rendered element's collections ({{ Signs }}).</summary>
+        private sealed class Globals : ScriptObject
         {
             private readonly IObjectSource _source;
-            private readonly object _handle;
-            private readonly int _depth;
+            private readonly object _element;
+            private readonly Dictionary<string, MemberList> _collections = new Dictionary<string, MemberList>(StringComparer.OrdinalIgnoreCase);
+
+            public Globals(IObjectSource source, object element)
+            {
+                _source = source;
+                _element = element;
+            }
+
+            public override bool TryGetValue(TemplateContext context, SourceSpan span, string member, out object value)
+            {
+                if (base.TryGetValue(context, span, member, out value)) return true;
+                var list = Collection(_source, _element, member, 0, _collections);
+                if (list == null) return false;
+                value = list;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// An object's parameters, with its relations (Room, Level...) and collections looked up only when a template asks
+        /// for them.
+        /// </summary>
+        private class LazyObject : ScriptObject
+        {
+            protected readonly IObjectSource _source;
+            protected readonly object _handle;
+            protected readonly int _depth;
             private readonly Dictionary<string, LazyObject> _related = new Dictionary<string, LazyObject>();
+            private readonly Dictionary<string, MemberList> _collections = new Dictionary<string, MemberList>(StringComparer.OrdinalIgnoreCase);
             public readonly string Display;
 
             public LazyObject(IObjectSource source, object handle, int depth)
@@ -204,15 +264,84 @@ namespace ProjectPerseus.util
                     }
                     if (rel != null) { value = rel; return true; }
                 }
+                if (kind == null && _depth < MaxDepth && member != null && !IsMemberField(member))
+                {
+                    var list = Collection(_source, _handle, member, _depth, _collections);
+                    if (list != null) { value = list; return true; }
+                }
                 return base.TryGetValue(context, span, member, out value); // a parameter of that name, if any
+            }
+
+            protected virtual bool IsMemberField(string member) => false;
+        }
+
+        /// <summary>A collection member: the member element with the owner instance's overrides on top.</summary>
+        private sealed class MemberObject : LazyObject
+        {
+            private static readonly string[] Fields = { "slot", "id", "stale", "overridden", "base" };
+
+            public MemberObject(IObjectSource source, Member m, int depth) : base(source, m.Handle, depth)
+            {
+                var baseValues = new ScriptObject();
+                foreach (var key in Keys.ToList()) baseValues[key] = this[key];
+                bool overridden = false;
+                if (m.Overrides != null)
+                    foreach (var kv in m.Overrides)
+                    {
+                        if (string.IsNullOrEmpty(kv.Key)) continue;
+                        object old = Keys.Where(k => string.Equals(k, kv.Key, StringComparison.OrdinalIgnoreCase))
+                                         .Select(k => this[k]).FirstOrDefault();
+                        Set(this, kv.Key, Typed(kv.Value, old));
+                        overridden = true;
+                    }
+                this["slot"] = m.Slot;
+                this["id"] = m.Id;
+                this["stale"] = m.Stale;
+                this["overridden"] = overridden;
+                this["base"] = baseValues;
+            }
+
+            protected override bool IsMemberField(string member) =>
+                Fields.Contains(member, StringComparer.OrdinalIgnoreCase);
+
+            // An override of a number stays a number when it reads as one (so comparisons keep working).
+            private static object Typed(string text, object old)
+            {
+                if (old is double && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double d)) return d;
+                return text;
             }
         }
 
-        // An object on its own prints its name.
+        /// <summary>A collection's members; on its own it prints the member names, comma separated.</summary>
+        private sealed class MemberList : ScriptArray
+        {
+            public override string ToString() =>
+                string.Join(", ", this.OfType<LazyObject>().Select(o => o.Display ?? "").Where(s => s.Length > 0));
+        }
+
+        private static MemberList Collection(IObjectSource source, object handle, string name, int depth,
+                                             Dictionary<string, MemberList> cache)
+        {
+            if (handle == null || string.IsNullOrEmpty(name)) return null;
+            if (cache.TryGetValue(name, out var list)) return list;
+            var members = source.RelatedMany(handle, name);
+            if (members != null)
+            {
+                list = new MemberList();
+                foreach (var m in members.Where(x => x?.Handle != null).OrderBy(x => x.Slot))
+                    list.Add(new MemberObject(source, m, depth + 1));
+            }
+            cache[name] = list;
+            return list;
+        }
+
+        // An object on its own prints its name; a collection its member names.
         private sealed class Context : LiquidTemplateContext
         {
             public override string ObjectToString(object value, bool nested = false) =>
-                value is LazyObject o ? o.Display ?? "" : base.ObjectToString(value, nested);
+                value is LazyObject o ? o.Display ?? "" :
+                value is MemberList l ? l.ToString() :
+                base.ObjectToString(value, nested);
         }
 
         // Name as given, its SafeName and the SafeName in lower case; the first parameter to claim a name keeps it.
@@ -221,6 +350,17 @@ namespace ProjectPerseus.util
             if (string.IsNullOrEmpty(name)) return;
             foreach (var key in new[] { name, SafeName(name), SafeName(name).ToLowerInvariant() })
                 if (key.Length > 0 && !obj.ContainsKey(key)) obj[key] = value;
+        }
+
+        // Like Put, but replaces what is there (overrides), including other spellings already pointing at the old value.
+        private static void Set(ScriptObject obj, string name, object value)
+        {
+            var keys = new HashSet<string>(StringComparer.Ordinal) { name, SafeName(name), SafeName(name).ToLowerInvariant() };
+            // Field names in overrides are case-insensitive: "message" overrides the "Message" parameter.
+            foreach (var k in obj.Keys.ToList())
+                if (keys.Any(x => string.Equals(x, k, StringComparison.OrdinalIgnoreCase))) keys.Add(k);
+            foreach (var key in keys)
+                if (key.Length > 0) obj[key] = value;
         }
 
         // Jinja filter names Liquid doesn't have.

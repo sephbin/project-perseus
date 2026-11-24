@@ -190,6 +190,9 @@ ProjectPerseus/
 │   │                             (Host.Room.Name, MaxDepth 3; LazyObject via IObjectSource = RelatedValueResolver.TemplateSource), parameters
 │   │                             by SafeName (spaces -> "_"), lower case or ["exact name"]; Jinja filter aliases. Value rule patterns /
 │   │                             template sources with {{ }} / {% %} use it (IdAssigner.Compile). Scriban.dll ships in both packages.
+│   │                             Reference collections (2026-11-24): IObjectSource.RelatedMany -> Member list; {% for s in Signs %},
+│   │                             Signs[0], Type.Signs; members = member params + instance overrides, slot / id / stale / overridden / base.
+│   │                             Mentions(names) = collection names a template uses (dependencies).
 │   ├── AssemblyRedirects.cs      NEW (2026-11-19). AssemblyResolve: older support-assembly versions (Scriban wants
 │   │                             System.Threading.Tasks.Extensions 4.2.0.0) get the loaded / shipped copy (Revit ignores add-in configs).
 │   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or
@@ -240,6 +243,8 @@ ProjectPerseus/
 │   │                             also keeps value-rule dependencies (DepsOf / DependentsOf: element -> its level / room / host /
 │   │                             type / group) so Dependents(changed) finds elements copying from an edited element;
 │   │                             ProjectDependents = everything a {Project.*} rule covers (Project Information changed).
+│   │                             A Jinja rule naming a collection depends on its owner + members (editing ST07 refreshes every pack);
+│   │                             CollectionsCache invalidates the index when the collections config changes.
 │   │                             Core logic. Sets Perseus_ID = UniqueId on the categories chosen in Django
 │   │                             (IdRulesDto.PerseusId; default all); per rule keeps a value if it matches
 │   │                             the pattern and is held by the lowest ElementId, else allocates next number
@@ -270,6 +275,8 @@ ProjectPerseus/
 │   │                             and a parameter of its Level / Host / Room / Space / ToRoom / FromRoom (doors) / Type / Group /
 │   │                             Project (Project Information; Project.Name / Number = project name / number) / Element (itself;
 │   │                             For(el, pending) reads values planned in the same run). Fallbacks {A|B}. AddDependencies for the index.
+│   │                             Collections: MembersOf (template members via collections/CollectionStore, cached per run),
+│   │                             AddCollectionDependencies (owner + every member).
 │   └── IdAutoAssignController.cs Value rules: DocumentChanged also looks up elements copying from the modified ones (index) and
 │                                 Project Information edits; ProcessPending -> RefreshDependents writes those this user owns now,
 │                                 parks the rest for the pre-sync fill. QueueFromSync parks dependents of other users' changes too.
@@ -881,7 +888,7 @@ ProjectPerseus/
 ├── federator/                    [IN PROGRESS 2026-11-08] Link comparison (see §6.1, FEDERATOR_PLAN.md).
 ├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
 ├── naming/                       [DONE 2026-11-23] Parameter naming conventions (see §6.1).
-├── collections/                  [IN PROGRESS 2026-11-24] Reference collections core (see §6.1, REFERENCE_COLLECTIONS_PLAN.md).
+├── collections/                  [IN PROGRESS 2026-11-24] Reference collections: core + templates done; window, audit next (see §6.1, REFERENCE_COLLECTIONS_PLAN.md).
 ├── mapping/                      [IN PROGRESS 2026-11-12] Family mapping (see §6.1, FAMILY_MAPPING_PLAN.md).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).

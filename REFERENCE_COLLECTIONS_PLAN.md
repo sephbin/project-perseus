@@ -151,9 +151,24 @@ Parameter names here go through the naming convention (prefix etc.).
    project / source layer, `perseus/reference_collections.py`, `GET/PUT api/source/<guid>/collections/?layer=`, web editors,
    help guide); plugin `collections/` (ReferenceCodec, OverrideCodec, ReferenceResolver, CollectionsCache, CollectionStore),
    `SharedParameterManager.EnsureParameters` with type bindings, tests in `ReferenceCodecTest.cs`. Details below.
-3. **Templates** — `RelatedMany`, member objects with overrides, dependency index. Tests in `IdPatternTest`-style.
+3. **Templates (DONE 2026-11-24)** — `RelatedMany`, member objects with overrides, dependency index. Tests in
+   `IdPatternTest.JinjaTemplates_LoopOverCollections`. Details below.
 4. **Collections window** — members, overrides, preview, stale fixes.
 5. **Audit + help** — stale / broken references in Audit; help guides for both features.
+
+### Stage 3 as built (2026-11-24)
+
+- `JinjaTemplate.IObjectSource.RelatedMany(from, name)` returns `Member`s (handle, slot, id, stale, overrides) or null (no such
+  collection / not an owner). Top-level names fall back to the rendered element's collections; any object's member access
+  tries relation -> collection -> parameter (`Element.Signs`, `Type.Signs`).
+- Lists skip empty slots and broken references (so `Signs[0]` = first filled slot; `s.slot` keeps the real slot). On its own
+  a list prints the member names comma separated; `| size` counts.
+- Seen from an instance of an owner type: the type's members with that instance's overrides (filtered to the overridable
+  fields when listed); seen from the type (`Type.Signs`, or a rule rendering on the type): no overrides.
+- Overrides replace every spelling of the field (case-insensitive); an override of a number stays a number when it parses.
+- Dependencies: a Jinja rule mentioning a collection name (whole word) depends on the owner (type) and every resolved member.
+  The instance's own override parameter is on the element itself. The index is rebuilt when the collections config changes.
+  Not tracked: a new element taking a broken reference's name (Audit / window fixes those).
 
 ### Stage 2 as built (2026-11-24)
 

@@ -153,6 +153,17 @@ namespace ProjectPerseusTests
             public System.Collections.Generic.IDictionary<string, object> Parameters(object obj) =>
                 Params.TryGetValue((string)obj, out var p) ? p : null;
 
+            // "owner|Collection" -> members
+            public readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.IList<JinjaTemplate.Member>> Many =
+                new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IList<JinjaTemplate.Member>>(System.StringComparer.OrdinalIgnoreCase);
+            public int ManyCalls;
+
+            public System.Collections.Generic.IList<JinjaTemplate.Member> RelatedMany(object from, string name)
+            {
+                ManyCalls++;
+                return Many.TryGetValue((string)from + "|" + name, out var l) ? l : null;
+            }
+
             public void Link(string from, string kind, string to)
             {
                 if (!Links.TryGetValue(from, out var l)) Links[from] = l = new System.Collections.Generic.Dictionary<string, string>();
@@ -228,6 +239,72 @@ namespace ProjectPerseusTests
             CollectionAssert.AreEquivalent(new[] { "Host", "Level" }, new System.Collections.Generic.List<string>(t.Objects));
             Assert.IsTrue(System.Linq.Enumerable.Any(t.Paths, p => string.Join(".", p) == "Host.ToRoom"));
             Assert.IsTrue(System.Linq.Enumerable.Any(t.Paths, p => string.Join(".", p) == "Level"));
+        }
+
+        // A sign pack: type "pack" holds ST07 (slot 1), an empty slot 2, ST02 (slot 3, renamed = stale); the placed instance
+        // "packinst" overrides slot 3's message and arrow.
+        private static FakeModel PackModel()
+        {
+            var m = new FakeModel();
+            m.Params["pack"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "Sign Pack A" };
+            m.Params["packinst"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "Sign Pack A", ["Mark"] = "SP1" };
+            m.Params["st07"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "ST07 Exit", ["Message"] = "EXIT", ["Arrow"] = "Up", ["Height"] = 300.0 };
+            m.Params["st02"] = new System.Collections.Generic.Dictionary<string, object> { ["Name"] = "ST02 Plant", ["Message"] = "Plant Room", ["Arrow"] = "None", ["Height"] = 150.0 };
+            m.Link("packinst", "Type", "pack");
+            var typeMembers = new System.Collections.Generic.List<JinjaTemplate.Member>
+            {
+                new JinjaTemplate.Member { Handle = "st07", Slot = 1, Id = 7 },
+                new JinjaTemplate.Member { Handle = "st02", Slot = 3, Id = 2, Stale = true },
+            };
+            m.Many["pack|Signs"] = typeMembers;
+            m.Many["packinst|Signs"] = new System.Collections.Generic.List<JinjaTemplate.Member>
+            {
+                new JinjaTemplate.Member { Handle = "st07", Slot = 1, Id = 7 },
+                new JinjaTemplate.Member
+                {
+                    Handle = "st02", Slot = 3, Id = 2, Stale = true,
+                    Overrides = new System.Collections.Generic.Dictionary<string, string> { ["message"] = "Plant Room 3", ["Height"] = "175" },
+                },
+            };
+            return m;
+        }
+
+        private static string RenderPack(string template, string element = "packinst")
+        {
+            var t = JinjaTemplate.Parse(template, out string err);
+            Assert.IsNotNull(t, err);
+            Assert.IsTrue(t.TryRender(PackModel(), element, null, out string result, out err), err);
+            return result;
+        }
+
+        [TestMethod]
+        public void JinjaTemplates_LoopOverCollections()
+        {
+            // Loop with the instance's overrides on top; empty slot left out.
+            Assert.AreEqual("EXIT / Plant Room 3",
+                RenderPack("{% for s in Signs %}{{ s.Message }}{% unless forloop.last %} / {% endunless %}{% endfor %}"));
+            // Indexing, slot numbers, count, names on their own.
+            Assert.AreEqual("EXIT", RenderPack("{{ Signs[0].Message }}"));
+            Assert.AreEqual("1,3", RenderPack("{% for s in Signs %}{{ s.slot }}{% unless forloop.last %},{% endunless %}{% endfor %}"));
+            Assert.AreEqual("2", RenderPack("{{ Signs | size }}"));
+            Assert.AreEqual("ST07 Exit, ST02 Plant", RenderPack("{{ Signs }}"));
+            Assert.AreEqual("ST02 Plant", RenderPack("{{ Signs[1] }}"));
+            // base = values before overrides; overridden / stale / id flags.
+            Assert.AreEqual("Plant Room 3 (was Plant Room)", RenderPack("{{ Signs[1].Message }} (was {{ Signs[1].base.Message }})"));
+            Assert.AreEqual("false true", RenderPack("{{ Signs[0].overridden }} {{ Signs[1].overridden }}"));
+            Assert.AreEqual("true 2", RenderPack("{{ Signs[1].stale }} {{ Signs[1].id }}"));
+            // Overridden numbers stay numbers; lower-case / SafeName spellings see the override too.
+            Assert.AreEqual("big", RenderPack("{% if Signs[1].Height > 160 %}big{% else %}small{% endif %}"));
+            Assert.AreEqual("Plant Room 3", RenderPack("{{ Signs[1].message }}"));
+            // From the type (no instance overrides) and from the type's own render.
+            Assert.AreEqual("EXIT / Plant Room", RenderPack("{{ Type.Signs[0].Message }} / {{ Type.Signs[1].Message }}"));
+            Assert.AreEqual("Plant Room", RenderPack("{{ Signs[1].Message }}", "pack"));
+            // Not an owner / no such collection: nothing, loops render nothing.
+            Assert.AreEqual("[]", RenderPack("[{% for s in Things %}{{ s.Message }}{% endfor %}]"));
+            Assert.AreEqual("SP1", RenderPack("{{ Element.Mark }}"));
+
+            var t = JinjaTemplate.Parse("{% for s in signs %}{{ s.Message }}{% endfor %} {{ Type.Arrows }}", out _);
+            CollectionAssert.AreEquivalent(new[] { "Signs", "Arrows" }, new System.Collections.Generic.List<string>(t.Mentions(new[] { "Signs", "Arrows", "Sign", "Packs" })));
         }
 
         [TestMethod]

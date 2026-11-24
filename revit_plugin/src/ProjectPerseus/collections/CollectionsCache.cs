@@ -38,7 +38,11 @@ namespace ProjectPerseus.collections
                 if (dto == null) return null;
                 dto.Collections = dto.Collections?.Where(c => c != null && c.Enabled && !string.IsNullOrWhiteSpace(c.Name)).ToList()
                                   ?? new System.Collections.Generic.List<CollectionDto>();
+                string before = _cache.TryGetValue(docGuid, out var old) ? Signature(old) : "";
                 _cache[docGuid] = dto;
+                // The Auto Parameters index records which packs depend on which member signs; rebuild it (at idle) when
+                // the collections it was built with changed, including when they arrive after the index was built.
+                if (Signature(dto) != before) ids.IdAssigner.InvalidateIndex(docGuid);
                 Log.Info($"[CollectionsCache] {docGuid}: " + (dto.Collections.Count == 0 ? "no collections" :
                     string.Join("; ", dto.Collections.Select(c =>
                         $"{c.Name} on {c.LivesOn} [{string.Join(", ", c.OwnerCategories)}] {c.Storage} '{c.MembersParameterName}'" +
@@ -51,6 +55,9 @@ namespace ProjectPerseus.collections
                 return null;
             }
         }
+
+        private static string Signature(CollectionsDto dto) =>
+            dto?.Collections == null || dto.Collections.Count == 0 ? "" : JsonConvert.SerializeObject(dto.Collections);
 
         internal static CollectionsDto Get(string docGuid) =>
             docGuid != null && _cache.TryGetValue(docGuid, out var dto) ? dto : null;
