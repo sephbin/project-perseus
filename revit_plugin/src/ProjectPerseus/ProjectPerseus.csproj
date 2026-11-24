@@ -286,6 +286,12 @@
     <Compile Include="ui\ParameterNamingWindow.cs" />
     <Compile Include="naming\ParameterNames.cs" />
     <Compile Include="naming\ParameterNameRecords.cs" />
+    <Compile Include="collections\CollectionsCache.cs" />
+    <Compile Include="collections\CollectionStore.cs" />
+    <Compile Include="collections\ReferenceCodec.cs" />
+    <Compile Include="collections\OverrideCodec.cs" />
+    <Compile Include="collections\ReferenceResolver.cs" />
+    <Compile Include="models\CollectionsDto.cs" />
     <Compile Include="models\ParameterNamingDto.cs" />
     <Compile Include="auth\PairingSession.cs" />
     <Compile Include="logging\LogPackager.cs" />

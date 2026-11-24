@@ -135,6 +135,7 @@ namespace ProjectPerseus.sync
                 violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
                 ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
+                collections.CollectionsCache.LoadAsync(docGuid, _config.BaseUrl);
                 naming.ParameterNames.LoadAsync(docGuid, _config.BaseUrl);
 
                 // Warm up auth when a document opens so any expired-token login prompt
@@ -168,6 +169,7 @@ namespace ProjectPerseus.sync
                 ids.IdAutoAssignController.Reset(closingGuid);
                 ids.IdAutoAssignController.Forget(e.Document);
                 ids.IdRulesCache.Remove(closingGuid);
+                collections.CollectionsCache.Remove(closingGuid);
                 naming.ParameterNames.Remove(closingGuid);
             }
         }

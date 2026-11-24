@@ -146,11 +146,33 @@ Parameter names here go through the naming convention (prefix etc.).
 
 1. **Naming conventions (DONE 2026-11-23)** — Django model + API + web pages; plugin `naming/ParameterNames`, existing literals moved to
    keys, Revit editor, migration offer. Tests: layer resolution (Django + plugin).
-2. **Collections core** — config endpoint, `ReferenceCodec`, `ReferenceResolver`, `OverrideCodec` (pure, unit-tested),
-   locked parameters created via `SharedParameterManager`.
+2. **Collections core (DONE 2026-11-24)** — config endpoint, `ReferenceCodec`, `ReferenceResolver`, `OverrideCodec` (pure, unit-tested),
+   locked parameters created via `SharedParameterManager`. As built: django-perseus `ReferenceCollectionSet` (JSON list per
+   project / source layer, `perseus/reference_collections.py`, `GET/PUT api/source/<guid>/collections/?layer=`, web editors,
+   help guide); plugin `collections/` (ReferenceCodec, OverrideCodec, ReferenceResolver, CollectionsCache, CollectionStore),
+   `SharedParameterManager.EnsureParameters` with type bindings, tests in `ReferenceCodecTest.cs`. Details below.
 3. **Templates** — `RelatedMany`, member objects with overrides, dependency index. Tests in `IdPatternTest`-style.
 4. **Collections window** — members, overrides, preview, stale fixes.
 5. **Audit + help** — stale / broken references in Audit; help guides for both features.
+
+### Stage 2 as built (2026-11-24)
+
+- Collection names are template identifiers (letter first, letters / digits / `_`, max 40) and can't shadow Element, Type,
+  Level, Host, Room, Space, ToRoom, FromRoom, Group, Project, value, row, forloop, loop.
+- A model's collection replaces the project's one of the same name; `enabled: false` there turns it off for that model.
+- Server checks: `{n}` exactly once for slots; Revit-safe names; members != override parameter; overridable fields need an
+  override parameter; parameter names unique across the merged set (incl. `Sign_{n}` vs a plain `Sign_1`) and not a
+  Perseus keyed name; the owner family regex compiles.
+- Plugin names in use: recorded under `collection.<name>.members:<base name>` (slots record the pattern) when Perseus creates
+  the parameter. A prefix change keeps existing parameters; changing the base name in the config switches parameter (like
+  an Auto Parameters rule).
+- Existing parameters of the configured name and kind (type / instance) are used as they are (not locked); created ones are
+  locked Perseus parameters. The override parameter is always an instance parameter on the owner categories.
+- A slot / list value without an id (`ST07`, `|ST07`) is a name-only reference: resolved by name (stale, re-pointable), so
+  packs typed by hand before collections can be adopted.
+- A renamed member whose id is still valid is **stale** (templates keep using it): AcceptRename, or Repoint when exactly one
+  other allowed element now has the stored name. An id that exists but is no longer an allowed member stays in templates
+  but is **broken** unless one name match exists.
 
 ## Decisions (2026-11-23)
 

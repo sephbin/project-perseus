@@ -204,12 +204,25 @@ ProjectPerseus/
 │   │                             Never hard-code a Perseus parameter name: add a key here AND to the server's PARAMETER_KEYS.
 │   └── ParameterNameRecords.cs   Plugin data (append-only, newest per key) of the name each key has in this model; written when
 │                                 SharedParameterManager creates a keyed parameter or Rename replaces one.
+├── collections/                  NEW (2026-11-24). Reference collections (REFERENCE_COLLECTIONS_PLAN.md part B): an owner element (sign pack
+│   │                             type) holds an ordered list of member elements (sign types); instances override member values.
+│   ├── ReferenceCodec.cs         Pure: MemberRef (ElementId + name; id 0 = name-only, e.g. a hand-typed "ST07"), slot text "12345|ST07 Exit"
+│   │                             (backslash and '|' escaped), list JSON [{"id","name"}, null...], slot names from "COX_Sign_{n}". Tested.
+│   ├── OverrideCodec.cs          Pure: Overrides (slot -> field -> text, 1-based slots, fields case-insensitive) + Parse / Serialize of the
+│   │                             override parameter JSON {"1": {"Message": "..."}}; Remap / PruneAbove follow reordered / removed members; Merge.
+│   ├── ReferenceResolver.cs      Pure: Ok / Stale (Repoint to the single name match, or AcceptRename) / Broken; ElementId = what templates use.
+│   ├── CollectionsCache.cs       Per-model GET /api/source/<guid>/collections/ (loaded on DocumentOpened, removed on close).
+│   └── CollectionStore.cs        Revit side: owners / targets (category, type vs instance, family regex), TargetIndex (resolver input),
+│                                 Read/WriteMembers (slots or list), Read/WriteOverrides, EnsureParameters (locked Perseus parameters, slots
+│                                 on demand, type binding when the collection lives on types). Names in use: ParameterNames.Recorded(
+│                                 "collection.<name>.members:<base>") -> server-resolved name (prefix change never strands values).
 ├── ids/                          "Auto Parameters" (renamed from Element IDs, 2026-11-18; code names kept): Perseus_ID +
 │   │                             Django-configured rules of two kinds (IdRuleDto.Kind): "id" = unique numbered IDs (claims,
 │   │                             renumber) and "value" = copied / computed values, not unique ({Project.*}, {Level.*}, ... +
 │   │                             transform; Fill always / only when empty). Value rules never take part in claims or renumbering.
 │   ├── IdRulesCache.cs           Per-source cache of GET /api/source/<guid>/id-rules/ (LoadAsync/LoadNow/Get).
-│   ├── SharedParameterManager.cs Perseus_ID / Link Sync names + group via naming/ParameterNames; Rename(key) = naming migration
+│   ├── SharedParameterManager.cs EnsureParameters(Requirement list) for other features (collections; Requirement.TypeBinding / RecordName).
+│   │                             Perseus_ID / Link Sync names + group via naming/ParameterNames; Rename(key) = naming migration
 │   │                             (Replace: new parameter, values copied, name recorded, one undo step; SwitchLock uses Replace too).
 │   │                             Locked rules (IdRuleDto.ReadOnly) = UserModifiable false, own GUID (GuidFor(name, true)) + file group
 │   │                             "Perseus locked"; LockMismatches / SwitchLock (replace parameter, copy values; offered by Audit).
@@ -690,6 +703,8 @@ ProjectPerseus/
 ├── models/                       DTOs + geometry extractor.
 │   ├── ActionDto.cs              NEW (Step 2). DTO for all tracked user actions; ActionType string constants.
 │   ├── AlertDto.cs               NEW. DTO for pending Revit alert response (id, title, body).
+│   ├── CollectionsDto.cs         NEW (2026-11-24). Reference collections of a model (CollectionDto: owner, storage, members / override
+│   │                             parameter base + resolved names, targets, overridable fields).
 │   ├── ParameterNamingDto.cs     NEW (2026-11-23). Effective naming convention (prefix, group, names, resolved) for a model.
 │   ├── IdRulesDto.cs             NEW. DTOs for /api/source/<guid>/id-rules/ (rules + category prefixes).
 │   ├── LinkSnapshot.cs           NEW (2026-11-08). Federator snapshot DTO: LinkSnapshot + ElementSnapshot (link coords, ft), save GUID.
@@ -866,6 +881,7 @@ ProjectPerseus/
 ├── federator/                    [IN PROGRESS 2026-11-08] Link comparison (see §6.1, FEDERATOR_PLAN.md).
 ├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
 ├── naming/                       [DONE 2026-11-23] Parameter naming conventions (see §6.1).
+├── collections/                  [IN PROGRESS 2026-11-24] Reference collections core (see §6.1, REFERENCE_COLLECTIONS_PLAN.md).
 ├── mapping/                      [IN PROGRESS 2026-11-12] Family mapping (see §6.1, FAMILY_MAPPING_PLAN.md).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).

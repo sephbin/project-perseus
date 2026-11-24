@@ -29,10 +29,12 @@ namespace ProjectPerseus.ids
         private const string GroupName = "Perseus";
         private const string LockedGroupName = "Perseus locked";
 
-        private class Requirement
+        internal class Requirement
         {
             public string Name;
             public string Key;             // naming/ParameterNames key for Perseus's own parameters (recorded on creation)
+            public string RecordName;      // name recorded under Key (default Name; collection slots record their pattern)
+            public bool TypeBinding;       // type parameter (reference collections living on types); default instance
             public HashSet<string> Categories; // null = every model category that accepts parameters
             public string Group = "other"; // key from Django's ID_PARAMETER_GROUPS; Perseus parameters default to "Other"
             public bool ReadOnly;          // UserModifiable = false (locked against hand edits)
@@ -419,6 +421,13 @@ namespace ProjectPerseus.ids
 #endif
         }
 
+        /// <summary>
+        /// Creates / extends the given parameters (Perseus file, deterministic GUIDs; an existing parameter of the same name and
+        /// binding kind is reused and only extended to missing categories). Used by reference collections
+        /// (collections/CollectionStore). Outside a transaction; returns how many were created / extended.
+        /// </summary>
+        internal static int EnsureParameters(Document doc, List<Requirement> requirements) => EnsureRequirements(doc, requirements);
+
         private static int EnsureRequirements(Document doc, List<Requirement> requirements)
         {
             var bindable = new List<Category>();
@@ -450,9 +459,10 @@ namespace ProjectPerseus.ids
 
                 if (existing.TryGetValue(req.Name, out var found))
                 {
-                    if (!(found.Binding is InstanceBinding))
+                    if (req.TypeBinding ? !(found.Binding is TypeBinding) : !(found.Binding is InstanceBinding))
                     {
-                        Log.Warn($"[SharedParameterManager] '{req.Name}' already exists as a type/other parameter â€” left unchanged.");
+                        Log.Warn($"[SharedParameterManager] '{req.Name}' already exists as {(found.Binding is TypeBinding ? "a type" : "an instance")} parameter, " +
+                                 $"wanted {(req.TypeBinding ? "type" : "instance")}: left unchanged.");
                         continue;
                     }
                     var bound = new HashSet<ElementId>(found.Binding.Categories.Cast<Category>().Select(c => c.Id));
@@ -479,7 +489,9 @@ namespace ProjectPerseus.ids
                     {
                         CategorySet set = app.Create.NewCategorySet();
                         foreach (var c in item.Target) set.Insert(c);
-                        InstanceBinding binding = app.Create.NewInstanceBinding(set);
+                        ElementBinding binding = item.Req.TypeBinding
+                            ? (ElementBinding)app.Create.NewTypeBinding(set)
+                            : app.Create.NewInstanceBinding(set);
 
                         if (item.ExistingDef != null)
                         {
@@ -493,7 +505,11 @@ namespace ProjectPerseus.ids
                         // Group applies on creation only; Perseus_ID is automatic so it sits in "Other".
                         doc.ParameterBindings.Insert(def, binding, GroupFor(item.Req.Group));
                         Log.Info($"[SharedParameterManager] Created '{item.Req.Name}' bound to {item.Target.Count} categories.");
-                        if (item.Req.Key != null) created.Add(new KeyValuePair<string, string>(item.Req.Key, item.Req.Name));
+                        if (item.Req.Key != null)
+                        {
+                            var rec = new KeyValuePair<string, string>(item.Req.Key, item.Req.RecordName ?? item.Req.Name);
+                            if (!created.Contains(rec)) created.Add(rec);
+                        }
                     }
                     // Perseus's own parameters: remember the name they were created with (naming conventions can change).
                     ParameterNameRecords.Add(doc, created, Environment.UserName);

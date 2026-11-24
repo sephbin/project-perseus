@@ -141,6 +141,15 @@ namespace ProjectPerseus.naming
             return map.TryGetValue(key, out var n) ? n : Wanted(doc, key);
         }
 
+        /// <summary>The name recorded for a key in this model (ParameterNameRecords), or null. For keys outside Keys, e.g.
+        /// collection parameters ("collection.Signs.members:Sign_{n}" -> "COX_Sign_{n}").</summary>
+        internal static string Recorded(Document doc, string key)
+        {
+            if (doc == null || string.IsNullOrEmpty(key)) return null;
+            var map = _inUse.GetOrAdd(DocKey(doc), _ => ReadInUse(doc));
+            return map.TryGetValue(key, out var n) ? n : null;
+        }
+
         /// <summary>Names in use for every key: recorded, else built-in when that Perseus parameter is bound. Keys without
         /// either aren't listed (For falls back to Wanted).</summary>
         private static Dictionary<string, string> ReadInUse(Document doc)
