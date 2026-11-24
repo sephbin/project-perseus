@@ -659,12 +659,19 @@ namespace ProjectPerseus.violations
                     form.ApprovedElementIds.Count == 0)
                     return ViolationDialogResult.UndoAll;
 
-                var allIds = new HashSet<long>(deletedIds.Select(id => id.GetIdValue()));
-                if (form.ApprovedElementIds.IsSupersetOf(allIds))
+                // Compare against what the dialog listed, not every deleted id: a delete also removes
+                // elements the dialog never shows (sketch / boundary internals with no cache entry), so
+                // "everything ticked" could never cover those and was misread as a partial approval.
+                var shownIds = new HashSet<long>(elementInfos.Select(ei => ei.ElementId));
+                if (form.ApprovedElementIds.IsSupersetOf(shownIds))
                     return ViolationDialogResult.ProceedAll;
 
                 // Partial approval: undo everything, then re-delete just the approved subset.
-                queue.UndoViolationEvent.IdsToReDeleteAfterUndo = form.ApprovedElementIds.ToList();
+                // Ids that weren't really deleted (rooms that became unplaced) are left out: Revit's
+                // Delete would remove the room for good; it unplaces again if its boundary goes.
+                var reallyDeleted = new HashSet<long>(deletedIds.Select(id => id.GetIdValue()));
+                queue.UndoViolationEvent.IdsToReDeleteAfterUndo =
+                    form.ApprovedElementIds.Where(reallyDeleted.Contains).ToList();
                 return ViolationDialogResult.UndoThenReDelete;
             }
         }

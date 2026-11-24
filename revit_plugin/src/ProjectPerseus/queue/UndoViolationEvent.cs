@@ -30,6 +30,7 @@ namespace ProjectPerseus.queue
             {
                 var captured   = idsToReDelete.ToList();
                 int waitCycles = 0;
+                int postAttempts = 0;
 
                 // Idling can fire before PostCommand(Undo) is fully processed, so we cannot
                 // unregister on the first fire unconditionally. Instead, check whether the
@@ -56,8 +57,23 @@ namespace ProjectPerseus.queue
                         return;
                     }
 
-                    app.Idling -= handler;
-                    ReDeleteAfterUndo(app, captured);
+                    // The elements are back, but Revit can still count the posted Undo as pending in
+                    // this idle cycle ("does not support more than one command are posted"): keep
+                    // retrying for a few more cycles instead of losing the approved delete.
+                    try
+                    {
+                        if (ReDeleteAfterUndo(app, captured) || ++postAttempts >= 20)
+                        {
+                            app.Idling -= handler;
+                            if (postAttempts >= 20)
+                                Log.Warn("[UndoViolationEvent] Could not post Delete after undo within 20 idle cycles; re-delete aborted.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        app.Idling -= handler;
+                        Log.Warn($"[UndoViolationEvent] Re-delete after undo failed: {ex.Message}");
+                    }
                 };
                 app.Idling += handler;
             }
@@ -65,47 +81,50 @@ namespace ProjectPerseus.queue
             app.PostCommand(cmdId);
         }
 
-        private static void ReDeleteAfterUndo(UIApplication app, List<long> idsToDelete)
+        // Returns true when finished (Delete posted, or nothing left to delete); false when Revit
+        // won't take a posted command yet and the caller should retry on a later idle cycle.
+        private static bool ReDeleteAfterUndo(UIApplication app, List<long> idsToDelete)
         {
             var uidoc = app.ActiveUIDocument;
             var doc   = uidoc?.Document;
-            if (uidoc == null || doc == null) return;
+            if (uidoc == null || doc == null) return true;
+
+            var validIds = idsToDelete
+                .Select(id => RevitExtensions.CreateId(id))
+                .Where(eid => doc.GetElement(eid) != null)
+                .ToList();
+
+            if (validIds.Count == 0)
+            {
+                Log.Warn("[UndoViolationEvent] No approved elements found in document after undo; re-delete skipped.");
+                return true;
+            }
+
+            var deleteCmd = RevitCommandId.LookupPostableCommandId(PostableCommand.Delete);
+            if (!app.CanPostCommand(deleteCmd)) return false;
+
+            // Select the approved elements and post Revit's native Delete command so that
+            // worksharing checkout, dependent-element warnings, and all other edge cases
+            // are handled exactly as they would be if the user performed the action manually.
+            uidoc.Selection.SetElementIds(validIds);
+            ViolationDetector.BypassNextViolationCheck = true;
             try
             {
-                var validIds = idsToDelete
-                    .Select(id => RevitExtensions.CreateId(id))
-                    .Where(eid => doc.GetElement(eid) != null)
-                    .ToList();
-
-                if (validIds.Count == 0)
-                {
-                    Log.Warn("[UndoViolationEvent] No approved elements found in document after undo; re-delete skipped.");
-                    return;
-                }
-
-                // Select the approved elements and post Revit's native Delete command so that
-                // worksharing checkout, dependent-element warnings, and all other edge cases
-                // are handled exactly as they would be if the user performed the action manually.
-                uidoc.Selection.SetElementIds(validIds);
-                ViolationDetector.BypassNextViolationCheck = true;
-
-                var deleteCmd = RevitCommandId.LookupPostableCommandId(PostableCommand.Delete);
-                if (app.CanPostCommand(deleteCmd))
-                {
-                    app.PostCommand(deleteCmd);
-                    Log.Info($"[UndoViolationEvent] Queued Delete for {validIds.Count} approved element(s) via selection after undo.");
-                }
-                else
-                {
-                    ViolationDetector.BypassNextViolationCheck = false;
-                    Log.Warn("[UndoViolationEvent] Cannot post Delete command; re-delete aborted.");
-                }
+                app.PostCommand(deleteCmd);
             }
-            catch (Exception ex)
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                // The Undo is still the posted command this cycle; try again next idle.
+                ViolationDetector.BypassNextViolationCheck = false;
+                return false;
+            }
+            catch
             {
                 ViolationDetector.BypassNextViolationCheck = false;
-                Log.Warn($"[UndoViolationEvent] Re-delete after undo failed: {ex.Message}");
+                throw;
             }
+            Log.Info($"[UndoViolationEvent] Queued Delete for {validIds.Count} approved element(s) via selection after undo.");
+            return true;
         }
 
         public string GetName() => "Perseus Undo Violation";
