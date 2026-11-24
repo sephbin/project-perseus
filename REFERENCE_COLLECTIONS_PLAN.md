@@ -153,8 +153,25 @@ Parameter names here go through the naming convention (prefix etc.).
    `SharedParameterManager.EnsureParameters` with type bindings, tests in `ReferenceCodecTest.cs`. Details below.
 3. **Templates (DONE 2026-11-24)** — `RelatedMany`, member objects with overrides, dependency index. Tests in
    `IdPatternTest.JinjaTemplates_LoopOverCollections`. Details below.
-4. **Collections window** — members, overrides, preview, stale fixes.
+4. **Collections window (DONE 2026-11-24)** — members, overrides, preview, stale fixes. Details below.
 5. **Audit + help** — stale / broken references in Audit; help guides for both features.
+
+### Stage 4 as built (2026-11-24)
+
+- `ui/CollectionsWindow` (modeless, ribbon panel "Collections", `commands/ShowCollectionsCommand`, icon `collections`). Edits are a
+  local draft until **Apply** (one transaction, "Perseus: Edit collection"); Revert / switching owner or collection asks first.
+- Members: slots with status (ok / stale / renamed / broken, reason in the tooltip); add from the allowed targets (search,
+  double-click) or Pick in model (an instance -> its type when members are types), empty slot, duplicate, move (Alt+Up/Down), remove
+  (Delete), clear, replace; Fix selected / Fix all stale use ReferenceResolver's fix (Repoint / AcceptRename). Broken = replace by hand.
+- Each draft slot remembers the slot it was read from (`Origin`), so Apply remaps every placed instance's overrides with its members
+  (`Overrides.Remap`); a removed member's overrides go; only appends -> `PruneAbove`. Instances with overrides checked out by someone
+  else: asked (they keep old slot numbers); instances you edited that are checked out elsewhere block Apply.
+- Instance overrides follow Revit's selection (SelectionChanged subscribed while the window is open): one owner type at a time, several
+  instances together (cells that differ shown orange, typing sets all). Columns = overridable fields, or (none listed) fields already
+  overridden + Add field (member parameter names). Grid is read only while member edits are pending (overrides follow slot numbers).
+- Preview: `IdAssigner.PreviewCollectionValues` (value rules on the element whose Jinja template mentions a collection) with the draft
+  seeded through `RelatedValueResolver.DraftMembers / DraftOverrides`.
+- New slot parameters / a missing override parameter are created at Apply (`CollectionStore.EnsureParameters`, outside the transaction).
 
 ### Stage 3 as built (2026-11-24)
 

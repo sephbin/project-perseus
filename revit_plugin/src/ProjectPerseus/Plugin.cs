@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -158,6 +158,11 @@ namespace ProjectPerseus
             RibbonPanel markersPanel = application.CreateRibbonPanel(tabName, "Markers");
             AddButton(markersPanel, asm, "Button_Markers", "Parameter\nMarkers", "ShowMarkersCommand", "markers",
                 "Ring elements in the view by a parameter value, with a colour and icon per value and a legend: e.g. doors with mag locks in magenta and drop bolts in cyan. Define what to look for (categories, filter, parameter) in the panel.");
+
+            // ---- Collections: reference collections (sign packs holding sign types) and instance overrides
+            RibbonPanel collectionsPanel = application.CreateRibbonPanel(tabName, "Collections");
+            AddButton(collectionsPanel, asm, "Button_Collections", "Collections", "ShowCollectionsCommand", "collections",
+                "Edit reference collections, e.g. which sign types a sign pack holds and in what order, and what each placed pack overrides (messages, arrows). The collection parameters are locked: they're edited here. Templates of Auto Parameters value rules loop over them.");
 
             // ---- Federator: consultant link comparison + review
             RibbonPanel federatorPanel = application.CreateRibbonPanel(tabName, "Federator");

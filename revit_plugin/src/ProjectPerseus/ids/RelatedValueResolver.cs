@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -128,6 +128,27 @@ namespace ProjectPerseus.ids
 
         internal IEnumerable<string> CollectionNames => Collections.Select(c => c.Name);
 
+        // Unsaved edits from ui/CollectionsWindow (preview): members of an owner / overrides of an instance used instead of
+        // what the model holds. Keys "collection|element id".
+        private readonly Dictionary<string, List<collections.MemberRef>> _draftMembers =
+            new Dictionary<string, List<collections.MemberRef>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, collections.Overrides> _draftOverrides =
+            new Dictionary<string, collections.Overrides>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Preview: render as if the owner held these members (not written to the model).</summary>
+        internal void DraftMembers(string collection, long ownerId, IList<collections.MemberRef> members)
+        {
+            _draftMembers[collection + "|" + ownerId] = members?.ToList() ?? new List<collections.MemberRef>();
+            _members.Clear();
+        }
+
+        /// <summary>Preview: render as if the instance held these overrides (not written to the model).</summary>
+        internal void DraftOverrides(string collection, long instanceId, collections.Overrides overrides)
+        {
+            _draftOverrides[collection + "|" + instanceId] = overrides?.Clone() ?? new collections.Overrides();
+            _members.Clear();
+        }
+
         private CollectionDto CollectionNamed(string name) =>
             Collections.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
 
@@ -164,9 +185,12 @@ namespace ProjectPerseus.ids
             {
                 if (OwnerOf(from, c, out var owner, out var instance))
                 {
-                    var refs = collections.CollectionStore.ReadMembers(owner, c, MembersNameOf(c), out _);
+                    var refs = _draftMembers.TryGetValue(c.Name + "|" + ProjectPerseus.revit.RevitExtensions.GetIdValue(owner.Id), out var dm)
+                        ? dm : collections.CollectionStore.ReadMembers(owner, c, MembersNameOf(c), out _);
                     collections.Overrides overrides = null;
-                    if (instance != null)
+                    if (instance != null && _draftOverrides.TryGetValue(c.Name + "|" + ProjectPerseus.revit.RevitExtensions.GetIdValue(instance.Id), out var dov))
+                        overrides = dov;
+                    else if (instance != null)
                     {
                         if (!_overrideNames.TryGetValue(c.Name, out var on))
                             _overrideNames[c.Name] = on = collections.CollectionStore.OverrideName(_doc, c);

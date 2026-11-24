@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -291,6 +291,8 @@
     <Compile Include="collections\ReferenceCodec.cs" />
     <Compile Include="collections\OverrideCodec.cs" />
     <Compile Include="collections\ReferenceResolver.cs" />
+    <Compile Include="commands\ShowCollectionsCommand.cs" />
+    <Compile Include="ui\CollectionsWindow.cs" />
     <Compile Include="models\CollectionsDto.cs" />
     <Compile Include="models\ParameterNamingDto.cs" />
     <Compile Include="auth\PairingSession.cs" />
@@ -625,6 +627,8 @@
     <Resource Include="resources\edit_rules_dark.png" />
     <Resource Include="resources\parameter_naming.png" />
     <Resource Include="resources\parameter_naming_dark.png" />
+    <Resource Include="resources\collections.png" />
+    <Resource Include="resources\collections_dark.png" />
     <Resource Include="resources\about.png" />
     <Resource Include="resources\about_dark.png" />
   </ItemGroup>

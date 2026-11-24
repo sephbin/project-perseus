@@ -237,12 +237,21 @@ ICONS["parameter_naming"] = (
     '<path d="M15.5 19h8" fill="none" stroke="{i}" stroke-width="1.8"/>'
 )
 
+# ---- Collections: a sign pack (frame) holding ordered member slots, one picked out in cyan
+ICONS["collections"] = (
+    '<rect x="4" y="4" width="18" height="24" rx="2" fill="none" stroke="{i}"/>'
+    '<path d="M8 10h10M8 16h10M8 22h10" fill="none" stroke="{i}" stroke-width="1.6"/>'
+    '<rect x="17" y="12.5" width="11" height="7" rx="1.5" fill="{bg}" stroke="{a}" stroke-width="1.9"/>'
+    '<path d="M20 16h5" fill="none" stroke="{a}" stroke-width="1.8"/>'
+)
+
 GROUPS = [
     ("Sync",         ["upload", "pull_edits", "ownership"]),
     ("Element IDs",  ["edit_rules", "audit_ids", "renumber_ids"]),
     ("Key Schedules",["schedule_manage", "schedule_export", "schedule_import"]),
     ("Violations",   ["violations_toggle", "violations_mode", "violations_list", "freefall"]),
     ("Markers",      ["markers"]),
+    ("Collections",  ["collections"]),
     ("Federator",    ["federator", "family_mapping", "link_sync", "review_views"]),
     ("Setup",        ["project_rules", "settings", "reset_identity", "diagnose", "package_logs", "web_hub", "parameter_naming", "about"]),
 ]

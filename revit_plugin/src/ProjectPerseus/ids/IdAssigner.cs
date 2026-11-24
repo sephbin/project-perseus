@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -576,6 +576,52 @@ namespace ProjectPerseus.ids
         /// <paramref name="fresh"/> = elements this user just created (or pasted): for "next" / "fill" rules the value
         /// they arrived with (Revit's next Mark, a copied value) is minimised rather than kept.
         /// </summary>
+        /// <summary>One value rule's result for an element, without writing (ui/CollectionsWindow preview).</summary>
+        internal class ValuePreview
+        {
+            public string Parameter;
+            public string Current;
+            public string Value;
+            public string Error;
+        }
+
+        /// <summary>
+        /// Dry run of the value rules on one element whose Jinja template names a reference collection: what each would
+        /// write. <paramref name="draft"/> can seed unsaved collection edits into the resolver (DraftMembers /
+        /// DraftOverrides). API context, read only.
+        /// </summary>
+        internal static List<ValuePreview> PreviewCollectionValues(Document doc, IdRulesDto rules, Element el, Action<RelatedValueResolver> draft)
+        {
+            var list = new List<ValuePreview>();
+            if (doc == null || rules == null || el?.Category == null) return list;
+            var resolver = new RelatedValueResolver(doc, rules);
+            draft?.Invoke(resolver);
+            var names = resolver.CollectionNames.ToList();
+            if (names.Count == 0) return list;
+            var pending = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rule in ResolveActive(doc, rules, out _).Where(r => r.IsValue && Applies(r.Dto, el)))
+            {
+                var p = el.get_Parameter(rule.ParamGuid);
+                if (p == null) continue;
+                var resolve = resolver.For(el, pending);
+                var c = TemplateFor(rule, resolve, out _);
+                bool reads = c.Jinja != null && c.Jinja.Mentions(names).Count > 0;
+                var r = new IdAssignResult();
+                string now = p.AsString() ?? "";
+                string target = now;
+                bool ok = !(rule.Dto.FillOnlyEmpty && now.Length > 0) && TryValue(rule, el, resolver, pending, resolve, r, out target);
+                string value = ok ? target : now;
+                if (ok) pending[rule.Dto.ParameterName.Trim()] = value;
+                if (!reads) continue;
+                list.Add(new ValuePreview
+                {
+                    Parameter = rule.Dto.ParameterName.Trim(), Current = now, Value = value,
+                    Error = r.TransformErrors.FirstOrDefault() ?? (rule.Dto.FillOnlyEmpty && now.Length > 0 ? "only filled when empty" : null),
+                });
+            }
+            return list;
+        }
+
         internal static IdAssignResult Run(Document doc, string docGuid, IdRulesDto rules, ICollection<long> onlyIds,
                                            bool renumber = false, IdClashFix fix = null, bool dryRun = false,
                                            ICollection<long> fresh = null)

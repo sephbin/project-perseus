@@ -117,7 +117,7 @@ ProjectPerseus/
 │                                 a SyncOrchestrator and forwards Subscribe/Unsubscribe.
 │                                 Calls ViolationHighlightController.Initialize() and
 │                                 ownership.OwnershipTracker.Subscribe() at startup.
-│                                 Ribbon panels (by function): Sync, Auto Parameters, Key Schedules, Violations (incl. Freefall), Markers, Federator (Link Changes, Family Mapping, Link Sync, Review Views), Setup.
+│                                 Ribbon panels (by function): Sync, Auto Parameters, Key Schedules, Violations (incl. Freefall), Markers, Collections, Federator (Link Changes, Family Mapping, Link Sync, Review Views), Setup.
 │                                 Calls federator.FederatorController.Subscribe() + ChangeHighlightController.Initialize() at startup.
 │                                 Ribbon strings reference ProjectPerseus.commands.*.
 │                                 Only file remaining at the root.
@@ -244,6 +244,8 @@ ProjectPerseus/
 │   │                             type / group) so Dependents(changed) finds elements copying from an edited element;
 │   │                             ProjectDependents = everything a {Project.*} rule covers (Project Information changed).
 │   │                             A Jinja rule naming a collection depends on its owner + members (editing ST07 refreshes every pack);
+│   │                             PreviewCollectionValues = dry run of the value rules reading a collection on one element (ui/CollectionsWindow;
+│   │                             unsaved edits seeded via RelatedValueResolver.DraftMembers / DraftOverrides).
 │   │                             CollectionsCache invalidates the index when the collections config changes.
 │   │                             Core logic. Sets Perseus_ID = UniqueId on the categories chosen in Django
 │   │                             (IdRulesDto.PerseusId; default all); per rule keeps a value if it matches
@@ -275,7 +277,8 @@ ProjectPerseus/
 │   │                             and a parameter of its Level / Host / Room / Space / ToRoom / FromRoom (doors) / Type / Group /
 │   │                             Project (Project Information; Project.Name / Number = project name / number) / Element (itself;
 │   │                             For(el, pending) reads values planned in the same run). Fallbacks {A|B}. AddDependencies for the index.
-│   │                             Collections: MembersOf (template members via collections/CollectionStore, cached per run),
+│   │                             Collections: MembersOf (template members via collections/CollectionStore, cached per run; DraftMembers /
+│   │                             DraftOverrides = unsaved edits for the window's preview),
 │   │                             AddCollectionDependencies (owner + every member).
 │   └── IdAutoAssignController.cs Value rules: DocumentChanged also looks up elements copying from the modified ones (index) and
 │                                 Project Information edits; ProcessPending -> RefreshDependents writes those this user owns now,
@@ -321,6 +324,7 @@ ProjectPerseus/
 │   │                             Opens modeless ViolationListForm; brings to front if already open.
 │   ├── ShowOwnershipCommand.cs   NEW (2026-11-05). Ribbon: Button_Ownership (Sync panel). Opens ui/OwnershipForm.
 │   ├── ShowMarkersCommand.cs     NEW (2026-11-06). Ribbon: Button_Markers (Markers panel). Opens ui/MarkerSetsWindow.
+│   ├── ShowCollectionsCommand.cs NEW (2026-11-24). Ribbon: Button_Collections (Collections panel). Opens ui/CollectionsWindow.
 │   ├── ShowFederatorCommand.cs   NEW (2026-11-08). Ribbon: Button_Federator (Federator panel). Opens ui/FederatorWindow.
 │   ├── ShowFamilyMappingCommand.cs NEW (2026-11-12). Ribbon: Button_FamilyMapping (Federator panel). Opens ui/FamilyMappingWindow.
 │   ├── ShowLinkSyncCommand.cs    NEW (2026-11-13). Ribbon: Button_LinkSync (Federator panel). Opens ui/LinkSyncWindow.
@@ -373,6 +377,13 @@ ProjectPerseus/
 │   ├── ParameterNamingWindow.cs  NEW (2026-11-23). Modal code-only WPF editor of the naming convention (This model / Project /
 │   │                             Server-wide; GET / PUT api/source/<guid>/parameter-naming/?layer=, adopt server-wide = POST &action=adopt)
 │   │                             via auth/PairingSession (Put / Post). "Rename parameters…" closes with RenameRequested. No Revit API.
+│   ├── CollectionsWindow.cs      NEW (2026-11-24). Modeless code-only WPF "Collections" (REFERENCE_COLLECTIONS_PLAN.md stage 4): collection
+│   │                             picker, owners (placed count, stale / broken badge), Members tab (slots: add from allowed targets / Pick in
+│   │                             model, empty slot, duplicate, move, remove, clear, replace, Fix stale), Instance overrides tab (follows Revit
+│   │                             SelectionChanged, subscribed while open: members x fields grid, multi-instance, reset cell / slot / all),
+│   │                             Preview (IdAssigner.PreviewCollectionValues with the draft). Apply = one transaction "Perseus: Edit collection"
+│   │                             (EnsureParameters first for new slots); reordered / removed members remap every instance's overrides
+│   │                             (Overrides.Remap via SlotRow.Origin). Owner checked out elsewhere = read only. Model work via OwnershipUiEvent.
 │   ├── AutoParametersWindow.cs   NEW (2026-11-20). Modal code-only WPF editor of the Auto Parameters rules on the server
 │   │                             (same data as the web id_rules page): rule list (own + inherited project rules, Override in
 │   │                             this model) + detail form (kind, pattern + token menu, value / ID options, group, locked,
@@ -888,7 +899,7 @@ ProjectPerseus/
 ├── federator/                    [IN PROGRESS 2026-11-08] Link comparison (see §6.1, FEDERATOR_PLAN.md).
 ├── markers/                      [DONE 2026-11-06] MarkerSetStore + MarkerEngine (see §6.1).
 ├── naming/                       [DONE 2026-11-23] Parameter naming conventions (see §6.1).
-├── collections/                  [IN PROGRESS 2026-11-24] Reference collections: core + templates done; window, audit next (see §6.1, REFERENCE_COLLECTIONS_PLAN.md).
+├── collections/                  [IN PROGRESS 2026-11-24] Reference collections: core + templates + window (ui/CollectionsWindow) done; audit next (see §6.1, REFERENCE_COLLECTIONS_PLAN.md).
 ├── mapping/                      [IN PROGRESS 2026-11-12] Family mapping (see §6.1, FAMILY_MAPPING_PLAN.md).
 ├── ownership/                    [DONE 2026-11-05] OwnershipScanner + OwnershipTracker (see §6.1).
 ├── queue/                        Renamed from commands/ (folder now matches namespace).
