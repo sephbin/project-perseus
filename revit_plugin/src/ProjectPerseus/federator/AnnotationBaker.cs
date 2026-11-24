@@ -68,11 +68,11 @@ namespace ProjectPerseus.federator
 
         // ── Bake / remove ──
 
-        internal static Result Bake(Document doc, RevitLinkInstance instance, ComparisonRecord record, IList<ElementChange> changes,
+        internal static Result Bake(Document doc, ComparedModel model, ComparisonRecord record, IList<ElementChange> changes,
                                     IList<string> viewUids, BakeSettings s, Func<ElementChange, string> label, Action<string, double> progress)
         {
             var result = new Result();
-            Transform toHost = instance.GetTotalTransform();
+            Transform toHost = model.ToHost;
             ElementId revisionId = null;
             if (s.Style == BakeSettings.StyleRevisionCloud)
             {
@@ -98,9 +98,9 @@ namespace ProjectPerseus.federator
                         {
                             tx.Start();
                             Quiet(tx);
-                            if (s.ReplacePrevious) result.Removed += RemoveIn(doc, view, instance.UniqueId, result);
+                            if (s.ReplacePrevious) result.Removed += RemoveIn(doc, view, model.Uid, result);
                             int before = result.Annotations;
-                            int changed = BakeView(doc, view, instance, toHost, record, changes, s, styles, revisionId, tagSchema, label, result);
+                            int changed = BakeView(doc, view, model, toHost, record, changes, s, styles, revisionId, tagSchema, label, result);
                             tx.Commit();
                             result.Views++;
                             result.Changes += changed;
@@ -133,14 +133,14 @@ namespace ProjectPerseus.federator
             return result;
         }
 
-        private static int BakeView(Document doc, View view, RevitLinkInstance instance, Transform toHost, ComparisonRecord record,
+        private static int BakeView(Document doc, View view, ComparedModel model, Transform toHost, ComparisonRecord record,
                                     IList<ElementChange> changes, BakeSettings s, Styles styles, ElementId revisionId, Schema tagSchema,
                                     Func<ElementChange, string> label, Result result)
         {
             var extent = ViewExtent.For(view);
             if (!extent.ShowsModel) return 0;
 #if REVIT2024_OR_GREATER
-            var visibleIds = ReviewNavigator.VisibleLinkedIds(doc, view, instance);
+            var visibleIds = ReviewNavigator.VisibleIds(doc, view, model);
 #endif
             var plane = new ViewPlane(view);
             double scale = Math.Max(1, view.Scale);
@@ -201,7 +201,7 @@ namespace ProjectPerseus.federator
                         created.Add(TextNote.Create(doc, view.Id, plane.At(u0, v1 + gap + TextSizeFt * scale), label(c), typeId));
                 }
 
-                foreach (var el in created) Tag(el, tagSchema, record?.Id, instance.UniqueId, c.UniqueId);
+                foreach (var el in created) Tag(el, tagSchema, record?.Id, model.Uid, c.UniqueId);
                 result.Annotations += created.Count;
                 count++;
             }

@@ -134,7 +134,9 @@ namespace ProjectPerseus.ui
             }
             foreach (var g in links.GroupBy(l => l.Name).Where(g => g.Count() > 1)) { int i = 1; foreach (var l in g) l.Name += $"  #{i++}"; }
             // Default: the link open in the federator panel, else the first loaded one. Loaded links first in the list.
-            string preferred = FederatorWindow.Instance?.Record?.LinkInstanceUid ?? links.Where(l => l.Loaded).OrderBy(l => l.Name).FirstOrDefault()?.Uid;
+            string fedLink = FederatorWindow.Instance?.Record?.LinkInstanceUid;
+            if (ComparedModel.IsHostUid(fedLink)) fedLink = null;   // a "This model" comparison: no link to map from
+            string preferred = fedLink ?? links.Where(l => l.Loaded).OrderBy(l => l.Name).FirstOrDefault()?.Uid;
             var w = new FamilyMappingWindow(doc, app.Application.Username, links.OrderBy(l => l.Loaded ? 0 : 1).ThenBy(l => l.Name).ToList(), preferred);
             new System.Windows.Interop.WindowInteropHelper(w).Owner = app.MainWindowHandle;
             w.Show();

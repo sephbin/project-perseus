@@ -487,6 +487,7 @@
     <Compile Include="federator\OldModelOpener.cs" />
     <Compile Include="federator\LinkedElementRef.cs" />
     <Compile Include="federator\ComparisonRunner.cs" />
+    <Compile Include="federator\ComparedModel.cs" />
     <Compile Include="federator\ReplacementMatcher.cs" />
     <Compile Include="federator\ReplacementLinks.cs" />
     <Compile Include="mapping\MappingMath.cs" />

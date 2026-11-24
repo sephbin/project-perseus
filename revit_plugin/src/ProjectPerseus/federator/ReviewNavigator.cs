@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -11,7 +11,7 @@ using ProjectPerseus.revit;
 namespace ProjectPerseus.federator
 {
     /// <summary>
-    /// Takes the user to changed linked elements: selects the ones that still exist (link references via
+    /// Takes the user to changed linked elements (or, for "This model" comparisons, the open model's own elements): selects the ones that still exist (link references via
     /// Selection.SetReferences) and zooms the active view to them. When they aren't visible in the active view, opens
     /// the user's own "Perseus Federator - &lt;user&gt;" 3D view with a section box around them (one view per user, so
     /// users never fight over its ownership). Registered review views (federator/ReviewViews) are tried before that 3D view. Deleted elements can't be selected; their old box is shown instead.
@@ -27,31 +27,37 @@ namespace ProjectPerseus.federator
         /// Selects the existing (not deleted) changed elements in Revit without zooming; deleted ones have nothing to
         /// select. Returns the linked element ids now selected (the panel ignores the SelectionChanged this causes).
         /// </summary>
-        internal static HashSet<long> Select(UIDocument uidoc, RevitLinkInstance instance, IList<ElementChange> changes)
+        internal static HashSet<long> Select(UIDocument uidoc, ComparedModel model, IList<ElementChange> changes)
         {
             var ids = new HashSet<long>();
-            if (uidoc == null || instance == null || changes == null) return ids;
+            if (uidoc == null || model == null || changes == null) return ids;
             var refs = new List<Reference>();
+            var elementIds = new List<ElementId>();
             foreach (var c in changes)
             {
                 if (c.Kind == ChangeKind.Deleted) continue;
-                Element el = LinkedElementRef.Resolve(instance, c.UniqueId);
+                Element el = model.Resolve(c.UniqueId);
                 if (el == null) continue;
-                try { refs.Add(new Reference(el).CreateLinkReference(instance)); ids.Add(el.Id.GetIdValue()); }
+                if (model.IsHost) { elementIds.Add(el.Id); ids.Add(el.Id.GetIdValue()); continue; }
+                try { refs.Add(model.ReferenceTo(el)); ids.Add(el.Id.GetIdValue()); }
                 catch { /* not referenceable */ }
             }
-            try { uidoc.Selection.SetReferences(refs); }
-            catch (Exception ex) { Log.Info($"[Federator] couldn't select linked elements: {ex.Message}"); ids.Clear(); }
+            try
+            {
+                if (model.IsHost) uidoc.Selection.SetElementIds(elementIds);
+                else uidoc.Selection.SetReferences(refs);
+            }
+            catch (Exception ex) { Log.Info($"[Federator] couldn't select compared elements: {ex.Message}"); ids.Clear(); }
             return ids;
         }
 
         /// <summary>Returns a short message for the panel's status line.</summary>
         /// <param name="reviewViews">Registered review views (federator/ReviewViews), priority order: tried before the 3D view.</param>
-        internal static string Show(UIDocument uidoc, RevitLinkInstance instance, IList<ElementChange> changes, bool select, ReviewViewSettings reviewViews = null)
+        internal static string Show(UIDocument uidoc, ComparedModel model, IList<ElementChange> changes, bool select, ReviewViewSettings reviewViews = null)
         {
-            if (uidoc == null || instance == null || changes == null || changes.Count == 0) return "Nothing to show.";
+            if (uidoc == null || model == null || changes == null || changes.Count == 0) return "Nothing to show.";
             Document host = uidoc.Document;
-            Transform toHost = instance.GetTotalTransform();
+            Transform toHost = model.ToHost;
 
             XYZ min = null, max = null;
             foreach (var c in changes)
@@ -74,32 +80,17 @@ namespace ProjectPerseus.federator
 
             var existing = changes.Where(c => c.Kind != ChangeKind.Deleted).ToList();
             int selected = 0;
-            if (select)
-            {
-                var refs = new List<Reference>();
-                foreach (var c in existing)
-                {
-                    Element el = LinkedElementRef.Resolve(instance, c.UniqueId);
-                    if (el == null) continue;
-                    try { refs.Add(new Reference(el).CreateLinkReference(instance)); } catch { /* not referenceable */ }
-                }
-                try
-                {
-                    uidoc.Selection.SetReferences(refs);
-                    selected = refs.Count;
-                }
-                catch (Exception ex) { Log.Info($"[Federator] couldn't select linked elements: {ex.Message}"); }
-            }
+            if (select) selected = Select(uidoc, model, existing).Count;
 
             View view = uidoc.ActiveView;
-            bool visible = IsVisible(host, view, instance, existing, min, max);
+            bool visible = IsVisible(host, view, model, existing, min, max);
             string where;
             if (visible)
             {
                 Zoom(uidoc, view, min, max);
                 where = "in this view";
             }
-            else if (TryReviewView(uidoc, host, instance, view, reviewViews, min, max, out string reviewWhere))
+            else if (TryReviewView(uidoc, host, model.Instance, view, reviewViews, min, max, out string reviewWhere))
             {
                 where = reviewWhere;
             }
@@ -179,13 +170,29 @@ namespace ProjectPerseus.federator
         /// once the link instance is confirmed visible in that view. Every other case uses element boxes against the
         /// view's extent (coarser, but safe).
         /// </summary>
-        internal static HashSet<long> VisibleLinkedIds(Document host, View view, RevitLinkInstance instance)
+        internal static HashSet<long> VisibleLinkedIds(Document host, View view, RevitLinkInstance instance) =>
+            VisibleIds(host, view, ComparedModel.Of(host, instance));
+
+        /// <summary>Compared element ids visible in the view (linked ids for a link, host ids for the open model); null when the view shows no model.</summary>
+        internal static HashSet<long> VisibleIds(Document host, View view, ComparedModel model)
         {
             var ids = new HashSet<long>();
-            if (host == null || view == null || instance == null || view.IsTemplate) return null;
+            if (host == null || view == null || model == null || view.IsTemplate) return null;
             if (!view.Document.Equals(host)) return null;
             var extent = ViewExtent.For(view);
             if (!extent.ShowsModel) return null;
+            if (model.IsHost)
+            {
+                // The open model's own elements: an ordinary view-scoped collector (safe in any view).
+                try
+                {
+                    foreach (ElementId id in new FilteredElementCollector(host, view.Id).WhereElementIsNotElementType().ToElementIds())
+                        ids.Add(id.GetIdValue());
+                }
+                catch (Exception ex) { Log.Info($"[Federator] visible elements in '{view.Name}': {ex.Message}"); }
+                return ids;
+            }
+            RevitLinkInstance instance = model.Instance;
             Document linkDoc = instance.GetLinkDocument();
             if (linkDoc == null) return ids;
             if (!LinkShownIn(host, view, instance)) return ids; // hidden link / link category off: nothing of it is visible
@@ -227,13 +234,13 @@ namespace ProjectPerseus.federator
             }
         }
 
-        private static bool IsVisible(Document host, View view, RevitLinkInstance instance, List<ElementChange> existing, XYZ min, XYZ max)
+        private static bool IsVisible(Document host, View view, ComparedModel model, List<ElementChange> existing, XYZ min, XYZ max)
         {
             if (view == null) return false;
             var extent = ViewExtent.For(view);
             if (!extent.ShowsModel || !extent.Contains(min, max)) return false;
             if (existing.Count == 0) return true; // deleted only: their old box is in view
-            var visible = VisibleLinkedIds(host, view, instance);
+            var visible = VisibleIds(host, view, model);
             return visible != null && existing.Any(c => visible.Contains(c.Id));
         }
 

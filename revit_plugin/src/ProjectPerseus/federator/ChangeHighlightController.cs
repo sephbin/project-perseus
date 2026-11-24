@@ -121,6 +121,9 @@ namespace ProjectPerseus.federator
             return c;
         }
 
+        /// <summary>The compared model's transform to the host (identity for the open model itself), API context.</summary>
+        internal static LinkTransform Capture(ComparedModel model) => Capture(model?.Instance);
+
         /// <summary>The link instance's transform as plain numbers (API context).</summary>
         internal static LinkTransform Capture(RevitLinkInstance instance)
         {

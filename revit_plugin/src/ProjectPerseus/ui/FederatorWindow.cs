@@ -68,7 +68,9 @@ namespace ProjectPerseus.ui
             internal int LiveSaves;
             internal string CloudProjectId, CloudItemUrn;   // cloud model (ACC / BIM 360): Data Management ids, else null
             internal Guid CloudProjectGuid, CloudModelGuid;  // from the cloud model path (local); ids resolved via APS when Revit can't
-            internal bool IsCloud => CloudItemUrn != null || CloudModelGuid != Guid.Empty;
+            internal bool IsCloud => !IsHost && (CloudItemUrn != null || CloudModelGuid != Guid.Empty);
+            /// <summary>"This model": the open model compared against a saved copy (federator/ComparedModel.HostUid).</summary>
+            internal bool IsHost;
             public override string ToString() => Loaded ? Name : Name + "  (unloaded)";
         }
 
@@ -510,6 +512,12 @@ namespace ProjectPerseus.ui
                 foreach (var l in g) l.Name += $"  #{i++}";
             }
             _links.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            // The open model itself, first: its current state against a saved copy the user picks (never archived / cached live).
+            _links.Insert(0, new LinkItem
+            {
+                Uid = ComparedModel.HostUid, IsHost = true, Loaded = true, Path = _doc.PathName,
+                Name = "This model · " + _doc.Title, ModelKey = ComparedModel.HostModelKey(_doc),
+            });
 
             _records = ComparisonStore.List(_doc);
             long tRecords = clock.ElapsedMilliseconds;
@@ -534,7 +542,7 @@ namespace ProjectPerseus.ui
             _linkBox.SelectedItem = pick;
             _loading = false;
 
-            if (_links.Count == 0) Status("This model has no Revit links.");
+            if (_links.Count == 1) Status("This model has no Revit links: you can compare it with a saved copy of itself.");
             else Status($"Loaded {_records.Count} comparison(s) and {_events.Count} review event(s).");
             FillComparisons(keepComparison);
             Log.Info($"[Federator] panel load {clock.ElapsedMilliseconds} ms: links {tLinks} ({_links.Count}), comparisons {tRecords - tLinks}, " +
@@ -542,6 +550,11 @@ namespace ProjectPerseus.ui
         }
 
         private LinkItem SelectedLink => _linkBox.SelectedItem as LinkItem;
+
+        private static string LiveWord(ComparisonRecord rec) => ComparedModel.IsHostUid(rec?.LinkInstanceUid) ? "current model" : "live link";
+
+        /// <summary>What the open comparison is about (link instance or this model); null when that link is gone. API context.</summary>
+        private ComparedModel Compared(ComparisonRecord rec) => rec == null ? null : ComparedModel.Find(_doc, rec.LinkInstanceUid);
 
         private void FillComparisons(string selectId)
         {
@@ -567,6 +580,8 @@ namespace ProjectPerseus.ui
             {
                 ShowComparison(null, null);
                 _summary.Text = SelectedLink == null ? "" :
+                    SelectedLink.IsHost ? "No comparisons of this model yet. Pick a saved copy of it for From (Browse… for a backup, an older " +
+                                          "local file or a detached copy), leave To on \"Current model\", and press Compare." :
                     SelectedLink.Loaded ? "No comparisons for this link yet. Pick a From version (or Browse… for an archived copy) and press Compare."
                                         : "This link is unloaded: you can still compare two saved versions; reload it in Manage Links to compare the live one.";
                 return;
@@ -617,7 +632,7 @@ namespace ProjectPerseus.ui
                         list.Add(row);
                     }
                 _summary.Text =
-                    $"{rec.LinkTitle}: {rec.OldLabel ?? rec.OldTitle}  →  {rec.NewLabel ?? "live link"}, compared " +
+                    $"{rec.LinkTitle}: {rec.OldLabel ?? rec.OldTitle}  →  {rec.NewLabel ?? LiveWord(rec)}, compared " +
                     $"by {rec.CreatedBy} on {rec.CreatedUtc.ToLocalTime():d MMM yyyy HH:mm}.   " +
                     $"+{rec.Added:N0} added   −{rec.Deleted:N0} deleted   ~{rec.Modified:N0} modified   " +
                     $"({rec.Matched:N0} of {rec.OldCount:N0} elements matched; tolerance {ChangeDescriber.Length(rec.Tolerance)})";
@@ -643,7 +658,7 @@ namespace ProjectPerseus.ui
             if (rec != null)
                 RunApi(app =>
                 {
-                    _toHost = ChangeHighlightController.Capture(LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid));
+                    _toHost = ChangeHighlightController.Capture(Compared(rec));
                     _noise = FederatorSettingsStore.Load<NoiseRules>(_doc, NoiseKey) ?? new NoiseRules();
                     ApplyNoise();
                     AssignReviewViews(rec, _reviewViews.AutoCapture, false);
@@ -785,7 +800,7 @@ namespace ProjectPerseus.ui
 
         /// <summary>The comparison open in the panel is of this link (its triage is used for mapping suggestions).</summary>
         internal string TriageSourceLabel(string linkUid) =>
-            _record != null && _record.LinkInstanceUid == linkUid ? $"{_record.OldLabel ?? _record.OldTitle} → {_record.NewLabel ?? "live link"}" : null;
+            _record != null && _record.LinkInstanceUid == linkUid ? $"{_record.OldLabel ?? _record.OldTitle} → {_record.NewLabel ?? LiveWord(_record)}" : null;
 
         private void OpenTriage()
         {
@@ -999,8 +1014,8 @@ namespace ProjectPerseus.ui
             var selected = _grid.SelectedItems.Cast<ChangeRow>().ToList();
             RunApi(app =>
             {
-                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
-                if (inst == null) { Status("The link instance is no longer in the model.", true); return; }
+                var model = Compared(rec);
+                if (model == null) { Status("The link instance is no longer in the model.", true); return; }
                 var views = AnnotationBaker.Candidates(_doc);
                 var revisions = AnnotationBaker.OpenRevisions(_doc);
                 var settings = FederatorSettingsStore.Load<BakeSettings>(_doc, SettingsKey) ?? new BakeSettings();
@@ -1023,7 +1038,7 @@ namespace ProjectPerseus.ui
                          : settings.Scope == BakeSettings.ScopeAll ? _rows : shown;
                 try
                 {
-                    var result = AnnotationBaker.Bake(_doc, inst, rec, rows.Select(x => x.Change).ToList(), targets, settings,
+                    var result = AnnotationBaker.Bake(_doc, model, rec, rows.Select(x => x.Change).ToList(), targets, settings,
                         c => LabelFor(c, settings), (text, f) => SyncStatusToast.Progress("Baking link changes", f, text));
                     SyncStatusToast.Hide();
                     string msg = $"Baked {result.Changes:N0} change marks ({result.Annotations:N0} annotations) into {result.Views} view(s)" +
@@ -1524,19 +1539,21 @@ namespace ProjectPerseus.ui
             if (src == null || rec == null) return;
             RunApi(app =>
             {
-                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
-                var linkDoc = inst?.GetLinkDocument();
+                var model = Compared(rec);
+                var linkDoc = model?.Doc;
                 if (linkDoc == null) { Status("The link isn't loaded: pick the replacement in the list instead.", true); return; }
                 ARDB.Reference picked;
                 try
                 {
-                    picked = app.ActiveUIDocument.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.LinkedElement, new InLinkFilter(inst.Id),
-                                                                       $"Pick the element that replaced Id {src.Change.Id} (Esc to cancel)");
+                    string prompt = $"Pick the element that replaced Id {src.Change.Id} (Esc to cancel)";
+                    picked = model.IsHost
+                        ? app.ActiveUIDocument.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.Element, prompt)
+                        : app.ActiveUIDocument.Selection.PickObject(Autodesk.Revit.UI.Selection.ObjectType.LinkedElement, new InLinkFilter(model.Instance.Id), prompt);
                 }
                 catch (Autodesk.Revit.Exceptions.OperationCanceledException) { Status("Pick cancelled."); return; }
                 if (_linkSource != src) return;   // linked from the list meanwhile, or cancelled
-                var el = picked == null ? null : linkDoc.GetElement(picked.LinkedElementId);
-                if (el == null) { Status("That isn't an element of this link.", true); return; }
+                var el = picked == null ? null : linkDoc.GetElement(model.IsHost ? picked.ElementId : picked.LinkedElementId);
+                if (el == null) { Status(model.IsHost ? "That isn't an element of this model." : "That isn't an element of this link.", true); return; }
                 if (el.UniqueId == src.Change.UniqueId) { Status("That's the deleted element itself.", true); return; }
                 EndLinkPick();
                 string pattern = null;
@@ -1601,9 +1618,9 @@ namespace ProjectPerseus.ui
             {
                 var uidoc = app.ActiveUIDocument;
                 if (uidoc?.Document == null || !uidoc.Document.Equals(_doc)) return;   // another model is active: leave it
-                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
-                if (inst == null) return;
-                _pushedSelection = ReviewNavigator.Select(uidoc, inst, changes);
+                var model = Compared(rec);
+                if (model == null) return;
+                _pushedSelection = ReviewNavigator.Select(uidoc, model, changes);
                 _pushedAt = DateTime.UtcNow;
             });
         }
@@ -1611,15 +1628,16 @@ namespace ProjectPerseus.ui
         internal void OnRevitSelection(ARDB.Document doc, IList<ARDB.Reference> refs)
         {
             if (_record == null || _doc == null || doc == null || refs == null || !doc.Equals(_doc)) return;
-            var inst = LinkedElementRef.FindInstance(_doc, _record.LinkInstanceUid);
-            if (inst == null) return;
+            var model = Compared(_record);
+            if (model == null) return;
             var rows = new List<ChangeRow>();
             var ids = new HashSet<long>();
             foreach (var r in refs)
             {
-                if (r == null || r.LinkedElementId == ARDB.ElementId.InvalidElementId || r.ElementId != inst.Id) continue;
-                ids.Add(r.LinkedElementId.GetIdValue());
-                if (_rowById.TryGetValue(r.LinkedElementId.GetIdValue(), out var row)) rows.Add(row);
+                long id = model.IdOf(r);
+                if (id < 0) continue;
+                ids.Add(id);
+                if (_rowById.TryGetValue(id, out var row)) rows.Add(row);
             }
             // The echo of our own PushRevitSelection: keep the grid as the user left it (e.g. deleted rows selected).
             var pushed = _pushedSelection;
@@ -1643,16 +1661,16 @@ namespace ProjectPerseus.ui
             _suppressSelection = false;
             if (visible.Count > 0) _grid.ScrollIntoView(visible[0]);
             RebuildDetail();
-            if (visible.Count < rows.Count) Status($"{rows.Count - visible.Count} of the selected linked elements are hidden by the filters.");
+            if (visible.Count < rows.Count) Status($"{rows.Count - visible.Count} of the selected elements are hidden by the filters.");
         }
 
         private void UpdateInView(UIApplication app) => ComputeInView(app.ActiveUIDocument?.ActiveView);
 
         private void ComputeInView(ARDB.View view)
         {
-            var inst = _record == null ? null : LinkedElementRef.FindInstance(_doc, _record.LinkInstanceUid);
-            if (inst == null || view == null) { _inView = new HashSet<long>(); ApplyFilter(); return; }
-            var ids = ReviewNavigator.VisibleLinkedIds(_doc, view, inst);
+            var model = Compared(_record);
+            if (model == null || view == null) { _inView = new HashSet<long>(); ApplyFilter(); return; }
+            var ids = ReviewNavigator.VisibleIds(_doc, view, model);
             _inView = ids ?? new HashSet<long>();
             // Deleted elements aren't in the live link, so Revit can't report them visible: count them in view when their
             // old box (in host coordinates) falls inside what the view shows. Revit doesn't reuse element ids, so a
@@ -1663,7 +1681,7 @@ namespace ProjectPerseus.ui
                 try
                 {
                     var extent = ViewExtent.For(view);
-                    var toHost = ChangeHighlightController.Capture(inst);
+                    var toHost = ChangeHighlightController.Capture(model);
                     foreach (var row in _rows)
                     {
                         var c = row.Change;
@@ -1678,7 +1696,7 @@ namespace ProjectPerseus.ui
             }
             ApplyFilter();
             Status(ids == null ? $"'{view.Name}' doesn't show the model; nothing is in view."
-                               : $"{_inView.Count - deletedInView:N0} elements of this link are visible in '{view.Name}'" +
+                               : $"{_inView.Count - deletedInView:N0} elements of this {(model.IsHost ? "model" : "link")} are visible in '{view.Name}'" +
                                  (deletedInView > 0 ? $", plus {deletedInView:N0} deleted ones that were here." : "."));
         }
 
@@ -1694,7 +1712,7 @@ namespace ProjectPerseus.ui
             foreach (var pair in new[] { new { Name = "From", Box = _fromBox }, new { Name = "To", Box = _toBox } })
             {
                 var item = pair.Box.SelectedItem as VersionItem;
-                bool can = item != null && !item.Browse && item.Saves > 0 && SelectedLink != null;
+                bool can = item != null && !item.Browse && item.Saves > 0 && SelectedLink != null && !SelectedLink.IsHost;
                 var mi = new MenuItem
                 {
                     Header = can ? $"Set ACC version number of {pair.Name} (save {item.Saves})…" : $"{pair.Name}: version number can't be set (save count unknown)",
@@ -1742,7 +1760,10 @@ namespace ProjectPerseus.ui
                 var liveEntry = link.LiveGuid == null ? null : cached.FirstOrDefault(v => SameGuid(v.VersionGuid, link.LiveGuid));
                 bool cloudLink = link.IsCloud;
                 _cloudVersions.TryGetValue(link.Uid, out var cloudList);
-                if (link.Loaded)
+                if (link.IsHost)
+                    items.Add(new VersionItem { Source = ComparisonRunner.Source.Live("Current model"), Key = "live",
+                                                Text = NoTick + "  Current model · as open now (unsaved changes included)" });
+                else if (link.Loaded)
                 {
                     string acc = Acc(link.LiveSaves);
                     string label = "Live" + (acc.Length > 0 ? " · " + acc.TrimEnd(' ', '·') : liveEntry?.CloudVersionNumber > 0 ? $" · v{liveEntry.CloudVersionNumber}" : "")
@@ -1781,7 +1802,7 @@ namespace ProjectPerseus.ui
                 }
                 // Archived copies (LinkArchive: Revit's cache / the link file, copied when a new version was loaded).
                 var shownKeys = new HashSet<string>(items.Select(i => i.Key));
-                foreach (var a in LinkArchive.List(_archiveRoot ?? LinkArchive.LoadSettings().Root, link.ModelKey))
+                foreach (var a in link.IsHost ? new List<LinkArchive.Entry>() : LinkArchive.List(_archiveRoot ?? LinkArchive.LoadSettings().Root, link.ModelKey))
                 {
                     if (link.Loaded && SameGuid(a.VersionGuid, link.LiveGuid)) continue;   // that's Live
                     string key = "guid:" + a.VersionGuid.ToLowerInvariant();
@@ -2098,7 +2119,7 @@ namespace ProjectPerseus.ui
             var link = SelectedLink;
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title = $"Pick a version of {link?.Name}",
+                Title = link?.IsHost == true ? "Pick a saved copy of this model (backup, older local file, detached copy…)" : $"Pick a version of {link?.Name}",
                 Filter = "Revit models (*.rvt)|*.rvt",
                 CheckFileExists = true,
             };
@@ -2190,9 +2211,9 @@ namespace ProjectPerseus.ui
             {
                 try
                 {
-                    var inst = LinkedElementRef.FindInstance(_doc, link.Uid);
-                    if (inst == null) { Status("That link is no longer in the model. Press Refresh."); return; }
-                    var result = ComparisonRunner.Run(app, _doc, inst, link.ModelKey, fromSrc, toSrc);
+                    var model = ComparedModel.Find(_doc, link.Uid);
+                    if (model == null) { Status("That link is no longer in the model. Press Refresh."); return; }
+                    var result = ComparisonRunner.Run(app, _doc, model, link.ModelKey, fromSrc, toSrc);
                     if (result.Warning != null &&
                         MessageBox.Show(this, result.Warning + "\n\nKeep this comparison?", "Federator",
                                         MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.No)
@@ -2252,9 +2273,9 @@ namespace ProjectPerseus.ui
             var rec = _record;
             RunApi(app =>
             {
-                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
-                if (inst == null) { Status("The link instance is no longer in the model."); return; }
-                Status(ReviewNavigator.Show(app.ActiveUIDocument, inst, rows.Select(r => r.Change).ToList(), select, _reviewViews));
+                var model = Compared(rec);
+                if (model == null) { Status("The link instance is no longer in the model."); return; }
+                Status(ReviewNavigator.Show(app.ActiveUIDocument, model, rows.Select(r => r.Change).ToList(), select, _reviewViews));
             }, needActive: true);
         }
 
@@ -2313,10 +2334,10 @@ namespace ProjectPerseus.ui
 
             RunApi(app =>
             {
-                var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
+                var model = Compared(rec);
                 foreach (var e in events.Where(x => x.Elements == null))
-                    if (_rowByUid.TryGetValue(e.LinkedElementUid ?? "", out var row) && row.Change.Kind != ChangeKind.Deleted)
-                        e.StableRef = LinkedElementRef.StableRepresentation(_doc, inst, LinkedElementRef.Resolve(inst, e.LinkedElementUid));
+                    if (model != null && _rowByUid.TryGetValue(e.LinkedElementUid ?? "", out var row) && row.Change.Kind != ChangeKind.Deleted)
+                        e.StableRef = model.StableRepresentation(model.Resolve(e.LinkedElementUid));
                 ReviewStore.Add(_doc, events);
                 _events.AddRange(events);
                 Refold();
@@ -2391,7 +2412,7 @@ namespace ProjectPerseus.ui
             _detail.Children.Add(Text($"Needing attention: {attention:N0}"));
             _detail.Children.Add(Text($"Actions assigned to you: {mine:N0}"));
             _detail.Children.Add(Muted_($"From: {_record.OldLabel ?? _record.OldTitle} ({_record.OldPath})"));
-            _detail.Children.Add(Muted_($"To: {_record.NewLabel ?? "live link"} ({_record.NewPath ?? _record.LinkPath})"));
+            _detail.Children.Add(Muted_($"To: {_record.NewLabel ?? LiveWord(_record)} ({_record.NewPath ?? _record.LinkPath})"));
         }
 
         /// <summary>
@@ -2419,11 +2440,11 @@ namespace ProjectPerseus.ui
             {
                 try
                 {
-                    var linkDoc = LinkedElementRef.FindInstance(_doc, linkUid)?.GetLinkDocument();
+                    var linkDoc = ComparedModel.Find(_doc, linkUid)?.Doc;
                     var el = linkDoc?.GetElement(uid);
                     if (el == null || !linkDoc.IsWorkshared) return;
                     var who = ARDB.WorksharingUtils.GetWorksharingTooltipInfo(linkDoc, el.Id);
-                    var now = Line(who?.LastChangedBy, null, who?.Creator, " (now, in the loaded link)");
+                    var now = Line(who?.LastChangedBy, null, who?.Creator, ComparedModel.IsHostUid(linkUid) ? " (now)" : " (now, in the loaded link)");
                     if (now == null) return;
                     tb.Text = now;
                     tb.Visibility = Visibility.Visible;
@@ -2915,8 +2936,7 @@ namespace ProjectPerseus.ui
             // assigned yet are placed, and the views are only re-checked when something was new.
             string key = rec.Id + "|" + string.Join(",", _reviewViews.ViewUids);
             if (key != _viewOfKey) { _viewOf.Clear(); _viewOfTargets = null; _viewOfKey = key; }
-            var inst = LinkedElementRef.FindInstance(_doc, rec.LinkInstanceUid);
-            var targets = _viewOfTargets ?? (_viewOfTargets = ReviewViews.Targets(_doc, views, inst));
+            var targets = _viewOfTargets ?? (_viewOfTargets = ReviewViews.Targets(_doc, views, Compared(rec)?.Instance));
             long tTargets = clock.ElapsedMilliseconds;
             var boxesByView = new Dictionary<string, List<KeyValuePair<double[], double[]>>>(StringComparer.Ordinal);
             var targetByUid = targets.ToDictionary(t => t.View.UniqueId, t => t);

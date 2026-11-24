@@ -424,7 +424,7 @@ ProjectPerseus/
 │   ├── MarkerIcons.cs            NEW (2026-11-06). Stroked 16x16 glyph geometries (lock, dropbolt, bolt, key, card, bell,
 │   │                             flame, shield...) keyed by string (stored in marker sets: never rename a key). Badge() =
 │   │                             white glyph on a coloured disc (overlay + panel), Glyph() = glyph alone.
-│   ├── FederatorWindow.cs        NEW (2026-11-08). Modeless code-only WPF "Federator" review panel: link + From / To version
+│   ├── FederatorWindow.cs        NEW (2026-11-08). Modeless code-only WPF "Federator" review panel: link ("This model" first = the open model vs a saved copy) + From / To version
 │   │                             pickers (live, cached ✓, files, Browse…) + Compare, saved comparison picker, DataGrid of ui/ChangeRow grouped by Category/Level/Kind/Status/
 │   │                             Assignee/Type (Expander groups, CustomSort), tick-list filters (ui/MultiPick) via federator/ChangeFilter (+ Only in active
 │   │                             view: ReviewNavigator.VisibleLinkedIds, refreshed on ViewActivated). Detail pane: ChangeDescriber
@@ -567,7 +567,11 @@ ProjectPerseus/
 │   ├── ComparisonRunner.cs       End to end between two versions (Source = live link / cached version / file): snapshot each (cache
 │   │                             by save GUID first, else SnapshotBuilder / OldModelOpener; new snapshots cached + VersionCatalog
 │   │                             registered) -> LinkDiff -> ComparisonStore.Save, progress on ui/SyncStatusToast; warns when < 20 %
-│   │                             of old elements match (wrong file picked).
+│   │                             of old elements match (wrong file picked). Live side of the open model = current state, never cached.
+│   ├── ComparedModel.cs          NEW (2026-11-25). What a comparison is about: a link instance, or the open model itself ("This model",
+│   │                             stored uid HostUid = "perseus:this-model" where records / events / baked tags hold a link instance uid).
+│   │                             Doc / ToHost / Resolve / ReferenceTo / IdOf(selection ref) / StableRepresentation for both; HostModelKey.
+│   │                             Federator code resolves comparisons through Find(host, uid), never LinkedElementRef directly.
 │   ├── OldModelOpener.cs         Archived .rvt -> LinkSnapshot: SnapshotCache hit, else copy to %TEMP% with a unique name (same-title
 │   │                             rule), TransmissionData unloads its links, open detached + all worksets, read, Close(false), delete.
 │   ├── ComparisonStore.cs        Schema PerseusFederatorComparison: one DataStorage per comparison, never edited. Header =

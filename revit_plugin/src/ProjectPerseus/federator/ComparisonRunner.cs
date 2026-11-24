@@ -50,29 +50,32 @@ namespace ProjectPerseus.federator
             internal static Source File(string path, string label) => new Source { Kind = SourceKind.File, Path = path, Label = label };
         }
 
-        internal static Result Run(UIApplication uiapp, Document host, RevitLinkInstance instance, string modelKey,
+        /// <param name="model">The link instance, or the open model itself (ComparedModel.ForHost): its "Live" side is
+        /// the model as it is now, unsaved changes included, and is never cached (it changes all the time).</param>
+        internal static Result Run(UIApplication uiapp, Document host, ComparedModel model, string modelKey,
                                    Source from, Source to, DiffOptions options = null)
         {
             options = options ?? new DiffOptions();
             if (from == null || to == null) throw new InvalidOperationException("Pick both versions to compare.");
             if (from.Kind == Source.SourceKind.Cloud || to.Kind == Source.SourceKind.Cloud)
                 throw new InvalidOperationException("Cloud versions must be downloaded before comparing.");
-            Document linkDoc = null;
-            try { linkDoc = instance.GetLinkDocument(); } catch { /* unloaded */ }
+            Document linkDoc = model.Doc;
             if ((from.Kind == Source.SourceKind.Live || to.Kind == Source.SourceKind.Live) && linkDoc == null)
                 throw new InvalidOperationException("The link isn't loaded. Reload it, then compare.");
             foreach (var s in new[] { from, to })
-                if (s.Kind == Source.SourceKind.File && linkDoc != null &&
+                if (s.Kind == Source.SourceKind.File && linkDoc != null && !string.IsNullOrEmpty(linkDoc.PathName) &&
                     string.Equals(SafeFullPath(s.Path), SafeFullPath(linkDoc.PathName), StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("That's the file the link is loaded from. Pick \"Live\" for it instead.");
+                    throw new InvalidOperationException(model.IsHost
+                        ? "That's the file of the model open now. Pick \"Current model\" for one side and a saved copy for the other."
+                        : "That's the file the link is loaded from. Pick \"Live\" for it instead.");
 
             string linkTitle = linkDoc?.Title ?? from.Label;
             try
             {
                 string title = "Comparing " + linkTitle;
                 // Bar: "from" 0–48 %, "to" 48–95 %, compare + save the rest.
-                var oldSnap = SnapshotOf(uiapp, linkDoc, modelKey, from, "From " + from.Label, title, 0.0, 0.48);
-                var newSnap = SnapshotOf(uiapp, linkDoc, modelKey, to, "To " + to.Label, title, 0.48, 0.95);
+                var oldSnap = SnapshotOf(uiapp, linkDoc, model.IsHost, modelKey, from, "From " + from.Label, title, 0.0, 0.48);
+                var newSnap = SnapshotOf(uiapp, linkDoc, model.IsHost, modelKey, to, "To " + to.Label, title, 0.48, 0.95);
                 if (!string.IsNullOrEmpty(oldSnap.VersionGuid) &&
                     string.Equals(oldSnap.VersionGuid, newSnap.VersionGuid, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Both picks are the same version of the model (same save). Pick two different versions.");
@@ -85,7 +88,7 @@ namespace ProjectPerseus.federator
                 var rec = new ComparisonRecord
                 {
                     Id = Guid.NewGuid().ToString("N"),
-                    LinkInstanceUid = instance.UniqueId,
+                    LinkInstanceUid = model.Uid,
                     LinkTitle = linkTitle,
                     LinkPath = linkDoc?.PathName,
                     OldPath = oldSnap.SourcePath,
@@ -130,7 +133,7 @@ namespace ProjectPerseus.federator
         }
 
         // One side: cached snapshot when there is one, else read it (and cache + record it for next time).
-        private static LinkSnapshot SnapshotOf(UIApplication uiapp, Document linkDoc, string modelKey, Source s, string side,
+        private static LinkSnapshot SnapshotOf(UIApplication uiapp, Document linkDoc, bool isHost, string modelKey, Source s, string side,
                                                string title, double lo, double hi)
         {
             void Report(string text, double f) =>
@@ -167,6 +170,17 @@ namespace ProjectPerseus.federator
                 }
                 default:
                 {
+                    if (isHost)
+                    {
+                        // The open model as it is now (unsaved changes included): always read, never cached. Its save GUID
+                        // is the last save, not this state, so it's left empty (no "same version" check, no catalog entry).
+                        var start = DateTime.UtcNow;
+                        var live = SnapshotBuilder.Build(linkDoc, linkDoc.PathName, null,
+                            (done, total) => Report($"Reading the current model: {done:N0} of {total:N0} elements{Eta(start, done, total)}",
+                                                    total == 0 ? 1 : (double)done / total));
+                        live.VersionGuid = null;
+                        return live;
+                    }
                     string guid = null; int saves = 0;
                     try
                     {
