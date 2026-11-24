@@ -13,7 +13,8 @@ using ProjectPerseus.models;
 
 namespace ProjectPerseus.ui
 {
-    // Topmost, click-through WPF overlay covering the Revit canvas.
+    // Click-through WPF overlay covering the Revit canvas, owned by the Revit main window (stays visible over
+    // Revit when another app has focus, never drawn over other apps).
     // Two independent layers:
     //   (1) _blockingLabel  — dark pill shown when sync-blocking violations exist
     //   (2) _markerCanvas   — rings drawn around each violating element (projected bounding box)
@@ -112,7 +113,11 @@ namespace ProjectPerseus.ui
             Background         = Brushes.Transparent;
             ShowInTaskbar      = false;
             ShowActivated      = false;
-            Topmost            = true;
+            // Owned by Revit's main window, NOT Topmost: Windows keeps an owned window directly above its owner
+            // and nothing else, so the overlay stays visible while another app (Bluebeam, Acrobat) has focus
+            // but is covered by that app wherever it overlaps Revit. Hidden with Revit when it is minimised.
+            Topmost            = false;
+            if (revitHwnd != IntPtr.Zero) new WindowInteropHelper(this).Owner = revitHwnd;
             ResizeMode         = ResizeMode.NoResize;
             SizeToContent      = SizeToContent.Manual;
             Width              = 1;
@@ -744,16 +749,20 @@ namespace ProjectPerseus.ui
             if (!_hasBlockingViolations && !_hasMarkers && !_hasLegend) return;
             if (_revitHwnd == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
 
-            IntPtr fg = NativeMethods.GetForegroundWindow();
-            uint fgPid;
-            NativeMethods.GetWindowThreadProcessId(fg, out fgPid);
-            if (fgPid != _revitProcessId)
+            // Revit minimised / hidden: nothing to cover (and its client rect is meaningless).
+            if (NativeMethods.IsIconic(_revitHwnd) || !NativeMethods.IsWindowVisible(_revitHwnd))
             {
                 _revitForeground = false;
                 if (IsVisible) Hide();
                 return;
             }
-            _revitForeground = true;
+
+            // Another app in front is fine: the overlay is owned by Revit, so that app covers it like it covers
+            // Revit. Foreground only gates the navigation mouse hook (you only pan/zoom Revit while it has focus).
+            IntPtr fg = NativeMethods.GetForegroundWindow();
+            uint fgPid;
+            NativeMethods.GetWindowThreadProcessId(fg, out fgPid);
+            _revitForeground = fgPid == _revitProcessId;
 
             NativeMethods.RECT cr;
             if (!NativeMethods.GetClientRect(_revitHwnd, out cr)) return;
@@ -896,6 +905,8 @@ namespace ProjectPerseus.ui
             [DllImport("user32.dll")] public static extern bool   ScreenToClient(IntPtr hwnd, ref POINT lpPoint);
             [DllImport("user32.dll")] public static extern IntPtr ChildWindowFromPointEx(IntPtr hwnd, POINT pt, int uFlags);
             [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] public static extern bool   IsIconic(IntPtr hwnd);
+            [DllImport("user32.dll")] public static extern bool   IsWindowVisible(IntPtr hwnd);
             [DllImport("user32.dll")] public static extern uint   GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
             [DllImport("user32.dll")] public static extern short  GetAsyncKeyState(int vKey);
             [DllImport("user32.dll", CharSet = CharSet.Unicode)]
