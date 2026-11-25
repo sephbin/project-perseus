@@ -707,7 +707,11 @@ namespace ProjectPerseus.violations
             string docGuid = TryGetDocGuid(doc);
             string now     = DateTime.UtcNow.ToString("o");
 
-            foreach (var msg in fa.GetFailureMessages(FailureSeverity.Warning))
+            var warnings = fa.GetFailureMessages(FailureSeverity.Warning);
+            // Crash investigation 2026-11-26: shows which transactions reach this handler with warnings.
+            if (warnings.Count > 0)
+                Log.Info($"[ViolationDetector] FailuresProcessing: {warnings.Count} warning(s) in \"{fa.GetTransactionName()}\"");
+            foreach (var msg in warnings)
             {
                 foreach (var id in msg.GetFailingElementIds())
                 {
