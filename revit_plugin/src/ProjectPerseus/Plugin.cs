@@ -41,11 +41,12 @@ namespace ProjectPerseus
             Step("crash trace", CrashTrace.Install); Step("assembly redirects", ProjectPerseus.util.AssemblyRedirects.Install);
             Step("code pages", util.CodePages.Register);
             Step("sync", () => _orchestrator.Subscribe(application));
-            Step("violation highlight", violations.ViolationHighlightController.Initialize);
-            Step("change highlight", federator.ChangeHighlightController.Initialize);
-            Step("ownership", () => ownership.OwnershipTracker.Subscribe(application));
-            Step("markers", () => markers.MarkerEngine.Subscribe(application));
-            Step("federator", () => federator.FederatorController.Subscribe(application));
+            // config.FeatureSwitches: test switch (%AppData%\ProjectPerseus\disabled_features.txt) to bisect crashes.
+            if (!config.FeatureSwitches.IsOff("highlights")) Step("violation highlight", violations.ViolationHighlightController.Initialize);
+            if (!config.FeatureSwitches.IsOff("highlights")) Step("change highlight", federator.ChangeHighlightController.Initialize);
+            if (!config.FeatureSwitches.IsOff("ownership")) Step("ownership", () => ownership.OwnershipTracker.Subscribe(application));
+            if (!config.FeatureSwitches.IsOff("markers")) Step("markers", () => markers.MarkerEngine.Subscribe(application));
+            if (!config.FeatureSwitches.IsOff("federator")) Step("federator", () => federator.FederatorController.Subscribe(application));
             Step("ribbon", () => AddRibbonPanel(application));
             Step("icons", () => ThemeIconManager.Initialize(application));
             Log.Info($"[Startup] Perseus OnStartup {clock.ElapsedMilliseconds} ms (ms per step: {string.Join(", ", steps)})");
@@ -81,7 +82,7 @@ namespace ProjectPerseus
             }
 
             // Always hook Idling for key schedule auto-import (onStart + onIdle triggers).
-            application.Idling += OnKeyScheduleIdling;
+            if (!config.FeatureSwitches.IsOff("keyschedules")) application.Idling += OnKeyScheduleIdling;
 
             return Result.Succeeded;
         }

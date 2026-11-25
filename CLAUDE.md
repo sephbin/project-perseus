@@ -145,7 +145,10 @@ ProjectPerseus/
 ├── batch/
 │   └── BatchProcessor.cs         In ProjectPerseus.queue namespace (folder/ns mismatch).
 ├── config/                       NEW (P4).
-│   └── Config.cs                 Namespace ProjectPerseus.config.
+│   ├── Config.cs                 Namespace ProjectPerseus.config.
+│   └── FeatureSwitches.cs        NEW (2026-11-25). Test switch: %AppData%\ProjectPerseus\disabled_features.txt lists subsystems not to
+│                                 start (violations, ids, highlights, ownership, markers, federator, keyschedules); checked in Plugin.OnStartup
+│                                 and SyncOrchestrator (Subscribe / DocumentOpened / sync). For bisecting crashes; no file = all on.
 ├── logging/                      NEW (P7, 2026-05-30). Single logging front door.
 │   ├── Log.cs                    Static Log.Info/Warn/Error/Exception/InitSession. Info is
 │                                 file only; Warn/Error/Exception also write to Sentry +

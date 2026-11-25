@@ -407,6 +407,7 @@
     <Compile Include="revit\ModelGuidStorage.cs" />
     <Compile Include="revit\DocumentSettle.cs" />
     <Compile Include="revit\ElementNames.cs" />
+    <Compile Include="config\FeatureSwitches.cs" />
     <Compile Include="revit\RevitExtensions.cs" />
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />

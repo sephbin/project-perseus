@@ -74,11 +74,11 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
-            ViolationDetector.Subscribe(application, _config.BaseUrl);
-            ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
-            ids.IdIndexMaintainer.Subscribe(application);
+            if (!config.FeatureSwitches.IsOff("violations")) ViolationDetector.Subscribe(application, _config.BaseUrl);
+            if (!config.FeatureSwitches.IsOff("ids")) ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
+            if (!config.FeatureSwitches.IsOff("ids")) ids.IdIndexMaintainer.Subscribe(application);
             revit.DocumentSettle.Subscribe(application);
-            violations.ElementCategoryCache.Subscribe(application);
+            if (!config.FeatureSwitches.IsOff("violations")) violations.ElementCategoryCache.Subscribe(application);
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
@@ -101,7 +101,7 @@ namespace ProjectPerseus.sync
             violations.ViolationHighlightController.SetPositionEvent(
                 ExternalEvent.Create(new queue.ViolationScreenPositionEvent()));
 
-            ui.ViolationOverlayController.Start(
+            if (!config.FeatureSwitches.IsOff("highlights")) ui.ViolationOverlayController.Start(
                 System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
         }
 
@@ -126,7 +126,7 @@ namespace ProjectPerseus.sync
         {
             if (e.Document == null || e.Document.IsFamilyDocument) return;
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
+            if (!config.FeatureSwitches.IsOff("keyschedules")) KeyScheduleAutoImporter.HandleDocumentOpened(e.Document);
             long tKeys = clock.ElapsedMilliseconds;
             if (!UploadConfigIsValid()) return;
             try
@@ -134,10 +134,10 @@ namespace ProjectPerseus.sync
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
                 long tGuid = clock.ElapsedMilliseconds;
                 queue.PresencePoller.AddSource(docGuid);
-                queue.ViolationPoller.AddSource(docGuid);
-                violations.ElementCategoryCache.Prime(e.Document, docGuid);
+                if (!config.FeatureSwitches.IsOff("violations")) queue.ViolationPoller.AddSource(docGuid);
+                if (!config.FeatureSwitches.IsOff("violations")) violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
-                ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
+                if (!config.FeatureSwitches.IsOff("ids")) ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
                 collections.CollectionsCache.LoadAsync(docGuid, _config.BaseUrl);
                 naming.ParameterNames.LoadAsync(docGuid, _config.BaseUrl);
 
@@ -722,7 +722,7 @@ namespace ProjectPerseus.sync
 
                 // Import key schedules from Excel before the sync so the updated data
                 // is included in what Revit pushes to Django.
-                KeyScheduleAutoImporter.HandleSync(e.Document);
+                if (!config.FeatureSwitches.IsOff("keyschedules")) KeyScheduleAutoImporter.HandleSync(e.Document);
 
                 var payload = new
                 {
