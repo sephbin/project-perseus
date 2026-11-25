@@ -777,7 +777,8 @@ ProjectPerseus/
 │   ├── DocumentSettle.cs         NEW (2026-11-25). Per document: busy from Saving / SavingAs / SynchronizingWithCentral /
 │   │                             ReloadingLatest to the completed event, then 5 s settle (IsSettled); Epoch = completed count.
 │   │                             Idle element readers (ElementCategoryCache, IdIndexMaintainer, OwnershipTracker) check it: Element.Name
-│   │                             on the first idle tick after a cloud-model save crashed Revit (native AV). Stale id lists re-collect on Epoch.
+│   │                             after a cloud-model save crashed Revit (native AV). On an Epoch change ElementCategoryCache abandons its prime,
+│   │                             IdIndexMaintainer restarts its index build.
 │   └── ModelGuidStorage.cs       Moved from root in P4 (namespace already matched).
 ├── sync/                         All sync orchestration + runners (P1, 2026-05-30).
 │   ├── SyncOrchestrator.cs       Instance class owning sync state + DocumentSynchronizing/zed
@@ -801,7 +802,8 @@ ProjectPerseus/
 │                                 Not UI-thread-only: on cloud models it's CloudWorksharing's WPF CollaborateSWCView on
 │                                 its own thread. Every cancel path must also tell the user why (own dialog or SyncStatusToast).
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
-│   ├── ElementCategoryCache.cs   Category/name/type per element so deletions can be described. Prime() (DocumentOpened)
+│   ├── ElementCategoryCache.cs   Category/name/type per element so deletions can be described. Priming is abandoned if the model
+│   │                             is saved / synced / reloaded before it ends (Element.Name then crashed Revit, native AV). Prime() (DocumentOpened)
 │   │                             only queues: filled in 40 ms Idling slices (blocking scan froze 700k-element models ~60 s).
 │   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
 │   │                             via ControlledApplication (called from SyncOrchestrator).

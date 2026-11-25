@@ -31,6 +31,10 @@ namespace ProjectPerseus.violations
     /// Prime() only queues the document: the cache is filled in time-boxed Idling slices, never in DocumentOpened.
     /// (A blocking prime froze Revit for 20-60 s after opening 300k-740k element models.) Until priming finishes,
     /// Get() returns null for elements not seen yet; callers already handle that.
+    /// Priming is ABANDONED if the document is saved / synced / reloaded before it finishes: Element.Name crashed Revit
+    /// (native AV, uncatchable) three times on 2026-11-25, every time while priming carried on past a save or sync
+    /// (re-collecting the ids and waiting for DocumentSettle did not help); uninterrupted primes never crashed.
+    /// Elements changed after that are still recorded by Track() (DocumentChanged).
     /// </summary>
     internal static class ElementCategoryCache
     {
@@ -43,11 +47,10 @@ namespace ProjectPerseus.violations
         {
             public Document Doc;
             public string DocGuid;
-            public List<ElementId> Ids;    // collected on the first slice, ascending
+            public IList<ElementId> Ids;   // collected on the first slice
             public int Cursor;
             public int Count;
-            public long LastDone = long.MinValue;  // highest element id read so far
-            public int Epoch;                      // DocumentSettle.Epoch the Ids were collected at
+            public int Epoch;              // DocumentSettle.Epoch when queued; any change abandons the job
             public readonly Stopwatch Total = new Stopwatch();
         }
 
@@ -72,7 +75,7 @@ namespace ProjectPerseus.violations
             if (doc == null || string.IsNullOrEmpty(docGuid)) return;
             _cache.GetOrAdd(docGuid, _ => new ConcurrentDictionary<long, ElementInfo>());
             _jobs.RemoveAll(j => j.Doc == doc || j.DocGuid == docGuid);
-            _jobs.Add(new PrimeJob { Doc = doc, DocGuid = docGuid });
+            _jobs.Add(new PrimeJob { Doc = doc, DocGuid = docGuid, Epoch = DocumentSettle.Epoch(doc) });
         }
 
         private static void OnClosing(object sender, DocumentClosingEventArgs e)
@@ -86,8 +89,14 @@ namespace ProjectPerseus.violations
             try
             {
                 _jobs.RemoveAll(j => j.Doc == null || !j.Doc.IsValidObject);
-                // Never read elements while a document is being saved / synced / reloaded or just after: Element.Name
-                // crashed Revit (native AV) on the first idle tick after a save of a 380k-element cloud model.
+                // Saved / synced / reloaded since priming started: stop (see the class summary).
+                _jobs.RemoveAll(j =>
+                {
+                    if (j.Epoch == DocumentSettle.Epoch(j.Doc)) return false;
+                    Log.Info($"[ElementCategoryCache] {j.DocGuid}: model saved / synced / reloaded during priming; " +
+                             $"stopped after {j.Count} elements (later changes are still tracked)");
+                    return true;
+                });
                 var job = _jobs.Find(j => DocumentSettle.IsSettled(j.Doc));
                 if (job == null) return;
                 if (Step(job, IdleBudgetMs))
@@ -105,19 +114,6 @@ namespace ProjectPerseus.violations
             }
         }
 
-        // Ids taken before a save / sync / reload are a stale snapshot: take a fresh list and carry on after the
-        // last element already read (new elements get higher ids; DocumentChanged Track() covers edits meanwhile).
-        private static void Collect(PrimeJob job)
-        {
-            var ids = new List<ElementId>(
-                new FilteredElementCollector(job.Doc).WhereElementIsNotElementType().ToElementIds());
-            if (job.LastDone != long.MinValue) ids.RemoveAll(id => id.GetIdValue() <= job.LastDone);
-            ids.Sort((a, b) => a.GetIdValue().CompareTo(b.GetIdValue()));
-            job.Ids = ids;
-            job.Cursor = 0;
-            job.Epoch = DocumentSettle.Epoch(job.Doc);
-        }
-
         // One budgeted slice. True when the job is finished.
         private static bool Step(PrimeJob job, int budgetMs)
         {
@@ -125,20 +121,16 @@ namespace ProjectPerseus.violations
             job.Total.Start();
             try
             {
-                if (job.Ids == null || job.Epoch != DocumentSettle.Epoch(job.Doc))
+                if (job.Ids == null)
                 {
-                    if (job.Ids != null)
-                        Log.Info($"[ElementCategoryCache] {job.DocGuid}: model saved / synced / reloaded during priming; " +
-                                 $"re-collecting element ids after {job.LastDone}");
-                    Collect(job);
+                    job.Ids = new List<ElementId>(
+                        new FilteredElementCollector(job.Doc).WhereElementIsNotElementType().ToElementIds());
                     return false;
                 }
                 if (!_cache.TryGetValue(job.DocGuid, out var map)) return true;
                 while (job.Cursor < job.Ids.Count)
                 {
-                    ElementId id = job.Ids[job.Cursor++];
-                    job.LastDone = id.GetIdValue();
-                    Element el = job.Doc.GetElement(id);
+                    Element el = job.Doc.GetElement(job.Ids[job.Cursor++]);
                     if (el?.Category != null)
                     {
                         // TryAdd: an entry from Track() (DocumentChanged) is newer than this snapshot.
