@@ -49,28 +49,29 @@ namespace ProjectPerseus.queue
 
                 Log.Info("Auto-Sync Event Triggered! Starting SynchronizeWithCentral...");
 
-                var transOpts = new TransactWithCentralOptions();
-                var syncOpts = new SynchronizeWithCentralOptions
+                // In its own ExternalEvent once Revit has idled: syncing in the same API call as the ID writes above
+                // crashed Revit in the central merge.
+                DeferredSyncEvent.Schedule(new DeferredSyncEvent.Request
                 {
-                    Comment = "Auto-Synced by Perseus Queue",
-                    SaveLocalAfter = true
-                };
+                    Doc = doc,
+                    What = "auto-sync",
+                    Options = () =>
+                    {
+                        var syncOpts = new SynchronizeWithCentralOptions
+                        {
+                            Comment = "Auto-Synced by Perseus Queue",
+                            SaveLocalAfter = true
+                        };
+                        // Relinquish everything so the next person isn't blocked.
+                        syncOpts.SetRelinquishOptions(new RelinquishOptions(true));
+                        return syncOpts;
+                    },
+                    Before = () => SyncOrchestrator.IsAutoSyncing = true,
+                    After = () => SyncOrchestrator.IsAutoSyncing = false,
+                    Failed = ex => Log.Info($"Failed to execute Auto-Sync: {ex.Message}"),
+                });
 
-                // Relinquish everything so the next person isn't blocked.
-                var relinquishOpts = new RelinquishOptions(true);
-                syncOpts.SetRelinquishOptions(relinquishOpts);
-
-                SyncOrchestrator.IsAutoSyncing = true;
-                try
-                {
-                    doc.SynchronizeWithCentral(transOpts, syncOpts);
-                }
-                finally
-                {
-                    SyncOrchestrator.IsAutoSyncing = false;
-                }
-
-                Log.Info("Auto-Sync command dispatched successfully.");
+                Log.Info("Auto-Sync queued.");
             }
             catch (Exception ex)
             {

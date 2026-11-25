@@ -331,6 +331,10 @@ ProjectPerseus/
 │   └── ShowReviewViewsCommand.cs NEW (2026-11-13). Ribbon: Button_ReviewViews (Federator panel). ui/ReviewViewsWindow.EditFor.
 ├── queue/                        Renamed from commands/ in P2 (folder now matches namespace).
 │   ├── AutoSyncEvent.cs          IExternalEventHandler; flips SyncOrchestrator.IsAutoSyncing.
+│   ├── DeferredSyncEvent.cs      NEW (2026-11-25). Every Perseus-triggered SynchronizeWithCentral (IdPreSyncFixEvent, AutoSyncEvent,
+│   │                             PendingEditsResyncEvent) goes through Schedule(Request): own ExternalEvent, >= 750 ms after the writing
+│   │                             event returned and DocumentSettle settled; Before / After / Failed callbacks. Never sync in the same
+│   │                             API call as a model write: that crashed Revit in the central merge (EssentialsDB AV).
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; the pre-sync hook only cancels + Queue()s the edits
 │   │                             (applying inside the sync event failed with "An internal error has occurred").
 │   │                             Here: review form → PendingEditsApplier.Apply → report any not applied → re-sync
@@ -770,6 +774,10 @@ ProjectPerseus/
 │   ├── adapters/                 Ardb* wrappers around Autodesk.Revit.DB types.
 │   ├── interfaces/               IArdb* interfaces.
 │   ├── BatchFailureHandler.cs    12 lines — belongs with batch/ (will move in a later pass).
+│   ├── DocumentSettle.cs         NEW (2026-11-25). Per document: busy from Saving / SavingAs / SynchronizingWithCentral /
+│   │                             ReloadingLatest to the completed event, then 5 s settle (IsSettled); Epoch = completed count.
+│   │                             Idle element readers (ElementCategoryCache, IdIndexMaintainer, OwnershipTracker) check it: Element.Name
+│   │                             on the first idle tick after a cloud-model save crashed Revit (native AV). Stale id lists re-collect on Epoch.
 │   └── ModelGuidStorage.cs       Moved from root in P4 (namespace already matched).
 ├── sync/                         All sync orchestration + runners (P1, 2026-05-30).
 │   ├── SyncOrchestrator.cs       Instance class owning sync state + DocumentSynchronizing/zed

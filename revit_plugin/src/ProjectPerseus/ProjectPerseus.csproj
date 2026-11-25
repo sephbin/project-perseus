@@ -366,6 +366,7 @@
     <Compile Include="violations\ViolationHighlightController.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="queue\AutoSyncEvent.cs" />
+    <Compile Include="queue\DeferredSyncEvent.cs" />
     <Compile Include="queue\UndoViolationEvent.cs" />
     <Compile Include="queue\PendingEditsResyncEvent.cs" />
     <Compile Include="queue\QueuePoller.cs" />
@@ -404,6 +405,7 @@
     <Compile Include="revit\interfaces\IArdbParameter.cs" />
     <Compile Include="revit\interfaces\IArdbParameterSet.cs" />
     <Compile Include="revit\ModelGuidStorage.cs" />
+    <Compile Include="revit\DocumentSettle.cs" />
     <Compile Include="revit\RevitExtensions.cs" />
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />

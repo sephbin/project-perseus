@@ -77,6 +77,7 @@ namespace ProjectPerseus.sync
             ViolationDetector.Subscribe(application, _config.BaseUrl);
             ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
             ids.IdIndexMaintainer.Subscribe(application);
+            revit.DocumentSettle.Subscribe(application);
             violations.ElementCategoryCache.Subscribe(application);
 
             var syncHandler = new AutoSyncEvent();
@@ -85,6 +86,7 @@ namespace ProjectPerseus.sync
             var resyncHandler = new PendingEditsResyncEvent();
             PendingEditsResyncExternalEvent = ExternalEvent.Create(resyncHandler);
             IdPreSyncFixExternalEvent = ExternalEvent.Create(new IdPreSyncFixEvent());
+            DeferredSyncEvent.Initialize();
 
             var undoViolationHandler = new queue.UndoViolationEvent();
             ViolationDetector.UndoViolationExternalEvent = ExternalEvent.Create(undoViolationHandler);
@@ -114,6 +116,7 @@ namespace ProjectPerseus.sync
             ids.IdAutoAssignController.Unsubscribe(application);
             ids.IdIndexMaintainer.Unsubscribe(application);
             violations.ElementCategoryCache.Unsubscribe(application);
+            revit.DocumentSettle.Unsubscribe(application);
             _alertPoller?.Stop();
             _queueWebForm?.Close();
             ui.ViolationOverlayController.Stop();

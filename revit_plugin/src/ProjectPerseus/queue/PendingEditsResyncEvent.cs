@@ -70,18 +70,30 @@ namespace ProjectPerseus.queue
 
                 Log.Info("Triggering re-sync after pending web edits applied.");
                 SyncStatusToast.Show("Web edits applied. Restarting your sync now…");
-                SyncOrchestrator.IsResyncAfterPendingEdits = true;
-                doc.SynchronizeWithCentral(new TransactWithCentralOptions(), SyncOrchestrator.LastUserSyncOptions.Build());
-                Log.Info("Post-edits re-sync completed.");
+                // Sync in its own ExternalEvent once Revit has idled: syncing in the same API call as the writes
+                // crashed Revit in the central merge.
+                DeferredSyncEvent.Schedule(new DeferredSyncEvent.Request
+                {
+                    Doc = doc,
+                    What = "pending web edits",
+                    Options = () => SyncOrchestrator.LastUserSyncOptions.Build(),
+                    Before = () => SyncOrchestrator.IsResyncAfterPendingEdits = true,
+                    Failed = ReportFailure,
+                });
             }
             catch (Exception ex)
             {
-                SyncOrchestrator.IsResyncAfterPendingEdits = false;
-                SyncStatusToast.Hide();
-                Log.Error($"Pre-sync web edits / re-sync failed: {ex.Message}");
-                TaskDialog.Show("Perseus — Sync", "Perseus paused your sync to apply web edits but could not finish:\n" +
-                                ex.Message + "\n\nPlease press Sync with Central again.");
+                ReportFailure(ex);
             }
+        }
+
+        private static void ReportFailure(Exception ex)
+        {
+            SyncOrchestrator.IsResyncAfterPendingEdits = false;
+            SyncStatusToast.Hide();
+            Log.Error($"Pre-sync web edits / re-sync failed: {ex.Message}");
+            TaskDialog.Show("Perseus — Sync", "Perseus paused your sync to apply web edits but could not finish:\n" +
+                            ex.Message + "\n\nPlease press Sync with Central again.");
         }
 
         public string GetName() => "Perseus Pending Edits Re-Sync";

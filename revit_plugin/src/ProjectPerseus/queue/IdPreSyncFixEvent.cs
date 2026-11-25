@@ -36,17 +36,29 @@ namespace ProjectPerseus.queue
 
                 Log.Info("Triggering re-sync after the pre-sync ID fill / clash fix.");
                 SyncStatusToast.Show("IDs written. Restarting your sync now…" + (string.IsNullOrEmpty(note) ? "" : "\n" + note));
-                SyncOrchestrator.IsResyncAfterIdFix = true;
-                doc.SynchronizeWithCentral(new TransactWithCentralOptions(), SyncOrchestrator.LastUserSyncOptions.Build());
+                // Not here: syncing inside the same API call as the ID writes crashed Revit in the central merge.
+                DeferredSyncEvent.Schedule(new DeferredSyncEvent.Request
+                {
+                    Doc = doc,
+                    What = "pre-sync ID fix",
+                    Options = () => SyncOrchestrator.LastUserSyncOptions.Build(),
+                    Before = () => SyncOrchestrator.IsResyncAfterIdFix = true,
+                    Failed = ReportFailure,
+                });
             }
             catch (Exception ex)
             {
-                SyncOrchestrator.IsResyncAfterIdFix = false;
-                Log.Error($"Pre-sync ID fix / re-sync failed: {ex.Message}");
-                SyncStatusToast.Hide();
-                TaskDialog.Show("Perseus — Sync", "Perseus paused your sync to write element IDs but could not restart it:\n" +
-                                ex.Message + "\n\nPlease press Sync with Central again.");
+                ReportFailure(ex);
             }
+        }
+
+        private static void ReportFailure(Exception ex)
+        {
+            SyncOrchestrator.IsResyncAfterIdFix = false;
+            Log.Error($"Pre-sync ID fix / re-sync failed: {ex.Message}");
+            SyncStatusToast.Hide();
+            TaskDialog.Show("Perseus — Sync", "Perseus paused your sync to write element IDs but could not restart it:\n" +
+                            ex.Message + "\n\nPlease press Sync with Central again.");
         }
 
         public string GetName() => "Perseus Pre-Sync ID Fix";

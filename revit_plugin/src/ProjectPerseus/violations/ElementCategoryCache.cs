@@ -43,9 +43,11 @@ namespace ProjectPerseus.violations
         {
             public Document Doc;
             public string DocGuid;
-            public IList<ElementId> Ids;   // collected on the first slice
+            public List<ElementId> Ids;    // collected on the first slice, ascending
             public int Cursor;
             public int Count;
+            public long LastDone = long.MinValue;  // highest element id read so far
+            public int Epoch;                      // DocumentSettle.Epoch the Ids were collected at
             public readonly Stopwatch Total = new Stopwatch();
         }
 
@@ -83,11 +85,14 @@ namespace ProjectPerseus.violations
             if (_jobs.Count == 0) return;
             try
             {
-                var job = _jobs[0];
-                if (job.Doc == null || !job.Doc.IsValidObject) { _jobs.RemoveAt(0); return; }
+                _jobs.RemoveAll(j => j.Doc == null || !j.Doc.IsValidObject);
+                // Never read elements while a document is being saved / synced / reloaded or just after: Element.Name
+                // crashed Revit (native AV) on the first idle tick after a save of a 380k-element cloud model.
+                var job = _jobs.Find(j => DocumentSettle.IsSettled(j.Doc));
+                if (job == null) return;
                 if (Step(job, IdleBudgetMs))
                 {
-                    _jobs.RemoveAt(0);
+                    _jobs.Remove(job);
                     Log.Info($"[ElementCategoryCache] Primed {job.Count} elements for {job.DocGuid} " +
                              $"({job.Total.ElapsedMilliseconds} ms over idle slices)");
                 }
@@ -100,6 +105,19 @@ namespace ProjectPerseus.violations
             }
         }
 
+        // Ids taken before a save / sync / reload are a stale snapshot: take a fresh list and carry on after the
+        // last element already read (new elements get higher ids; DocumentChanged Track() covers edits meanwhile).
+        private static void Collect(PrimeJob job)
+        {
+            var ids = new List<ElementId>(
+                new FilteredElementCollector(job.Doc).WhereElementIsNotElementType().ToElementIds());
+            if (job.LastDone != long.MinValue) ids.RemoveAll(id => id.GetIdValue() <= job.LastDone);
+            ids.Sort((a, b) => a.GetIdValue().CompareTo(b.GetIdValue()));
+            job.Ids = ids;
+            job.Cursor = 0;
+            job.Epoch = DocumentSettle.Epoch(job.Doc);
+        }
+
         // One budgeted slice. True when the job is finished.
         private static bool Step(PrimeJob job, int budgetMs)
         {
@@ -107,16 +125,20 @@ namespace ProjectPerseus.violations
             job.Total.Start();
             try
             {
-                if (job.Ids == null)
+                if (job.Ids == null || job.Epoch != DocumentSettle.Epoch(job.Doc))
                 {
-                    job.Ids = new List<ElementId>(
-                        new FilteredElementCollector(job.Doc).WhereElementIsNotElementType().ToElementIds());
+                    if (job.Ids != null)
+                        Log.Info($"[ElementCategoryCache] {job.DocGuid}: model saved / synced / reloaded during priming; " +
+                                 $"re-collecting element ids after {job.LastDone}");
+                    Collect(job);
                     return false;
                 }
                 if (!_cache.TryGetValue(job.DocGuid, out var map)) return true;
                 while (job.Cursor < job.Ids.Count)
                 {
-                    Element el = job.Doc.GetElement(job.Ids[job.Cursor++]);
+                    ElementId id = job.Ids[job.Cursor++];
+                    job.LastDone = id.GetIdValue();
+                    Element el = job.Doc.GetElement(id);
                     if (el?.Category != null)
                     {
                         // TryAdd: an entry from Track() (DocumentChanged) is newer than this snapshot.

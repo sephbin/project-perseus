@@ -7,6 +7,7 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Events;
 using ProjectPerseus.logging;
 using ProjectPerseus.queue;
+using ProjectPerseus.revit;
 using ProjectPerseus.ui;
 
 namespace ProjectPerseus.ownership
@@ -84,6 +85,8 @@ namespace ProjectPerseus.ownership
                     _lastDocKey = null;
                     return;
                 }
+
+                if (!DocumentSettle.IsSettled(doc)) return; // no ownership scan during / just after save, sync, reload
 
                 string key = StatusBadgeController.DocKey(doc);
                 DateTime now = DateTime.UtcNow;

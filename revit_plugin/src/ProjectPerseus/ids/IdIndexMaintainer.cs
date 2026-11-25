@@ -35,6 +35,7 @@ namespace ProjectPerseus.ids
             public bool CatchUp;                      // a sync / Reload Latest brought in changes we were not told about
             public IdAssigner.IndexBuilder Builder;
             public string BuilderSignature;
+            public int BuilderEpoch;                  // DocumentSettle.Epoch the builder took its element list at
         }
 
         private static readonly Dictionary<Document, State> _docs = new Dictionary<Document, State>();
@@ -101,6 +102,7 @@ namespace ProjectPerseus.ids
             {
                 Document doc = app.ActiveUIDocument?.Document;
                 if (!Tracks(doc) || !IdRulesCache.HasAny) return;
+                if (!DocumentSettle.IsSettled(doc)) return; // no element reads during / just after save, sync, reload
                 string docGuid = ModelGuidStorage.TryGet(doc);
                 if (docGuid == null) return;
                 var rules = IdRulesCache.Get(docGuid);
@@ -122,13 +124,15 @@ namespace ProjectPerseus.ids
         {
             if (!IdAssigner.IsIndexReady(docGuid, rules))
             {
-                if (st.Builder == null || st.BuilderSignature != rules.Signature)
+                // A save / sync / reload since the builder took its element list: start again (a few hundred ms).
+                if (st.Builder == null || st.BuilderSignature != rules.Signature || st.BuilderEpoch != DocumentSettle.Epoch(doc))
                 {
                     // Changes made while the build runs are kept and applied once it is published.
                     st.AlignedVersion = CurrentVersion(doc);
                     st.CatchUp = false;
                     st.Builder = new IdAssigner.IndexBuilder(doc, docGuid, rules);
                     st.BuilderSignature = rules.Signature;
+                    st.BuilderEpoch = DocumentSettle.Epoch(doc);
                     Log.Info($"[IdIndex] building ID index for {doc.Title} in idle slices ({st.Builder.Total} candidate elements)");
                 }
                 if (!st.Builder.Step(Math.Max(5, budgetMs - (int)clock.ElapsedMilliseconds))) return true;
