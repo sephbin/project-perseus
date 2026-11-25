@@ -813,7 +813,9 @@ ProjectPerseus/
 │   │                             is saved / synced / reloaded before it ends (Element.Name then crashed Revit, native AV). Prime() (DocumentOpened)
 │   │                             only queues: filled in 40 ms Idling slices (blocking scan froze 700k-element models ~60 s).
 │   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
-│   │                             via ControlledApplication (called from SyncOrchestrator).
+│   │                             via ControlledApplication (called from SyncOrchestrator). DocumentChanged only records
+│   │                             ids + flags (ChangeBatch); ProcessChanges reads elements at idle once DocumentSettle says
+│   │                             settled (2026-11-26: element reads inside DocumentChanged preceded heap-corruption crashes).
 │   │                             Detects: element_deleted, ungroup, unpin, link_unload (provisional),
 │   │                             warning_dismissed, sheet_view_edit. Accumulates ActionDto entries
 │   │                             in ConcurrentQueue. DrainQueue() called by Step 3 ingest.

@@ -65,7 +65,10 @@ namespace ProjectPerseus.violations
             _baseUrl = baseUrl;
             // Crash bisect (config/FeatureSwitches): parts can be switched off one by one.
             if (!config.FeatureSwitches.IsOff("violations.changed"))
+            {
                 application.ControlledApplication.DocumentChanged    += OnDocumentChanged;
+                application.Idling += OnIdlingProcessChanges;
+            }
             if (!config.FeatureSwitches.IsOff("violations.failures"))
                 application.ControlledApplication.FailuresProcessing += OnFailuresProcessing;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnLinksChangedByOthers;
@@ -79,6 +82,7 @@ namespace ProjectPerseus.violations
         internal static void Unsubscribe(UIControlledApplication application)
         {
             application.ControlledApplication.DocumentChanged    -= OnDocumentChanged;
+            application.Idling -= OnIdlingProcessChanges;
             application.ControlledApplication.FailuresProcessing -= OnFailuresProcessing;
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnLinksChangedByOthers;
             application.ControlledApplication.DocumentReloadedLatest          -= OnLinksChangedByOthers;
@@ -289,42 +293,114 @@ namespace ProjectPerseus.violations
             }.Show();
         }
 
+        // ---- Change handling --------------------------------------------------------------------------------------
+        // DocumentChanged only RECORDS what changed (ids + transaction names + flags); the elements are read at idle
+        // once the document has settled (ProcessChanges). 2026-11-26: reading elements inside DocumentChanged (category,
+        // name, type, link + workset scans) during a Rhino.Inside script's "Flip Door From/To Room" transaction was
+        // followed by native heap corruption and Revit crashing minutes later (5 crashes); crash bisect via
+        // config/FeatureSwitches pinned it to this handler / FailuresProcessing. IdAutoAssignController already worked
+        // this way and never crashed. Do not add element reads back into OnDocumentChanged.
+        private class ChangeBatch
+        {
+            public Document Doc;
+            public List<string> TxnNames;
+            public List<ElementId> Added, Modified, Deleted;
+            public bool DuringSync, Bypass, Freefall;
+            public string Now;
+        }
+
+        private static readonly Queue<ChangeBatch> _changes = new Queue<ChangeBatch>();
+        private static bool _processingChanges;
+
         private static void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
         {
-            Document doc = e.GetDocument();
-            if (doc == null || !doc.IsWorkshared) return;
-
-            IList<string> txnNames    = e.GetTransactionNames();
-            ICollection<ElementId> deletedIds  = e.GetDeletedElementIds();
-            ICollection<ElementId> modifiedIds = e.GetModifiedElementIds();
-
-            // Perseus's own ID write touches every element but is not a user action; walking tens of
-            // thousands of modified elements here is what made large audits slow.
-            // The same goes for Perseus's parameter setup ("Perseus: Add ID Parameters" replaces the shared
-            // parameter elements, which Revit reports as deletions).
-            if (txnNames.Count > 0 && txnNames.All(n => n.StartsWith("Perseus:", StringComparison.Ordinal)))
+            try
             {
-                if (deletedIds.Count > 0)
-                    Log.Warn($"[ViolationDetector] A Perseus transaction ({string.Join("|", txnNames)}) deleted {deletedIds.Count} element(s) as a side effect " +
-                             $"(ids {string.Join(", ", deletedIds.Take(10).Select(i => i.GetIdValue()))}); not treated as a user violation.");
-                return;
+                Document doc = e.GetDocument();
+                if (doc == null || !doc.IsWorkshared) return;
+
+                var txnNames = e.GetTransactionNames().ToList();
+                var deleted  = e.GetDeletedElementIds().ToList();
+
+                // Perseus's own ID write touches every element but is not a user action; walking tens of
+                // thousands of modified elements here is what made large audits slow.
+                // The same goes for Perseus's parameter setup ("Perseus: Add ID Parameters" replaces the shared
+                // parameter elements, which Revit reports as deletions).
+                if (txnNames.Count > 0 && txnNames.All(n => n.StartsWith("Perseus:", StringComparison.Ordinal)))
+                {
+                    if (deleted.Count > 0)
+                        Log.Warn($"[ViolationDetector] A Perseus transaction ({string.Join("|", txnNames)}) deleted {deleted.Count} element(s) as a side effect " +
+                                 $"(ids {string.Join(", ", deleted.Take(10).Select(i => i.GetIdValue()))}); not treated as a user violation.");
+                    return;
+                }
+
+                bool duringSync = IsSyncInProgress;
+                bool bypass = false;
+                if (!duringSync)
+                {
+                    // Bypassed for our own programmatic re-delete transactions.
+                    bypass = BypassNextViolationCheck;
+                    BypassNextViolationCheck = false;
+                }
+
+                _changes.Enqueue(new ChangeBatch
+                {
+                    Doc        = doc,
+                    TxnNames   = txnNames,
+                    Added      = e.GetAddedElementIds().ToList(),
+                    Modified   = e.GetModifiedElementIds().ToList(),
+                    Deleted    = deleted,
+                    DuringSync = duringSync,
+                    Bypass     = bypass,
+                    Freefall   = FreefallMode.IsActive,
+                    Now        = DateTime.UtcNow.ToString("o"),
+                });
             }
+            catch (Exception ex) { Log.Exception(ex); }
+        }
+
+        // In order; waits while the document is saving / syncing / reloading and 5 s after (revit/DocumentSettle).
+        private static void OnIdlingProcessChanges(object sender, IdlingEventArgs e)
+        {
+            if (_processingChanges || _changes.Count == 0) return;
+            _processingChanges = true;
+            try
+            {
+                while (_changes.Count > 0)
+                {
+                    var b = _changes.Peek();
+                    if (b.Doc == null || !b.Doc.IsValidObject) { _changes.Dequeue(); continue; }
+                    if (!revit.DocumentSettle.IsSettled(b.Doc)) return;
+                    _changes.Dequeue();
+                    try { ProcessChanges(b); }
+                    catch (Exception ex) { Log.Exception(ex); }
+                }
+            }
+            finally { _processingChanges = false; }
+        }
+
+        private static void ProcessChanges(ChangeBatch b)
+        {
+            Document doc = b.Doc;
+            IList<string> txnNames             = b.TxnNames;
+            ICollection<ElementId> deletedIds  = b.Deleted;
+            ICollection<ElementId> modifiedIds = b.Modified;
 
             string txnJoined = string.Join("|", txnNames);
             string user      = doc.Application.Username;
             string docGuid   = TryGetDocGuid(doc);
-            string now       = DateTime.UtcNow.ToString("o");
+            string now       = b.Now;
 
             bool isUngroup = txnNames.Any(t => t.IndexOf("Ungroup", StringComparison.OrdinalIgnoreCase) >= 0);
             // CAUTION: "Unpin" and "Ungroup" are language-pack-dependent UI strings.
             bool isUnpin   = txnNames.Any(t => t.IndexOf("Unpin",   StringComparison.OrdinalIgnoreCase) >= 0);
             // Link unloads come from diffing link load states (see DetectLinkUnloads), not transaction names.
             // During sync the diff only re-baselines (other users' changes).
-            var unloadedLinks = DetectLinkUnloads(doc, report: !IsSyncInProgress);
+            var unloadedLinks = DetectLinkUnloads(doc, report: !b.DuringSync);
 
-            // Update element cache before processing deletions — deleted elements return null after this point.
-            var addedIds = e.GetAddedElementIds();
-            foreach (var id in addedIds.Concat(modifiedIds))
+            // Update the element cache (read at idle now, so an element deleted since is simply skipped; its earlier
+            // entry from priming / a previous change stays).
+            foreach (var id in b.Added.Concat(modifiedIds))
             {
                 var el = doc.GetElement(id);
                 if (el?.Category != null)
@@ -335,7 +411,7 @@ namespace ProjectPerseus.violations
 
             // Changes arriving via Reload Latest during Sync with Central are other users' edits,
             // not this user's actions — no dialogs, no tracking.
-            if (IsSyncInProgress) return;
+            if (b.DuringSync) return;
 
             // Rooms are "deleted" by Revit by becoming unplaced (Area == 0) rather than truly
             // deleted — they appear in modifiedIds, not deletedIds. Merge them in so enforcement
@@ -351,10 +427,9 @@ namespace ProjectPerseus.violations
             }
 
             // On-edit enforcement: check before enqueuing so a Cancel discards all actions.
-            // Bypassed for our own programmatic re-delete transactions.
-            bool bypass   = BypassNextViolationCheck;
-            bool freefall = FreefallMode.IsActive;
-            BypassNextViolationCheck = false;
+            // Bypassed for our own programmatic re-delete transactions (flag captured in OnDocumentChanged).
+            bool bypass   = b.Bypass;
+            bool freefall = b.Freefall;
 
             if (unloadedLinks.Count > 0)
                 HandleLinkUnloads(doc, unloadedLinks, txnJoined, skipEnforcement: bypass || freefall);
