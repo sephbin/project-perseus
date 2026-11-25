@@ -63,13 +63,17 @@ namespace ProjectPerseus.violations
         internal static void Subscribe(UIControlledApplication application, string baseUrl)
         {
             _baseUrl = baseUrl;
-            application.ControlledApplication.DocumentChanged    += OnDocumentChanged;
-            application.ControlledApplication.FailuresProcessing += OnFailuresProcessing;
+            // Crash bisect (config/FeatureSwitches): parts can be switched off one by one.
+            if (!config.FeatureSwitches.IsOff("violations.changed"))
+                application.ControlledApplication.DocumentChanged    += OnDocumentChanged;
+            if (!config.FeatureSwitches.IsOff("violations.failures"))
+                application.ControlledApplication.FailuresProcessing += OnFailuresProcessing;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnLinksChangedByOthers;
             application.ControlledApplication.DocumentReloadedLatest          += OnLinksChangedByOthers;
             application.ControlledApplication.DocumentClosing                 += OnLinkDocClosing;
             application.ViewActivated += OnViewActivated;
-            application.Idling        += OnIdlingCheckLinks;
+            if (!config.FeatureSwitches.IsOff("violations.links"))
+                application.Idling        += OnIdlingCheckLinks;
         }
 
         internal static void Unsubscribe(UIControlledApplication application)

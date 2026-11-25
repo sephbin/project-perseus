@@ -78,7 +78,7 @@ namespace ProjectPerseus.sync
             if (!config.FeatureSwitches.IsOff("ids")) ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
             if (!config.FeatureSwitches.IsOff("ids")) ids.IdIndexMaintainer.Subscribe(application);
             revit.DocumentSettle.Subscribe(application);
-            if (!config.FeatureSwitches.IsOff("violations")) violations.ElementCategoryCache.Subscribe(application);
+            if (!config.FeatureSwitches.IsOff("violations.cache")) violations.ElementCategoryCache.Subscribe(application);
 
             var syncHandler = new AutoSyncEvent();
             AutoSyncExternalEvent = ExternalEvent.Create(syncHandler);
@@ -134,8 +134,8 @@ namespace ProjectPerseus.sync
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
                 long tGuid = clock.ElapsedMilliseconds;
                 queue.PresencePoller.AddSource(docGuid);
-                if (!config.FeatureSwitches.IsOff("violations")) queue.ViolationPoller.AddSource(docGuid);
-                if (!config.FeatureSwitches.IsOff("violations")) violations.ElementCategoryCache.Prime(e.Document, docGuid);
+                if (!config.FeatureSwitches.IsOff("violations.poller")) queue.ViolationPoller.AddSource(docGuid);
+                if (!config.FeatureSwitches.IsOff("violations.cache")) violations.ElementCategoryCache.Prime(e.Document, docGuid);
                 violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
                 if (!config.FeatureSwitches.IsOff("ids")) ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
                 collections.CollectionsCache.LoadAsync(docGuid, _config.BaseUrl);
