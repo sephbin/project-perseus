@@ -135,7 +135,7 @@ namespace ProjectPerseus.violations
                     {
                         // TryAdd: an entry from Track() (DocumentChanged) is newer than this snapshot.
                         map.TryAdd(el.Id.GetIdValue(),
-                            new ElementInfo(el.Category.Name, el.UniqueId, el.Name ?? "", GetFamilyTypeName(el)));
+                            new ElementInfo(el.Category.Name, el.UniqueId, ElementNames.Of(el), GetFamilyTypeName(el)));
                         job.Count++;
                     }
                     if ((job.Cursor & 63) == 0 && clock.ElapsedMilliseconds >= budgetMs) return false;

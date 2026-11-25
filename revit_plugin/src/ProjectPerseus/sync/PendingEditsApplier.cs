@@ -77,7 +77,7 @@ namespace ProjectPerseus.sync
                     if (element == null) { edit.CurrentRevitValue = "(not found)"; continue; }
 
                     if (string.IsNullOrEmpty(edit.ElementName))
-                        edit.ElementName = element.Name;
+                        edit.ElementName = ElementNames.Of(element);
 
                     var param = element.LookupParameter(edit.ParamName);
                     if (param == null) { edit.CurrentRevitValue = "(param not found)"; continue; }
@@ -144,7 +144,8 @@ namespace ProjectPerseus.sync
                 tx.Start();
                 foreach (var (edit, element) in targets)
                 {
-                    string what = string.IsNullOrEmpty(element.Name) ? $"ID {element.Id.GetIdValue()}" : element.Name;
+                    string name = ElementNames.Of(element);
+                    string what = string.IsNullOrEmpty(name) ? $"ID {element.Id.GetIdValue()}" : name;
                     try
                     {
                         if (doc.IsWorkshared && !editable.Contains(element.Id))

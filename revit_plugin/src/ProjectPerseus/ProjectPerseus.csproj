@@ -406,6 +406,7 @@
     <Compile Include="revit\interfaces\IArdbParameterSet.cs" />
     <Compile Include="revit\ModelGuidStorage.cs" />
     <Compile Include="revit\DocumentSettle.cs" />
+    <Compile Include="revit\ElementNames.cs" />
     <Compile Include="revit\RevitExtensions.cs" />
     <Compile Include="revit\RevitFacade.cs" />
     <Compile Include="revit\StorageType.cs" />

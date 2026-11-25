@@ -116,7 +116,7 @@ namespace ProjectPerseus.ownership
             try
             {
                 if (el is ElementType t && !string.IsNullOrEmpty(t.FamilyName)) return t.FamilyName + ": " + t.Name;
-                if (el is FamilyInstance fi) return fi.Symbol.FamilyName + ": " + fi.Name;
+                if (el is FamilyInstance fi) return fi.Symbol.FamilyName + ": " + ElementNames.Of(fi);
                 return el.Name ?? "";
             }
             catch { return ""; }

@@ -774,6 +774,9 @@ ProjectPerseus/
 │   ├── adapters/                 Ardb* wrappers around Autodesk.Revit.DB types.
 │   ├── interfaces/               IArdb* interfaces.
 │   ├── BatchFailureHandler.cs    12 lines — belongs with batch/ (will move in a later pass).
+│   ├── ElementNames.cs           NEW (2026-11-25). ElementNames.Of(el): a family instance's name read from its type, never
+│   │                             Element.Name on the instance (suspected heap corruption after FlipFromToRoom). Use it for anything
+│   │                             that may be an instance.
 │   ├── DocumentSettle.cs         NEW (2026-11-25). Per document: busy from Saving / SavingAs / SynchronizingWithCentral /
 │   │                             ReloadingLatest to the completed event, then 5 s settle (IsSettled); Epoch = completed count.
 │   │                             Idle element readers (ElementCategoryCache, IdIndexMaintainer, OwnershipTracker) check it: Element.Name

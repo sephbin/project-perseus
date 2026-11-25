@@ -14,7 +14,7 @@ namespace ProjectPerseus.revit.adapters
 
         public IArdbElementId Id => new ArdbElementIdAdapter(_element.Id);
         public string UniqueId => _element.UniqueId;
-        public string Name => _element.Name;
+        public string Name => ElementNames.Of(_element);
         public IArdbParameterSet ParametersSet => new ArdbParameterSetAdapter(_element.Parameters);
         public ARDB.Category CategoryName => _element.Category;
     }

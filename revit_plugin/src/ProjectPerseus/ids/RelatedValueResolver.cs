@@ -297,7 +297,7 @@ namespace ProjectPerseus.ids
                 var p = el.get_Parameter(BuiltInParameter.ROOM_NAME);
                 if (p != null && p.HasValue) return p.AsString();
             }
-            return el.Name;
+            return revit.ElementNames.Of(el);
         }
 
         internal IDictionary<string, object> ParametersOf(Element related, IDictionary<string, string> pending)

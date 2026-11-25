@@ -325,7 +325,7 @@ namespace ProjectPerseus.violations
                 var el = doc.GetElement(id);
                 if (el?.Category != null)
                     ElementCategoryCache.Track(docGuid, id.GetIdValue(),
-                        el.Category.Name, el.UniqueId, el.Name ?? "",
+                        el.Category.Name, el.UniqueId, ElementNames.Of(el),
                         ElementCategoryCache.GetFamilyTypeName(el));
             }
 
