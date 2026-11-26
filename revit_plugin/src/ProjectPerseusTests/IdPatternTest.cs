@@ -334,6 +334,23 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void JinjaTemplates_BareNamesReadElementThenType()
+        {
+            // Bare names: the instance's parameter, else its type's; an empty instance value falls through to the type.
+            var m = PackModel();
+            m.Params["pack"]["Messaging Override"] = "Level 3 only";
+            m.Params["packinst"]["Comments"] = "";
+            m.Params["pack"]["Comments"] = "type comment";
+            m.Params["st07"]["Message"] = "All Gender Toilet\n{{Messaging_Override}}\n-braille-";
+            var t = JinjaTemplate.Parse("{{ Signs[0].Message | render }}|{{ Mark }}|{{ Comments }}|{{ Nope }}", out string err);
+            Assert.IsNotNull(t, err);
+            Assert.IsTrue(t.TryRender(m, "packinst", null, out string result, out err), err);
+            Assert.AreEqual("All Gender Toilet\nLevel 3 only\n-braille-|SP1|type comment|", result);
+            // Collections and objects still win over parameters of the same name.
+            Assert.AreEqual("ST07 Exit, ST02 Plant", RenderPack("{{ Signs }}"));
+        }
+
+        [TestMethod]
         public void JinjaTemplates_RenderWithSafeNames()
         {
             Assert.AreEqual("Door_Tag_Room_Number", JinjaTemplate.SafeName("Door Tag Room Number"));

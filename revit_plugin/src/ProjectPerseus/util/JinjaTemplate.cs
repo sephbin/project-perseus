@@ -34,6 +34,7 @@ namespace ProjectPerseus.util
     /// name, a relation (Room, Type...) wins over both.
     ///   {{ s.Message | render }} renders a member value that is itself a template for the element being filled in
     ///   (RenderNested): a sign type's Message "Room {{ Room.Number }}" gives each door its own room number.
+    ///   A bare name ({{ Mark }}, {{ Messaging_Override }}) = the element's parameter, else its type's (first with a value).
     /// </summary>
     public sealed class JinjaTemplate
     {
@@ -110,6 +111,9 @@ namespace ProjectPerseus.util
 
         /// <summary>Every object one step from the element (["Type"], ["Room"]...), for templates that use render.</summary>
         public static IReadOnlyList<string[]> AllObjectPaths { get; } = ObjectNames.Select(n => new[] { n }).ToList();
+
+        /// <summary>Just the element's type: bare names fall back to it ({{ Messaging_Override }} = Type.Messaging_Override).</summary>
+        public static IReadOnlyList<string[]> TypePath { get; } = new List<string[]> { new[] { "Type" } };
 
         private static string Canonical(string kind) =>
             ObjectNames.FirstOrDefault(n => string.Equals(n, kind, StringComparison.OrdinalIgnoreCase));
@@ -256,14 +260,35 @@ namespace ProjectPerseus.util
                 _element = element;
             }
 
+            private LazyObject _self, _type;
+            private bool _selfLoaded, _typeLoaded;
+
             public override bool TryGetValue(TemplateContext context, SourceSpan span, string member, out object value)
             {
                 if (base.TryGetValue(context, span, member, out value)) return true;
                 var list = Collection(_source, _element, member, 0, _collections);
-                if (list == null) return false;
-                value = list;
-                return true;
+                if (list != null) { value = list; return true; }
+                return BareName(context, span, member, out value);
             }
+
+            // A bare name ({{ Messaging_Override }}) = the element's parameter, else its type's; the first with a value wins.
+            private bool BareName(TemplateContext context, SourceSpan span, string member, out object value)
+            {
+                value = null;
+                if (string.IsNullOrEmpty(member)) return false;
+                if (!_selfLoaded) { _selfLoaded = true; _self = Load(_element); }
+                if (!_typeLoaded) { _typeLoaded = true; _type = Load(_source.Related(_element, "Type")); }
+                bool found = false;
+                foreach (var obj in new[] { _self, _type })
+                {
+                    if (obj == null || !obj.TryGetParameter(context, span, member, out var v)) continue;
+                    if (!found) { value = v; found = true; }
+                    if (v != null && !(v is string s && s.Length == 0)) { value = v; return true; }
+                }
+                return found;
+            }
+
+            private LazyObject Load(object handle) => handle == null ? null : new LazyObject(_source, handle, 1);
         }
 
         /// <summary>
@@ -311,6 +336,10 @@ namespace ProjectPerseus.util
             }
 
             protected virtual bool IsMemberField(string member) => false;
+
+            /// <summary>Only a parameter of that name (no relations / collections), for bare-name lookups.</summary>
+            public bool TryGetParameter(TemplateContext context, SourceSpan span, string member, out object value) =>
+                base.TryGetValue(context, span, member, out value);
         }
 
         /// <summary>A collection member: the member element with the owner instance's overrides on top.</summary>
