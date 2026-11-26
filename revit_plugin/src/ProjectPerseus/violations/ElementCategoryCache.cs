@@ -33,10 +33,9 @@ namespace ProjectPerseus.violations
     /// all ViolationDetector's protection checks need). Everything else is cached when it changes (Track(), from
     /// ViolationDetector at idle); an untouched unprotected element that is deleted is logged by ElementId only (the
     /// server has its name / category from the synced elements). Re-primed when the protection settings change.
-    /// 2026-11-26: priming the WHOLE model (~400k elements, back-to-back Idling slices for minutes after opening) while
-    /// a Rhino.Inside script flipped doors crashed Revit every time (heap corruption, then AV in sync / SetReferences /
-    /// Element.Name); crash bisect with config/FeatureSwitches: no priming = no crash. Rhino.Inside pumps a message loop
-    /// inside its API calls, so do not bring back whole-model priming or SetRaiseWithoutDelay here.
+    /// Whole-model priming (~400k elements, back-to-back Idling slices for minutes after opening) was dropped on
+    /// 2026-11-26 while chasing crashes during a Rhino.Inside door-flip script; those crashes later proved to be
+    /// Rhino.Inside's own (also with Perseus off), but the protected-only prime is far lighter (~4.7k elements, < 0.5 s).
     /// Filled in time-boxed Idling slices, never in DocumentOpened; waits for DocumentSettle; abandoned on save / sync /
     /// reload (Element.Name crashed Revit after cloud saves on 2026-11-25) and re-queued with the next settings change.
     /// </summary>

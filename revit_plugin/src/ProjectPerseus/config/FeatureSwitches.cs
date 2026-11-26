@@ -10,7 +10,9 @@ namespace ProjectPerseus.config
     /// Test switch for finding which part of Perseus is involved in a crash: names listed one per line in
     /// %AppData%\ProjectPerseus\disabled_features.txt are not started (read once at Revit start-up; '#' starts a
     /// comment). No file = everything on. Names: violations, ids, highlights, ownership, markers, federator,
-    /// keyschedules. Added 2026-11-25 for the door-flip (FlipFromToRoom) crashes.
+    /// keyschedules. Added 2026-11-25 for the door-flip (FlipFromToRoom) crashes (which turned out to be Rhino.Inside's).
+    /// Lesson from that hunt: confirm the crash really needs Perseus with several Perseus-off runs of the exact trigger
+    /// before bisecting, and repeat each configuration - one clean 10-minute run proved nothing.
     /// </summary>
     internal static class FeatureSwitches
     {

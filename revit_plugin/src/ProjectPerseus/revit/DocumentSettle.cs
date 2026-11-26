@@ -11,7 +11,8 @@ namespace ProjectPerseus.revit
     /// to read element by element. A document is busy from Saving / SavingAs / SynchronizingWithCentral /
     /// ReloadingLatest until the matching completed event, then settles for <see cref="SettleSeconds"/>. Element.Name
     /// on a 380k-element cloud model crashed Revit (native AV, uncatchable) on the first idle ticks right after a save
-    /// (2026-11-25, Data Exchange Connector's API save). <see cref="Epoch"/> counts completed saves / syncs / reloads,
+    /// (2026-11-25, Data Exchange Connector's API save; a Rhino.Inside script later shown to crash Revit on its own was
+    /// also running, so the cause is uncertain). <see cref="Epoch"/> counts completed saves / syncs / reloads,
     /// so a job holding an ElementId list taken earlier knows to take a fresh one.
     /// Main thread only (Revit events + Idling).
     /// </summary>

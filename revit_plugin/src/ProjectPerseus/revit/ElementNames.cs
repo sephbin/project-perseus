@@ -7,7 +7,8 @@ namespace ProjectPerseus.revit
     /// so it is read from the type element instead. 2026-11-25: after a script flipped doors with
     /// FamilyInstance.FlipFromToRoom, Perseus reading the door's Name (ViolationDetector on DocumentChanged,
     /// ElementCategoryCache priming) was followed by native heap corruption (double free in EssentialsDB) and Revit
-    /// crashing within minutes - five times; with Perseus off, flip + sync did not crash. Use this for any element
+    /// crashing within minutes - five times. Later (2026-11-26) Revit crashed the same way with Perseus off: the
+    /// script itself is the cause. Kept because it is harmless and equivalent. Use this for any element
     /// that may be an instance; Element.Name stays fine for types, views, levels, rooms etc.
     /// </summary>
     internal static class ElementNames

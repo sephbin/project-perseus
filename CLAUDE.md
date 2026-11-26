@@ -1,4 +1,4 @@
-Project Perseus - Architecture & Context Guide
+﻿Project Perseus - Architecture & Context Guide
 1. Project Overview
 
 Project Perseus is an enterprise-grade Revit plugin (.NET C#) developed for architecture firms. It acts as an automated data pipeline that extracts element data and geometry states from Revit models and pushes them to an external REST backend (which is currently Django, but is agnostic for different users).
@@ -338,7 +338,7 @@ ProjectPerseus/
 │   ├── DeferredSyncEvent.cs      NEW (2026-11-25). Every Perseus-triggered SynchronizeWithCentral (IdPreSyncFixEvent, AutoSyncEvent,
 │   │                             PendingEditsResyncEvent) goes through Schedule(Request): own ExternalEvent, >= 750 ms after the writing
 │   │                             event returned and DocumentSettle settled; Before / After / Failed callbacks. Never sync in the same
-│   │                             API call as a model write: that crashed Revit in the central merge (EssentialsDB AV).
+│   │                             API call as a model write (safer; the 2026-11-25 merge crash may have been Rhino.Inside's).
 │   ├── PendingEditsResyncEvent.cs IExternalEventHandler; the pre-sync hook only cancels + Queue()s the edits
 │   │                             (applying inside the sync event failed with "An internal error has occurred").
 │   │                             Here: review form → PendingEditsApplier.Apply → report any not applied → re-sync
@@ -811,13 +811,13 @@ ProjectPerseus/
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
 │   ├── ElementCategoryCache.cs   Category/name/type per element so deletions can be described. Primes ONLY protected categories +
 │   │                             protected ids (ViolationSettingsCache; re-primed when they change); other elements cached as they change
-│   │                             (Track). 2026-11-26: whole-model priming during a Rhino.Inside script crashed Revit (bisected) - never
-│   │                             prime the whole model or use SetRaiseWithoutDelay here. Abandoned on save / sync / reload. Prime()
+│   │                             (Track). Whole-model prime dropped 2026-11-26 (~400k elements over minutes; protected-only ~4.7k
+│   │                             in < 0.5 s). Abandoned on save / sync / reload. Prime()
 │   │                             (DocumentOpened) only queues: filled in 40 ms Idling slices.
 │   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
 │   │                             via ControlledApplication (called from SyncOrchestrator). DocumentChanged only records
 │   │                             ids + flags (ChangeBatch); ProcessChanges reads elements at idle once DocumentSettle says
-│   │                             settled (2026-11-26: element reads inside DocumentChanged preceded heap-corruption crashes).
+│   │                             settled (safer pattern; the 2026-11-26 crashes it targeted were Rhino.Inside's own).
 │   │                             Detects: element_deleted, ungroup, unpin, link_unload (provisional),
 │   │                             warning_dismissed, sheet_view_edit. Accumulates ActionDto entries
 │   │                             in ConcurrentQueue. DrainQueue() called by Step 3 ingest.

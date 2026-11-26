@@ -295,7 +295,9 @@ namespace ProjectPerseus.violations
 
         // ---- Change handling --------------------------------------------------------------------------------------
         // DocumentChanged only RECORDS what changed (ids + transaction names + flags); the elements are read at idle
-        // once the document has settled (ProcessChanges). 2026-11-26: reading elements inside DocumentChanged (category,
+        // once the document has settled (ProcessChanges). Kept as the safer pattern; the crashes below were later found to
+        // come from the Rhino.Inside script itself (Revit crashed the same way with Perseus off, 2026-11-26).
+        // 2026-11-26: reading elements inside DocumentChanged (category,
         // name, type, link + workset scans) during a Rhino.Inside script's "Flip Door From/To Room" transaction was
         // followed by native heap corruption and Revit crashing minutes later (5 crashes); crash bisect via
         // config/FeatureSwitches pinned it to this handler / FailuresProcessing. IdAutoAssignController already worked
@@ -707,11 +709,7 @@ namespace ProjectPerseus.violations
             string docGuid = TryGetDocGuid(doc);
             string now     = DateTime.UtcNow.ToString("o");
 
-            var warnings = fa.GetFailureMessages(FailureSeverity.Warning);
-            // Crash investigation 2026-11-26: shows which transactions reach this handler with warnings.
-            if (warnings.Count > 0)
-                Log.Info($"[ViolationDetector] FailuresProcessing: {warnings.Count} warning(s) in \"{fa.GetTransactionName()}\"");
-            foreach (var msg in warnings)
+            foreach (var msg in fa.GetFailureMessages(FailureSeverity.Warning))
             {
                 foreach (var id in msg.GetFailingElementIds())
                 {

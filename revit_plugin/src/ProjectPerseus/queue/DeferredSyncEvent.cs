@@ -11,7 +11,9 @@ namespace ProjectPerseus.queue
     /// (IDs, web edits) has returned and Revit has idled for a moment. Writing and then calling SynchronizeWithCentral
     /// inside the same API call crashed Revit natively while merging central ("NOBLE safe merging secondary data",
     /// EssentialsDB access violation, 2026-11-25): the sync started before Revit had finished with the transaction
-    /// just committed. Used by IdPreSyncFixEvent, AutoSyncEvent and PendingEditsResyncEvent.
+    /// just committed. (That session also ran a Rhino.Inside script later shown to crash Revit on its own, so the cause
+    /// is uncertain; writing and syncing in separate API calls is still the safer pattern.)
+    /// Used by IdPreSyncFixEvent, AutoSyncEvent and PendingEditsResyncEvent.
     /// One request at a time; a newer one replaces a pending one.
     /// </summary>
     public class DeferredSyncEvent : IExternalEventHandler
