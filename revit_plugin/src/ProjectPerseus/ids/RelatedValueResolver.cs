@@ -317,7 +317,9 @@ namespace ProjectPerseus.ids
             foreach (Parameter p in related.Parameters)
             {
                 string name = p.Definition?.Name;
-                if (string.IsNullOrEmpty(name) || values.ContainsKey(name) || IsStorageParameter(name, hidden)) continue;
+                if (string.IsNullOrEmpty(name) || IsStorageParameter(name, hidden)) continue;
+                // Same-named parameters (family + project / replaced Perseus parameter): a value beats an empty copy.
+                if (values.TryGetValue(name, out var had) && !(had == null || had is string hs && hs.Length == 0)) continue;
                 try { values[name] = TemplateValue(p); }
                 catch { /* unreadable parameter: left out */ }
             }

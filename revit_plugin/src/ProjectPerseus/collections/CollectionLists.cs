@@ -122,12 +122,13 @@ namespace ProjectPerseus.collections
             if (overrides != null)
                 foreach (var kv in overrides)
                     if (string.Equals(kv.Key, field, StringComparison.OrdinalIgnoreCase)) return kv.Value ?? "";
-            var p = member.LookupParameter(field);
+            var p = markers.MarkerEngine.FindParameter(member, field);
             if (p == null && !(member is ElementType))
             {
                 // An instance member: fall back to its type's parameter.
                 var typeId = member.GetTypeId();
-                if (typeId != null && typeId != ElementId.InvalidElementId) p = member.Document.GetElement(typeId)?.LookupParameter(field);
+                var type = typeId != null && typeId != ElementId.InvalidElementId ? member.Document.GetElement(typeId) : null;
+                if (type != null) p = markers.MarkerEngine.FindParameter(type, field);
             }
             if (p == null)
                 return string.Equals(field, "Name", StringComparison.OrdinalIgnoreCase) ? ElementNames.Of(member) : "";

@@ -774,17 +774,38 @@ namespace ProjectPerseus.markers
             if (string.IsNullOrWhiteSpace(name)) return "";
             if (row != null && row.TryGetValue(name, out string cached)) { found = true; return cached; }
 
-            Parameter p = el.LookupParameter(name);
+            Parameter p = FindParameter(el, name);
             if (p == null)
             {
                 var type = doc.GetElement(el.GetTypeId());
-                p = type?.LookupParameter(name);
+                p = type == null ? null : FindParameter(type, name);
             }
             if (p != null) { found = true; return ParamText(p); }
 
             string pseudo = Pseudo(doc, el, name);
             if (pseudo != null) { found = true; return pseudo; }
             return "";
+        }
+
+        private static readonly HashSet<string> _duplicatesLogged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The element's parameter of that name. Several parameters can share a name (a family parameter and a project /
+        /// Perseus shared parameter, or a Perseus parameter replaced when its lock changed); LookupParameter returns an
+        /// arbitrary one, often the empty copy, so the first with a value wins.
+        /// </summary>
+        internal static Parameter FindParameter(Element el, string name)
+        {
+            IList<Parameter> all;
+            try { all = el.GetParameters(name); } catch { all = null; }
+            if (all == null || all.Count == 0) return el.LookupParameter(name);
+            if (all.Count == 1) return all[0];
+            lock (_duplicatesLogged)
+                if (_duplicatesLogged.Add(name))
+                    Log.Info($"[MarkerEngine] {all.Count} parameters named '{name}' on {el.Category?.Name} {el.Id.GetIdValue()} " +
+                             $"({string.Join(", ", all.Select(x => (x.IsShared ? "shared " + x.GUID : "not shared") + (x.HasValue && ParamText(x).Length > 0 ? " = value" : " = empty")))}); " +
+                             "reading the one with a value");
+            return all.FirstOrDefault(x => x.HasValue && ParamText(x).Trim().Length > 0) ?? all[0];
         }
 
         private static string Pseudo(Document doc, Element el, string name)
@@ -823,11 +844,18 @@ namespace ProjectPerseus.markers
         {
             var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var type = doc.GetElement(el.GetTypeId());
+            // Same-named parameters: a value never gets replaced by an empty copy.
+            void Add(Parameter p, bool instance)
+            {
+                if (p.Definition == null) return;
+                string text = ParamText(p);
+                string name = p.Definition.Name;
+                if (text.Trim().Length == 0 && row.TryGetValue(name, out var had) && had.Trim().Length > 0) return;
+                row[name] = text;
+            }
             if (type != null)
-                foreach (Parameter p in type.Parameters)
-                    if (p.Definition != null) row[p.Definition.Name] = ParamText(p);
-            foreach (Parameter p in el.Parameters)
-                if (p.Definition != null) row[p.Definition.Name] = ParamText(p);
+                foreach (Parameter p in type.Parameters) Add(p, false);
+            foreach (Parameter p in el.Parameters) Add(p, true);
             foreach (var f in PseudoFields)
                 if (!row.ContainsKey(f)) row[f] = Pseudo(doc, el, f) ?? "";
             return row;
