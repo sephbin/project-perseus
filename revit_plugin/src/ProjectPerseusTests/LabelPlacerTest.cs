@@ -39,6 +39,19 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void StackedElementsKeepTheirLabelsOnTheirOwnSide()
+        {
+            // Narrow view: labels fit only above or below. First fit put the bottom element's label ABOVE it, i.e. right
+            // under the top element, reading as the top one's label.
+            var view = new Box(0, 0, 200, 400);
+            var top = new LabelPlacer.Item { Source = new Box(90, 100, 20, 20), W = 150, H = 40 };
+            var bottom = new LabelPlacer.Item { Source = new Box(90, 170, 20, 20), W = 150, H = 40 };
+            LabelPlacer.Place(new List<LabelPlacer.Item> { top, bottom }, view, 4);
+            Assert.IsTrue(top.Result.Bottom <= 100, $"top label should be above the top element: {top.Result}");
+            Assert.IsTrue(bottom.Result.Y >= 190, $"bottom label should be below the bottom element: {bottom.Result}");
+        }
+
+        [TestMethod]
         public void LabelAtTheRightEdgeFlipsLeft()
         {
             var a = Label(960, 100);

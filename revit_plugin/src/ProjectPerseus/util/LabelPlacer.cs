@@ -42,19 +42,35 @@ namespace ProjectPerseus.util
         public static void Place(IList<Item> items, Box view, double gap)
         {
             var grid = new Dictionary<long, List<Box>>();
-            foreach (var it in items)
+            // Every element's box, so a spot nearer another element than its own (or covering one) can be avoided.
+            var sources = new Dictionary<long, List<Box>>();
+            var clamped = new Box[items.Count];
+            for (int i = 0; i < items.Count; i++)
             {
-                var src = Clamp(it.Source, view);
+                clamped[i] = Clamp(items[i].Source, view);
+                Add(sources, clamped[i]);
+            }
+            for (int i = 0; i < items.Count; i++)
+            {
+                var it = items[i];
+                var src = clamped[i];
                 Box? chosen = null;
+                double best = double.MaxValue;
                 Box first = default(Box);
                 int index = 0;
+                // Score every free candidate (not first fit): a label belongs next to ITS element, so a spot that is
+                // closer to a neighbour (the top element's label sitting on the bottom one) costs far more than walking
+                // a little further round its own element.
                 foreach (var c in Candidates(src, it.W, it.H, gap, it.Centred))
                 {
-                    if (index++ == 0) first = c;
+                    int order = index++;
+                    if (order == 0) first = c;
                     if (!c.Inside(view)) continue;
                     if (Collides(grid, c)) continue;
-                    chosen = c;
-                    break;
+                    // An icon row on its own element is where it belongs, even when neighbouring elements overlap it.
+                    double cost = it.Centred && order == 0 ? 0 : Cost(c, src, sources, order, gap);
+                    if (cost < best) { best = cost; chosen = c; }
+                    if (order == 0 && cost <= gap + 1) break; // first choice free and nowhere near a neighbour: take it
                 }
                 it.Result = chosen ?? first;
                 // Labels beside the element on the right are "at home" (index 1 = first candidate) but still get a short
@@ -62,6 +78,39 @@ namespace ProjectPerseus.util
                 it.Displaced = !it.Centred || !chosen.HasValue || !SameBox(it.Result, first);
                 Add(grid, it.Result);
             }
+        }
+
+        // Gap between two boxes (0 when they touch or overlap).
+        private static double Distance(Box a, Box b)
+        {
+            double dx = Math.Max(0, Math.Max(a.X - b.Right, b.X - a.Right));
+            double dy = Math.Max(0, Math.Max(a.Y - b.Bottom, b.Y - a.Bottom));
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        private static bool Same(Box a, Box b) => Math.Abs(a.X - b.X) < 0.01 && Math.Abs(a.Y - b.Y) < 0.01 &&
+                                                  Math.Abs(a.W - b.W) < 0.01 && Math.Abs(a.H - b.H) < 0.01;
+
+        // Lower is better: near its own element, in the preferred order, never nearer a neighbour or on top of one.
+        private static double Cost(Box c, Box own, Dictionary<long, List<Box>> sources, int order, double gap)
+        {
+            double dOwn = Distance(c, own);
+            double cost = dOwn + order * 0.5;
+            var seen = new HashSet<long>();
+            foreach (var cell in Cells(new Box(c.X - dOwn - gap, c.Y - dOwn - gap, c.W + 2 * (dOwn + gap), c.H + 2 * (dOwn + gap))))
+            {
+                if (!sources.TryGetValue(cell, out var list)) continue;
+                foreach (var s in list)
+                {
+                    if (Same(s, own)) continue;
+                    long key = ((long)Math.Round(s.X * 8) << 32) ^ (long)Math.Round(s.Y * 8);
+                    if (!seen.Add(key)) continue;
+                    double d = Distance(c, s);
+                    if (d <= 0) cost += 400;                         // covers another element
+                    if (d < dOwn + gap) cost += 1000 + (dOwn + gap - d) * 10; // reads as that element's label
+                }
+            }
+            return cost;
         }
 
         private static bool SameBox(Box a, Box b) => Math.Abs(a.X - b.X) < 0.01 && Math.Abs(a.Y - b.Y) < 0.01;
