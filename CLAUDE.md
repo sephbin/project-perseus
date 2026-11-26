@@ -204,6 +204,9 @@ ProjectPerseus/
 │   │                             RelatedValueResolver hides collection storage parameters (members / override JSON) from templates.
 │   ├── AssemblyRedirects.cs      NEW (2026-11-19). AssemblyResolve: older support-assembly versions (Scriban wants
 │   │                             System.Threading.Tasks.Extensions 4.2.0.0) get the loaded / shipped copy (Revit ignores add-in configs).
+│   ├── LabelPlacer.cs            NEW (2026-11-26). Pure screen layout of marker labels / icon-only rows (ui/ViolationOverlay): first free
+│   │                             spot around the element (labels right, left, above, below, rings; icon rows on the element first), in the
+│   │                             view, grid overlap checks; Leader() = line back to the element. Tested in LabelPlacerTest.cs.
 │   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or
 │   │                             "-Y~500, X" (keys X/Y/Z/Id, '-' descending, '~N' mm buckets; ElementId breaks ties).
 │   │                             Unit-tested in ProjectPerseusTests/PositionOrderTest.cs.
@@ -439,6 +442,7 @@ ProjectPerseus/
 │   │                             ViolationOverlayController's dedicated STA thread. Markers are rings
 │   │                             enclosing each element's projected bbox (min 28px, dark halo + tint).
 │   │                             Hidden during navigation: a WH_MOUSE_LL hook (installed only while
+│   │                             Labels + icon-only rows laid out without collisions (util/LabelPlacer), leader lines in the entry colour.
 │   │                             markers exist) catches middle-drag / wheel over the viewport, plus
 │   │                             Revit's SetViewMoving; faded back in on a frame computed after settling.
 │   ├── ViolationOverlayController.cs NEW (2026-08-04). Static controller. Owns a dedicated STA

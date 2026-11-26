@@ -330,6 +330,7 @@
     <Compile Include="util\AssemblyRedirects.cs" />
     <Compile Include="util\AutoValue.cs" />
     <Compile Include="util\PositionOrder.cs" />
+    <Compile Include="util\LabelPlacer.cs" />
     <Compile Include="ids\ElementPosition.cs" />
     <Compile Include="commands\RenumberIdsCommand.cs" />
     <Compile Include="commands\PullWebEditsCommand.cs" />

@@ -10,6 +10,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using ProjectPerseus.models;
+using ProjectPerseus.util;
 
 namespace ProjectPerseus.ui
 {
@@ -478,6 +479,10 @@ namespace ProjectPerseus.ui
             // badges on top of everything.
             foreach (var o in outlines) _markerCanvas.Children.Add(o);
             foreach (var o in outlineLines) _markerCanvas.Children.Add(o);
+            // Leader lines (labels / moved icon rows back to their element): under the badges and labels.
+            _leaderLayer.Children.Clear();
+            _leaders.Clear();
+            _markerCanvas.Children.Add(_leaderLayer);
             foreach (var b in badges) _markerCanvas.Children.Add(b);
             foreach (var l in labels) _markerCanvas.Children.Add(l); // text tags on top so they stay readable
             PositionMarkers();
@@ -518,56 +523,134 @@ namespace ProjectPerseus.ui
             return label;
         }
 
+        // A block placed as one: an element's labels (stacked) or its icon-only marks (one row).
+        private sealed class Block
+        {
+            internal List<MarkerVisual> Visuals = new List<MarkerVisual>();
+            internal bool Icons;
+            internal LabelPlacer.Item Item;
+        }
+
+        // Leader lines in a pool (halo + coloured line each), reused every tick; hidden when not needed.
+        private readonly Canvas _leaderLayer = new Canvas { IsHitTestVisible = false };
+        private readonly List<(Line Halo, Line Line)> _leaders = new List<(Line, Line)>();
+        private static readonly Brush LeaderHalo = MakeFrozen(Color.FromArgb(0x90, 0, 0, 0));
+
+        private void SetLeader(int i, double x1, double y1, double x2, double y2, Color c)
+        {
+            while (_leaders.Count <= i)
+            {
+                var halo = new Line { Stroke = LeaderHalo, StrokeThickness = 3.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+                var line = new Line { StrokeThickness = 1.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+                _leaderLayer.Children.Add(halo);
+                _leaderLayer.Children.Add(line);
+                _leaders.Add((halo, line));
+            }
+            var (h, l) = _leaders[i];
+            if (!(l.Stroke is SolidColorBrush sb) || sb.Color != c) l.Stroke = MakeFrozen(c);
+            foreach (var ln in new[] { h, l })
+            {
+                ln.X1 = x1; ln.Y1 = y1; ln.X2 = x2; ln.Y2 = y2;
+                ln.Visibility = Visibility.Visible;
+            }
+        }
+
+        // Labels and icon-only rows are laid out together (util/LabelPlacer) so they never cover each other, each with a
+        // leader line in its entry's colour back to its element (icon rows only when moved off the element).
+        private void LayoutLabelsAndIcons()
+        {
+            var blocks = new Dictionary<string, Block>();
+            foreach (var v in _visuals)
+            {
+                bool icon = v.Marker.Display == MarkerSet.DisplayKind.IconOnly && v.Badge != null;
+                if (v.Label == null && !icon) continue;
+                string k = (icon ? "i:" : "t:") + Math.Round(v.Marker.NormX * 1e6) + ":" + Math.Round(v.Marker.NormY * 1e6);
+                if (!blocks.TryGetValue(k, out var b)) blocks[k] = b = new Block { Icons = icon };
+                b.Visuals.Add(v);
+            }
+            var ordered = new List<Block>(blocks.Values);
+            foreach (var b in ordered)
+            {
+                b.Visuals.Sort((a, c) => a.Marker.Slot.CompareTo(c.Marker.Slot));
+                var m = b.Visuals[0].Marker;
+                double cx = _vpLeft + m.NormX * _vpWidth, cy = _vpTop + m.NormY * _vpHeight;
+                double wPx = m.NormW * _vpWidth, hPx = m.NormH * _vpHeight;
+                double w, h;
+                if (b.Icons)
+                {
+                    w = b.Visuals.Count * IconOnlySize + (b.Visuals.Count - 1) * IconOnlyGap;
+                    h = IconOnlySize;
+                }
+                else
+                {
+                    w = 0; h = 0;
+                    foreach (var v in b.Visuals) { w = Math.Max(w, v.Label.DesiredSize.Width); h += v.Label.DesiredSize.Height; }
+                    h += (b.Visuals.Count - 1) * LabelGap / 2;
+                }
+                b.Item = new LabelPlacer.Item
+                {
+                    Source = new LabelPlacer.Box(cx - wPx / 2, cy - hPx / 2, wPx, hPx), W = w, H = h, Centred = b.Icons,
+                };
+            }
+            // Icon rows first (they want to sit on their element), then labels; top to bottom, left to right.
+            ordered.Sort((a, c) =>
+            {
+                if (a.Icons != c.Icons) return a.Icons ? -1 : 1;
+                int r = a.Item.Source.CY.CompareTo(c.Item.Source.CY);
+                return r != 0 ? r : a.Item.Source.CX.CompareTo(c.Item.Source.CX);
+            });
+            var items = new List<LabelPlacer.Item>();
+            foreach (var b in ordered) items.Add(b.Item);
+            LabelPlacer.Place(items, new LabelPlacer.Box(_vpLeft, _vpTop, _vpWidth, _vpHeight), LabelGap);
+
+            int leader = 0;
+            foreach (var b in ordered)
+            {
+                var r = b.Item.Result;
+                double x = r.X, y = r.Y;
+                foreach (var v in b.Visuals)
+                {
+                    if (b.Icons)
+                    {
+                        Canvas.SetLeft(v.Badge, x);
+                        Canvas.SetTop(v.Badge, y);
+                        x += IconOnlySize + IconOnlyGap;
+                    }
+                    else
+                    {
+                        Canvas.SetLeft(v.Label, x);
+                        Canvas.SetTop(v.Label, y);
+                        y += v.Label.DesiredSize.Height + LabelGap / 2;
+                    }
+                }
+                if (b.Item.Displaced && LabelPlacer.Leader(r, b.Item.Source, out double x1, out double y1, out double x2, out double y2))
+                {
+                    var m = b.Visuals[0].Marker;
+                    SetLeader(leader++, x1, y1, x2, y2, Color.FromRgb(m.R, m.G, m.B));
+                }
+            }
+            for (int i = leader; i < _leaders.Count; i++)
+            {
+                _leaders[i].Halo.Visibility = Visibility.Collapsed;
+                _leaders[i].Line.Visibility = Visibility.Collapsed;
+            }
+        }
+
         private void PositionMarkers()
         {
             if (!_hasMarkers) return;
             if (_vpWidth <= 0 || _vpHeight <= 0) return;
 
-            // Labels: beside the element's right edge (left edge when that runs off the view), stacked downwards
-            // from its top in slot order.
-            var labelGroups = new Dictionary<long, List<MarkerVisual>>();
-            foreach (var v in _visuals)
-            {
-                if (v.Label == null) continue;
-                long k = ((long)Math.Round(v.Marker.NormX * 1e6) << 32) ^ (long)Math.Round(v.Marker.NormY * 1e6);
-                if (!labelGroups.TryGetValue(k, out var g)) labelGroups[k] = g = new List<MarkerVisual>();
-                g.Add(v);
-            }
-            foreach (var g in labelGroups.Values)
-            {
-                g.Sort((a, b) => a.Marker.Slot.CompareTo(b.Marker.Slot));
-                var m0 = g[0].Marker;
-                double cx = _vpLeft + m0.NormX * _vpWidth, cy = _vpTop + m0.NormY * _vpHeight;
-                double wPx = m0.NormW * _vpWidth, hPx = m0.NormH * _vpHeight;
-                double y = cy - Math.Min(hPx, 2000) / 2;
-                foreach (var v in g)
-                {
-                    var size = v.Label.DesiredSize;
-                    double x = cx + Math.Min(wPx, 2000) / 2 + LabelGap;
-                    if (x + size.Width > _vpLeft + _vpWidth) x = cx - Math.Min(wPx, 2000) / 2 - LabelGap - size.Width;
-                    Canvas.SetLeft(v.Label, x);
-                    Canvas.SetTop(v.Label, y);
-                    y += size.Height + LabelGap / 2;
-                }
-            }
+            LayoutLabelsAndIcons();
 
             foreach (var v in _visuals)
             {
                 var m = v.Marker;
-                if (v.Label != null) continue;
+                if (v.Label != null || m.Display == MarkerSet.DisplayKind.IconOnly) continue; // laid out above
                 double cx = _vpLeft + m.NormX * _vpWidth;
                 double cy = _vpTop  + m.NormY * _vpHeight;
                 double wPx = m.NormW * _vpWidth;
                 double hPx = m.NormH * _vpHeight;
-
-                if (m.Display == MarkerSet.DisplayKind.IconOnly)
-                {
-                    // Row of icons centred on the element.
-                    double x = cx + (m.Slot - (m.SlotCount - 1) / 2.0) * (IconOnlySize + IconOnlyGap);
-                    Canvas.SetLeft(v.Badge, x - IconOnlySize / 2);
-                    Canvas.SetTop( v.Badge, cy - IconOnlySize / 2);
-                    continue;
-                }
 
                 if (m.Display == MarkerSet.DisplayKind.Outline)
                 {
