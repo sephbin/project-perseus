@@ -195,15 +195,27 @@ namespace ProjectPerseus.util
         /// <paramref name="values"/> = top-level values (CategoryPrefix, Workset). Result trimmed.
         /// </summary>
         public bool TryRender(IObjectSource source, object element, IDictionary<string, object> values,
-                              out string result, out string error)
+                              out string result, out string error) =>
+            TryRender(source, element, values, null, out result, out error);
+
+        // member = the collection member whose value is being rendered ({{ s.Messaging | render }}): its overrides and
+        // parameters join the bare-name lookup, and it is available as Member.
+        private bool TryRender(IObjectSource source, object element, IDictionary<string, object> values, MemberObject member,
+                               out string result, out string error)
         {
             result = "";
             error = null;
             try
             {
-                var globals = new Globals(source, element);
+                var globals = new Globals(source, element, member);
                 AddFilters(globals);
-                globals.Import("render", new Func<object, string>(v => RenderNested(Str(v), source, element, values)));
+                globals.Import("render", new Func<object, string>(v =>
+                {
+                    var from = _lastMember; // the member the piped value was read from (null when it wasn't a member's)
+                    _lastMember = null;
+                    return RenderNested(Str(v), source, element, values, from);
+                }));
+                if (member != null) globals["Member"] = globals["member"] = member;
                 if (values != null)
                     foreach (var kv in values) Put(globals, kv.Key, kv.Value);
                 foreach (var name in Objects)
@@ -226,12 +238,19 @@ namespace ProjectPerseus.util
         [ThreadStatic] private static int _nestedDepth;
         private const int MaxNested = 5;
 
+        // The member the last value was read from (set on every object read: a member, or null for anything else), so
+        // the render filter knows whose value it was handed. Per thread; templates render synchronously.
+        [ThreadStatic] private static MemberObject _lastMember;
+
         /// <summary>
         /// {{ s.Message | render }}: text that is itself a template (e.g. a sign type's Message "Room {{ Room.Number }}")
         /// rendered for the SAME element as the outer template, so Element / Room / Type... mean the element being filled
-        /// in, not the member. Plain text comes back as it is. Errors fail the outer render (value not written).
+        /// in, not the member. When the text came from a member, a bare name ({{ Messaging_Override }}) reads that slot's
+        /// instance override first, then the element, its type, and last the member's own parameter (first with a value);
+        /// Member = the member itself. Plain text comes back as it is. Errors fail the outer render (value not written).
         /// </summary>
-        private static string RenderNested(string text, IObjectSource source, object element, IDictionary<string, object> values)
+        private static string RenderNested(string text, IObjectSource source, object element, IDictionary<string, object> values,
+                                           MemberObject member)
         {
             if (!IsJinja(text)) return text;
             if (_nestedDepth >= MaxNested) throw new InvalidOperationException("render nested more than " + MaxNested + " deep");
@@ -240,7 +259,7 @@ namespace ProjectPerseus.util
             _nestedDepth++;
             try
             {
-                if (!inner.TryRender(source, element, values, out string result, out string error))
+                if (!inner.TryRender(source, element, values, member, out string result, out string error))
                     throw new InvalidOperationException("rendering '" + text + "' failed: " + error);
                 return result;
             }
@@ -252,12 +271,14 @@ namespace ProjectPerseus.util
         {
             private readonly IObjectSource _source;
             private readonly object _element;
+            private readonly MemberObject _member;
             private readonly Dictionary<string, MemberList> _collections = new Dictionary<string, MemberList>(StringComparer.OrdinalIgnoreCase);
 
-            public Globals(IObjectSource source, object element)
+            public Globals(IObjectSource source, object element, MemberObject member)
             {
                 _source = source;
                 _element = element;
+                _member = member;
             }
 
             private LazyObject _self, _type;
@@ -265,26 +286,35 @@ namespace ProjectPerseus.util
 
             public override bool TryGetValue(TemplateContext context, SourceSpan span, string member, out object value)
             {
-                if (base.TryGetValue(context, span, member, out value)) return true;
+                if (base.TryGetValue(context, span, member, out value))
+                {
+                    // Looking up the filter itself ({{ s.Messaging | render }} resolves "render" after s.Messaging) keeps it.
+                    if (!(value is IScriptCustomFunction)) _lastMember = null;
+                    return true;
+                }
+                _lastMember = null;
                 var list = Collection(_source, _element, member, 0, _collections);
                 if (list != null) { value = list; return true; }
                 return BareName(context, span, member, out value);
             }
 
-            // A bare name ({{ Messaging_Override }}) = the element's parameter, else its type's; the first with a value wins.
+            // A bare name ({{ Messaging_Override }}): the member's instance override (text rendered from a member), the
+            // element's parameter, its type's, then the member's own parameter; the first with a value wins.
             private bool BareName(TemplateContext context, SourceSpan span, string member, out object value)
             {
                 value = null;
                 if (string.IsNullOrEmpty(member)) return false;
+                if (_member != null && _member.TryGetOverride(member, out value)) return true;
                 if (!_selfLoaded) { _selfLoaded = true; _self = Load(_element); }
                 if (!_typeLoaded) { _typeLoaded = true; _type = Load(_source.Related(_element, "Type")); }
                 bool found = false;
-                foreach (var obj in new[] { _self, _type })
+                foreach (var obj in new[] { _self, _type, _member })
                 {
                     if (obj == null || !obj.TryGetParameter(context, span, member, out var v)) continue;
                     if (!found) { value = v; found = true; }
-                    if (v != null && !(v is string s && s.Length == 0)) { value = v; return true; }
+                    if (v != null && !(v is string s && s.Length == 0)) { value = v; break; }
                 }
+                _lastMember = null;
                 return found;
             }
 
@@ -317,6 +347,13 @@ namespace ProjectPerseus.util
 
             public override bool TryGetValue(TemplateContext context, SourceSpan span, string member, out object value)
             {
+                bool ok = Lookup(context, span, member, out value);
+                _lastMember = this as MemberObject; // s.Messaging -> render knows it is s's
+                return ok;
+            }
+
+            private bool Lookup(TemplateContext context, SourceSpan span, string member, out object value)
+            {
                 string kind = Canonical(member);
                 if (kind != null && _depth < MaxDepth)
                 {
@@ -347,6 +384,9 @@ namespace ProjectPerseus.util
         {
             private static readonly string[] Fields = { "slot", "id", "stale", "overridden", "base" };
 
+            // This slot's instance overrides alone (field -> typed value), for bare names in text rendered from the member.
+            private readonly ScriptObject _overrides = new ScriptObject();
+
             public MemberObject(IObjectSource source, Member m, int depth) : base(source, m.Handle, depth)
             {
                 var baseValues = new ScriptObject();
@@ -358,7 +398,9 @@ namespace ProjectPerseus.util
                         if (string.IsNullOrEmpty(kv.Key)) continue;
                         object old = Keys.Where(k => string.Equals(k, kv.Key, StringComparison.OrdinalIgnoreCase))
                                          .Select(k => this[k]).FirstOrDefault();
-                        Set(this, kv.Key, Typed(kv.Value, old));
+                        var typed = Typed(kv.Value, old);
+                        Set(this, kv.Key, typed);
+                        Set(_overrides, kv.Key, typed);
                         overridden = true;
                     }
                 this["slot"] = m.Slot;
@@ -370,6 +412,15 @@ namespace ProjectPerseus.util
 
             protected override bool IsMemberField(string member) =>
                 Fields.Contains(member, StringComparer.OrdinalIgnoreCase);
+
+            /// <summary>This slot's instance override of a field (any spelling: "Messaging Override", Messaging_Override).</summary>
+            public bool TryGetOverride(string name, out object value)
+            {
+                value = null;
+                foreach (var k in _overrides.Keys)
+                    if (string.Equals(k, name, StringComparison.OrdinalIgnoreCase)) { value = _overrides[k]; return true; }
+                return false;
+            }
 
             // An override of a number stays a number when it reads as one (so comparisons keep working).
             private static object Typed(string text, object old)

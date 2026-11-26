@@ -313,14 +313,54 @@ namespace ProjectPerseus.ids
             }
             else if (!values.ContainsKey("Name")) values["Name"] = NameOf(related);
 
+            var hidden = StorageParameterNames(related is ElementType);
             foreach (Parameter p in related.Parameters)
             {
                 string name = p.Definition?.Name;
-                if (string.IsNullOrEmpty(name) || values.ContainsKey(name)) continue;
+                if (string.IsNullOrEmpty(name) || values.ContainsKey(name) || IsStorageParameter(name, hidden)) continue;
                 try { values[name] = TemplateValue(p); }
                 catch { /* unreadable parameter: left out */ }
             }
             return values;
+        }
+
+        // Collection storage parameters (members list / slots on the owner, override JSON on instances) aren't values a
+        // template should print: a bare {{ Messaging_Override }} once read the override JSON when the collection's override
+        // parameter shared that name with a type parameter. Per side, so a type parameter of the same name stays readable.
+        private List<string>[] _storageNames;
+
+        private List<string> StorageParameterNames(bool onType)
+        {
+            if (_storageNames == null)
+            {
+                var types = new List<string>();
+                var instances = new List<string>();
+                foreach (var c in Collections)
+                {
+                    try
+                    {
+                        string members = MembersNameOf(c);
+                        if (!string.IsNullOrEmpty(members)) (c.OnType ? types : instances).Add(members);
+                        if (!_overrideNames.TryGetValue(c.Name, out var on))
+                            _overrideNames[c.Name] = on = collections.CollectionStore.OverrideName(_doc, c);
+                        if (!string.IsNullOrEmpty(on)) instances.Add(on);
+                    }
+                    catch { /* names unavailable: nothing hidden for this collection */ }
+                }
+                _storageNames = new[] { instances, types };
+            }
+            return _storageNames[onType ? 1 : 0];
+        }
+
+        private static bool IsStorageParameter(string name, List<string> hidden)
+        {
+            foreach (var h in hidden)
+            {
+                if (h.Contains(CollectionDto.SlotToken) ? collections.ReferenceCodec.SlotNumber(h, name) > 0
+                                                        : string.Equals(h, name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         private static object TemplateValue(Parameter p)

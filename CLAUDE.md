@@ -200,6 +200,8 @@ ProjectPerseus/
 │   │                             | render = a member value that is itself a template, rendered for the element being filled in
 │   │                             (UsesRender -> IdAssigner adds every related object as a dependency).
 │   │                             Bare names ({{ Mark }}) = the element's parameter, else its type's (IdAssigner: type always a dependency).
+│   │                             In text rendered from a member: that slot's instance override first, last the member's own; Member = it.
+│   │                             RelatedValueResolver hides collection storage parameters (members / override JSON) from templates.
 │   ├── AssemblyRedirects.cs      NEW (2026-11-19). AssemblyResolve: older support-assembly versions (Scriban wants
 │   │                             System.Threading.Tasks.Extensions 4.2.0.0) get the loaded / shipped copy (Revit ignores add-in configs).
 │   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or

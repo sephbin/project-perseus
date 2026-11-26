@@ -351,6 +351,32 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void JinjaTemplates_RenderedMemberTextReadsItsOverridesFirst()
+        {
+            // Both signs say {{Messaging_Override}}; the pack type holds the default, the instance overrides slot 3 only.
+            var m = PackModel();
+            m.Params["pack"]["Messaging Override"] = "Type default";
+            m.Params["st07"]["Message"] = "Toilet {{Messaging_Override}}";
+            m.Params["st02"]["Message"] = "Plant {{Messaging_Override}} ({{ Member.Name }}, slot {{ Member.slot }})";
+            m.Params["st02"]["Messaging Override"] = "";   // the sign type has the parameter too, empty
+            m.Many["packinst|Signs"][1].Overrides = new System.Collections.Generic.Dictionary<string, string> { ["Messaging Override"] = "Level 3" };
+            var t = JinjaTemplate.Parse("{% for s in Signs %}{{ s.Message | render }}{% unless forloop.last %} / {% endunless %}{% endfor %}", out string err);
+            Assert.IsNotNull(t, err);
+            Assert.IsTrue(t.TryRender(m, "packinst", null, out string result, out err), err);
+            Assert.AreEqual("Toilet Type default / Plant Level 3 (ST02 Plant, slot 3)", result);
+
+            // The member's own value is the last fallback; text not read from a member has no member scope.
+            m.Params["pack"]["Messaging Override"] = "";
+            m.Params["st07"]["Messaging Override"] = "own";
+            Assert.IsTrue(t.TryRender(m, "packinst", null, out result, out err), err);
+            Assert.AreEqual("Toilet own / Plant Level 3 (ST02 Plant, slot 3)", result);
+            m.Params["packinst"]["Tpl"] = "[{{ Messaging_Override }}{{ Member.Name }}]";
+            var t2 = JinjaTemplate.Parse("{% for s in Signs %}{{ s.slot }}{% endfor %}{{ Element.Tpl | render }}", out err);
+            Assert.IsTrue(t2.TryRender(m, "packinst", null, out result, out err), err);
+            Assert.AreEqual("13[]", result);
+        }
+
+        [TestMethod]
         public void JinjaTemplates_RenderWithSafeNames()
         {
             Assert.AreEqual("Door_Tag_Room_Number", JinjaTemplate.SafeName("Door Tag Room Number"));
