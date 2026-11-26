@@ -326,11 +326,179 @@ namespace ProjectPerseus.ids
             var result = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
             // Shared parameters are identified by SharedParameterElement; the binding map's keys are not
             // reliably ExternalDefinition once bound to a project, so don't depend on that.
-            foreach (SharedParameterElement spe in new FilteredElementCollector(doc).OfClass(typeof(SharedParameterElement)))
+            // Several of one name (a family's own shared parameter + Perseus's): the project-bound one wins (that is the one
+            // on every element of the rule's categories), then the model's own over Perseus's.
+            var bound = BoundGuids(doc);
+            foreach (var group in SharedOfName(doc, wanted))
             {
-                if (wanted.Contains(spe.Name)) result[spe.Name] = spe.GuidValue;
+                var pick = group.Value
+                    .OrderByDescending(s => bound.Contains(s.GuidValue))
+                    .ThenBy(s => IsPerseusGuid(s.Name, s.GuidValue))
+                    .First();
+                result[group.Key] = pick.GuidValue;
             }
             return result;
+        }
+
+        /// <summary>True when the GUID is one Perseus made for this name (locked or not).</summary>
+        internal static bool IsPerseusGuid(string name, Guid guid) => guid == GuidFor(name, false) || guid == GuidFor(name, true);
+
+        // GUIDs of shared parameters bound at project level (Project Parameters).
+        private static HashSet<Guid> BoundGuids(Document doc)
+        {
+            var result = new HashSet<Guid>();
+            var it = doc.ParameterBindings.ForwardIterator();
+            while (it.MoveNext())
+                if (it.Key is InternalDefinition d && doc.GetElement(d.Id) is SharedParameterElement spe) result.Add(spe.GuidValue);
+            return result;
+        }
+
+        // Shared parameters in the model by name (families' own ones included, bound or not).
+        private static Dictionary<string, List<SharedParameterElement>> SharedOfName(Document doc, ICollection<string> names)
+        {
+            var result = new Dictionary<string, List<SharedParameterElement>>(StringComparer.OrdinalIgnoreCase);
+            foreach (SharedParameterElement spe in new FilteredElementCollector(doc).OfClass(typeof(SharedParameterElement)))
+            {
+                if (names != null && !names.Contains(spe.Name)) continue;
+                if (!result.TryGetValue(spe.Name, out var l)) result[spe.Name] = l = new List<SharedParameterElement>();
+                l.Add(spe);
+            }
+            return result;
+        }
+
+        private static bool IsText(SharedParameterElement spe)
+        {
+            try { return spe.GetDefinition().GetDataType() == SpecTypeId.String.Text; }
+            catch { return false; }
+        }
+
+        /// <summary>A Perseus parameter bound beside the model's own shared parameter of the same name (made before Perseus
+        /// reused existing shared parameters). Audit offers MergeDuplicate.</summary>
+        internal class Duplicate
+        {
+            public string Name;
+            public SharedParameterElement Perseus;
+            public SharedParameterElement Own;
+        }
+
+        /// <summary>Rule / collection names where Perseus's parameter sits beside the model's own text shared parameter.</summary>
+        internal static List<Duplicate> Duplicates(Document doc, IEnumerable<string> names)
+        {
+            var result = new List<Duplicate>();
+            var bound = BoundGuids(doc);
+            foreach (var g in SharedOfName(doc, new HashSet<string>(names.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()), StringComparer.OrdinalIgnoreCase)))
+            {
+                var perseus = g.Value.FirstOrDefault(s => IsPerseusGuid(s.Name, s.GuidValue) && bound.Contains(s.GuidValue));
+                var own = g.Value.FirstOrDefault(s => !IsPerseusGuid(s.Name, s.GuidValue) && IsText(s));
+                if (perseus != null && own != null) result.Add(new Duplicate { Name = g.Key, Perseus = perseus, Own = own });
+            }
+            return result;
+        }
+
+        // The Perseus file's definition carrying an existing shared parameter's GUID, so binding it binds THAT parameter.
+        private const string AdoptedGroupName = "Perseus adopted";
+        private static Definition AdoptedDefinition(DefinitionFile file, SharedParameterElement spe)
+        {
+            DefinitionGroup group = file.Groups.get_Item(AdoptedGroupName) ?? file.Groups.Create(AdoptedGroupName);
+            foreach (Definition d in group.Definitions)
+                if (d is ExternalDefinition ed && ed.GUID == spe.GuidValue) return ed;
+            foreach (DefinitionGroup other in file.Groups)
+                foreach (Definition d in other.Definitions)
+                    if (d is ExternalDefinition ed && ed.GUID == spe.GuidValue) return ed;
+            if (group.Definitions.get_Item(spe.Name) != null)
+                throw new InvalidOperationException($"The Perseus shared parameter file already holds another '{spe.Name}' in '{AdoptedGroupName}'.");
+            return group.Definitions.Create(new ExternalDefinitionCreationOptions(spe.Name, spe.GetDefinition().GetDataType()) { GUID = spe.GuidValue, Visible = true });
+        }
+
+        /// <summary>
+        /// Moves a duplicated rule parameter onto the model's own shared parameter: Perseus's copy is unbound and removed, the
+        /// model's own is bound to the same categories (added to its binding when it has one), Perseus's values copied across
+        /// (the model's own value kept where Perseus had none). One undo step; refused (message, nothing changed) like
+        /// SwitchLock when elements holding a value are checked out by someone else / out of date. Outside a transaction.
+        /// </summary>
+        internal static string MergeDuplicate(Document doc, Duplicate dup, out int copied, out int failed)
+        {
+            copied = failed = 0;
+            InternalDefinition oldDef = dup.Perseus.GetDefinition();
+            if (!(doc.ParameterBindings.get_Item(oldDef) is ElementBinding binding)) return $"Perseus's '{dup.Name}' isn't bound.";
+            bool typeBinding = binding is TypeBinding;
+            var cats = binding.Categories.Cast<Category>().ToList();
+#if REVIT2024_OR_GREATER
+            var group = oldDef.GetGroupTypeId();
+#else
+            var group = oldDef.ParameterGroup;
+#endif
+            Guid from = dup.Perseus.GuidValue, to = dup.Own.GuidValue;
+
+            var values = new Dictionary<ElementId, string>();
+            if (cats.Count > 0)
+            {
+                var col = new FilteredElementCollector(doc).WherePasses(new ElementMulticategoryFilter(cats.Select(c => c.Id).ToList()));
+                foreach (Autodesk.Revit.DB.Element el in typeBinding ? col.WhereElementIsElementType() : col.WhereElementIsNotElementType())
+                {
+                    string v = el.get_Parameter(from)?.AsString();
+                    if (!string.IsNullOrEmpty(v)) values[el.Id] = v;
+                }
+            }
+            if (doc.IsWorkshared)
+            {
+                int busy = values.Keys.Count(id => WorksharingUtils.GetCheckoutStatus(doc, id) == CheckoutStatus.OwnedByOtherUser);
+                if (busy > 0) return $"{busy} element(s) with a '{dup.Name}' value are checked out by another user. Ask them to sync and relinquish, then try again.";
+                int stale = values.Keys.Count(id =>
+                {
+                    var st = WorksharingUtils.GetModelUpdatesStatus(doc, id);
+                    return st == ModelUpdatesStatus.UpdatedInCentral || st == ModelUpdatesStatus.DeletedInCentral;
+                });
+                if (stale > 0) return $"{stale} element(s) with a '{dup.Name}' value changed in central since you last synced. Reload Latest, then try again.";
+            }
+
+            int ok = 0, bad = 0;
+            string error = WithPerseusFile(doc, file =>
+            {
+                using (var tg = new TransactionGroup(doc, $"Perseus: Use the model's {dup.Name}"))
+                {
+                    tg.Start();
+                    using (var tx = new Transaction(doc, "Perseus: Remove duplicate parameter"))
+                    {
+                        tx.Start();
+                        doc.ParameterBindings.Remove(oldDef);
+                        doc.Delete(dup.Perseus.Id);
+                        if (tx.Commit() != TransactionStatus.Committed) { tg.RollBack(); return "Revit refused to remove Perseus's copy."; }
+                    }
+                    using (var tx = new Transaction(doc, "Perseus: Bind parameter"))
+                    {
+                        tx.Start();
+                        var ownDef = dup.Own.GetDefinition();
+                        var existing = doc.ParameterBindings.get_Item(ownDef) as ElementBinding;
+                        CategorySet set = doc.Application.Create.NewCategorySet();
+                        foreach (var c in cats) set.Insert(c);
+                        if (existing != null) foreach (Category c in existing.Categories) set.Insert(c);
+                        ElementBinding nb = typeBinding ? (ElementBinding)doc.Application.Create.NewTypeBinding(set) : doc.Application.Create.NewInstanceBinding(set);
+                        bool done = existing != null ? doc.ParameterBindings.ReInsert(ownDef, nb) : doc.ParameterBindings.Insert(AdoptedDefinition(file, dup.Own), nb, group);
+                        if (!done || tx.Commit() != TransactionStatus.Committed) { tg.RollBack(); return $"Revit refused to bind the model's '{dup.Name}'."; }
+                    }
+                    using (var tx = new Transaction(doc, "Perseus: Copy values"))
+                    {
+                        tx.Start();
+                        foreach (var kv in values)
+                        {
+                            try
+                            {
+                                var p = doc.GetElement(kv.Key)?.get_Parameter(to);
+                                if (p != null && !p.IsReadOnly && p.Set(kv.Value)) ok++; else bad++;
+                            }
+                            catch { bad++; }
+                        }
+                        if (tx.Commit() != TransactionStatus.Committed) { tg.RollBack(); return "Revit refused to copy the values across."; }
+                    }
+                    tg.Assimilate();
+                    return null;
+                }
+            });
+            copied = ok;
+            failed = bad;
+            if (error == null) Log.Info($"[SharedParameterManager] '{dup.Name}' now uses the model's own shared parameter {to}: {ok} value(s) copied, {bad} failed.");
+            return error;
         }
 
         /// <summary>
@@ -445,6 +613,12 @@ namespace ProjectPerseus.ids
                     existing[it.Key.Name] = (it.Key, it.Current as ElementBinding);
             }
 
+            // Shared parameters the model already has but doesn't bind at project level (e.g. a family's own "Rendered
+            // Message"): a requirement of that name binds THAT parameter (its GUID) instead of creating a Perseus twin, so
+            // elements never carry two parameters of one name.
+            var unboundShared = SharedOfName(doc, new HashSet<string>(requirements.Select(r => r.Name), StringComparer.OrdinalIgnoreCase));
+            var adopt = new Dictionary<Requirement, SharedParameterElement>();
+
             // Work out what has to change before touching the shared parameter file or opening a transaction.
             var work = new List<(Requirement Req, List<Category> Target, Definition ExistingDef, ElementBinding ExistingBinding)>();
             foreach (var req in requirements)
@@ -472,6 +646,22 @@ namespace ProjectPerseus.ids
                 }
                 else
                 {
+                    if (unboundShared.TryGetValue(req.Name, out var same))
+                    {
+                        var own = same.FirstOrDefault(s => !IsPerseusGuid(s.Name, s.GuidValue)) ?? same[0];
+                        if (!IsText(own))
+                        {
+                            Log.Warn($"[SharedParameterManager] '{req.Name}' already exists in this model as a non-text shared parameter " +
+                                     $"({own.GuidValue}); Perseus needs text, so nothing was added. Rename one of them.");
+                            continue;
+                        }
+                        if (!IsPerseusGuid(own.Name, own.GuidValue))
+                        {
+                            adopt[req] = own;
+                            Log.Info($"[SharedParameterManager] '{req.Name}': using the model's existing shared parameter {own.GuidValue} " +
+                                     "(from a family or another shared parameter file) instead of creating Perseus's own.");
+                        }
+                    }
                     work.Add((req, target, null, null));
                 }
             }
@@ -500,7 +690,9 @@ namespace ProjectPerseus.ids
                             continue;
                         }
 
-                        Definition def = DefinitionFor(file, item.Req.Name, item.Req.ReadOnly);
+                        Definition def = adopt.TryGetValue(item.Req, out var ownSpe)
+                            ? AdoptedDefinition(file, ownSpe)
+                            : DefinitionFor(file, item.Req.Name, item.Req.ReadOnly);
 
                         // Group applies on creation only; Perseus_ID is automatic so it sits in "Other".
                         doc.ParameterBindings.Insert(def, binding, GroupFor(item.Req.Group));

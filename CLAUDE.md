@@ -245,6 +245,9 @@ ProjectPerseus/
 │   ├── SharedParameterManager.cs EnsureParameters(Requirement list) for other features (collections; Requirement.TypeBinding / RecordName).
 │   │                             Perseus_ID / Link Sync names + group via naming/ParameterNames; Rename(key) = naming migration
 │   │                             (Replace: new parameter, values copied, name recorded, one undo step; SwitchLock uses Replace too).
+│   │                             Existing shared parameter of the same name (e.g. a family's own, unbound) is ADOPTED (bound by its GUID,
+│   │                             group "Perseus adopted"), never twinned; ResolveGuids prefers bound, then non-Perseus. Audit merges old twins
+│   │                             (Duplicates / MergeDuplicate). Lock settings only apply to Perseus's own parameters.
 │   │                             Locked rules (IdRuleDto.ReadOnly) = UserModifiable false, own GUID (GuidFor(name, true)) + file group
 │   │                             "Perseus locked"; LockMismatches / SwitchLock (replace parameter, copy values; offered by Audit).
 │   │                             (+ EnsureLinkSyncParameters: Perseus_LinkSource / Status / Decision / Comment / Assignee on mapped

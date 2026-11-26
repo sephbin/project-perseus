@@ -52,7 +52,7 @@ namespace ProjectPerseus.commands
                 }
 
                 int created = SharedParameterManager.Ensure(doc, rules);
-                string lockNote = SwitchLocks(doc, rules);
+                string lockNote = MergeDuplicates(doc, rules) + SwitchLocks(doc, rules);
                 IdAutoAssignController.Reset(docGuid);
                 IdAssignResult result = IdAssigner.Run(doc, docGuid, rules, null);
 
@@ -72,6 +72,38 @@ namespace ProjectPerseus.commands
                 message = ex.Message;
                 return Result.Failed;
             }
+        }
+
+        // Rule parameters Perseus created beside the model's own shared parameter of the same name (before it reused
+        // existing ones): elements carry two parameters with one name and schedules / family labels read the other one.
+        private static string MergeDuplicates(Document doc, IdRulesDto rules)
+        {
+            var names = rules.Rules.Where(r => r.Enabled).Select(r => r.ParameterName).ToList();
+            var dups = SharedParameterManager.Duplicates(doc, names);
+            if (dups.Count == 0) return "";
+            string list = string.Join("\n", dups.Select(d => $"  • {d.Name}"));
+            var dlg = new TaskDialog("Perseus — Duplicate parameters")
+            {
+                MainInstruction = "Use the model's own shared parameters?",
+                MainContent = list + "\n\nThe model (or its families) already has a shared parameter with each of these names, and Perseus " +
+                              "added its own copy beside it, so elements carry two parameters with the same name. Families' labels and " +
+                              "schedules read the model's one, which Perseus hasn't been filling in.\n\n" +
+                              "Perseus can remove its copy, bind the model's parameter to the same categories and copy every value " +
+                              "across (one undo step). Every element holding a value must be available: not checked out by someone " +
+                              "else, and up to date with central. Rule lock settings don't apply to parameters that aren't Perseus's own.",
+                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                DefaultButton = TaskDialogResult.Yes,
+            };
+            if (dlg.Show() != TaskDialogResult.Yes) return "Duplicate parameters kept (Audit again to be asked again).\n";
+            var lines = new StringBuilder();
+            foreach (var d in dups)
+            {
+                string err = SharedParameterManager.MergeDuplicate(doc, d, out int copied, out int failed);
+                lines.Append(err == null
+                    ? $"{d.Name}: now the model's own parameter, {copied} value(s) copied" + (failed > 0 ? $", {failed} failed" : "") + "\n"
+                    : $"{d.Name} not merged: {err}\n");
+            }
+            return lines.ToString();
         }
 
         // Rules whose Read-only option no longer matches their parameter: Revit only sets that flag when a parameter is
