@@ -809,9 +809,11 @@ ProjectPerseus/
 │                                 Not UI-thread-only: on cloud models it's CloudWorksharing's WPF CollaborateSWCView on
 │                                 its own thread. Every cancel path must also tell the user why (own dialog or SyncStatusToast).
 ├── violations/                   NEW (Step 2, 2026-07-27). Detection-only; no enforcement.
-│   ├── ElementCategoryCache.cs   Category/name/type per element so deletions can be described. Priming is abandoned if the model
-│   │                             is saved / synced / reloaded before it ends (Element.Name then crashed Revit, native AV). Prime() (DocumentOpened)
-│   │                             only queues: filled in 40 ms Idling slices (blocking scan froze 700k-element models ~60 s).
+│   ├── ElementCategoryCache.cs   Category/name/type per element so deletions can be described. Primes ONLY protected categories +
+│   │                             protected ids (ViolationSettingsCache; re-primed when they change); other elements cached as they change
+│   │                             (Track). 2026-11-26: whole-model priming during a Rhino.Inside script crashed Revit (bisected) - never
+│   │                             prime the whole model or use SetRaiseWithoutDelay here. Abandoned on save / sync / reload. Prime()
+│   │                             (DocumentOpened) only queues: filled in 40 ms Idling slices.
 │   ├── ViolationDetector.cs      Static class. Subscribes to DocumentChanged + FailuresProcessing
 │   │                             via ControlledApplication (called from SyncOrchestrator). DocumentChanged only records
 │   │                             ids + flags (ChangeBatch); ProcessChanges reads elements at idle once DocumentSettle says

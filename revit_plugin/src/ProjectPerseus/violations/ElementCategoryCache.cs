@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
@@ -27,14 +28,17 @@ namespace ProjectPerseus.violations
     }
 
     /// <summary>
-    /// Category / name / type of every element, so ViolationDetector can describe elements after they are deleted.
-    /// Prime() only queues the document: the cache is filled in time-boxed Idling slices, never in DocumentOpened.
-    /// (A blocking prime froze Revit for 20-60 s after opening 300k-740k element models.) Until priming finishes,
-    /// Get() returns null for elements not seen yet; callers already handle that.
-    /// Priming is ABANDONED if the document is saved / synced / reloaded before it finishes: Element.Name crashed Revit
-    /// (native AV, uncatchable) three times on 2026-11-25, every time while priming carried on past a save or sync
-    /// (re-collecting the ids and waiting for DocumentSettle did not help); uninterrupted primes never crashed.
-    /// Elements changed after that are still recorded by Track() (DocumentChanged).
+    /// Category / name / type of elements, so ViolationDetector can describe elements after they are deleted.
+    /// Prime() only covers what the violation rules PROTECT (ViolationSettings.ProtectedCategories + ProtectedElementIds:
+    /// all ViolationDetector's protection checks need). Everything else is cached when it changes (Track(), from
+    /// ViolationDetector at idle); an untouched unprotected element that is deleted is logged by ElementId only (the
+    /// server has its name / category from the synced elements). Re-primed when the protection settings change.
+    /// 2026-11-26: priming the WHOLE model (~400k elements, back-to-back Idling slices for minutes after opening) while
+    /// a Rhino.Inside script flipped doors crashed Revit every time (heap corruption, then AV in sync / SetReferences /
+    /// Element.Name); crash bisect with config/FeatureSwitches: no priming = no crash. Rhino.Inside pumps a message loop
+    /// inside its API calls, so do not bring back whole-model priming or SetRaiseWithoutDelay here.
+    /// Filled in time-boxed Idling slices, never in DocumentOpened; waits for DocumentSettle; abandoned on save / sync /
+    /// reload (Element.Name crashed Revit after cloud saves on 2026-11-25) and re-queued with the next settings change.
     /// </summary>
     internal static class ElementCategoryCache
     {
@@ -51,11 +55,24 @@ namespace ProjectPerseus.violations
             public int Cursor;
             public int Count;
             public int Epoch;              // DocumentSettle.Epoch when queued; any change abandons the job
+            public string Signature;       // protection settings this job covers
+            public DateTime QueuedAt = DateTime.UtcNow;
             public readonly Stopwatch Total = new Stopwatch();
         }
 
+        // Settings not loaded this long after Prime(): give up until they change (checked at idle).
+        private static readonly TimeSpan SettingsWait = TimeSpan.FromMinutes(2);
+
         // Main thread only (DocumentOpened / Idling / DocumentClosing).
         private static readonly List<PrimeJob> _jobs = new List<PrimeJob>();
+        // Open documents and the protection signature last primed (null = not primed yet).
+        private static readonly Dictionary<string, KeyValuePair<Document, string>> _docs =
+            new Dictionary<string, KeyValuePair<Document, string>>();
+        private static DateTime _lastSettingsCheck = DateTime.MinValue;
+
+        private static string SignatureOf(ViolationSettings s) => s == null ? null :
+            string.Join("\u001f", s.ProtectedCategories.OrderBy(c => c, StringComparer.Ordinal)) + "\u001e" +
+            string.Join("\u001f", s.ProtectedElementIds.OrderBy(c => c, StringComparer.Ordinal));
 
         internal static void Subscribe(UIControlledApplication app)
         {
@@ -68,26 +85,53 @@ namespace ProjectPerseus.violations
             app.Idling -= OnIdling;
             app.ControlledApplication.DocumentClosing -= OnClosing;
             _jobs.Clear();
+            _docs.Clear();
         }
 
         internal static void Prime(Document doc, string docGuid)
         {
             if (doc == null || string.IsNullOrEmpty(docGuid)) return;
             _cache.GetOrAdd(docGuid, _ => new ConcurrentDictionary<long, ElementInfo>());
+            _docs[docGuid] = new KeyValuePair<Document, string>(doc, null);
+            Queue(doc, docGuid);
+        }
+
+        private static void Queue(Document doc, string docGuid)
+        {
             _jobs.RemoveAll(j => j.Doc == doc || j.DocGuid == docGuid);
             _jobs.Add(new PrimeJob { Doc = doc, DocGuid = docGuid, Epoch = DocumentSettle.Epoch(doc) });
         }
 
         private static void OnClosing(object sender, DocumentClosingEventArgs e)
         {
-            if (e.Document != null) _jobs.RemoveAll(j => j.Doc == e.Document);
+            if (e.Document == null) return;
+            _jobs.RemoveAll(j => j.Doc == e.Document);
+            foreach (var key in _docs.Where(kv => kv.Value.Key == e.Document).Select(kv => kv.Key).ToList())
+                _docs.Remove(key);
+        }
+
+        // Every 5 s: a document whose protection settings differ from what was primed is queued again (settings are
+        // reloaded after each sync; this also restarts a prime abandoned by a save / sync).
+        private static void RequeueChangedSettings()
+        {
+            if ((DateTime.UtcNow - _lastSettingsCheck).TotalSeconds < 5) return;
+            _lastSettingsCheck = DateTime.UtcNow;
+            foreach (var kv in _docs.ToList())
+            {
+                var doc = kv.Value.Key;
+                if (doc == null || !doc.IsValidObject) { _docs.Remove(kv.Key); continue; }
+                if (_jobs.Any(j => j.DocGuid == kv.Key)) continue;
+                string sig = SignatureOf(ViolationSettingsCache.Get(kv.Key));
+                if (sig != null && sig != kv.Value.Value) Queue(doc, kv.Key);
+            }
         }
 
         private static void OnIdling(object sender, IdlingEventArgs e)
         {
-            if (_jobs.Count == 0) return;
             try
             {
+                RequeueChangedSettings();
+                if (_jobs.Count == 0) return;
                 _jobs.RemoveAll(j => j.Doc == null || !j.Doc.IsValidObject);
                 // Saved / synced / reloaded since priming started: stop (see the class summary).
                 _jobs.RemoveAll(j =>
@@ -102,10 +146,15 @@ namespace ProjectPerseus.violations
                 if (Step(job, IdleBudgetMs))
                 {
                     _jobs.Remove(job);
-                    Log.Info($"[ElementCategoryCache] Primed {job.Count} elements for {job.DocGuid} " +
-                             $"({job.Total.ElapsedMilliseconds} ms over idle slices)");
+                    if (job.Signature != null)
+                    {
+                        if (_docs.ContainsKey(job.DocGuid))
+                            _docs[job.DocGuid] = new KeyValuePair<Document, string>(job.Doc, job.Signature);
+                        Log.Info($"[ElementCategoryCache] Primed {job.Count} protected element(s) for {job.DocGuid} " +
+                                 $"({job.Ids?.Count ?? 0} collected, {job.Total.ElapsedMilliseconds} ms over idle slices)");
+                    }
                 }
-                if (_jobs.Count > 0) e.SetRaiseWithoutDelay();
+                // No SetRaiseWithoutDelay: Revit's normal idle cadence (see the class summary).
             }
             catch (Exception ex)
             {
@@ -123,8 +172,14 @@ namespace ProjectPerseus.violations
             {
                 if (job.Ids == null)
                 {
-                    job.Ids = new List<ElementId>(
-                        new FilteredElementCollector(job.Doc).WhereElementIsNotElementType().ToElementIds());
+                    var settings = ViolationSettingsCache.Get(job.DocGuid);
+                    if (settings == null)
+                    {
+                        // Loaded asynchronously after DocumentOpened; RequeueChangedSettings retries when they arrive.
+                        return DateTime.UtcNow - job.QueuedAt > SettingsWait;
+                    }
+                    job.Signature = SignatureOf(settings);
+                    job.Ids = CollectProtected(job.Doc, settings);
                     return false;
                 }
                 if (!_cache.TryGetValue(job.DocGuid, out var map)) return true;
@@ -143,6 +198,33 @@ namespace ProjectPerseus.violations
                 return true;
             }
             finally { job.Total.Stop(); }
+        }
+
+        // Instances in the protected categories (matched by name, as ViolationDetector compares them) + the protected
+        // elements given by ElementId or UniqueId.
+        private static IList<ElementId> CollectProtected(Document doc, ViolationSettings settings)
+        {
+            var ids = new HashSet<ElementId>();
+            var wanted = new HashSet<string>(settings.ProtectedCategories, StringComparer.Ordinal);
+            if (wanted.Count > 0)
+            {
+                var catIds = new List<ElementId>();
+                foreach (Category c in doc.Settings.Categories)
+                    if (c != null && wanted.Contains(c.Name)) catIds.Add(c.Id);
+                if (catIds.Count > 0)
+                    foreach (var id in new FilteredElementCollector(doc)
+                                 .WherePasses(new ElementMulticategoryFilter(catIds))
+                                 .WhereElementIsNotElementType().ToElementIds())
+                        ids.Add(id);
+            }
+            foreach (var raw in settings.ProtectedElementIds)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                Element el = long.TryParse(raw.Trim(), out long n) ? doc.GetElement(RevitExtensions.CreateId(n))
+                                                                   : doc.GetElement(raw.Trim());
+                if (el != null) ids.Add(el.Id);
+            }
+            return new List<ElementId>(ids);
         }
 
         internal static void Track(string docGuid, long elementId,
