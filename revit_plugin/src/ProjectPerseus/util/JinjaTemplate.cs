@@ -32,6 +32,8 @@ namespace ProjectPerseus.util
     /// Each member = the member element's parameters with the owner instance's overrides on top, plus slot (1-based),
     /// id, stale, overridden and base (the values before overrides). A collection name wins over a parameter of the same
     /// name, a relation (Room, Type...) wins over both.
+    ///   {{ s.Message | render }} renders a member value that is itself a template for the element being filled in
+    ///   (RenderNested): a sign type's Message "Room {{ Room.Number }}" gives each door its own room number.
     /// </summary>
     public sealed class JinjaTemplate
     {
@@ -97,6 +99,17 @@ namespace ProjectPerseus.util
                 .Where(n => !string.IsNullOrEmpty(n) &&
                             Regex.IsMatch(_text, @"\b" + Regex.Escape(n) + @"\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
                 .ToList();
+
+        private static readonly Regex RenderFilter = new Regex(@"\|\s*render\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// True when the template renders text that is itself a template ({{ s.Message | render }}). What that text reads
+        /// isn't known until render time, so dependency tracking treats every related object as read (AllObjectPaths).
+        /// </summary>
+        public bool UsesRender => RenderFilter.IsMatch(_text);
+
+        /// <summary>Every object one step from the element (["Type"], ["Room"]...), for templates that use render.</summary>
+        public static IReadOnlyList<string[]> AllObjectPaths { get; } = ObjectNames.Select(n => new[] { n }).ToList();
 
         private static string Canonical(string kind) =>
             ObjectNames.FirstOrDefault(n => string.Equals(n, kind, StringComparison.OrdinalIgnoreCase));
@@ -186,6 +199,7 @@ namespace ProjectPerseus.util
             {
                 var globals = new Globals(source, element);
                 AddFilters(globals);
+                globals.Import("render", new Func<object, string>(v => RenderNested(Str(v), source, element, values)));
                 if (values != null)
                     foreach (var kv in values) Put(globals, kv.Key, kv.Value);
                 foreach (var name in Objects)
@@ -203,6 +217,30 @@ namespace ProjectPerseus.util
                 error = ex.Message;
                 return false;
             }
+        }
+
+        [ThreadStatic] private static int _nestedDepth;
+        private const int MaxNested = 5;
+
+        /// <summary>
+        /// {{ s.Message | render }}: text that is itself a template (e.g. a sign type's Message "Room {{ Room.Number }}")
+        /// rendered for the SAME element as the outer template, so Element / Room / Type... mean the element being filled
+        /// in, not the member. Plain text comes back as it is. Errors fail the outer render (value not written).
+        /// </summary>
+        private static string RenderNested(string text, IObjectSource source, object element, IDictionary<string, object> values)
+        {
+            if (!IsJinja(text)) return text;
+            if (_nestedDepth >= MaxNested) throw new InvalidOperationException("render nested more than " + MaxNested + " deep");
+            var inner = Parse(text, out string parseError);
+            if (inner == null) throw new InvalidOperationException("rendered text '" + text + "' isn't valid: " + parseError);
+            _nestedDepth++;
+            try
+            {
+                if (!inner.TryRender(source, element, values, out string result, out string error))
+                    throw new InvalidOperationException("rendering '" + text + "' failed: " + error);
+                return result;
+            }
+            finally { _nestedDepth--; }
         }
 
         /// <summary>Top-level names: values and objects, then the rendered element's collections ({{ Signs }}).</summary>

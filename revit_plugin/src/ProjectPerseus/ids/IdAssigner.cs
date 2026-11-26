@@ -158,6 +158,8 @@ namespace ProjectPerseus.ids
             var c = TemplateFor(rule, resolve, out _);
             if (c.Jinja == null) return;
             resolver.AddPathDependencies(el, c.Jinja.Paths, deps);
+            // {{ s.Message | render }}: the rendered text may read any related object of the element.
+            if (c.Jinja.UsesRender) resolver.AddPathDependencies(el, util.JinjaTemplate.AllObjectPaths, deps);
             // Reference collections the template loops over ({% for s in Signs %}): the owner and every member.
             if (resolver.Collections.Count > 0)
             {

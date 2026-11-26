@@ -197,6 +197,8 @@ ProjectPerseus/
 │   │                             Reference collections (2026-11-24): IObjectSource.RelatedMany -> Member list; {% for s in Signs %},
 │   │                             Signs[0], Type.Signs; members = member params + instance overrides, slot / id / stale / overridden / base.
 │   │                             Mentions(names) = collection names a template uses (dependencies).
+│   │                             | render = a member value that is itself a template, rendered for the element being filled in
+│   │                             (UsesRender -> IdAssigner adds every related object as a dependency).
 │   ├── AssemblyRedirects.cs      NEW (2026-11-19). AssemblyResolve: older support-assembly versions (Scriban wants
 │   │                             System.Threading.Tasks.Extensions 4.2.0.0) get the loaded / shipped copy (Revit ignores add-in configs).
 │   ├── PositionOrder.cs          NEW. Pure parser/comparer for a rule's numbering order such as "X, -Y" or

@@ -308,6 +308,32 @@ namespace ProjectPerseusTests
         }
 
         [TestMethod]
+        public void JinjaTemplates_RenderMemberTemplatesForTheElement()
+        {
+            // A member's Message that is itself a template renders for the element being filled in (the pack instance).
+            var m = PackModel();
+            m.Params["st07"]["Message"] = "EXIT {{ Element.Mark }}";
+            m.Params["st02"]["Message"] = "{{ Type.Name | upper }}";
+            m.Many["packinst|Signs"][1].Overrides = null;
+            var t = JinjaTemplate.Parse("{% for s in Signs %}{{ s.Message | render }}{% unless forloop.last %} / {% endunless %}{% endfor %}", out string err);
+            Assert.IsNotNull(t, err);
+            Assert.IsTrue(t.UsesRender);
+            Assert.IsTrue(t.TryRender(m, "packinst", null, out string result, out err), err);
+            Assert.AreEqual("EXIT SP1 / SIGN PACK A", result);
+
+            // Plain text passes through; a bad nested template fails the render with its text in the error.
+            Assert.AreEqual("EXIT", RenderPack("{{ Signs[0].Message | render }}"));
+            m.Params["st07"]["Message"] = "{% for x in %}";
+            Assert.IsFalse(t.TryRender(m, "packinst", null, out _, out err));
+            StringAssert.Contains(err, "{% for x in %}");
+
+            // A member that renders itself stops at the nesting limit instead of overflowing the stack.
+            m.Params["st07"]["Message"] = "{{ Signs[0].Message | render }}";
+            Assert.IsFalse(t.TryRender(m, "packinst", null, out _, out err));
+            Assert.IsFalse(JinjaTemplate.Parse("{{ s.Message }}", out _).UsesRender);
+        }
+
+        [TestMethod]
         public void JinjaTemplates_RenderWithSafeNames()
         {
             Assert.AreEqual("Door_Tag_Room_Number", JinjaTemplate.SafeName("Door Tag Room Number"));
