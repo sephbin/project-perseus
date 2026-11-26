@@ -241,6 +241,7 @@ namespace ProjectPerseus.sync
                 if (token == null) return null; // not authenticated yet — will retry next event
 
                 string docGuid = ModelGuidStorage.GetOrCreate(doc);
+                if (ModelGuidStorage.IsError(docGuid)) return null; // no model GUID yet: never register the placeholder
 
                 var metadata = new
                 {

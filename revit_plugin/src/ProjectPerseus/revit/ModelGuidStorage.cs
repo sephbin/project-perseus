@@ -22,8 +22,14 @@ namespace ProjectPerseus.revit
         private static readonly ConcurrentDictionary<string, DateTime> _failedAt
             = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(30);
+        // "Can't write here" is only logged once per RetryAfter; unlike _failedAt it never blocks a later attempt from
+        // a context that CAN write (2026-11-26: the DocumentOpened refusal blocked Full Upload 18 s later).
+        private static readonly ConcurrentDictionary<string, DateTime> _cantWriteLoggedAt
+            = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 
         internal const string ErrorGuid = "ErrorModelGuid";
+
+        internal static bool IsError(string guid) => string.IsNullOrEmpty(guid) || guid == ErrorGuid;
 
         /// <summary>
         /// The document's GUID if it is already known (cached or stored), without ever creating one or opening a
@@ -81,12 +87,13 @@ namespace ProjectPerseus.revit
 
             if (!CanWrite(doc))
             {
-                // Linked file, inside DocumentChanged, or inside another transaction: creating is impossible here.
-                // Say so once per RetryAfter instead of failing a transaction on every call.
+                // Linked file, inside DocumentChanged, inside another transaction, or (Revit 2023) still read-only in
+                // DocumentOpened: creating is impossible here. Say so once per RetryAfter; the next caller that can
+                // write creates it (SyncOrchestrator retries at idle after an open).
                 if (!string.IsNullOrEmpty(key) &&
-                    (!_failedAt.TryGetValue(key, out var at) || DateTime.UtcNow - at > RetryAfter))
+                    (!_cantWriteLoggedAt.TryGetValue(key, out var at) || DateTime.UtcNow - at > RetryAfter))
                 {
-                    _failedAt[key] = DateTime.UtcNow;
+                    _cantWriteLoggedAt[key] = DateTime.UtcNow;
                     Log.Info($"[ModelGuidStorage] No GUID yet and the document can't be written now " +
                              $"(linked={doc.IsLinked}, readOnly={doc.IsReadOnly}, modifiable={doc.IsModifiable}); will create it later.");
                 }
@@ -138,7 +145,12 @@ namespace ProjectPerseus.revit
         public static void ClearCache(Document doc)
         {
             string key = doc?.PathName;
-            if (!string.IsNullOrEmpty(key)) { _cache.TryRemove(key, out _); _failedAt.TryRemove(key, out _); }
+            if (!string.IsNullOrEmpty(key))
+            {
+                _cache.TryRemove(key, out _);
+                _failedAt.TryRemove(key, out _);
+                _cantWriteLoggedAt.TryRemove(key, out _);
+            }
         }
 
         /// <summary>

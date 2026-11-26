@@ -32,6 +32,12 @@ namespace ProjectPerseus.sync
                 var doc = revit.Document;
                 var app = doc.Application;
                 var thisdocGuid = ModelGuidStorage.GetOrCreate(doc);
+                if (ModelGuidStorage.IsError(thisdocGuid))
+                {
+                    // Registering "ErrorModelGuid" made every such model share one junk server source (2026-11-26).
+                    Log.Warn($"PerformFullSync: '{doc.Title}' has no Perseus model GUID (document not writable yet); upload skipped.");
+                    return;
+                }
                 var baseUrl = Config.Instance.BaseUrl;
 
                 string fileName = doc.Title;

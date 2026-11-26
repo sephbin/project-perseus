@@ -74,6 +74,7 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizingWithCentral += OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral += OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged += OnProgressChanged;
+            application.Idling += OnIdlingPendingGuid;
             if (!config.FeatureSwitches.IsOff("violations")) ViolationDetector.Subscribe(application, _config.BaseUrl);
             if (!config.FeatureSwitches.IsOff("ids")) ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
             if (!config.FeatureSwitches.IsOff("ids")) ids.IdIndexMaintainer.Subscribe(application);
@@ -112,6 +113,8 @@ namespace ProjectPerseus.sync
             application.ControlledApplication.DocumentSynchronizingWithCentral -= OnDocumentSynchronizingWithCentral;
             application.ControlledApplication.DocumentSynchronizedWithCentral -= OnDocumentSynchronizedWithCentral;
             application.ControlledApplication.ProgressChanged -= OnProgressChanged;
+            application.Idling -= OnIdlingPendingGuid;
+            _pendingGuidDocs.Clear();
             ViolationDetector.Unsubscribe(application);
             ids.IdAutoAssignController.Unsubscribe(application);
             ids.IdIndexMaintainer.Unsubscribe(application);
@@ -133,13 +136,15 @@ namespace ProjectPerseus.sync
             {
                 string docGuid = ModelGuidStorage.GetOrCreate(e.Document);
                 long tGuid = clock.ElapsedMilliseconds;
-                queue.PresencePoller.AddSource(docGuid);
-                if (!config.FeatureSwitches.IsOff("violations.poller")) queue.ViolationPoller.AddSource(docGuid);
-                if (!config.FeatureSwitches.IsOff("violations.cache")) violations.ElementCategoryCache.Prime(e.Document, docGuid);
-                violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
-                if (!config.FeatureSwitches.IsOff("ids")) ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
-                collections.CollectionsCache.LoadAsync(docGuid, _config.BaseUrl);
-                naming.ParameterNames.LoadAsync(docGuid, _config.BaseUrl);
+                if (ModelGuidStorage.IsError(docGuid))
+                {
+                    // No GUID yet and the document can't be written here (Revit 2023 reports a just-opened model as
+                    // read-only in DocumentOpened): create it at idle and start the per-model services then, instead
+                    // of running them all against the "ErrorModelGuid" placeholder (2026-11-26).
+                    if (!_pendingGuidDocs.Contains(e.Document)) _pendingGuidDocs.Add(e.Document);
+                    Log.Info($"[Startup] '{e.Document.Title}' has no Perseus model GUID yet; creating it once Revit is idle.");
+                }
+                else StartModelServices(e.Document, docGuid);
 
                 // Warm up auth when a document opens so any expired-token login prompt
                 // (JwtLoginForm / MSAL) appears immediately, on a dedicated STA thread,
@@ -157,9 +162,46 @@ namespace ProjectPerseus.sync
             }
         }
 
+        // Per-model services keyed by the model GUID (pollers + settings caches).
+        private void StartModelServices(Document doc, string docGuid)
+        {
+            queue.PresencePoller.AddSource(docGuid);
+            if (!config.FeatureSwitches.IsOff("violations.poller")) queue.ViolationPoller.AddSource(docGuid);
+            if (!config.FeatureSwitches.IsOff("violations.cache")) violations.ElementCategoryCache.Prime(doc, docGuid);
+            violations.ViolationSettingsCache.LoadAsync(docGuid, _config.BaseUrl);
+            if (!config.FeatureSwitches.IsOff("ids")) ids.IdRulesCache.LoadAsync(docGuid, _config.BaseUrl);
+            collections.CollectionsCache.LoadAsync(docGuid, _config.BaseUrl);
+            naming.ParameterNames.LoadAsync(docGuid, _config.BaseUrl);
+        }
+
+        // Opened documents still waiting for their model GUID (see OnDocumentOpened). Main thread only.
+        private readonly List<Document> _pendingGuidDocs = new List<Document>();
+        private DateTime _nextPendingGuidTry = DateTime.MinValue;
+
+        private void OnIdlingPendingGuid(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        {
+            if (_pendingGuidDocs.Count == 0 || DateTime.UtcNow < _nextPendingGuidTry) return;
+            _nextPendingGuidTry = DateTime.UtcNow.AddSeconds(2);
+            try
+            {
+                foreach (var doc in _pendingGuidDocs.ToList())
+                {
+                    if (doc == null || !doc.IsValidObject) { _pendingGuidDocs.Remove(doc); continue; }
+                    if (!revit.DocumentSettle.IsSettled(doc)) continue;
+                    string guid = ModelGuidStorage.GetOrCreate(doc);
+                    if (ModelGuidStorage.IsError(guid)) continue; // still not writable (logged, throttled); next idle
+                    _pendingGuidDocs.Remove(doc);
+                    Log.Info($"[Startup] '{doc.Title}' model GUID {guid}; starting Perseus model services.");
+                    StartModelServices(doc, guid);
+                }
+            }
+            catch (Exception ex) { Log.Warn($"[Startup] deferred model GUID failed (retrying): {ex.Message}"); }
+        }
+
         private void OnDocumentClosing(object sender, Autodesk.Revit.DB.Events.DocumentClosingEventArgs e)
         {
             if (e.Document == null) return;
+            _pendingGuidDocs.Remove(e.Document);
             string closingGuid = null;
             try { closingGuid = revit.ModelGuidStorage.GetOrCreate(e.Document); } catch { }
             naming.ParameterNames.Invalidate(e.Document);
