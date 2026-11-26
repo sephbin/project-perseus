@@ -180,13 +180,44 @@ namespace ProjectPerseus.markers
                         };
                         continue;
                     }
+                    int before = hits.Count;
                     var r = EvaluateSet(doc, view, set, links, rings, slots, hits);
                     results[set.Id] = r;
                     if (r.Error != null) Log.Info($"[MarkerEngine] set '{set.Name}': {r.Error}");
+                    LogResultIfChanged(doc, view, set, r, hits, before);
                 }
                 if (hits.Count >= MaxHits) note = $"Showing the first {MaxHits:N0} markers in this view.";
             }
             Publish(hits, results, note);
+        }
+
+        // Diagnostics: what each set found, logged only when it changes (per set: view, counts, label values).
+        private static readonly Dictionary<string, string> _lastLogged = new Dictionary<string, string>();
+
+        private static void LogResultIfChanged(Document doc, View view, MarkerSet set, SetResult r, List<Hit> hits, int from)
+        {
+            try
+            {
+                var labels = hits.Skip(from).Where(h => h.Display == MarkerSet.DisplayKind.Label)
+                                 .Select(h => h.Key + "=\"" + Shorten(h.Text) + "\"").Take(5).ToList();
+                string line = $"set '{set.Name}' in '{doc.Title}' / view '{view.Name}': {r.Considered} in categories, " +
+                              $"{r.Matched} past filter, {r.Marked} marked ({hits.Count - from} marks), {r.ParamMissing} without " +
+                              $"'{set.Parameter}'" + (labels.Count > 0 ? $"; labels {string.Join(", ", labels)}" : "") +
+                              (r.Error != null ? $"; error: {r.Error}" : "");
+                lock (_lastLogged)
+                {
+                    if (_lastLogged.TryGetValue(set.Id, out var last) && last == line) return;
+                    _lastLogged[set.Id] = line;
+                }
+                Log.Info("[MarkerEngine] " + line);
+            }
+            catch { /* diagnostics only */ }
+        }
+
+        private static string Shorten(string s)
+        {
+            s = (s ?? "").Replace("\r", "").Replace("\n", " | ");
+            return s.Length > 60 ? s.Substring(0, 57) + "..." : s;
         }
 
         private static SetResult EvaluateSet(Document doc, View view, MarkerSet set, List<LinkSource> links,

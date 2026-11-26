@@ -1431,6 +1431,15 @@ namespace ProjectPerseus.ui
             }
             written = true;
             _draftOverrides.Clear();
+            // Auto Parameters ignore Perseus's own transactions: recompute the value rules reading this collection now
+            // (instances with changed overrides; on member edits the owner, whose dependents are every instance).
+            var touched = new HashSet<long>(overrides.Keys);
+            if (membersDirty && ownerEl != null)
+            {
+                touched.Add(ownerEl.Id.GetIdValue());
+                foreach (long id in InstancesOf(owner)) touched.Add(id);
+            }
+            IdAutoAssignController.QueueChanged(doc, touched, TransactionName);
             var parts = new List<string>();
             if (membersDirty) parts.Add($"{owner.Name}: {members.Count(m => !m.IsEmpty)} member(s) written");
             if (overrides.Count > 0) parts.Add($"overrides written on {overrides.Count} instance(s)");

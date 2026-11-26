@@ -224,6 +224,7 @@ namespace ProjectPerseus.collections
 
             foreach (var w in work) result.Created += EnsureParameters(doc, w.Reader.Collection, w.Owners);
 
+            var changedOwners = new List<long>();
             using (var tx = new Transaction(doc, TransactionName))
             {
                 tx.Start();
@@ -232,10 +233,14 @@ namespace ProjectPerseus.collections
                     {
                         result.Owners++;
                         if (!IdAssigner.CanEdit(doc, owner.Id)) { result.NotOwned++; continue; }
-                        result.Written += WriteOwner(w.Reader, doc.GetElement(owner.Id), result.Errors);
+                        int n = WriteOwner(w.Reader, doc.GetElement(owner.Id), result.Errors);
+                        if (n > 0) changedOwners.Add(owner.Id.GetIdValue());
+                        result.Written += n;
                     }
                 if (result.Written > 0) tx.Commit(); else tx.RollBack();
             }
+            // Value rules reading a list parameter (e.g. {{ Type.Sign_Type }}) recompute: Perseus transactions are ignored.
+            if (changedOwners.Count > 0) IdAutoAssignController.QueueChanged(doc, changedOwners, TransactionName);
             if (result.Written > 0 || result.Errors.Count > 0 || changedIds == null)
                 Log.Info($"[CollectionLists] {result.Summary().Replace("\n", " | ")}");
             return result;

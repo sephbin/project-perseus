@@ -217,7 +217,26 @@ namespace ProjectPerseus.ids
             if (doc == null || doc.IsFamilyDocument || doc.IsLinked) return;
             if (e.GetTransactionNames().Any(n => n.StartsWith("Perseus:", StringComparison.Ordinal))) return;
 
-            var ids = e.GetAddedElementIds().Concat(e.GetModifiedElementIds()).Select(i => i.GetIdValue()).ToList();
+            var added = e.GetAddedElementIds().Select(i => i.GetIdValue()).ToList();
+            var modified = e.GetModifiedElementIds().Select(i => i.GetIdValue()).ToList();
+            Queue(doc, added, modified, string.Join("|", e.GetTransactionNames()));
+        }
+
+        /// <summary>
+        /// Recompute Auto Parameters for elements Perseus itself changed (its own "Perseus:" transactions are ignored by
+        /// DocumentChanged above): Collections window Apply (members / instance overrides), collection lists. The elements
+        /// and everything copying values from them (templates reading the collection) are processed at the next event.
+        /// </summary>
+        internal static void QueueChanged(Document doc, IEnumerable<long> modified, string why)
+        {
+            if (doc == null || IsAssigning || !IdRulesCache.HasAny || modified == null) return;
+            try { Queue(doc, new List<long>(), modified.ToList(), why); }
+            catch (Exception ex) { Log.Warn($"[IdAutoAssign] queue after {why} failed (non-fatal): {ex.Message}"); }
+        }
+
+        private static void Queue(Document doc, List<long> added, List<long> modified, string why)
+        {
+            var ids = added.Concat(modified).ToList();
             if (ids.Count == 0) return;
 
             // Value rules: elements copying from what changed (memory lookup in the index; no model scan here).
@@ -229,7 +248,6 @@ namespace ProjectPerseus.ids
                 var rules = docGuid == null ? null : IdRulesCache.Get(docGuid);
                 if (rules != null && rules.Rules.Any(r => r.Enabled && r.IsValue))
                 {
-                    var modified = e.GetModifiedElementIds().Select(i => i.GetIdValue()).ToList();
                     deps = IdAssigner.Dependents(docGuid, rules, modified);
                     deps.ExceptWith(ids);
                     project = IdAssigner.UsesProject(rules) && modified.Contains(doc.ProjectInformation.Id.GetIdValue());
@@ -242,7 +260,7 @@ namespace ProjectPerseus.ids
                 if (!_pending.TryGetValue(doc, out var set)) _pending[doc] = set = new HashSet<long>();
                 foreach (var id in ids) set.Add(id);
                 if (!_fresh.TryGetValue(doc, out var fset)) _fresh[doc] = fset = new HashSet<long>();
-                foreach (var id in e.GetAddedElementIds()) fset.Add(id.GetIdValue());
+                foreach (var id in added) fset.Add(id);
                 if (deps != null && deps.Count > 0)
                 {
                     if (!_dependents.TryGetValue(doc, out var dset)) _dependents[doc] = dset = new HashSet<long>();
@@ -254,7 +272,7 @@ namespace ProjectPerseus.ids
             Log.Info($"[IdAutoAssign] queued {ids.Count} changed element(s)" +
                      (deps != null && deps.Count > 0 ? $" + {deps.Count} copying values from them" : "") +
                      (project ? " + Project Information dependents" : "") +
-                     $" from \"{string.Join("|", e.GetTransactionNames())}\"; event {raised}");
+                     $" from \"{why}\"; event {raised}");
         }
 
         // Called by AssignIdsEvent on the main Revit thread.
