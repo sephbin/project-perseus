@@ -39,12 +39,10 @@ namespace ProjectPerseus.collections
         /// them), type parameters when the collection lives on types. An existing parameter of that name (e.g. from the
         /// company shared parameter file, or a family parameter) is used as it is. Outside a transaction.
         /// </summary>
-        internal static int EnsureParameters(Document doc, CollectionDto c)
+        internal static int EnsureParameters(Document doc, CollectionDto c, IList<Element> owners)
         {
             var lists = ListsOf(c);
-            if (lists.Count == 0) return 0;
-            var owners = CollectionStore.Owners(doc, c);
-            if (owners.Count == 0) return 0;
+            if (lists.Count == 0 || owners == null || owners.Count == 0) return 0;
             var cats = c.OwnerCategories != null && c.OwnerCategories.Count > 0
                 ? new HashSet<string>(c.OwnerCategories, StringComparer.OrdinalIgnoreCase) : null;
             var reqs = new List<SharedParameterManager.Requirement>();
@@ -80,6 +78,14 @@ namespace ProjectPerseus.collections
             }
 
             private CollectionStore.TargetIndex Index => _index ?? (_index = new CollectionStore.TargetIndex(_doc, Collection));
+
+            /// <summary>
+            /// True when the owner actually holds the collection (at least one stored member). Owner categories usually
+            /// include the members' own category (sign packs and signs are both Signage types), and the list parameter often
+            /// has the member parameter's name: writing elements without members would blank the members' own values.
+            /// </summary>
+            internal bool HoldsMembers(Element owner) =>
+                CollectionStore.ReadMembers(owner, Collection, _membersName, out _).Any(r => !r.IsEmpty);
 
             /// <summary>Member element per filled slot (slot order) and, on instance owners, that slot's overrides.</summary>
             internal List<(Element Member, Dictionary<string, string> Overrides)> Members(Element owner)
@@ -161,6 +167,24 @@ namespace ProjectPerseus.collections
             return changed;
         }
 
+        /// <summary>
+        /// Empties an owner's list parameters after its last member was removed (ui/CollectionsWindow Apply, inside its
+        /// transaction). Refresh never does this: an owner without members is indistinguishable from an element that never
+        /// held the collection. Returns how many were cleared.
+        /// </summary>
+        internal static int ClearOwner(CollectionDto c, Element owner)
+        {
+            int cleared = 0;
+            if (owner == null) return 0;
+            foreach (var l in ListsOf(c))
+            {
+                var p = owner.LookupParameter(l.Target);
+                if (p == null || p.StorageType != StorageType.String || p.IsReadOnly || string.IsNullOrEmpty(p.AsString())) continue;
+                if (p.Set("")) cleared++;
+            }
+            return cleared;
+        }
+
         internal sealed class Result
         {
             public int Owners;     // owners looked at
@@ -190,7 +214,7 @@ namespace ProjectPerseus.collections
             foreach (var c in collections)
             {
                 var reader = new Reader(doc, c);
-                var owners = CollectionStore.Owners(doc, c);
+                var owners = CollectionStore.Owners(doc, c).Where(reader.HoldsMembers).ToList();
                 if (changedIds != null)
                     owners = owners.Where(o => changedIds.Contains(o.Id.GetIdValue()) || reader.MemberIds(o).Any(changedIds.Contains)).ToList();
                 if (owners.Count == 0) continue;
@@ -198,7 +222,7 @@ namespace ProjectPerseus.collections
             }
             if (work.Count == 0) return result;
 
-            foreach (var w in work) result.Created += EnsureParameters(doc, w.Reader.Collection);
+            foreach (var w in work) result.Created += EnsureParameters(doc, w.Reader.Collection, w.Owners);
 
             using (var tx = new Transaction(doc, TransactionName))
             {

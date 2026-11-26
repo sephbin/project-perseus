@@ -1411,6 +1411,8 @@ namespace ProjectPerseus.ui
                 {
                     string err = CollectionStore.WriteMembers(doc.GetElement(ownerEl.Id), c, _membersName, members);
                     if (err != null) errors.Add(err);
+                    // Last member removed: empty the owner's collection lists (the list updater skips owners without members).
+                    else if (!members.Any(m => !m.IsEmpty)) CollectionLists.ClearOwner(c, doc.GetElement(ownerEl.Id));
                 }
                 if (errors.Count == 0)
                     foreach (var kv in overrides)

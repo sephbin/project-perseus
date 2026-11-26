@@ -229,7 +229,8 @@ ProjectPerseus/
 │   ├── CollectionLists.cs        NEW (2026-11-26). Collection lists (CollectionDto.Lists): each member's parameter (override on instance
 │   │                             owners; "Name" = member name) joined into an owner text parameter (as typed, no prefix; locked Perseus
 │   │                             parameter created when missing). Refresh(doc, changed | null = all) in one "Perseus: Update collection
-│   │                             lists" transaction; owners checked out by others skipped. Audit runs it on every owner.
+│   │                             lists" transaction; only owners HOLDING members (HoldsMembers: member types share the owner category and often the parameter
+│   │                             name); owners checked out by others skipped. ClearOwner on last member removed (Apply). Audit runs it on every owner.
 │   ├── CollectionListController.cs NEW (2026-11-26). DocumentChanged -> changed ids -> OwnershipUiEvent -> CollectionLists.Refresh once
 │   │                             DocumentSettle settled (covers member edits and Collections window Apply). Feature switch "collections".
 │   └── CollectionStore.cs        Revit side: owners / targets (category, type vs instance, family regex), TargetIndex (resolver input),
