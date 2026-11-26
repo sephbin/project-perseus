@@ -288,6 +288,9 @@
     <Compile Include="naming\ParameterNameRecords.cs" />
     <Compile Include="collections\CollectionsCache.cs" />
     <Compile Include="collections\CollectionStore.cs" />
+    <Compile Include="collections\CollectionLists.cs" />
+    <Compile Include="collections\CollectionListController.cs" />
+    <Compile Include="collections\ListRollup.cs" />
     <Compile Include="collections\ReferenceCodec.cs" />
     <Compile Include="collections\OverrideCodec.cs" />
     <Compile Include="collections\ReferenceResolver.cs" />

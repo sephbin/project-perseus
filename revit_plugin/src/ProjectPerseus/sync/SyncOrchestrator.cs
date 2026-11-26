@@ -78,6 +78,7 @@ namespace ProjectPerseus.sync
             if (!config.FeatureSwitches.IsOff("violations")) ViolationDetector.Subscribe(application, _config.BaseUrl);
             if (!config.FeatureSwitches.IsOff("ids")) ids.IdAutoAssignController.Subscribe(application, _config.BaseUrl);
             if (!config.FeatureSwitches.IsOff("ids")) ids.IdIndexMaintainer.Subscribe(application);
+            if (!config.FeatureSwitches.IsOff("collections")) collections.CollectionListController.Subscribe(application);
             revit.DocumentSettle.Subscribe(application);
             if (!config.FeatureSwitches.IsOff("violations.cache")) violations.ElementCategoryCache.Subscribe(application);
 
@@ -117,6 +118,7 @@ namespace ProjectPerseus.sync
             _pendingGuidDocs.Clear();
             ViolationDetector.Unsubscribe(application);
             ids.IdAutoAssignController.Unsubscribe(application);
+            collections.CollectionListController.Unsubscribe(application);
             ids.IdIndexMaintainer.Unsubscribe(application);
             violations.ElementCategoryCache.Unsubscribe(application);
             revit.DocumentSettle.Unsubscribe(application);
@@ -213,6 +215,7 @@ namespace ProjectPerseus.sync
                 violations.ViolationDetector.HandleDocumentClosing(closingGuid);
                 ids.IdAutoAssignController.Reset(closingGuid);
                 ids.IdAutoAssignController.Forget(e.Document);
+                collections.CollectionListController.Forget(e.Document);
                 ids.IdRulesCache.Remove(closingGuid);
                 collections.CollectionsCache.Remove(closingGuid);
                 naming.ParameterNames.Remove(closingGuid);

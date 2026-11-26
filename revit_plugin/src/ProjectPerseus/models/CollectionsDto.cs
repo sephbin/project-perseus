@@ -40,10 +40,30 @@ namespace ProjectPerseus.models
         [JsonProperty("from")] public string From { get; set; } = "";
         [JsonProperty("members_parameter_name")] public string MembersParameterName { get; set; } = "";
         [JsonProperty("override_parameter_name")] public string OverrideParameterName { get; set; } = "";
+        /// <summary>Member values listed on the owner (collections/CollectionLists): "Sign Type" of each sign -> pack type.</summary>
+        [JsonProperty("lists")] public List<CollectionListDto> Lists { get; set; } = new List<CollectionListDto>();
 
         [JsonIgnore] public bool OnType => LivesOn != "instance";
         [JsonIgnore] public bool UsesSlots => Storage != "list";
         [JsonIgnore] public bool TargetsTypes => TargetKind != "instance";
         [JsonIgnore] public bool HasOverrides => !string.IsNullOrWhiteSpace(OverrideParameter);
+    }
+
+    /// <summary>
+    /// One list of a collection: each member's MemberParameter, in slot order, joined with Delimiter into the owner's
+    /// OwnerParameter (a type parameter when the collection lives on types). The owner parameter name is used as typed
+    /// (no naming prefix): it is often an existing shared parameter.
+    /// </summary>
+    public class CollectionListDto
+    {
+        [JsonProperty("member_parameter")] public string MemberParameter { get; set; } = "";
+        [JsonProperty("owner_parameter")] public string OwnerParameter { get; set; } = "";
+        [JsonProperty("delimiter")] public string Delimiter { get; set; } = ", ";
+        [JsonProperty("skip_empty")] public bool SkipEmpty { get; set; } = true;
+        [JsonProperty("unique")] public bool Unique { get; set; }
+
+        /// <summary>The owner parameter, or the member parameter's name when left blank.</summary>
+        [JsonIgnore] public string Target => string.IsNullOrWhiteSpace(OwnerParameter) ? (MemberParameter ?? "").Trim() : OwnerParameter.Trim();
+        [JsonIgnore] public bool IsValid => !string.IsNullOrWhiteSpace(MemberParameter);
     }
 }

@@ -155,6 +155,11 @@ Parameter names here go through the naming convention (prefix etc.).
    `IdPatternTest.JinjaTemplates_LoopOverCollections`. Details below.
 4. **Collections window (DONE 2026-11-24)** — members, overrides, preview, stale fixes. Details below.
 5. **Audit + help** — stale / broken references in Audit; help guides for both features.
+6. **Lists on the owner (DONE 2026-11-26)** — per collection `lists`: member parameter -> owner text parameter (as typed, no prefix;
+   existing shared parameter used, else a locked Perseus one, type-bound on type collections), delimiter (presets / custom, `\n`
+   escapes), skip empty, unique. Server: `reference_collections._clean_lists` + web editor table + help. Plugin: collections/ListRollup
+   (pure), CollectionLists (Refresh), CollectionListController (DocumentChanged -> OwnershipUiEvent), Audit. Type owners list the type's
+   members as they are; instance owners use their overrides. Other users' edits arriving by sync are left to their Perseus / Audit.
 
 ### Stage 4 as built (2026-11-24)
 

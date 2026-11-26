@@ -56,10 +56,14 @@ namespace ProjectPerseus.commands
                 IdAutoAssignController.Reset(docGuid);
                 IdAssignResult result = IdAssigner.Run(doc, docGuid, rules, null);
 
+                // Collection lists (member values listed on the owner): fresh config, then every owner.
+                collections.CollectionsCache.LoadNow(docGuid, baseUrl);
+                var lists = collections.CollectionLists.WithLists(doc).Count > 0 ? collections.CollectionLists.Refresh(doc, null) : null;
+
                 Log.Info($"[AuditIdsCommand] audit complete for {docGuid}: {result.Summary().Replace("\n", " | ")}");
                 TaskDialog.Show("Perseus — Audit Auto Parameters",
                     (created > 0 ? $"Parameters created or extended: {created}\n" : "") + lockNote +
-                    result.Summary() + serverNote);
+                    result.Summary() + (lists != null ? Environment.NewLine + lists.Summary() : "") + serverNote);
                 return Result.Succeeded;
             }
             catch (Exception ex)

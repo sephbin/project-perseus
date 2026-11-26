@@ -229,5 +229,26 @@ namespace ProjectPerseusTests
             Assert.AreEqual(RefStatus.Broken, w.Status);
             Assert.AreEqual(10, w.ElementId);
         }
+
+        [TestMethod]
+        public void ListRollup_JoinsMemberValues()
+        {
+            var values = new[] { "ST07", "", " ST02 ", "ST07", null };
+            Assert.AreEqual("ST07, ST02, ST07", ListRollup.Join(values, ", ", skipEmpty: true, unique: false));
+            Assert.AreEqual("ST07, ST02", ListRollup.Join(values, ", ", skipEmpty: true, unique: true));
+            Assert.AreEqual("ST07;;ST02;ST07;", ListRollup.Join(values, ";", skipEmpty: false, unique: false));
+            Assert.AreEqual("ST07\nST02", ListRollup.Join(values, "\\n", skipEmpty: true, unique: true));   // escaped new line
+            Assert.AreEqual("ST07\nST02", ListRollup.Join(values, "\n", skipEmpty: true, unique: true));    // real new line
+            Assert.AreEqual("ST07 / ST02", ListRollup.Join(values, " / ", true, true));
+            Assert.AreEqual("ST07ST02", ListRollup.Join(values, "", true, true));
+            Assert.AreEqual("ST07, ST02", ListRollup.Join(values, null, true, true));                        // default ", "
+            Assert.AreEqual("a\\b", ListRollup.Delimiter("a\\\\b"));
+            Assert.AreEqual("", ListRollup.Join(new string[0], ", ", true, false));
+
+            var l = new ProjectPerseus.models.CollectionListDto { MemberParameter = " Sign Type " };
+            Assert.AreEqual("Sign Type", l.Target);   // owner parameter defaults to the member parameter's name
+            l.OwnerParameter = "Pack Sign Types";
+            Assert.AreEqual("Pack Sign Types", l.Target);
+        }
     }
 }

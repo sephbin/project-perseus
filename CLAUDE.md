@@ -224,6 +224,14 @@ ProjectPerseus/
 │   │                             override parameter JSON {"1": {"Message": "..."}}; Remap / PruneAbove follow reordered / removed members; Merge.
 │   ├── ReferenceResolver.cs      Pure: Ok / Stale (Repoint to the single name match, or AcceptRename) / Broken; ElementId = what templates use.
 │   ├── CollectionsCache.cs       Per-model GET /api/source/<guid>/collections/ (loaded on DocumentOpened, removed on close).
+│   ├── ListRollup.cs             NEW (2026-11-26). Pure: a collection list's text = member values joined (delimiter escapes \n \t, skip
+│   │                             empty, unique). Tested in ReferenceCodecTest.cs.
+│   ├── CollectionLists.cs        NEW (2026-11-26). Collection lists (CollectionDto.Lists): each member's parameter (override on instance
+│   │                             owners; "Name" = member name) joined into an owner text parameter (as typed, no prefix; locked Perseus
+│   │                             parameter created when missing). Refresh(doc, changed | null = all) in one "Perseus: Update collection
+│   │                             lists" transaction; owners checked out by others skipped. Audit runs it on every owner.
+│   ├── CollectionListController.cs NEW (2026-11-26). DocumentChanged -> changed ids -> OwnershipUiEvent -> CollectionLists.Refresh once
+│   │                             DocumentSettle settled (covers member edits and Collections window Apply). Feature switch "collections".
 │   └── CollectionStore.cs        Revit side: owners / targets (category, type vs instance, family regex), TargetIndex (resolver input),
 │                                 Read/WriteMembers (slots or list), Read/WriteOverrides, EnsureParameters (locked Perseus parameters, slots
 │                                 on demand, type binding when the collection lives on types). Names in use: ParameterNames.Recorded(

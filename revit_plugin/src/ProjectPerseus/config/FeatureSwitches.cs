@@ -19,7 +19,7 @@ namespace ProjectPerseus.config
         // "parent.child" names switch off one part; listing the parent switches off all its parts.
         internal static readonly string[] Known =
             { "violations", "violations.changed", "violations.failures", "violations.links", "violations.cache",
-              "violations.poller", "ids", "highlights", "ownership", "markers", "federator", "keyschedules" };
+              "violations.poller", "ids", "highlights", "ownership", "markers", "federator", "keyschedules", "collections" };
 
         private static HashSet<string> _off;
 
